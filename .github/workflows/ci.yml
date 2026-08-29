@@ -50,7 +50,7 @@ jobs:
         run: bazel test --lockfile_mode=update //...
 
       - name: Qualify host kernel in Linux sandbox
-        if: matrix.module == '.'
+        if: matrix.module == '.' && matrix.bazel == '9.x'
         run: >-
           bazel test -c opt --spawn_strategy=linux-sandbox
           --test_strategy=exclusive --test_output=all

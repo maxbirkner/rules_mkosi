@@ -31,7 +31,7 @@ bazel test -c opt --spawn_strategy=linux-sandbox \
   //mkosi/private:kernel_preflight_host_test
 ```
 
-CI enforces the sandbox strategy explicitly with:
+The Bazel 9.x root CI job enforces the Linux sandbox strategy explicitly with:
 
 ```console
 bazel test -c opt --spawn_strategy=linux-sandbox \
