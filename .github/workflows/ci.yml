@@ -49,6 +49,13 @@ jobs:
       - name: Run test suite
         run: bazel test --lockfile_mode=update //...
 
+      - name: Verify Linux sandbox helper
+        if: matrix.module == '.'
+        run: |
+          install_base="$(bazel info install_base)"
+          test -x "${install_base}/linux-sandbox"
+          "${install_base}/linux-sandbox" /bin/true
+
       - name: Qualify host kernel in Bazel sandbox
         if: matrix.module == '.'
         run: |
