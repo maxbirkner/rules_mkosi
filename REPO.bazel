@@ -1,3 +1,5 @@
+"""Repository-wide package defaults."""
+
 repo(
     default_package_metadata = [],
 )

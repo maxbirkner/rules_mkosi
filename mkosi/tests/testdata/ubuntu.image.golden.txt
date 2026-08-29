@@ -1,0 +1,3 @@
+rules_mkosi placeholder image
+format=hello-v1
+distribution=ubuntu

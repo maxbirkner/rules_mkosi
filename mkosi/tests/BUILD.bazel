@@ -11,6 +11,17 @@ mkosi_image(
 
 diff_test(
     name = "golden_image_test",
-    file1 = "testdata/debian.img",
+    file1 = "testdata/debian.image.golden.txt",
     file2 = ":golden_image",
+)
+
+mkosi_image(
+    name = "ubuntu_golden_image",
+    distribution = "ubuntu",
+)
+
+diff_test(
+    name = "ubuntu_golden_image_test",
+    file1 = "testdata/ubuntu.image.golden.txt",
+    file2 = ":ubuntu_golden_image",
 )

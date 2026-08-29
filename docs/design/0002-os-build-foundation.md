@@ -224,7 +224,7 @@ plan, not the security baseline for every machine.
 ### Update system findings
 
 | System | Assessment |
-|---|---|
+| --- | --- |
 | [`systemd-sysupdate`](https://www.freedesktop.org/software/systemd/man/latest/systemd-sysupdate.html) | Best native fit for mkosi, repart, UKIs, and UEFI boot counting; no binary delta and no turnkey BIOS rollback |
 | [RAUC](https://rauc.io/) | Best open BIOS-capable choice; signed bundles, interruption safety, streaming, and GRUB/EFI backends |
 | [SWUpdate](https://sbabic.github.io/swupdate/) | Most flexible, but leaves more policy and integration to the product |
@@ -234,7 +234,7 @@ plan, not the security baseline for every machine.
 ## Recommended architecture
 
 | Layer | Choice |
-|---|---|
+| --- | --- |
 | Image assembler | mkosi v27, pinned by archive and checksum |
 | Distribution | Debian 13 trixie |
 | Kernel | Debian generic amd64 kernel unless a measured requirement forces a custom build |
@@ -277,4 +277,3 @@ mkosi remains the default unless it fails hardware boot, BIOS boot, or
 power-loss recovery. A BIOS-only failure should first trigger the two-tier
 design or KIWI evaluation. Yocto should enter the bake-off only when a fixed
 hardware product and source/BSP requirements are confirmed.
-

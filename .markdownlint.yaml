@@ -1,0 +1,5 @@
+default: true
+line-length: false
+fenced-code-language: false
+first-line-h1: false
+no-inline-html: false

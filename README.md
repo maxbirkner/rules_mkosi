@@ -29,13 +29,9 @@ mkosi_image(
 )
 ```
 
-Build and test everything:
-
-```console
-bazel test //...
-cd e2e/smoke
-bazel test //...
-```
+Development and test commands are documented once in
+[CONTRIBUTING.md](CONTRIBUTING.md). The independent consumer module is
+described in [`e2e/README.md`](e2e/README.md).
 
 The current `mkosi_image` produces a deterministic text fixture rather than a
 bootable image. Replacing this stub with a pinned mkosi executable and its
@@ -48,6 +44,6 @@ and Debian, the Bazel boundary, testing strategy, and path to the Bazel Central
 Registry.
 
 ## License
+
 Apache-2.0. mkosi itself is LGPL-2.1-or-later and will retain its own license
-when it becomes a downloaded toolchain component.
 when it becomes a downloaded toolchain component.
