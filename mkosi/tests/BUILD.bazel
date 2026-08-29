@@ -6,6 +6,7 @@ load(
     "conflicting_root_test",
     "default_version_test",
     "explicit_version_test",
+    "qemu_bazel_compatibility_test",
     "root_dependency_test",
     "unsupported_version_test",
 )
@@ -14,6 +15,14 @@ load(":mkosi_image_test.bzl", "mkosi_image_test_suite")
 default_version_test(name = "default_version_test")
 
 explicit_version_test(name = "explicit_version_test")
+
+qemu_bazel_compatibility_test(name = "qemu_bazel_compatibility_test")
+
+sh_test(
+    name = "bazel_compatibility_contract_test",
+    srcs = ["bazel_compatibility_contract_test.sh"],
+    data = ["//:MODULE.bazel"],
+)
 
 unsupported_version_test(name = "unsupported_version_test")
 
@@ -25,6 +34,12 @@ mkosi_image_test_suite(name = "analysis_tests")
 
 qemu_ovmf_smoke_test(
     name = "qemu_ovmf_smoke_test",
+)
+
+sh_test(
+    name = "qemu_ovmf_negative_test",
+    srcs = ["qemu_ovmf_negative_test.sh"],
+    data = [":qemu_ovmf_smoke_test"],
 )
 
 mkosi_image(

@@ -22,6 +22,10 @@ MkosiQemuToolchainInfo = provider(
         "ovmf_integrity": "SRI integrity string of the OVMF artifact.",
         "ovmf_code": "OVMF_CODE firmware artifact.",
         "ovmf_vars": "OVMF_VARS firmware artifact.",
+        "ovmf_shell": "UEFI shell executable used for readiness.",
+        "ovmf_code_sha256": "SHA-256 hash of OVMF_CODE.fd.",
+        "ovmf_vars_sha256": "SHA-256 hash of OVMF_VARS.fd.",
+        "ovmf_shell_sha256": "SHA-256 hash of shell.efi.",
     },
 )
 
@@ -92,6 +96,10 @@ def _qemu_ovmf_toolchain_impl(ctx):
         ovmf_integrity = ctx.attr.ovmf_integrity,
         ovmf_code = ctx.file.ovmf_code,
         ovmf_vars = ctx.file.ovmf_vars,
+        ovmf_shell = ctx.file.ovmf_shell,
+        ovmf_code_sha256 = ctx.attr.ovmf_code_sha256,
+        ovmf_vars_sha256 = ctx.attr.ovmf_vars_sha256,
+        ovmf_shell_sha256 = ctx.attr.ovmf_shell_sha256,
     )
     return [
         platform_common.ToolchainInfo(qemu = info),
@@ -149,6 +157,15 @@ qemu_ovmf_toolchain = rule(
             mandatory = True,
             doc = "OVMF_VARS firmware.",
         ),
+        "ovmf_shell": attr.label(
+            allow_single_file = True,
+            cfg = "exec",
+            mandatory = True,
+            doc = "UEFI shell executable.",
+        ),
+        "ovmf_code_sha256": attr.string(mandatory = True, doc = "OVMF_CODE hash."),
+        "ovmf_vars_sha256": attr.string(mandatory = True, doc = "OVMF_VARS hash."),
+        "ovmf_shell_sha256": attr.string(mandatory = True, doc = "UEFI shell hash."),
     },
     doc = "Defines a Linux x86-64 QEMU and OVMF test toolchain.",
 )

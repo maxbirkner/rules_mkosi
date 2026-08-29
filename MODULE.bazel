@@ -2,7 +2,8 @@
 
 module(
     name = "rules_mkosi",
-    bazel_compatibility = [">=7.0.0"],
+    # rules_qemu 0.3.0 requires Bazel 7.7 or newer.
+    bazel_compatibility = [">=7.7.0"],
 )
 
 # Runtime dependencies. These are minimum versions for module resolution.

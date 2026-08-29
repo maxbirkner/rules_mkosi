@@ -25,9 +25,10 @@ version causes problems for consumers using non-registry overrides.
 Bazel 8 and 9 releases. Breaking releases must instead provide explicit
 migration diagnostics and documentation.
 
-The initial compatibility range is Bazel 7 and newer. CI exercises the latest
-resolvable releases from Bazel 7, 8, and 9. `.bazelversion` pins the development
-version.
+The initial compatibility range is Bazel 7.7 and newer because the pinned
+`rules_qemu` dependency requires Bazel 7.7. CI exercises the latest
+resolvable releases from Bazel 7.7, 8, and 9. `.bazelversion` pins the
+development version.
 
 ## Public API boundary
 

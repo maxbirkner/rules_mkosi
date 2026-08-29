@@ -1,5 +1,6 @@
 """Immutable QEMU and OVMF artifacts used by the test toolchain."""
 
+RULES_QEMU_BAZEL_MIN_VERSION = "7.7.0"
 QEMU_VERSION = "11.0.0.1"
 QEMU_SYSTEM_URL = "https://github.com/hermeticbuild/qemu-prebuilt/releases/download/11.0.0.1/qemu-system-bin-linux-amd64-x86_64-softmmu-11.0.0.1.tar.zst"
 QEMU_SYSTEM_SHA256 = "b84d359893a0a1d565f368adb8290933ef9c99431acd98cff0fc4c9b35de3d22"
@@ -14,3 +15,6 @@ OVMF_STRIP_PREFIX = "edk2-stable202605-r1-bin"
 OVMF_URL = "https://github.com/rust-osdev/ovmf-prebuilt/releases/download/edk2-stable202605-r1/edk2-stable202605-r1-bin.tar.xz"
 OVMF_SHA256 = "8ae4d2d73161cc2335f5675d3b8b6edfa0642301679764a246940488ea3ce20d"
 OVMF_INTEGRITY = "sha256-iuTS1zFhzCM19WddO4tu36BkIwFnl2SiRpQEiOo84g0="
+OVMF_CODE_SHA256 = "f891b100aecb131adff4c8504cd39cab07b709efeea9be415feb1864a408b2d5"
+OVMF_VARS_SHA256 = "5d2ac383371b408398accee7ec27c8c09ea5b74a0de0ceea6513388b15be5d1e"
+OVMF_SHELL_SHA256 = "045c497402920ae83c8f5f501b48debdeefe2c051c0b778c87b8168b9708f083"

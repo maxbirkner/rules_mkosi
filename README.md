@@ -7,6 +7,8 @@ The ruleset provides checksum-pinned mkosi v27, QEMU 11.0.0.1, and OVMF
 `edk2-stable202605-r1` toolchains. QEMU binaries are supplied by
 [rules_qemu](https://github.com/hermeticbuild/rules_qemu); this ruleset adds
 the OVMF artifact and a small QEMU/OVMF provider and smoke-test wrapper.
+The supported Bazel floor is 7.7.0 because that is the minimum declared by
+rules_qemu 0.3.0.
 
 ## Configure the toolchain
 

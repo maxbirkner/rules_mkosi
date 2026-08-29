@@ -129,6 +129,10 @@ qemu_ovmf_toolchain(
     ovmf_integrity = {ovmf_integrity},
     ovmf_code = ":ovmf_code",
     ovmf_vars = ":ovmf_vars",
+    ovmf_shell = ":ovmf_shell",
+    ovmf_code_sha256 = {ovmf_code_sha256},
+    ovmf_vars_sha256 = {ovmf_vars_sha256},
+    ovmf_shell_sha256 = {ovmf_shell_sha256},
 )
 
 filegroup(
@@ -139,6 +143,11 @@ filegroup(
 filegroup(
     name = "ovmf_vars",
     srcs = ["x64/vars.fd"],
+)
+
+filegroup(
+    name = "ovmf_shell",
+    srcs = ["x64/shell.efi"],
 )
 
 toolchain(
@@ -162,6 +171,9 @@ toolchain(
         ovmf_source_url = repr(repository_ctx.attr.ovmf_source_url),
         ovmf_sha256 = repr(repository_ctx.attr.ovmf_sha256),
         ovmf_integrity = repr(repository_ctx.attr.ovmf_integrity),
+        ovmf_code_sha256 = repr(repository_ctx.attr.ovmf_code_sha256),
+        ovmf_vars_sha256 = repr(repository_ctx.attr.ovmf_vars_sha256),
+        ovmf_shell_sha256 = repr(repository_ctx.attr.ovmf_shell_sha256),
     )
     repository_ctx.file("BUILD.bazel", mkosi_build + qemu_build)
 
@@ -192,6 +204,9 @@ toolchains_repo = repository_rule(
         "ovmf_source_url": attr.string(mandatory = True),
         "ovmf_sha256": attr.string(mandatory = True),
         "ovmf_integrity": attr.string(mandatory = True),
+        "ovmf_code_sha256": attr.string(mandatory = True),
+        "ovmf_vars_sha256": attr.string(mandatory = True),
+        "ovmf_shell_sha256": attr.string(mandatory = True),
         "ovmf_strip_prefix": attr.string(mandatory = True),
     },
 )

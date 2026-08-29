@@ -2,10 +2,13 @@
 
 load(
     "//mkosi:qemu_versions.bzl",
+    "OVMF_CODE_SHA256",
     "OVMF_INTEGRITY",
     "OVMF_SHA256",
+    "OVMF_SHELL_SHA256",
     "OVMF_STRIP_PREFIX",
     "OVMF_URL",
+    "OVMF_VARS_SHA256",
     "OVMF_VERSION",
     "QEMU_SYSTEM_INTEGRITY",
     "QEMU_SYSTEM_SHA256",
@@ -126,6 +129,9 @@ def _mkosi_impl(module_ctx):
         ovmf_source_url = OVMF_URL,
         ovmf_sha256 = OVMF_SHA256,
         ovmf_integrity = OVMF_INTEGRITY,
+        ovmf_code_sha256 = OVMF_CODE_SHA256,
+        ovmf_vars_sha256 = OVMF_VARS_SHA256,
+        ovmf_shell_sha256 = OVMF_SHELL_SHA256,
         ovmf_strip_prefix = OVMF_STRIP_PREFIX,
     )
 
