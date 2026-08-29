@@ -26,7 +26,8 @@ filesystem utility, Python, mkosi, QEMU, or any executable found through
 Run the probe as a Bazel test from the repository with:
 
 ```console
-bazel test -c opt --spawn_strategy=linux-sandbox \
+bazel test -c opt --noexperimental_use_hermetic_linux_sandbox \
+  --spawn_strategy=linux-sandbox \
   --test_strategy=exclusive --test_output=all \
   //mkosi/private:kernel_preflight_host_test
 ```
