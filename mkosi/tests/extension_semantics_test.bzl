@@ -43,7 +43,7 @@ def _root_dependency_test_impl(ctx):
     env = unittest.begin(ctx)
     selection = resolve_mkosi_version("27", ["26"])
     asserts.equals(env, None, selection.version)
-    asserts.equals(env, "Unsupported mkosi version 26. Supported versions: 27.", selection.error)
+    asserts.equals(env, "Conflicting mkosi versions: root requests 27, dependency requests 26.", selection.error)
     return unittest.end(env)
 
 root_dependency_test = unittest.make(_root_dependency_test_impl)

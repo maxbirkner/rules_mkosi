@@ -30,15 +30,14 @@ def resolve_mkosi_version(root_version, dependency_versions):
     if root_version != None:
         requested_versions.append(root_version)
 
-    for version in requested_versions:
-        if version not in MKOSI_VERSIONS:
-            return struct(
-                error = "Unsupported mkosi version {}. Supported versions: {}.".format(
-                    version,
-                    ", ".join(sorted(MKOSI_VERSIONS.keys())),
-                ),
-                version = None,
-            )
+    if root_version != None and root_version not in MKOSI_VERSIONS:
+        return struct(
+            error = "Unsupported mkosi version {}. Supported versions: {}.".format(
+                root_version,
+                ", ".join(sorted(MKOSI_VERSIONS.keys())),
+            ),
+            version = None,
+        )
 
     selected_version = root_version or DEFAULT_MKOSI_VERSION
     for version in dependency_versions:
@@ -47,6 +46,15 @@ def resolve_mkosi_version(root_version, dependency_versions):
                 error = "Conflicting mkosi versions: root requests {}, dependency requests {}.".format(
                     selected_version,
                     version,
+                ),
+                version = None,
+            )
+    for version in requested_versions:
+        if version not in MKOSI_VERSIONS:
+            return struct(
+                error = "Unsupported mkosi version {}. Supported versions: {}.".format(
+                    version,
+                    ", ".join(sorted(MKOSI_VERSIONS.keys())),
                 ),
                 version = None,
             )
