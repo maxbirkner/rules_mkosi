@@ -47,9 +47,10 @@ back to `processwrapper-sandbox` would not qualify the mount contract.
 
 Every check emits `PASS` or `FAIL` with a remediation, followed by a
 `RESULT kernel_contract` line. A non-zero exit status means the host is not
-qualified. `--proc-root=PATH` exists only to make sysctl diagnostics testable;
-namespace and mount checks always exercise the running kernel and cannot be
-faked by a fixture.
+qualified. `--proc-root=PATH` exists only to make sysctl diagnostics testable. The
+portable fixture test injects operation results and never performs namespace
+or mount syscalls; only the manual host test exercises those operations on the
+running kernel.
 
 `bazel run //mkosi:kernel_preflight` is also available for inspecting a
 runner, but `bazel run` is not itself a sandboxed action. Its result is not a
@@ -67,16 +68,22 @@ environment is an image runner.
 | `kernel.unprivileged_userns_clone` | If exposed by the kernel, the value is `1`. | Set the sysctl to `1`; kernels without this distro-specific sysctl use the clone check. |
 | User namespace creation | An unprivileged `CLONE_NEWUSER` child can be created. | Enable user namespaces and the corresponding unprivileged-user policy. |
 | UID/GID mapping | The parent writes `setgroups=deny`, `uid_map`, and `gid_map` for the child. | Permit procfs map writes by the unprivileged parent. |
-| Root transition and capability scope | The mapped child becomes uid/gid 0 and has `CAP_SYS_ADMIN` only in its new user namespace. | Do not start as root or with ambient `CAP_SYS_ADMIN`; enable user-namespace capabilities. |
-| Mount namespace and bind mount | After the user transition, `CLONE_NEWNS`, private propagation, and a recursive bind mount succeed. | Allow namespace-scoped `CAP_SYS_ADMIN`; do not grant host `CAP_SYS_ADMIN`. |
-| Private root transition | A bind-mounted root can be entered with `pivot_root` and the old root detached. | Permit `pivot_root` and mount operations in the private namespace. |
+| Root transition and capability scope | The mapped child becomes uid/gid 0, drops unwanted bounding capabilities, and establishes mkosi v27's bounding, permitted, inheritable, and ambient capability sets. | Do not start as root or with ambient `CAP_SYS_ADMIN`; enable user-namespace capabilities. |
+| Capability exec transition | The required mkosi v27 capabilities remain effective, permitted, inheritable, and ambient after an `execve` transition. | Preserve the capability sets across exec; do not apply a host-wide capability grant. |
+| Mount namespace and tmpfs workspace | After the user transition, `CLONE_NEWNS` succeeds and a tmpfs workspace can be mounted and entered. | Allow namespace-scoped `CAP_SYS_ADMIN` and tmpfs mounts; do not grant host `CAP_SYS_ADMIN`. |
+| Initial root transition | The workspace is bind-mounted and entered with `pivot_root(".", "oldroot")`. | Permit bind mounts and `pivot_root` in the private namespace. |
+| Recursive bind | A representative recursive bind from the old root into the new root succeeds. | Permit recursive namespace-local bind mounts. |
+| Final root transition and detach | `pivot_root(".", ".")` succeeds and the old root is detached with `MNT_DETACH`. | Permit the final `pivot_root` and old-root detach in the private namespace. |
 
 No host userspace executable, package cache, network, writable host mount,
 or ambient capability is part of the contract. Bazel's normal Linux sandbox
 must remain enabled. The probe's bind mounts and root transition occur only in
 the child namespace, and the child exits after detaching the old root. A privileged starting namespace is
 rejected before any namespace operation; the capability check is repeated
-after mapping and root transition.
+after mapping and root transition. The capability list and mount sequence are
+intentionally limited to the operations used by mkosi v27's offline sandbox:
+set capability sets, `execve`, tmpfs workspace setup, initial `pivot_root`,
+recursive bind, final `pivot_root(".", ".")`, and old-root detach.
 
 ## CI requirements and limits
 

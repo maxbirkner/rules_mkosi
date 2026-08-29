@@ -9,9 +9,13 @@ typedef struct {
   int id_mapping;
   int root_transition;
   int namespace_capabilities;
+  int capability_exec;
   int mount_namespace;
+  int tmpfs_workspace;
+  int pivot_root_workspace;
   int bind_mount;
   int pivot_root;
+  int old_root_detach;
 } rules_mkosi_namespace_checks;
 
 typedef struct {
@@ -32,5 +36,7 @@ int rules_mkosi_kernel_preflight_with_ops(
     const rules_mkosi_kernel_preflight_ops *ops);
 
 int rules_mkosi_kernel_preflight(const char *proc_root, FILE *output);
+
+int rules_mkosi_verify_namespace_capabilities(void);
 
 #endif
