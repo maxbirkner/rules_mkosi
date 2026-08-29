@@ -19,7 +19,7 @@ concurrency:
 jobs:
   test:
     name: Bazel ${{ matrix.bazel }} / ${{ matrix.module }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
       matrix:
