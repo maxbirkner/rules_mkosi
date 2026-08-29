@@ -26,23 +26,24 @@ filesystem utility, Python, mkosi, QEMU, or any executable found through
 Run the probe as a Bazel test from the repository with:
 
 ```console
-bazel test -c opt --noexperimental_use_hermetic_linux_sandbox \
-  --spawn_strategy=linux-sandbox \
-  --test_strategy=exclusive --test_output=all \
+bazel test --config=kernel_preflight \
   //mkosi/private:kernel_preflight_host_test
 ```
 
 Every root CI matrix job enforces the Linux sandbox explicitly with:
 
 ```console
-bazel test -c opt --noexperimental_use_hermetic_linux_sandbox \
-  --spawn_strategy=linux-sandbox \
-  --test_strategy=exclusive --test_output=all \
+bazel shutdown
+bazel test --config=kernel_preflight \
   //mkosi/private:kernel_preflight_host_test
 ```
 
-The explicit command intentionally fails if that strategy cannot be registered;
-falling back to `processwrapper-sandbox` would not qualify the mount contract.
+The checked-in `kernel_preflight` config selects optimized compilation,
+exclusive test execution, full test output, and the non-hermetic Linux sandbox.
+The explicit shutdown starts a fresh Bazel server before the qualification
+test, avoiding a stale or transient Linux-sandbox availability result. The
+command intentionally fails if that strategy cannot be registered; falling
+back to `processwrapper-sandbox` would not qualify the mount contract.
 
 Every check emits `PASS` or `FAIL` with a remediation, followed by a
 `RESULT kernel_contract` line. A non-zero exit status means the host is not
