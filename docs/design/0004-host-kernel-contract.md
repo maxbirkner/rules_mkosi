@@ -31,13 +31,18 @@ bazel test -c opt --spawn_strategy=linux-sandbox \
   //mkosi/private:kernel_preflight_host_test
 ```
 
-The Bazel 9.x root CI job enforces the Linux sandbox strategy explicitly with:
+Every root CI matrix job enforces Bazel's sandbox strategy explicitly with:
 
 ```console
-bazel test -c opt --spawn_strategy=linux-sandbox \
+bazel test -c opt --spawn_strategy=sandboxed \
   --test_strategy=exclusive --test_output=all \
   //mkosi/private:kernel_preflight_host_test
 ```
+
+`sandboxed` is the Bazel 7/8/9-compatible strategy name. Bazel selects the
+Linux sandbox backend when it is registered; naming `linux-sandbox` directly
+is not portable because some supported Bazel distributions expose only the
+generic strategy name.
 
 Every check emits `PASS` or `FAIL` with a remediation, followed by a
 `RESULT kernel_contract` line. A non-zero exit status means the host is not

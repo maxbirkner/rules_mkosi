@@ -42,7 +42,7 @@ Before adding an image action, run the explicitly sandboxed
 platform:
 
 ```console
-bazel test -c opt --spawn_strategy=linux-sandbox \
+bazel test -c opt --spawn_strategy=sandboxed \
   --test_strategy=exclusive --test_output=all \
   //mkosi/private:kernel_preflight_host_test
 ```
