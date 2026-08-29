@@ -1,6 +1,8 @@
 exports_files([
     "defs.bzl",
     "extensions.bzl",
+    "qemu_toolchain.bzl",
+    "qemu_versions.bzl",
     "toolchain.bzl",
     "versions.bzl",
     "version.bzl",

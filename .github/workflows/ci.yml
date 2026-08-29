@@ -24,7 +24,7 @@ jobs:
       fail-fast: false
       matrix:
         bazel:
-          - "7.x"
+          - "7.7.1"
           - "8.x"
           - "9.x"
         module:
@@ -91,7 +91,7 @@ jobs:
       fail-fast: false
       matrix:
         bazel:
-          - "7.x"
+          - "7.7.1"
           - "8.x"
           - "9.x"
         fixture:

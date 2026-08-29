@@ -1,7 +1,7 @@
 """Analysis tests for mkosi_image."""
 
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts")
-load("//mkosi:defs.bzl", "MkosiImageInfo", "mkosi_image")
+load("//mkosi:defs.bzl", "MkosiImageInfo", "MkosiQemuToolchainInfo", "mkosi_image")
 
 def _provider_test_impl(ctx):
     env = analysistest.begin(ctx)
@@ -39,6 +39,34 @@ def _toolchain_provider_test_impl(ctx):
     return analysistest.end(env)
 
 _toolchain_provider_test = analysistest.make(_toolchain_provider_test_impl)
+
+def _qemu_toolchain_provider_test_impl(ctx):
+    env = analysistest.begin(ctx)
+    target = analysistest.target_under_test(env)
+    info = target[platform_common.ToolchainInfo].qemu
+
+    asserts.true(env, MkosiQemuToolchainInfo in target)
+    asserts.equals(env, "linux", info.execution_os)
+    asserts.equals(env, "x86_64", info.execution_cpu)
+    asserts.equals(env, "11.0.0.1", info.qemu_version)
+    asserts.equals(env, "edk2-stable202605-r1", info.ovmf_version)
+    asserts.equals(
+        env,
+        "b84d359893a0a1d565f368adb8290933ef9c99431acd98cff0fc4c9b35de3d22",
+        info.qemu_sha256,
+    )
+    asserts.equals(
+        env,
+        "8ae4d2d73161cc2335f5675d3b8b6edfa0642301679764a246940488ea3ce20d",
+        info.ovmf_sha256,
+    )
+    asserts.true(env, info.qemu_system.basename == "qemu-system-x86_64")
+    asserts.true(env, info.qemu_files_to_run.executable != None)
+    asserts.true(env, info.ovmf_code.basename == "code.fd")
+    asserts.true(env, info.ovmf_vars.basename == "vars.fd")
+    return analysistest.end(env)
+
+_qemu_toolchain_provider_test = analysistest.make(_qemu_toolchain_provider_test_impl)
 
 _provider_test = analysistest.make(
     _provider_test_impl,
@@ -85,11 +113,17 @@ def mkosi_image_test_suite(name):
         target_under_test = "@mkosi_toolchains//:mkosi_toolchain",
     )
 
+    _qemu_toolchain_provider_test(
+        name = "qemu_toolchain_provider_test",
+        target_under_test = "@mkosi_toolchains//:qemu_ovmf_toolchain",
+    )
+
     native.test_suite(
         name = name,
         tests = [
             ":debian_provider_test",
             ":ubuntu_provider_test",
             ":mkosi_toolchain_provider_test",
+            ":qemu_toolchain_provider_test",
         ],
     )

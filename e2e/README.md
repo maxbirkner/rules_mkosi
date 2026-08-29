@@ -17,4 +17,4 @@ published module's consumer test.
 `module_resolution` contains checked-in Bazelmod fixtures for extension
 selection and failure diagnostics. Run one fixture with
 `e2e/module_resolution/test.sh <default|explicit|unsupported|conflicting_root|nonroot_name|root_dependency>`;
-CI runs every fixture on Bazel 7, 8, and 9.
+CI runs every fixture on Bazel 7.7+, 8, and 9.
