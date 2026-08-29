@@ -37,6 +37,21 @@ The current `mkosi_image` produces a deterministic text fixture rather than a
 bootable image. Replacing this stub with a pinned mkosi executable and its
 declared toolchain dependencies is the next implementation milestone.
 
+Before adding an image action, run the explicitly sandboxed
+`//mkosi/private:kernel_preflight_host_test` on the intended Linux execution
+platform:
+
+```console
+bazel shutdown
+bazel test --config=kernel_preflight \
+  //mkosi/private:kernel_preflight_host_test
+```
+
+It reports each required namespace, procfs, sysctl, mapping, capability,
+mount, and root-transition check and exits non-zero for an unqualified host.
+See the
+[host-kernel contract](docs/design/0004-host-kernel-contract.md).
+
 ## Design
 
 The [design evaluations](docs/design/README.md) explain the selection of mkosi

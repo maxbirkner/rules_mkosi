@@ -19,7 +19,7 @@ concurrency:
 jobs:
   test:
     name: Bazel ${{ matrix.bazel }} / ${{ matrix.module }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
       matrix:
@@ -48,6 +48,25 @@ jobs:
 
       - name: Run test suite
         run: bazel test --lockfile_mode=update //...
+
+      - name: Verify Linux sandbox helper
+        if: matrix.module == '.'
+        run: |
+          install_base="$(bazel info install_base)"
+          test -x "${install_base}/linux-sandbox"
+          "${install_base}/linux-sandbox" /bin/true
+
+      - name: Qualify host kernel in Bazel sandbox
+        if: matrix.module == '.'
+        run: |
+          bazel shutdown
+          set -o pipefail
+          bazel test --config=kernel_preflight \
+            //mkosi/private:kernel_preflight_host_test 2>&1 |
+            tee kernel-preflight.log
+          grep -F "Executed 1 out of 1 test" kernel-preflight.log
+          ! grep -F "(cached)" kernel-preflight.log
+          rm kernel-preflight.log
 
   lockfile:
     name: Bazel lockfile
