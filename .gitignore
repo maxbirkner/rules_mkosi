@@ -1,5 +1,6 @@
 # Bazel output symlinks
-/bazel-*
+bazel-*
+/.bazelrc.user
 
 # mkosi build artifacts and caches
 /mkosi.cache/
@@ -20,4 +21,3 @@
 /.vscode/
 *~
 *.swp
-

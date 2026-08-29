@@ -1,0 +1,102 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  test:
+    name: Bazel ${{ matrix.bazel }} / ${{ matrix.module }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        bazel:
+          - "7.x"
+          - "8.x"
+          - "9.x"
+        module:
+          - "."
+          - "e2e/smoke"
+    defaults:
+      run:
+        working-directory: ${{ matrix.module }}
+    env:
+      USE_BAZEL_VERSION: ${{ matrix.bazel }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up Bazel
+        uses: bazel-contrib/setup-bazel@c5acdfb288317d0b5c0bbd7a396a3dc868bb0f86 # v0.19.0
+        with:
+          bazelisk-cache: true
+          disk-cache: rules-mkosi-${{ matrix.bazel }}
+          repository-cache: true
+
+      - name: Run test suite
+        run: bazel test --lockfile_mode=update //...
+
+  lockfile:
+    name: Bazel lockfile
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up Bazel
+        uses: bazel-contrib/setup-bazel@c5acdfb288317d0b5c0bbd7a396a3dc868bb0f86 # v0.19.0
+        with:
+          bazelisk-cache: true
+          repository-cache: true
+
+      - name: Verify committed lockfile
+        run: bazel mod deps --lockfile_mode=error
+
+  formatting:
+    name: Buildifier
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up Bazel
+        uses: bazel-contrib/setup-bazel@c5acdfb288317d0b5c0bbd7a396a3dc868bb0f86 # v0.19.0
+        with:
+          bazelisk-cache: true
+          repository-cache: true
+
+      - name: Check formatting
+        run: |
+          files="$(git ls-files '*.bzl' 'BUILD' 'BUILD.bazel' 'MODULE.bazel')"
+          bazel run @buildifier_prebuilt//:buildifier -- \
+            -mode=check -lint=warn ${files}
+
+  conclusion:
+    name: CI conclusion
+    if: always()
+    needs:
+      - formatting
+      - lockfile
+      - test
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require successful jobs
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          case " ${RESULTS} " in
+            *" failure "*|*" cancelled "*) exit 1 ;;
+          esac

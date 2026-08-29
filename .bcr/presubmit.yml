@@ -1,0 +1,18 @@
+bcr_test_module:
+  module_path: "e2e/smoke"
+  matrix:
+    platform:
+      - "debian11"
+      - "ubuntu2204"
+      - "ubuntu2404"
+    bazel:
+      - "9.*"
+      - "8.*"
+      - "7.x"
+  tasks:
+    run_tests:
+      name: "Run smoke tests"
+      platform: ${{ platform }}
+      bazel: ${{ bazel }}
+      test_targets:
+        - "//..."

@@ -1,0 +1,2 @@
+* text=auto eol=lf
+mkosi/version.bzl export-subst

@@ -1,0 +1,16 @@
+load("@bazel_skylib//rules:diff_test.bzl", "diff_test")
+load("//mkosi:defs.bzl", "mkosi_image")
+load(":mkosi_image_test.bzl", "mkosi_image_test_suite")
+
+mkosi_image_test_suite(name = "analysis_tests")
+
+mkosi_image(
+    name = "golden_image",
+    distribution = "debian",
+)
+
+diff_test(
+    name = "golden_image_test",
+    file1 = "testdata/debian.img",
+    file2 = ":golden_image",
+)

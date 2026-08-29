@@ -1,0 +1,19 @@
+load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load("@bazel_skylib//rules:diff_test.bzl", "diff_test")
+load("@rules_mkosi//mkosi:defs.bzl", "mkosi_image")
+
+mkosi_image(
+    name = "demo",
+    distribution = "debian",
+)
+
+build_test(
+    name = "demo_build_test",
+    targets = [":demo"],
+)
+
+diff_test(
+    name = "demo_content_test",
+    file1 = "expected.img",
+    file2 = ":demo",
+)
