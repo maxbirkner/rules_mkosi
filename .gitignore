@@ -1,0 +1,23 @@
+# Bazel output symlinks
+/bazel-*
+
+# mkosi build artifacts and caches
+/mkosi.cache/
+/mkosi.output/
+/mkosi.workspace/
+/*.raw
+/*.raw.xz
+/*.raw.zst
+/*.qcow2
+/*.qcow2.xz
+/*.qcow2.zst
+/*.iso
+
+# Local tooling
+/.direnv/
+/.envrc
+/.idea/
+/.vscode/
+*~
+*.swp
+
