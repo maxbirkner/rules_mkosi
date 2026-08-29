@@ -49,6 +49,13 @@ jobs:
       - name: Run test suite
         run: bazel test --lockfile_mode=update //...
 
+      - name: Qualify host kernel in Linux sandbox
+        if: matrix.module == '.'
+        run: >-
+          bazel test -c opt --spawn_strategy=linux-sandbox
+          --strategy=TestRunner=linux-sandbox --test_output=all
+          //mkosi/private:kernel_preflight_host_test
+
   lockfile:
     name: Bazel lockfile
     runs-on: ubuntu-24.04

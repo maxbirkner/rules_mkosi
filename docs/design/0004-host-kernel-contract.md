@@ -26,7 +26,17 @@ filesystem utility, Python, mkosi, QEMU, or any executable found through
 Run the probe as a Bazel action from the repository with:
 
 ```console
-bazel test //mkosi/private:kernel_preflight_host_test --test_output=all
+bazel test -c opt --spawn_strategy=linux-sandbox \
+  --strategy=TestRunner=linux-sandbox --test_output=all \
+  //mkosi/private:kernel_preflight_host_test
+```
+
+CI enforces the sandbox strategy explicitly with:
+
+```console
+bazel test -c opt --spawn_strategy=linux-sandbox \
+  --strategy=TestRunner=linux-sandbox --test_output=all \
+  //mkosi/private:kernel_preflight_host_test
 ```
 
 Every check emits `PASS` or `FAIL` with a remediation, followed by a
@@ -50,24 +60,33 @@ environment is an image runner.
 | `user.max_user_namespaces` | The value is greater than zero. | Set `/proc/sys/user/max_user_namespaces` above zero. |
 | `kernel.unprivileged_userns_clone` | If exposed by the kernel, the value is `1`. | Set the sysctl to `1`; kernels without this distro-specific sysctl use the clone check. |
 | User namespace creation | An unprivileged `CLONE_NEWUSER` child can be created. | Enable user namespaces and the corresponding unprivileged-user policy. |
-| Mount namespace and mount capability | An unprivileged child can create `CLONE_NEWUSER \| CLONE_NEWNS` and mount a small tmpfs inside it. | Allow namespace-scoped `CAP_SYS_ADMIN` and unprivileged mounts; do not grant host `CAP_SYS_ADMIN`. |
+| UID/GID mapping | The parent writes `setgroups=deny`, `uid_map`, and `gid_map` for the child. | Permit procfs map writes by the unprivileged parent. |
+| Root transition and capability scope | The mapped child becomes uid/gid 0 and has `CAP_SYS_ADMIN` only in its new user namespace. | Do not start as root or with ambient `CAP_SYS_ADMIN`; enable user-namespace capabilities. |
+| Mount namespace and bind mount | After the user transition, `CLONE_NEWNS`, private propagation, and a recursive bind mount succeed. | Allow namespace-scoped `CAP_SYS_ADMIN`; do not grant host `CAP_SYS_ADMIN`. |
+| Private root transition | A bind-mounted root can be entered with `pivot_root` and the old root detached. | Permit `pivot_root` and mount operations in the private namespace. |
 
 No host userspace executable, package cache, network, writable host mount,
 or ambient capability is part of the contract. Bazel's normal Linux sandbox
-must remain enabled. The probe's tmpfs is mounted only in the child namespace
-and is detached before the child exits.
+must remain enabled. The probe's bind mounts and root transition occur only in
+the child namespace, and the child exits after detaching the old root. A privileged starting namespace is
+rejected before any namespace operation; the capability check is repeated
+after mapping and root transition.
 
 ## CI requirements and limits
 
-The dedicated Linux image job must run the probe before any mkosi action and
-must fail the job on `RESULT kernel_contract: FAIL`. The runner must permit
-the two namespace operations and the namespace-scoped tmpfs mount under
-Bazel's default Linux sandbox. A sandboxed action that reports `EPERM` for the
-mount check is not a valid image runner; changing the action to search `PATH`,
-disabling the sandbox, or granting host-wide `CAP_SYS_ADMIN` is not an
+The dedicated Linux image job must run the explicitly sandboxed host test
+before any mkosi action and must fail the job on
+`RESULT kernel_contract: FAIL`. The runner must permit the namespace,
+namespace-scoped capability, bind mount, and `pivot_root` operations under
+Bazel's default Linux sandbox. A sandboxed action that reports `EPERM` for any
+of these checks is not a valid image runner; changing the action to search
+`PATH`, disabling the sandbox, or granting host-wide `CAP_SYS_ADMIN` is not an
 acceptable workaround.
 
 This spike deliberately does not test `systemd-repart`, mkosi, package
-acquisition, loop devices, or QEMU. Those are Bazel-provided toolchain
-inputs and separate execution-platform contracts. The probe establishes only
-the kernel substrate on which the offline repartitioning action can run.
+acquisition, loop devices, or QEMU. Those are Bazel-provided toolchain inputs
+and separate execution-platform contracts. In particular, the probe does not
+claim that the kernel alone supplies systemd's mount API policy, filesystem
+drivers, loop-device policy, or repartitioning behavior. It establishes the
+namespace and root-transition substrate on which the offline repartitioning
+action can run.
