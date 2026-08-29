@@ -13,3 +13,8 @@ would not exercise its independent module resolution.
 Run the root and consumer suites separately using the canonical commands in
 [`CONTRIBUTING.md`](../CONTRIBUTING.md). BCR also executes `e2e/smoke` as the
 published module's consumer test.
+
+`module_resolution` contains checked-in Bazelmod fixtures for extension
+selection and failure diagnostics. Run one fixture with
+`e2e/module_resolution/test.sh <default|explicit|unsupported|conflicting_root|nonroot_name|root_dependency>`;
+CI runs every fixture on Bazel 7, 8, and 9.

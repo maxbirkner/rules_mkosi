@@ -1,6 +1,7 @@
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("@bazel_skylib//rules:diff_test.bzl", "diff_test")
 load("@rules_mkosi//mkosi:defs.bzl", "mkosi_image")
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
 
 mkosi_image(
     name = "demo",
@@ -21,6 +22,15 @@ diff_test(
     name = "demo_content_test",
     file1 = "testdata/debian.image.golden.txt",
     file2 = ":demo",
+)
+
+sh_test(
+    name = "mkosi_version_test",
+    srcs = ["mkosi_version_test.sh"],
+    data = [
+        "sitecustomize.py",
+        "@mkosi_toolchains//:mkosi",
+    ],
 )
 
 mkosi_image(

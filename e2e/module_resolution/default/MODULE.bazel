@@ -1,0 +1,13 @@
+module(name = "mkosi_extension_default")
+
+bazel_dep(name = "rules_mkosi", version = "0.0.0")
+local_path_override(
+    module_name = "rules_mkosi",
+    path = "../../..",
+)
+
+mkosi = use_extension("@rules_mkosi//mkosi:extensions.bzl", "mkosi")
+mkosi.toolchain()
+use_repo(mkosi, "mkosi_toolchains")
+
+register_toolchains("@mkosi_toolchains//:all")

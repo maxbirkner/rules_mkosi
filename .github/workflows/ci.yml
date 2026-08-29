@@ -84,6 +84,39 @@ jobs:
       - name: Verify committed lockfile
         run: bazel mod deps --lockfile_mode=error
 
+  module-resolution:
+    name: Module resolution ${{ matrix.bazel }} / ${{ matrix.fixture }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        bazel:
+          - "7.x"
+          - "8.x"
+          - "9.x"
+        fixture:
+          - default
+          - explicit
+          - unsupported
+          - conflicting_root
+          - nonroot_name
+          - root_dependency
+    env:
+      USE_BAZEL_VERSION: ${{ matrix.bazel }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up Bazel
+        uses: bazel-contrib/setup-bazel@c5acdfb288317d0b5c0bbd7a396a3dc868bb0f86 # v0.19.0
+        with:
+          bazelisk-cache: true
+          disk-cache: rules-mkosi-module-${{ matrix.bazel }}-${{ matrix.fixture }}
+          repository-cache: true
+
+      - name: Test module resolution fixture
+        run: e2e/module_resolution/test.sh ${{ matrix.fixture }}
+
   lint:
     name: prek
     runs-on: ubuntu-24.04

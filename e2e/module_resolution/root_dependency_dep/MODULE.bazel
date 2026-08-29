@@ -1,0 +1,6 @@
+module(name = "mkosi_version_dep")
+
+bazel_dep(name = "rules_mkosi", version = "0.0.0")
+
+mkosi = use_extension("@rules_mkosi//mkosi:extensions.bzl", "mkosi")
+mkosi.toolchain(version = "26")
