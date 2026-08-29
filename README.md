@@ -43,7 +43,7 @@ platform:
 
 ```console
 bazel test -c opt --spawn_strategy=linux-sandbox \
-  --strategy=TestRunner=linux-sandbox --test_output=all \
+  --test_strategy=exclusive --test_output=all \
   //mkosi/private:kernel_preflight_host_test
 ```
 
