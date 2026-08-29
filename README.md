@@ -59,6 +59,26 @@ The runtime uses only the Bazel-managed Python 3.11 standard library for
 `mkosi --version`. The pinned `pefile` wheel is included for v27's bootable
 PE inspection paths and is not obtained from the host environment.
 
+The Debian build-time userspace is pinned to Debian 13 (trixie), `amd64`,
+and snapshot `20250814T000000Z`. It is resolved with `rules_distroless`
+0.7.1 from the checked-in manifest and lockfile, which pin every package URL,
+version, dependency edge, and SHA-256 digest. The
+`@mkosi_debian_tools//:linux_x86_64` toolchain exposes the extracted
+TreeArtifact, root-isolated launcher, and provenance through
+`DebianToolsInfo`; image actions receive the root and launcher as declared
+inputs and run with an empty ambient `PATH`. The initial tracer set
+includes APT/dpkg bootstrap tools, `systemd-repart`, filesystem and partition
+utilities, GRUB/systemd-boot UEFI tools, `objcopy`, and their locked runtime
+dependencies. Target image package acquisition remains out of scope.
+Extraction uses the Bazel-managed Python 3.11 runtime and preserves modes,
+merged-`/usr` links, and in-root absolute links. The launcher runs bubblewrap
+from the extracted tree through its packaged ELF loader, binding that tree as
+`/`; in sandboxes where user namespaces are disabled it retains the packaged
+loader/library contract without silently consulting host libraries.
+The lockfile's package SHA-256 values are the immutable trust roots consumed
+by `rules_distroless`. Package-index signature verification is intentionally
+not advertised because the resolver does not currently perform that check.
+
 The root module may select a version with `mkosi.toolchain(version = "27")`;
 unsupported or conflicting requests fail during module resolution.
 

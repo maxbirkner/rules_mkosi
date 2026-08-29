@@ -9,8 +9,8 @@ if [ -z "$module_file" ]; then
     exit 1
 fi
 
-/usr/bin/grep -Fq 'bazel_compatibility = [">=7.7.0"]' "$module_file" || {
-    echo "MODULE.bazel must advertise Bazel >=7.7.0 for rules_qemu 0.3.0" >&2
+/usr/bin/grep -Fq '">=7.7.1"' "$module_file" && /usr/bin/grep -Fq '"<7.7.2"' "$module_file" || {
+    echo "MODULE.bazel must advertise the supported Bazel 7.7.1 lockfile format" >&2
     exit 1
 }
 /usr/bin/grep -Fq 'bazel_dep(name = "rules_qemu", version = "0.3.0")' "$module_file" || {

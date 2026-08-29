@@ -33,7 +33,12 @@ mkosi = use_extension("@rules_mkosi//mkosi:extensions.bzl", "mkosi")
 mkosi.toolchain(version = "27")
 use_repo(mkosi, "mkosi_toolchains")
 
+debian_tools = use_extension("@rules_mkosi//mkosi/debian:extensions.bzl", "debian_tools")
+debian_tools.toolchain()
+use_repo(debian_tools, "mkosi_debian_tools")
+
 register_toolchains(
     "@mkosi_toolchains//:qemu_linux_x86_64",
     "@mkosi_toolchains//:all",
+    "@mkosi_debian_tools//:linux_x86_64",
 )

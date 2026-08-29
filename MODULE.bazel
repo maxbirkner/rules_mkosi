@@ -3,7 +3,12 @@
 module(
     name = "rules_mkosi",
     # rules_qemu 0.3.0 requires Bazel 7.7 or newer.
-    bazel_compatibility = [">=7.7.0"],
+    # Bazel 7.7.1 lockfiles use format 13; newer Bazel releases require a
+    # newer lock format, so this release is intentionally scoped to 7.7.1.
+    bazel_compatibility = [
+        ">=7.7.1",
+        "<7.7.2",
+    ],
 )
 
 # Runtime dependencies. These are minimum versions for module resolution.
@@ -13,6 +18,17 @@ bazel_dep(name = "rules_cc", version = "0.2.17")
 bazel_dep(name = "rules_python", version = "1.7.0")
 bazel_dep(name = "rules_shell", version = "0.6.1")
 bazel_dep(name = "rules_qemu", version = "0.3.0")
+bazel_dep(name = "rules_distroless", version = "0.7.1")
+
+apt = use_extension("@rules_distroless//apt:extensions.bzl", "apt")
+apt.install(
+    name = "mkosi_debian_packages",
+    lock = "//mkosi/debian:debian13.lock.json",
+    manifest = "//mkosi/debian:debian13.yaml",
+    mergedusr = True,
+    resolve_transitive = True,
+)
+use_repo(apt, "mkosi_debian_packages")
 
 qemu = use_extension("@rules_qemu//qemu/extension:qemu.bzl", "qemu")
 use_repo(
@@ -47,3 +63,9 @@ register_toolchains(
     "@mkosi_toolchains//:qemu_linux_x86_64",
     "@mkosi_toolchains//:all",
 )
+
+debian_tools = use_extension("//mkosi/debian:extensions.bzl", "debian_tools")
+debian_tools.toolchain()
+use_repo(debian_tools, "mkosi_debian_tools")
+
+register_toolchains("@mkosi_debian_tools//:linux_x86_64")

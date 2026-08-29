@@ -32,4 +32,4 @@ Linux images with mkosi.
   `CONTRIBUTING.md`.
 
 When compatibility-sensitive Starlark changes are made, repeat the root and
-consumer suites with `USE_BAZEL_VERSION=7.x`, `8.x`, and `9.x`.
+consumer suites with `USE_BAZEL_VERSION=7.7.1`.

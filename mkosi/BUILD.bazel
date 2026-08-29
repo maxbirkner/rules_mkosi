@@ -6,6 +6,7 @@ exports_files([
     "toolchain.bzl",
     "versions.bzl",
     "version.bzl",
+    "debian_tools.bzl",
 ])
 
 alias(

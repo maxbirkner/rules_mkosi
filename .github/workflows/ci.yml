@@ -25,8 +25,6 @@ jobs:
       matrix:
         bazel:
           - "7.7.1"
-          - "8.x"
-          - "9.x"
         module:
           - "."
           - "e2e/smoke"
@@ -47,7 +45,7 @@ jobs:
           repository-cache: true
 
       - name: Run test suite
-        run: bazel test --lockfile_mode=update //...
+        run: bazel test --lockfile_mode=error //...
 
       - name: Verify Linux sandbox helper
         if: matrix.module == '.'
@@ -71,6 +69,8 @@ jobs:
   lockfile:
     name: Bazel lockfile
     runs-on: ubuntu-24.04
+    env:
+      USE_BAZEL_VERSION: "7.7.1"
     steps:
       - name: Check out repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -82,7 +82,9 @@ jobs:
           repository-cache: true
 
       - name: Verify committed lockfile
-        run: bazel mod deps --lockfile_mode=error
+        run: |
+          bazel --version
+          bazel mod deps --lockfile_mode=error
 
   module-resolution:
     name: Module resolution ${{ matrix.bazel }} / ${{ matrix.fixture }}
@@ -92,8 +94,6 @@ jobs:
       matrix:
         bazel:
           - "7.7.1"
-          - "8.x"
-          - "9.x"
         fixture:
           - default
           - explicit

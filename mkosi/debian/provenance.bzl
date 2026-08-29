@@ -1,0 +1,28 @@
+"""Pinned Debian build-time userspace inputs."""
+
+DEBIAN_TOOLS_DISTRIBUTION = "debian"
+DEBIAN_TOOLS_RELEASE = "13"
+DEBIAN_TOOLS_CODENAME = "trixie"
+DEBIAN_TOOLS_ARCHITECTURE = "amd64"
+DEBIAN_TOOLS_SNAPSHOT = "20250814T000000Z"
+DEBIAN_TOOLS_SNAPSHOT_URL = "https://snapshot.debian.org/archive/debian/20250814T000000Z"
+DEBIAN_TOOLS_LOCK_SHA256 = "8af0b63f9a4f9844b10d6b1d4ca30839f0deef5b1f052750924648c1dd41e1ab"
+DEBIAN_TOOLS_ARCHIVE_SHA256 = "f1c9a83ec17380d5a35ff37e263d09f27c1ddd7ab57f34be48a7b0d329bf5975"
+
+# The package lock is authoritative for package versions, URLs, hashes, and
+# dependency edges.  These are the initial tracer-required command names.
+DEBIAN_TOOLS_REQUIRED_COMPONENTS = [
+    "apt-get",
+    "dpkg",
+    "systemd-repart",
+    "mkfs.ext4",
+    "mkfs.fat",
+    "mkfs.btrfs",
+    "sfdisk",
+    "parted",
+    "grub-install",
+    "bootctl",
+    "objcopy",
+]
+
+DEBIAN_TOOLS_COMPONENT_MANIFEST = "@rules_mkosi//mkosi/debian:components.txt"

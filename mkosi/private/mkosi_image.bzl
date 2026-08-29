@@ -11,25 +11,43 @@ MkosiImageInfo = provider(
 
 def _mkosi_image_impl(ctx):
     toolchain = ctx.toolchains["//mkosi/toolchain:toolchain_type"].mkosi
+    debian_tools = ctx.toolchains["//mkosi/toolchain:debian_tools_toolchain_type"].debian_tools
     image = ctx.actions.declare_file(ctx.label.name + ".img")
     version = ctx.actions.declare_file(ctx.label.name + ".mkosi_version")
+    scratch = ctx.actions.declare_directory(ctx.label.name + ".debian_tools_scratch")
 
     ctx.actions.run(
-        executable = toolchain.files_to_run,
-        tools = [toolchain.files_to_run],
-        arguments = ["--write-version", version.path],
-        env = {"PATH": ""},
-        outputs = [version],
-    )
-
-    ctx.actions.write(
-        output = image,
-        content = "\n".join([
-            "rules_mkosi placeholder image",
-            "format={}".format(toolchain.format_version),
-            "distribution={}".format(ctx.attr.distribution),
-            "",
-        ]),
+        executable = debian_tools.python_files_to_run,
+        tools = [
+            toolchain.files_to_run,
+            debian_tools.tree,
+            debian_tools.tree_root,
+            debian_tools.launcher_files_to_run,
+            debian_tools.python_files_to_run,
+            debian_tools.launcher_script,
+            debian_tools.extractor,
+        ],
+        arguments = [
+            debian_tools.launcher_script.path,
+            "--write-image",
+            image.path,
+            version.path,
+            ctx.attr.distribution,
+            toolchain.format_version,
+            "/usr/bin/apt-get",
+            "--version",
+        ],
+        env = {
+            "PATH": "",
+            "MKOSI_DEBIAN_TOOLS_TREE": debian_tools.tree.path,
+            "MKOSI_DEBIAN_TOOLS_ROOT": debian_tools.tree_root.path,
+            "MKOSI_DEBIAN_TOOLS_LAUNCHER": debian_tools.launcher.path,
+            "MKOSI_DEBIAN_TOOLS_SCRATCH": scratch.path,
+            "DEBIAN_TOOLS_ARCHIVE": debian_tools.tree.path,
+            "DEBIAN_TOOLS_ARCHIVE_SHA256": debian_tools.archive_sha256,
+            "DEBIAN_TOOLS_EXTRACTOR": debian_tools.extractor.path,
+        },
+        outputs = [image, version, scratch],
     )
 
     return [
@@ -57,5 +75,12 @@ extension, and toolchain architecture without invoking host tools. It will be
 replaced by an mkosi-backed action.
 """,
     provides = [MkosiImageInfo],
-    toolchains = ["//mkosi/toolchain:toolchain_type"],
+    toolchains = [
+        "//mkosi/toolchain:toolchain_type",
+        "//mkosi/toolchain:debian_tools_toolchain_type",
+    ],
+    exec_compatible_with = [
+        "@platforms//os:linux",
+        "@platforms//cpu:x86_64",
+    ],
 )

@@ -1,0 +1,35 @@
+version: 1
+
+# Debian trixie snapshot used to resolve the build-time userspace.  This is
+# deliberately not the target image package mirror (see issue #14).
+sources:
+  - channel: trixie main
+    url: https://snapshot.debian.org/archive/debian/20250814T000000Z
+
+archs:
+  - amd64
+
+packages:
+  - apt
+  - binutils
+  - bubblewrap
+  - btrfs-progs
+  - ca-certificates
+  - debian-archive-keyring
+  - debootstrap
+  - dpkg
+  - dosfstools
+  - e2fsprogs
+  - fdisk
+  - grub-efi-amd64-bin
+  - grub2-common
+  - libarchive-tools
+  - parted
+  - systemd
+  - systemd-boot
+  - systemd-boot-efi
+  - systemd-repart
+  - udev
+  - util-linux
+  - util-linux-extra
+  - dash
