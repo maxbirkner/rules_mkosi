@@ -2,6 +2,7 @@ exports_files([
     "defs.bzl",
     "extensions.bzl",
     "toolchain.bzl",
+    "versions.bzl",
     "version.bzl",
 ])
 

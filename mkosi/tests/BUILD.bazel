@@ -1,6 +1,25 @@
 load("@bazel_skylib//rules:diff_test.bzl", "diff_test")
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
 load("//mkosi:defs.bzl", "mkosi_image")
+load(
+    ":extension_semantics_test.bzl",
+    "conflicting_root_test",
+    "default_version_test",
+    "explicit_version_test",
+    "root_dependency_test",
+    "unsupported_version_test",
+)
 load(":mkosi_image_test.bzl", "mkosi_image_test_suite")
+
+default_version_test(name = "default_version_test")
+
+explicit_version_test(name = "explicit_version_test")
+
+unsupported_version_test(name = "unsupported_version_test")
+
+conflicting_root_test(name = "conflicting_root_test")
+
+root_dependency_test(name = "root_dependency_test")
 
 mkosi_image_test_suite(name = "analysis_tests")
 
@@ -13,6 +32,15 @@ diff_test(
     name = "golden_image_test",
     file1 = "testdata/debian.image.golden.txt",
     file2 = ":golden_image",
+)
+
+sh_test(
+    name = "mkosi_version_test",
+    srcs = ["mkosi_version_test.sh"],
+    data = [
+        "sitecustomize.py",
+        "@mkosi_toolchains//:mkosi",
+    ],
 )
 
 mkosi_image(

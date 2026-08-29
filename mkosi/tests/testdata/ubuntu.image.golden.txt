@@ -1,3 +1,3 @@
 rules_mkosi placeholder image
-format=hello-v1
+format=mkosi-v1
 distribution=ubuntu

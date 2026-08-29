@@ -40,14 +40,11 @@ executing a host binary. This is deliberate: it proves rule analysis,
 toolchain resolution, providers, outputs, and consumer usage without claiming
 that mkosi or its host utilities are already hermetic.
 
-The toolchain provider currently carries only a logical name and output
-contract version. It will later carry:
-
-- The pinned mkosi executable and runfiles.
-- A Python runtime supplied by Bazel.
-- Explicit executable dependencies.
-- A declared host-capability manifest for dependencies that cannot yet be
-  distributed through Bazel.
+The toolchain provider carries the pinned mkosi executable and complete
+runfiles, a Bazel-managed Python runtime, the optional `pefile` dependency
+needed by mkosi's bootable PE inspection paths, and source provenance
+(immutable URL and SHA-256 integrity). Package managers, repartitioning tools,
+QEMU, and image assembly remain outside this milestone.
 
 ## Test layers
 

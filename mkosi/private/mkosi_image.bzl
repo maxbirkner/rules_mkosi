@@ -12,6 +12,15 @@ MkosiImageInfo = provider(
 def _mkosi_image_impl(ctx):
     toolchain = ctx.toolchains["//mkosi/toolchain:toolchain_type"].mkosi
     image = ctx.actions.declare_file(ctx.label.name + ".img")
+    version = ctx.actions.declare_file(ctx.label.name + ".mkosi_version")
+
+    ctx.actions.run(
+        executable = toolchain.files_to_run,
+        tools = [toolchain.files_to_run],
+        arguments = ["--write-version", version.path],
+        env = {"PATH": ""},
+        outputs = [version],
+    )
 
     ctx.actions.write(
         output = image,
