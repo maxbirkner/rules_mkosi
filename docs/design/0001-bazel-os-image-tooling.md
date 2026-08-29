@@ -26,7 +26,7 @@ proof that no private or unexpectedly named implementation exists.
 The closest BCR projects solve adjacent problems:
 
 | Project | Output | Assessment |
-|---|---|---|
+| --- | --- | --- |
 | [`rules_oci`](https://registry.bazel.build/modules/rules_oci) | OCI images | Container image, not a bootable disk |
 | [`rules_img`](https://registry.bazel.build/modules/rules_img) | OCI images | Container image, not a bootable disk |
 | [`rules_distroless`](https://registry.bazel.build/modules/rules_distroless) | Package-derived root filesystems | Useful for locked package payloads; no disk or bootloader |
@@ -162,4 +162,3 @@ The first prototype must answer:
 5. Is storing raw disks in the remote cache economical?
 6. Which mkosi configuration surfaces belong in Starlark and which should
    remain in native mkosi configuration files?
-

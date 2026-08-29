@@ -15,9 +15,9 @@ publication.
 2. Confirm the release is compatible with every Bazel major declared in
    `MODULE.bazel` by running root and `e2e/smoke` tests.
 3. Confirm all generated API documentation and both lockfiles are current.
-4. Choose the semantic version from the changelog and compatibility impact.
-   Keep the source-tree `module()` version unset; the BCR publisher patches the
-   registry copy.
+4. Choose the semantic version from merged pull requests and compatibility
+   impact. Keep the source-tree `module()` version unset; the BCR publisher
+   patches the registry copy.
 5. Create a deterministic source archive named
    `rules_mkosi-v<version>.tar.gz` with top-level prefix
    `rules_mkosi-<version>/`.

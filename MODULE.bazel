@@ -9,13 +9,6 @@ module(
 bazel_dep(name = "bazel_skylib", version = "1.8.2")
 bazel_dep(name = "platforms", version = "1.0.0")
 
-# Development-only formatter distributed through Bazel.
-bazel_dep(
-    name = "buildifier_prebuilt",
-    version = "8.5.1.4",
-    dev_dependency = True,
-)
-
 mkosi = use_extension("//mkosi:extensions.bzl", "mkosi")
 mkosi.toolchain()
 use_repo(mkosi, "mkosi_toolchains")

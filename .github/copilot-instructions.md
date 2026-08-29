@@ -26,17 +26,10 @@ Linux images with mkosi.
   them deliberately with the pinned Bazel version; never edit them manually.
 - Keep GitHub Actions permissions minimal and pin third-party actions to full
   commit SHAs with a version comment.
-- Run Buildifier on changed Starlark and Bazel files.
-
-Before finishing a change, run:
-
-```console
-bazel test //...
-(cd e2e/smoke && bazel test //...)
-bazel mod deps --lockfile_mode=error
-bazel run @buildifier_prebuilt//:buildifier -- \
-  -mode=check -lint=warn $(git ls-files '*.bzl' 'BUILD' 'BUILD.bazel' 'MODULE.bazel')
-```
+- Use `prek` as the only formatting and linting entry point. Do not duplicate
+  individual formatter commands in documentation or CI.
+- Follow the canonical validation commands and nested-module rationale in
+  `CONTRIBUTING.md`.
 
 When compatibility-sensitive Starlark changes are made, repeat the root and
 consumer suites with `USE_BAZEL_VERSION=7.x`, `8.x`, and `9.x`.

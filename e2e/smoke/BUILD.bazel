@@ -14,6 +14,17 @@ build_test(
 
 diff_test(
     name = "demo_content_test",
-    file1 = "expected.img",
+    file1 = "testdata/debian.image.golden.txt",
     file2 = ":demo",
+)
+
+mkosi_image(
+    name = "ubuntu_demo",
+    distribution = "ubuntu",
+)
+
+diff_test(
+    name = "ubuntu_demo_content_test",
+    file1 = "testdata/ubuntu.image.golden.txt",
+    file2 = ":ubuntu_demo",
 )

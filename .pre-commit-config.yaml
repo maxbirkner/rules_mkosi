@@ -1,0 +1,66 @@
+exclude: |
+  (?x)^(
+    MODULE\.bazel\.lock|
+    e2e/smoke/MODULE\.bazel\.lock
+  )$
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: 3e8a8703264a2f4a69428a0aa4dcb512790b2c8c # frozen: v6.0.0
+    hooks:
+      - id: check-added-large-files
+      - id: check-case-conflict
+      - id: check-json
+      - id: check-merge-conflict
+      - id: check-symlinks
+      - id: check-yaml
+      - id: destroyed-symlinks
+      - id: detect-private-key
+      - id: end-of-file-fixer
+      - id: mixed-line-ending
+        args:
+          - --fix=lf
+      - id: pretty-format-json
+        args:
+          - --autofix
+          - --indent=2
+      - id: trailing-whitespace
+
+  - repo: local
+    hooks:
+      - id: forbid-binary-files
+        name: forbid binary files
+        entry: binary files must not be committed to rules_mkosi
+        language: fail
+        types:
+          - binary
+
+  - repo: https://github.com/keith/pre-commit-buildifier
+    rev: ec25c1dca1a4a74c0efaa48052b4ea99a9ac19d7 # frozen: 8.5.1.3
+    hooks:
+      - id: buildifier
+      - id: buildifier-lint
+
+  - repo: https://github.com/google/yamlfmt
+    rev: 21ca5323a9c87ee37a434e0ca908efc0a89daa07 # frozen: v0.21.0
+    hooks:
+      - id: yamlfmt
+
+  - repo: https://github.com/igorshubovych/markdownlint-cli
+    rev: 5b5dddc4fb0f83c3ea1fc5616fa63e115dce83e0 # frozen: v0.49.1
+    hooks:
+      - id: markdownlint-fix
+
+  - repo: https://github.com/crate-ci/typos
+    rev: 4d9c206a77c041268485162b8e2579ad7a5cb9a3 # frozen: v1.50.0
+    hooks:
+      - id: typos
+
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: 83d9cd684c87d95d656c1458ef04895a7f1cbd8e # frozen: v8.30.1
+    hooks:
+      - id: gitleaks
+
+  - repo: meta
+    hooks:
+      - id: check-useless-excludes

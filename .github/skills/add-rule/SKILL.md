@@ -26,9 +26,8 @@ Use this workflow when implementing public Starlark behavior.
 9. Update user and design documentation when the public API, compatibility, or
    hermeticity boundary changes.
 10. Regenerate lockfiles only when module dependencies change.
-11. Run the repository validation commands from
-    `.github/copilot-instructions.md`. Run all supported Bazel majors for
-    compatibility-sensitive changes.
+11. Run the canonical validation commands from `CONTRIBUTING.md`. Run all
+    supported Bazel majors for compatibility-sensitive changes.
 
 Do not weaken tests, disable sandboxing, enable network access, or mark an
 action local merely to make it pass. If mkosi requires an exception, document

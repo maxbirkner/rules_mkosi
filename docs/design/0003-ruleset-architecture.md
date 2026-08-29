@@ -65,10 +65,12 @@ the action. It verifies:
 Analysis tests are the preferred Bazel mechanism for testing rule internals.
 They are fast and isolate Starlark behavior from external tools.
 
-### Artifact tests
+### Artifact projection tests
 
-A `diff_test` compares the built placeholder image with a checked-in golden
-file. Future artifact tests will inspect:
+A `diff_test` currently compares the placeholder's text output with a
+checked-in `.golden.txt` file. Real disk images must never be checked in or
+compared directly. Future rules will derive reviewable text or JSON projections
+and compare those instead:
 
 - mkosi's effective configuration.
 - Partition tables and GPT type UUIDs.
@@ -119,6 +121,29 @@ with the development Bazel version.
 Real mkosi image tests will use a dedicated Linux job. Unsupported or
 privileged tests must not be mixed with portable analysis tests or the BCR
 smoke module.
+
+## Coverage
+
+Bazel's coverage support instruments languages built by rules, not Starlark
+executed during loading and analysis. Consequently, `bazel coverage` produces
+an empty LCOV report for this repository's `.bzl` implementation. Analysis
+test frameworks such as Bazel Skylib and `rules_testing` improve assertions but
+do not provide Starlark line or branch coverage.
+
+[`maxbirkner/coveragemap`](https://github.com/maxbirkner/coveragemap) consumes
+LCOV and could visualize `.bzl` paths, but there is currently no meaningful
+LCOV input to provide. Integration is deferred until either:
+
+1. [Bazel Starlark coverage](https://github.com/bazelbuild/bazel/pull/15594)
+   is available; or
+2. the repository gains an instrumentable helper executable for which Bazel
+   can produce LCOV.
+
+Until then, behavioral coverage is enforced through analysis tests for every
+public rule mode, golden tests of reviewable artifact projections, the
+independent consumer module, and later OVMF/SeaBIOS boot tests. Adding an empty
+coverage job or a zero-information visualization would create a misleading
+quality signal.
 
 ## BCR publication
 

@@ -6,6 +6,7 @@ bazel-*
 /mkosi.cache/
 /mkosi.output/
 /mkosi.workspace/
+*.img
 /*.raw
 /*.raw.xz
 /*.raw.zst
