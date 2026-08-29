@@ -1,4 +1,4 @@
-"""Repository rule that exposes registered mkosi toolchains."""
+"""Repository rule that exposes registered mkosi and QEMU toolchains."""
 
 def _toolchains_repo_impl(repository_ctx):
     python_label = "@python_{}//:python3".format(
@@ -9,9 +9,13 @@ def _toolchains_repo_impl(repository_ctx):
         sha256 = repository_ctx.attr.source_sha256,
         stripPrefix = repository_ctx.attr.strip_prefix,
     )
-    repository_ctx.file(
-        "BUILD.bazel",
-        '''load("@rules_mkosi//mkosi:toolchain.bzl", "mkosi_toolchain")
+    repository_ctx.download_and_extract(
+        url = repository_ctx.attr.ovmf_source_url,
+        sha256 = repository_ctx.attr.ovmf_sha256,
+        stripPrefix = repository_ctx.attr.ovmf_strip_prefix,
+    )
+
+    mkosi_build = '''load("@rules_mkosi//mkosi:toolchain.bzl", "mkosi_toolchain")
 load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
 
 package(default_visibility = ["//visibility:public"])
@@ -89,18 +93,77 @@ toolchain(
     toolchain_type = "@rules_mkosi//mkosi/toolchain:toolchain_type",
 )
 '''.format(
-            toolchain_name = repr(repository_ctx.attr.toolchain_name),
-            version = repr(repository_ctx.attr.version),
-            source_url = repr(repository_ctx.attr.source_url),
-            source_sha256 = repr(repository_ctx.attr.source_sha256),
-            source_integrity = repr(repository_ctx.attr.source_integrity),
-            python_version = repr(repository_ctx.attr.python_version),
-            python_label = python_label,
-            python_label_repr = repr(python_label),
-            python_dependencies = repr(repository_ctx.attr.python_dependencies),
-            python_import_dependency = repository_ctx.attr.python_import_dependencies[0],
-        ),
+        toolchain_name = repr(repository_ctx.attr.toolchain_name),
+        version = repr(repository_ctx.attr.version),
+        source_url = repr(repository_ctx.attr.source_url),
+        source_sha256 = repr(repository_ctx.attr.source_sha256),
+        source_integrity = repr(repository_ctx.attr.source_integrity),
+        python_version = repr(repository_ctx.attr.python_version),
+        python_label = python_label,
+        python_label_repr = repr(python_label),
+        python_dependencies = repr(repository_ctx.attr.python_dependencies),
+        python_import_dependency = repository_ctx.attr.python_import_dependencies[0],
     )
+
+    qemu_build = '''load("@rules_mkosi//mkosi:defs.bzl", "qemu_executable", "qemu_ovmf_toolchain")
+
+qemu_executable(
+    name = "qemu_system_executable",
+    qemu = {qemu_system},
+    system_data = {system_data},
+)
+
+qemu_ovmf_toolchain(
+    name = "qemu_ovmf_toolchain",
+    qemu_version = {qemu_version},
+    qemu_source_url = {qemu_source_url},
+    qemu_sha256 = {qemu_sha256},
+    qemu_integrity = {qemu_integrity},
+    qemu_system = ":qemu_system_executable",
+    qemu_img = {qemu_img},
+    system_data = {system_data},
+    system_data_anchor = {system_data},
+    ovmf_version = {ovmf_version},
+    ovmf_source_url = {ovmf_source_url},
+    ovmf_sha256 = {ovmf_sha256},
+    ovmf_integrity = {ovmf_integrity},
+    ovmf_code = ":ovmf_code",
+    ovmf_vars = ":ovmf_vars",
+)
+
+filegroup(
+    name = "ovmf_code",
+    srcs = ["x64/code.fd"],
+)
+
+filegroup(
+    name = "ovmf_vars",
+    srcs = ["x64/vars.fd"],
+)
+
+toolchain(
+    name = "qemu_linux_x86_64",
+    exec_compatible_with = [
+        "@platforms//os:linux",
+        "@platforms//cpu:x86_64",
+    ],
+    toolchain = ":qemu_ovmf_toolchain",
+    toolchain_type = "@rules_mkosi//mkosi/toolchain:qemu_toolchain_type",
+)
+'''.format(
+        qemu_system = repr(repository_ctx.attr.qemu_system),
+        qemu_img = repr(repository_ctx.attr.qemu_img),
+        system_data = repr(repository_ctx.attr.system_data),
+        qemu_version = repr(repository_ctx.attr.qemu_version),
+        qemu_source_url = repr(repository_ctx.attr.qemu_source_url),
+        qemu_sha256 = repr(repository_ctx.attr.qemu_sha256),
+        qemu_integrity = repr(repository_ctx.attr.qemu_integrity),
+        ovmf_version = repr(repository_ctx.attr.ovmf_version),
+        ovmf_source_url = repr(repository_ctx.attr.ovmf_source_url),
+        ovmf_sha256 = repr(repository_ctx.attr.ovmf_sha256),
+        ovmf_integrity = repr(repository_ctx.attr.ovmf_integrity),
+    )
+    repository_ctx.file("BUILD.bazel", mkosi_build + qemu_build)
 
     if hasattr(repository_ctx, "repo_metadata"):
         return repository_ctx.repo_metadata(reproducible = True)
@@ -118,5 +181,17 @@ toolchains_repo = repository_rule(
         "python_version": attr.string(mandatory = True),
         "python_dependencies": attr.string_list(),
         "python_import_dependencies": attr.string_list(mandatory = True),
+        "qemu_system": attr.string(mandatory = True),
+        "qemu_img": attr.string(mandatory = True),
+        "system_data": attr.string(mandatory = True),
+        "qemu_version": attr.string(mandatory = True),
+        "qemu_source_url": attr.string(mandatory = True),
+        "qemu_sha256": attr.string(mandatory = True),
+        "qemu_integrity": attr.string(mandatory = True),
+        "ovmf_version": attr.string(mandatory = True),
+        "ovmf_source_url": attr.string(mandatory = True),
+        "ovmf_sha256": attr.string(mandatory = True),
+        "ovmf_integrity": attr.string(mandatory = True),
+        "ovmf_strip_prefix": attr.string(mandatory = True),
     },
 )

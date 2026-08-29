@@ -6,11 +6,22 @@ module(
 )
 
 # Runtime dependencies. These are minimum versions for module resolution.
-bazel_dep(name = "bazel_skylib", version = "1.8.2")
+bazel_dep(name = "bazel_skylib", version = "1.9.0")
 bazel_dep(name = "platforms", version = "1.0.0")
 bazel_dep(name = "rules_cc", version = "0.2.17")
 bazel_dep(name = "rules_python", version = "1.7.0")
 bazel_dep(name = "rules_shell", version = "0.6.1")
+bazel_dep(name = "rules_qemu", version = "0.3.0")
+
+qemu = use_extension("@rules_qemu//qemu/extension:qemu.bzl", "qemu")
+use_repo(
+    qemu,
+    "qemu_img_prebuilt_linux_amd64",
+    "qemu_system_bin_prebuilt_linux_amd64_x86_64_softmmu",
+    "qemu_system_data_prebuilt_linux_amd64",
+    "qemu_system_toolchains",
+    "qemu_user_toolchains",
+)
 
 python = use_extension("@rules_python//python/extensions:python.bzl", "python")
 python.defaults(python_version = "3.11")
@@ -31,4 +42,7 @@ mkosi = use_extension("//mkosi:extensions.bzl", "mkosi")
 mkosi.toolchain()
 use_repo(mkosi, "mkosi_toolchains")
 
-register_toolchains("@mkosi_toolchains//:all")
+register_toolchains(
+    "@mkosi_toolchains//:qemu_linux_x86_64",
+    "@mkosi_toolchains//:all",
+)

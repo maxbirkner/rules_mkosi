@@ -8,7 +8,7 @@ local_path_override(
 
 bazel_dep(
     name = "bazel_skylib",
-    version = "1.8.2",
+    version = "1.9.0",
     dev_dependency = True,
 )
 bazel_dep(
@@ -17,8 +17,23 @@ bazel_dep(
     dev_dependency = True,
 )
 
+bazel_dep(name = "rules_qemu", version = "0.3.0")
+
+qemu = use_extension("@rules_qemu//qemu/extension:qemu.bzl", "qemu")
+use_repo(
+    qemu,
+    "qemu_img_prebuilt_linux_amd64",
+    "qemu_system_bin_prebuilt_linux_amd64_x86_64_softmmu",
+    "qemu_system_data_prebuilt_linux_amd64",
+    "qemu_system_toolchains",
+    "qemu_user_toolchains",
+)
+
 mkosi = use_extension("@rules_mkosi//mkosi:extensions.bzl", "mkosi")
 mkosi.toolchain(version = "27")
 use_repo(mkosi, "mkosi_toolchains")
 
-register_toolchains("@mkosi_toolchains//:all")
+register_toolchains(
+    "@mkosi_toolchains//:qemu_linux_x86_64",
+    "@mkosi_toolchains//:all",
+)

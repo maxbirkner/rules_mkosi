@@ -1,5 +1,17 @@
 """Bazelmod extension for rules_mkosi toolchains."""
 
+load(
+    "//mkosi:qemu_versions.bzl",
+    "OVMF_INTEGRITY",
+    "OVMF_SHA256",
+    "OVMF_STRIP_PREFIX",
+    "OVMF_URL",
+    "OVMF_VERSION",
+    "QEMU_SYSTEM_INTEGRITY",
+    "QEMU_SYSTEM_SHA256",
+    "QEMU_SYSTEM_URL",
+    "QEMU_VERSION",
+)
 load("//mkosi:versions.bzl", "DEFAULT_MKOSI_VERSION", "MKOSI_VERSIONS")
 load("//mkosi/private:toolchains_repo.bzl", "toolchains_repo")
 
@@ -103,6 +115,18 @@ def _mkosi_impl(module_ctx):
         python_version = release.python_version,
         python_dependencies = release.python_dependencies,
         python_import_dependencies = release.python_import_dependencies,
+        qemu_system = "@qemu_system_bin_prebuilt_linux_amd64_x86_64_softmmu//:qemu-system-x86_64",
+        qemu_img = "@qemu_img_prebuilt_linux_amd64//:qemu-img",
+        system_data = "@qemu_system_data_prebuilt_linux_amd64//:qemu-system-data",
+        qemu_version = QEMU_VERSION,
+        qemu_source_url = QEMU_SYSTEM_URL,
+        qemu_sha256 = QEMU_SYSTEM_SHA256,
+        qemu_integrity = QEMU_SYSTEM_INTEGRITY,
+        ovmf_version = OVMF_VERSION,
+        ovmf_source_url = OVMF_URL,
+        ovmf_sha256 = OVMF_SHA256,
+        ovmf_integrity = OVMF_INTEGRITY,
+        ovmf_strip_prefix = OVMF_STRIP_PREFIX,
     )
 
     return module_ctx.extension_metadata(reproducible = True)

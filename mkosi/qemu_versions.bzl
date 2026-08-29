@@ -1,0 +1,16 @@
+"""Immutable QEMU and OVMF artifacts used by the test toolchain."""
+
+QEMU_VERSION = "11.0.0.1"
+QEMU_SYSTEM_URL = "https://github.com/hermeticbuild/qemu-prebuilt/releases/download/11.0.0.1/qemu-system-bin-linux-amd64-x86_64-softmmu-11.0.0.1.tar.zst"
+QEMU_SYSTEM_SHA256 = "b84d359893a0a1d565f368adb8290933ef9c99431acd98cff0fc4c9b35de3d22"
+QEMU_SYSTEM_INTEGRITY = "sha256-uE01mJOgodVl82ituCkJM++cmUMazZjP8PxMmzXePSI="
+QEMU_IMG_URL = "https://github.com/hermeticbuild/qemu-prebuilt/releases/download/11.0.0.1/qemu-img-linux-amd64-11.0.0.1.tar.zst"
+QEMU_IMG_SHA256 = "b58c4eb7e8e13a100dba36f4b871cfa7848fdbfece08bad8bbc9ec57cfeaca13"
+QEMU_SYSTEM_DATA_URL = "https://github.com/hermeticbuild/qemu-prebuilt/releases/download/11.0.0.1/qemu-system-data-linux-amd64-11.0.0.1.tar.zst"
+QEMU_SYSTEM_DATA_SHA256 = "2525218347b647962bed5d0b37d3093e434b8c83e5fd78de910d43bec6154fff"
+
+OVMF_VERSION = "edk2-stable202605-r1"
+OVMF_STRIP_PREFIX = "edk2-stable202605-r1-bin"
+OVMF_URL = "https://github.com/rust-osdev/ovmf-prebuilt/releases/download/edk2-stable202605-r1/edk2-stable202605-r1-bin.tar.xz"
+OVMF_SHA256 = "8ae4d2d73161cc2335f5675d3b8b6edfa0642301679764a246940488ea3ce20d"
+OVMF_INTEGRITY = "sha256-iuTS1zFhzCM19WddO4tu36BkIwFnl2SiRpQEiOo84g0="

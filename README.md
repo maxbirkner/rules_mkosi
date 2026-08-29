@@ -3,10 +3,10 @@
 Bazel rules for assembling bootable Linux OS images with
 [mkosi](https://github.com/systemd/mkosi).
 
-The ruleset provides a checksum-pinned mkosi v27 CLI and a Bazel-managed
-Python 3.11 runtime. It exercises the Bazelmod extension, toolchain, provider,
-rule, analysis-test, and consumer-test architecture without requiring host
-Python or mkosi.
+The ruleset provides checksum-pinned mkosi v27, QEMU 11.0.0.1, and OVMF
+`edk2-stable202605-r1` toolchains. QEMU binaries are supplied by
+[rules_qemu](https://github.com/hermeticbuild/rules_qemu); this ruleset adds
+the OVMF artifact and a small QEMU/OVMF provider and smoke-test wrapper.
 
 ## Configure the toolchain
 
@@ -19,6 +19,33 @@ mkosi.toolchain()  # Defaults to the pinned v27 toolchain.
 use_repo(mkosi, "mkosi_toolchains")
 register_toolchains("@mkosi_toolchains//:all")
 ```
+
+`@mkosi_toolchains//:qemu_linux_x86_64` is constrained to Linux x86-64 and
+provides `MkosiQemuToolchainInfo` through the
+`//mkosi/toolchain:qemu_toolchain_type` toolchain. Its QEMU executable,
+`qemu-img`, QEMU system data, `OVMF_CODE`, and `OVMF_VARS` are all runfiles;
+tests do not use host QEMU or firmware. The extension also requires
+`rules_qemu` and its QEMU extension:
+
+```starlark
+bazel_dep(name = "rules_qemu", version = "0.3.0")
+qemu = use_extension("@rules_qemu//qemu/extension:qemu.bzl", "qemu")
+use_repo(
+    qemu,
+    "qemu_img_prebuilt_linux_amd64",
+    "qemu_system_bin_prebuilt_linux_amd64_x86_64_softmmu",
+    "qemu_system_data_prebuilt_linux_amd64",
+    "qemu_system_toolchains",
+    "qemu_user_toolchains",
+)
+```
+
+The QEMU system artifact is pinned by SHA-256
+`b84d359893a0a1d565f368adb8290933ef9c99431acd98cff0fc4c9b35de3d22`
+(`sha256-uE01mJOgodVl82ituCkJM++cmUMazZjP8PxMmzXePSI=`). OVMF is pinned by
+SHA-256
+`8ae4d2d73161cc2335f5675d3b8b6edfa0642301679764a246940488ea3ce20d`
+(`sha256-iuTS1zFhzCM19WddO4tu36BkIwFnl2SiRpQEiOo84g0=`).
 
 The supported toolchain versions are intentionally explicit:
 

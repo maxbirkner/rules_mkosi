@@ -1,6 +1,6 @@
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("@bazel_skylib//rules:diff_test.bzl", "diff_test")
-load("@rules_mkosi//mkosi:defs.bzl", "mkosi_image")
+load("@rules_mkosi//mkosi:defs.bzl", "mkosi_image", "qemu_ovmf_smoke_test")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
 
 mkosi_image(
@@ -31,6 +31,10 @@ sh_test(
         "sitecustomize.py",
         "@mkosi_toolchains//:mkosi",
     ],
+)
+
+qemu_ovmf_smoke_test(
+    name = "qemu_ovmf_smoke_test",
 )
 
 mkosi_image(
