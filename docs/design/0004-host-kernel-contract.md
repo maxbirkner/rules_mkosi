@@ -26,23 +26,27 @@ filesystem utility, Python, mkosi, QEMU, or any executable found through
 Run the probe as a Bazel action from the repository with:
 
 ```console
-bazel test -c opt --spawn_strategy=linux-sandbox \
+bazel test -c opt --noexperimental_use_hermetic_linux_sandbox \
+  --spawn_strategy=linux-sandbox \
   --test_strategy=exclusive --test_output=all \
   //mkosi/private:kernel_preflight_host_test
 ```
 
-Every root CI matrix job enforces Bazel's sandbox strategy explicitly with:
+Every root CI matrix job enforces Bazel's Linux sandbox strategy explicitly
+with:
 
 ```console
-bazel test -c opt --spawn_strategy=sandboxed \
+bazel test -c opt --noexperimental_use_hermetic_linux_sandbox \
+  --spawn_strategy=linux-sandbox \
   --test_strategy=exclusive --test_output=all \
   //mkosi/private:kernel_preflight_host_test
 ```
 
-`sandboxed` is the Bazel 7/8/9-compatible strategy name. Bazel selects the
-Linux sandbox backend when it is registered; naming `linux-sandbox` directly
-is not portable because some supported Bazel distributions expose only the
-generic strategy name.
+The explicit `noexperimental_use_hermetic_linux_sandbox` setting selects the
+legacy Linux sandbox implementation that is available across the supported
+Bazel 7/8/9 releases. The command intentionally fails if that strategy cannot
+be registered; falling back to `processwrapper-sandbox` would not qualify the
+mount contract.
 
 Every check emits `PASS` or `FAIL` with a remediation, followed by a
 `RESULT kernel_contract` line. A non-zero exit status means the host is not

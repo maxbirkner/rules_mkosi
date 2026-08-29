@@ -52,7 +52,8 @@ jobs:
       - name: Qualify host kernel in Bazel sandbox
         if: matrix.module == '.'
         run: >-
-          bazel test -c opt --spawn_strategy=sandboxed
+          bazel test -c opt --noexperimental_use_hermetic_linux_sandbox
+          --spawn_strategy=linux-sandbox
           --test_strategy=exclusive --test_output=all
           //mkosi/private:kernel_preflight_host_test
 
