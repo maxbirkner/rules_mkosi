@@ -1,6 +1,37 @@
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test")
+
 package(default_visibility = ["//visibility:private"])
 
 exports_files([
     "mkosi_image.bzl",
     "toolchains_repo.bzl",
 ])
+
+cc_library(
+    name = "kernel_preflight_lib",
+    srcs = ["kernel_preflight.c"],
+    hdrs = ["kernel_preflight.h"],
+)
+
+cc_binary(
+    name = "kernel_preflight",
+    srcs = ["kernel_preflight_main.c"],
+    visibility = ["//visibility:public"],
+    deps = [":kernel_preflight_lib"],
+)
+
+cc_test(
+    name = "kernel_preflight_test",
+    srcs = ["kernel_preflight_test.c"],
+    deps = [":kernel_preflight_lib"],
+)
+
+cc_test(
+    name = "kernel_preflight_host_test",
+    srcs = ["kernel_preflight_host_test.c"],
+    tags = [
+        "manual",
+        "requires_kernel_contract",
+    ],
+    deps = [":kernel_preflight_lib"],
+)

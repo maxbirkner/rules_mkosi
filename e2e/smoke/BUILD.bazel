@@ -12,6 +12,11 @@ build_test(
     targets = [":demo"],
 )
 
+build_test(
+    name = "kernel_preflight_build_test",
+    targets = ["@rules_mkosi//mkosi:kernel_preflight"],
+)
+
 diff_test(
     name = "demo_content_test",
     file1 = "testdata/debian.image.golden.txt",

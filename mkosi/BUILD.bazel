@@ -4,3 +4,9 @@ exports_files([
     "toolchain.bzl",
     "version.bzl",
 ])
+
+alias(
+    name = "kernel_preflight",
+    actual = "//mkosi/private:kernel_preflight",
+    visibility = ["//visibility:public"],
+)
