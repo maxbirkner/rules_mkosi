@@ -60,8 +60,13 @@ jobs:
         if: matrix.module == '.'
         run: |
           bazel shutdown
+          set -o pipefail
           bazel test --config=kernel_preflight \
-            //mkosi/private:kernel_preflight_host_test
+            //mkosi/private:kernel_preflight_host_test 2>&1 |
+            tee kernel-preflight.log
+          grep -F "Executed 1 out of 1 test" kernel-preflight.log
+          ! grep -F "(cached)" kernel-preflight.log
+          rm kernel-preflight.log
 
   lockfile:
     name: Bazel lockfile

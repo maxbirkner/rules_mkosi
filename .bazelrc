@@ -7,5 +7,6 @@ build:kernel_preflight --noexperimental_use_hermetic_linux_sandbox
 build:kernel_preflight --spawn_strategy=linux-sandbox
 test:kernel_preflight --test_strategy=exclusive
 test:kernel_preflight --test_output=all
+test:kernel_preflight --cache_test_results=no
 
 try-import %workspace%/.bazelrc.user
