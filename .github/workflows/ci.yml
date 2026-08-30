@@ -243,6 +243,10 @@ jobs:
               for artifact_id in input_artifact_ids(action):
                   path = artifact_paths[artifact_id]
                   if path.startswith("bazel-out/"):
+                      if path.endswith(
+                          ("volatile-status.txt", "stable-status.txt")
+                      ):
+                          continue
                       producer = producers.get(artifact_id)
                       if producer is None:
                           raise SystemExit(
