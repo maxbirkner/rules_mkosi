@@ -219,11 +219,30 @@ static void bind_mount_fd(int source_fd, const char *destination,
     expected_device = (unsigned long long)source_stat.st_dev;
     expected_inode = (unsigned long long)source_stat.st_ino;
   }
-  int mount_tree = syscall(SYS_open_tree, source_fd, "",
+  int mount_source_fd = source_fd;
+  int reopened_source = -1;
+  int mount_tree = syscall(SYS_open_tree, mount_source_fd, "",
                            OPEN_TREE_CLONE | OPEN_TREE_CLOEXEC | AT_EMPTY_PATH);
   if (mount_tree < 0) {
+    char source_description[64];
+    snprintf(source_description, sizeof(source_description),
+             "/proc/self/fd/%d", source_fd);
+    reopened_source = open(source_description, O_PATH | O_NOFOLLOW | O_CLOEXEC);
+    if (reopened_source >= 0) {
+      mount_source_fd = reopened_source;
+      mount_tree = syscall(SYS_open_tree, mount_source_fd, "",
+                           OPEN_TREE_CLONE | OPEN_TREE_CLOEXEC | AT_EMPTY_PATH);
+    }
+  }
+  if (mount_tree < 0) {
+    if (reopened_source >= 0) {
+      close(reopened_source);
+    }
     fail("fd-only %s bind mount is unsupported: %s",
          directory ? "directory" : "non-directory", strerror(errno));
+  }
+  if (reopened_source >= 0) {
+    close(reopened_source);
   }
   if (syscall(SYS_move_mount, mount_tree, "", AT_FDCWD, destination,
               MOVE_MOUNT_F_EMPTY_PATH) < 0) {
