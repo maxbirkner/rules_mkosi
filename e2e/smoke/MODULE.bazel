@@ -18,6 +18,19 @@ bazel_dep(
 )
 
 bazel_dep(name = "rules_qemu", version = "0.3.0")
+bazel_dep(name = "hermetic_cc_toolchain", version = "4.3.0")
+
+hermetic_cc = use_extension(
+    "@hermetic_cc_toolchain//toolchain:ext.bzl",
+    "toolchains",
+)
+hermetic_cc.exec_platform(
+    arch = "amd64",
+    os = "linux",
+)
+use_repo(hermetic_cc, "zig_sdk")
+
+register_toolchains("@zig_sdk//toolchain:linux_amd64_musl")
 
 qemu = use_extension("@rules_qemu//qemu/extension:qemu.bzl", "qemu")
 use_repo(
@@ -33,7 +46,17 @@ mkosi = use_extension("@rules_mkosi//mkosi:extensions.bzl", "mkosi")
 mkosi.toolchain(version = "27")
 use_repo(mkosi, "mkosi_toolchains")
 
+debian_tools = use_extension("@rules_mkosi//mkosi/debian:extensions.bzl", "debian_tools")
+debian_tools.toolchain()
+use_repo(
+    debian_tools,
+    "mkosi_debian_package_inputs",
+    "mkosi_debian_python",
+    "mkosi_debian_tools",
+)
+
 register_toolchains(
     "@mkosi_toolchains//:qemu_linux_x86_64",
     "@mkosi_toolchains//:all",
+    "@mkosi_debian_tools//:linux_x86_64",
 )

@@ -7,6 +7,7 @@ load(
     _qemu_ovmf_toolchain = "qemu_ovmf_toolchain",
 )
 load("//mkosi:toolchain.bzl", _MkosiToolchainInfo = "MkosiToolchainInfo")
+load("//mkosi/debian:toolchain.bzl", _DebianToolsInfo = "DebianToolsInfo")
 load(
     "//mkosi/private:mkosi_image.bzl",
     _MkosiImageInfo = "MkosiImageInfo",
@@ -20,6 +21,7 @@ load(
 MkosiImageInfo = _MkosiImageInfo
 MkosiQemuToolchainInfo = _MkosiQemuToolchainInfo
 MkosiToolchainInfo = _MkosiToolchainInfo
+DebianToolsInfo = _DebianToolsInfo
 mkosi_image = _mkosi_image
 qemu_ovmf_smoke_test = _qemu_ovmf_smoke_test
 qemu_executable = _qemu_executable

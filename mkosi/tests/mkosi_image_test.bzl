@@ -2,6 +2,7 @@
 
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts")
 load("//mkosi:defs.bzl", "MkosiImageInfo", "MkosiQemuToolchainInfo", "mkosi_image")
+load("//mkosi/debian:toolchain.bzl", "DebianToolsInfo")
 
 def _provider_test_impl(ctx):
     env = analysistest.begin(ctx)
@@ -13,9 +14,11 @@ def _provider_test_impl(ctx):
     asserts.equals(env, "mkosi", target[MkosiImageInfo].toolchain_name)
 
     actions = analysistest.target_actions(env)
-    asserts.equals(env, 2, len(actions))
+    asserts.equals(env, 1, len(actions))
     asserts.equals(env, "Action", actions[0].mnemonic)
-    asserts.equals(env, "FileWrite", actions[1].mnemonic)
+    action_inputs = [file.basename for file in actions[0].inputs.to_list()]
+    asserts.true(env, "launcher" in action_inputs)
+    asserts.true(env, "flat.tar" in action_inputs)
 
     return analysistest.end(env)
 
@@ -65,6 +68,44 @@ def _qemu_toolchain_provider_test_impl(ctx):
     asserts.true(env, info.ovmf_code.basename == "code.fd")
     asserts.true(env, info.ovmf_vars.basename == "vars.fd")
     return analysistest.end(env)
+
+def _debian_tools_provider_test_impl(ctx):
+    env = analysistest.begin(ctx)
+    target = analysistest.target_under_test(env)
+    info = target[platform_common.ToolchainInfo].debian_tools
+
+    asserts.true(env, DebianToolsInfo in target)
+    asserts.equals(env, "debian-tools-v1", info.format_version)
+    asserts.equals(env, "debian", info.distribution)
+    asserts.equals(env, "13", info.release)
+    asserts.equals(
+        env,
+        "554f3ef7f266c2786e5e6fd0b80bc77198ffeb7dbf51aff36099898e46787e2b",
+        info.archive_sha256,
+    )
+    asserts.equals(env, "trixie", info.codename)
+    asserts.equals(env, "amd64", info.architecture)
+    asserts.equals(env, "20250814T000000Z", info.snapshot)
+    asserts.equals(
+        env,
+        "8af0b63f9a4f9844b10d6b1d4ca30839f0deef5b1f052750924648c1dd41e1ab",
+        info.lock_sha256,
+    )
+    asserts.equals(
+        env,
+        "https://snapshot.debian.org/archive/debian/20250814T000000Z",
+        info.snapshot_url,
+    )
+    asserts.equals(env, "flat.tar", info.tree.basename)
+    asserts.equals(env, "tree_root_root", info.tree_root.basename)
+    asserts.equals(env, "launcher", info.launcher.executable.basename)
+    asserts.true(env, info.launcher.executable != None)
+    asserts.true(env, info.tree_files_to_run.executable == None)
+    asserts.equals(env, 11, len(info.required_components))
+    asserts.true(env, info.provenance.basename == "provenance.bzl")
+    return analysistest.end(env)
+
+_debian_tools_provider_test = analysistest.make(_debian_tools_provider_test_impl)
 
 _qemu_toolchain_provider_test = analysistest.make(_qemu_toolchain_provider_test_impl)
 
@@ -118,6 +159,11 @@ def mkosi_image_test_suite(name):
         target_under_test = "@mkosi_toolchains//:qemu_ovmf_toolchain",
     )
 
+    _debian_tools_provider_test(
+        name = "debian_tools_provider_test",
+        target_under_test = "@mkosi_debian_tools//:toolchain",
+    )
+
     native.test_suite(
         name = name,
         tests = [
@@ -125,5 +171,6 @@ def mkosi_image_test_suite(name):
             ":ubuntu_provider_test",
             ":mkosi_toolchain_provider_test",
             ":qemu_toolchain_provider_test",
+            ":debian_tools_provider_test",
         ],
     )

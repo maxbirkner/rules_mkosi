@@ -55,12 +55,81 @@ The supported toolchain versions are intentionally explicit:
 | --- | --- | --- |
 | 27 | `https://github.com/systemd/mkosi/archive/4736cd836108a97772142c461c49f1ddb4172348.tar.gz` | `fa34b3ba66cc71d202b267a0f55e6c77f41d8db273ea5404f7fad99e464835f8` |
 
-The runtime uses only the Bazel-managed Python 3.11 standard library for
-`mkosi --version`. The pinned `pefile` wheel is included for v27's bootable
-PE inspection paths and is not obtained from the host environment.
+The runtime uses a checksum-pinned, statically linked Python 3.11 runtime for
+the Debian launcher and extractor. The pinned `pefile` wheel remains included
+for v27's bootable PE inspection paths and is not obtained from the host
+environment.
+
+The Debian build-time userspace is pinned to Debian 13 (trixie), `amd64`,
+and snapshot `20250814T000000Z`. The checked-in lockfile pins every package
+URL, version, dependency edge, and SHA-256 digest. A repository fetches those
+immutable `.deb` inputs, and a static-Python archive action builds the
+deterministic tree without shell, compiler, or host archive tools. The
+`@mkosi_debian_tools//:linux_x86_64` toolchain exposes the extracted
+TreeArtifact, root-isolated launcher, and provenance through
+`DebianToolsInfo`; image actions invoke the advertised launcher (a static
+executable that starts the managed Python script) with the archive, extractor,
+and digest as exact runfiles and an empty ambient `PATH`. The initial tracer set
+includes APT/dpkg bootstrap tools, `systemd-repart`, filesystem and partition
+utilities, GRUB/systemd-boot UEFI tools, `objcopy`, and their locked runtime
+dependencies. Target image package acquisition remains out of scope.
+Extraction uses that static Python runtime and preserves modes, merged-`/usr`
+links, and in-root absolute links. Before any dynamic Debian ELF runs, the
+static launcher and static namespace runner establish the user, mount, PID,
+IPC, and UTS namespaces, pivot into the extracted root, and detach the host
+root. Only then is the packaged Debian loader used for the requested tool;
+the packaged bubblewrap binary is retained as a pinned package input but is
+not used as a pre-isolation bootstrap.
+The runner requires an empty supplementary-group list: it clears groups while
+still permitted to do so and fails closed before entering the namespace when
+the caller's groups cannot be cleared.
+The lockfile's package SHA-256 values are the immutable download trust roots.
+Package-index signature verification is intentionally not advertised because
+the resolver does not currently perform that check.
+The launcher intentionally leaves the network namespace shared: Bazel's
+declared network policy remains the authority for future mkosi/package
+acquisition actions. Issue #6 isolates the packaged filesystem and runtime
+state, rather than silently forcing offline execution; the TLS regression is
+offline in the sense that it verifies the deterministic packaged CA bundle
+without contacting a server.
+
+The default `.bazelversion` is Bazel 7.7.1, matching the checked-in Bzlmod
+lockfile format. CI runs the root and
+independent consumer suites on pinned Bazel 7.7.1, 8.5.1, and 9.2.0; Bazel
+7.7.1 uses `--lockfile_mode=error`, while Bazel 8/9 use
+`--lockfile_mode=off` so compatibility is verified without silently
+rewriting the committed lockfile.
+
+The module has a normal dependency on the maintained
+`hermetic_cc_toolchain` 4.3.0. The repository root registers its generic Linux
+amd64 musl `@zig_sdk//toolchain:linux_amd64_musl` toolchain as the bootstrap
+default; an independent downstream root opts into the same maintained
+extension and registration (as shown by `e2e/smoke`) without setting
+`--platforms` or `--host_platform`. Bzlmod requires that extension-provided
+repositories be opted into by the downstream root module, so the maintained
+dependency, extension, and registration are part of the documented consumer
+setup rather than hidden development-only state. This is not a custom compiler
+mechanism. The bootstrap targets use ordinary `cc_binary` toolchain resolution
+with `fully_static_link`, and a consumer's root-module registration takes
+precedence when it provides another compatible standard C/C++ toolchain.
+rules_mkosi does not download, invoke, or select a raw compiler itself. The
+resolved action graph and static ELF metadata are checked in CI.
+
+For a consumer that overrides the default, register a compatible
+`@bazel_tools//tools/cpp:toolchain_type` toolchain for Linux x86-64 and static
+linking. The default registration is deliberately generic for normal Linux
+x86-64 target and execution platforms, so unrelated consumer targets are not
+silently transitioned to a musl platform. The maintained toolchain's own
+constraints prevent the bootstrap binaries from being scheduled on another
+operating system or CPU architecture.
 
 The root module may select a version with `mkosi.toolchain(version = "27")`;
 unsupported or conflicting requests fail during module resolution.
+
+Consumers that need the Debian contract can import `DebianToolsInfo` from the
+public `@rules_mkosi//mkosi:defs.bzl` label (or the compatibility wrapper
+`@rules_mkosi//mkosi:debian_tools.bzl`). The canonical repository name remains
+`mkosi_debian_tools` after the Debian extension is used.
 
 ```starlark
 load("@rules_mkosi//mkosi:defs.bzl", "mkosi_image")

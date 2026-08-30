@@ -1,6 +1,7 @@
 load("@bazel_skylib//rules:diff_test.bzl", "diff_test")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
 load("//mkosi:defs.bzl", "mkosi_image", "qemu_ovmf_smoke_test")
+load("//mkosi/debian:toolchain.bzl", "debian_tools_launcher_probe", "debian_tools_preflight", "debian_tools_preflight_test")
 load(
     ":extension_semantics_test.bzl",
     "conflicting_root_test",
@@ -22,6 +23,85 @@ sh_test(
     name = "bazel_compatibility_contract_test",
     srcs = ["bazel_compatibility_contract_test.sh"],
     data = ["//:MODULE.bazel"],
+)
+
+debian_tools_preflight_test(
+    name = "debian_tools_preflight_test",
+    components = "//mkosi/debian:components.txt",
+    launcher = "@mkosi_debian_tools//:launcher",
+    provenance = "//mkosi/debian:provenance.bzl",
+    required_components = [
+        "apt-get",
+        "dpkg",
+        "systemd-repart",
+        "mkfs.ext4",
+        "mkfs.fat",
+        "mkfs.btrfs",
+        "sfdisk",
+        "parted",
+        "grub-install",
+        "bootctl",
+        "objcopy",
+    ],
+    tree = "@mkosi_debian_tools//:tree_root",
+)
+
+debian_tools_preflight(
+    name = "debian_tools_missing_component",
+    components = "//mkosi/debian:components_missing.txt",
+    launcher = "@mkosi_debian_tools//:launcher",
+    provenance = "//mkosi/debian:provenance.bzl",
+    required_components = ["apt-get"],
+    tree = "@mkosi_debian_tools//:tree_root",
+)
+
+debian_tools_launcher_probe(
+    name = "debian_tools_launcher_probe",
+)
+
+diff_test(
+    name = "debian_tools_launcher_probe_test",
+    file1 = "testdata/debian_tools_launcher_probe.golden.txt",
+    file2 = ":debian_tools_launcher_probe",
+)
+
+sh_test(
+    name = "debian_tools_negative_test",
+    srcs = ["debian_tools_negative_test.sh"],
+    data = [":debian_tools_missing_component"],
+)
+
+alias(
+    name = "debian_tools_lock_digest_test",
+    actual = "//mkosi/debian:debian_tools_lock_digest_test",
+)
+
+sh_test(
+    name = "debian_tools_runtime_test",
+    srcs = ["debian_tools_runtime_test.sh"],
+    data = [
+        "debian_tools_runtime_setup.py",
+        "@mkosi_debian_python//:bin/python3.11",
+        "@mkosi_debian_tools//:launcher",
+    ],
+)
+
+sh_test(
+    name = "debian_tools_recursive_ro_test",
+    srcs = ["debian_tools_recursive_ro_test.sh"],
+    data = ["@mkosi_debian_tools//:namespace_runner"],
+)
+
+sh_test(
+    name = "debian_tools_manifest_test",
+    srcs = ["debian_tools_manifest_test.sh"],
+    data = ["@mkosi_debian_tools//:launcher"],
+)
+
+sh_test(
+    name = "debian_tools_fd_swap_test",
+    srcs = ["debian_tools_fd_swap_test.sh"],
+    data = ["@mkosi_debian_tools//:namespace_runner"],
 )
 
 unsupported_version_test(name = "unsupported_version_test")

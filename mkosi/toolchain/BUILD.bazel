@@ -5,3 +5,7 @@ toolchain_type(name = "toolchain_type")
 toolchain_type(
     name = "qemu_toolchain_type",
 )
+
+toolchain_type(
+    name = "debian_tools_toolchain_type",
+)

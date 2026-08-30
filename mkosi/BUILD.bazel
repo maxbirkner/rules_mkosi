@@ -1,11 +1,13 @@
 exports_files([
     "defs.bzl",
+    "debian_tools.bzl",
     "extensions.bzl",
     "qemu_toolchain.bzl",
     "qemu_versions.bzl",
     "toolchain.bzl",
     "versions.bzl",
     "version.bzl",
+    "debian_tools.bzl",
 ])
 
 alias(

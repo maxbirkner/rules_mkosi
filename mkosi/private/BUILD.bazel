@@ -7,17 +7,20 @@ exports_files([
     "qemu_ovmf_validate.sh",
     "qemu_ovmf_smoke_test.bzl",
     "toolchains_repo.bzl",
+    "debian_tools_repo.bzl",
 ])
 
 cc_library(
     name = "kernel_preflight_lib",
     srcs = ["kernel_preflight.c"],
     hdrs = ["kernel_preflight.h"],
+    copts = ["-fPIC"],
 )
 
 cc_binary(
     name = "kernel_preflight",
     srcs = ["kernel_preflight_main.c"],
+    linkstatic = True,
     visibility = ["//visibility:public"],
     deps = [":kernel_preflight_lib"],
 )
@@ -25,12 +28,14 @@ cc_binary(
 cc_test(
     name = "kernel_preflight_test",
     srcs = ["kernel_preflight_test.c"],
+    linkstatic = True,
     deps = [":kernel_preflight_lib"],
 )
 
 cc_test(
     name = "kernel_preflight_host_test",
     srcs = ["kernel_preflight_host_test.c"],
+    linkstatic = True,
     tags = [
         "manual",
         "requires_kernel_contract",

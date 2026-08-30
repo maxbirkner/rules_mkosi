@@ -2,6 +2,7 @@ load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("@bazel_skylib//rules:diff_test.bzl", "diff_test")
 load("@rules_mkosi//mkosi:defs.bzl", "mkosi_image", "qemu_ovmf_smoke_test")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
+load(":public_api_test.bzl", "public_api_test")
 
 mkosi_image(
     name = "demo",
@@ -13,9 +14,22 @@ build_test(
     targets = [":demo"],
 )
 
+public_api_test(
+    name = "debian_tools_public_provider_test",
+    target_under_test = "@mkosi_debian_tools//:toolchain",
+)
+
 build_test(
     name = "kernel_preflight_build_test",
     targets = ["@rules_mkosi//mkosi:kernel_preflight"],
+)
+
+build_test(
+    name = "debian_tools_public_api_test",
+    targets = [
+        "@mkosi_debian_tools//:launcher",
+        "@mkosi_debian_tools//:toolchain",
+    ],
 )
 
 diff_test(

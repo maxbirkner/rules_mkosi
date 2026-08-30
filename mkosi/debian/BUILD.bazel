@@ -1,0 +1,66 @@
+load("@rules_python//python:defs.bzl", "py_test")
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files([
+    "debian13.yaml",
+    "debian13.lock.json",
+    "provenance.bzl",
+    "components.txt",
+    "components_missing.txt",
+    "extract_tree.py",
+    "debian_launcher.py",
+    "debian_tools_security_test.py",
+    "debian_tools_lock_digest_test.py",
+    "debian_python_hermetic_test.py",
+    "launcher_main.c",
+    "namespace_runner.c",
+    "package_archive.py",
+])
+
+py_test(
+    name = "debian_tools_security_test",
+    srcs = [
+        "debian_launcher.py",
+        "debian_tools_security_test.py",
+        "extract_tree.py",
+        "package_archive.py",
+    ],
+    data = [
+        "provenance.bzl",
+        "@mkosi_debian_tools//:tree",
+    ],
+    main = "debian_tools_security_test.py",
+)
+
+py_test(
+    name = "debian_tools_lock_digest_test",
+    srcs = [
+        "debian_tools_lock_digest_test.py",
+    ],
+    data = [
+        "debian13.lock.json",
+        "provenance.bzl",
+        "@mkosi_debian_package_inputs//:package_manifest.txt",
+    ],
+    main = "debian_tools_lock_digest_test.py",
+)
+
+py_test(
+    name = "debian_python_hermetic_test",
+    srcs = ["debian_python_hermetic_test.py"],
+    data = [
+        "@mkosi_debian_python//:bin/python3.11",
+        "@mkosi_debian_tools//:launcher",
+        "@mkosi_debian_tools//:namespace_runner",
+    ],
+)
+
+py_test(
+    name = "extract_tree_security_test",
+    srcs = [
+        "extract_tree.py",
+        "extract_tree_test.py",
+    ],
+    main = "extract_tree_test.py",
+)
