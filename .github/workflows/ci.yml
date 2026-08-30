@@ -206,18 +206,20 @@ jobs:
                   archive.append((arguments, inputs))
               if action["mnemonic"] in ("CppCompile", "CppLink"):
                   compilation.append((action["mnemonic"], arguments, inputs))
-              if any(
-                  token.startswith("/") or
-                  any(bad in token for bad in compiler_tokens)
-                  for token in arguments
-              ):
-                  raise SystemExit("host compiler or shell in structured action graph")
               relevant = action["mnemonic"] in (
                   "BuildDebianToolsArchive",
                   "CppCompile",
                   "CppLink",
               )
               if relevant:
+                  if any(
+                      token.startswith("/") or
+                      any(bad in token for bad in compiler_tokens)
+                      for token in arguments
+                  ):
+                      raise SystemExit(
+                          "host compiler or shell in structured action graph"
+                      )
                   unexpected = sorted(
                       path for path in inputs
                       if not path.startswith(allowed_input_roots)
