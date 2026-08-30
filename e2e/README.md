@@ -12,6 +12,10 @@ standard Bzlmod pattern for an extension-provided toolchain: a downstream root
 module opts into the maintained default, while its own root registrations can
 override it.
 
+The BCR presubmit has separate floor, Bazel 8, and Bazel 9 tasks. Only the
+8.5.1 and 9.2.0 tasks pass `--lockfile_mode=off`; the 7.7.1 task and the
+repository's normal e2e command remain strict.
+
 The root `.bazelignore` deliberately excludes `e2e/`. A nested `MODULE.bazel`
 does not create a package traversal boundary: without that exclusion, a root
 `bazel test //...` would load `e2e/smoke` as part of the root repository and

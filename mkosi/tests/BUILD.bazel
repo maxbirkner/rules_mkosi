@@ -57,20 +57,12 @@ debian_tools_preflight(
 
 debian_tools_launcher_probe(
     name = "debian_tools_launcher_probe",
-    tags = [
-        "manual",
-        "requires_empty_groups",
-    ],
 )
 
 diff_test(
     name = "debian_tools_launcher_probe_test",
     file1 = "testdata/debian_tools_launcher_probe.golden.txt",
     file2 = ":debian_tools_launcher_probe",
-    tags = [
-        "manual",
-        "requires_empty_groups",
-    ],
 )
 
 sh_test(
@@ -96,21 +88,18 @@ sh_test(
     name = "debian_tools_recursive_ro_test",
     srcs = ["debian_tools_recursive_ro_test.sh"],
     data = ["@mkosi_debian_tools//:namespace_runner"],
-    tags = ["requires_empty_groups"],
 )
 
 sh_test(
     name = "debian_tools_manifest_test",
     srcs = ["debian_tools_manifest_test.sh"],
     data = ["@mkosi_debian_tools//:launcher"],
-    tags = ["requires_empty_groups"],
 )
 
 sh_test(
     name = "debian_tools_fd_swap_test",
     srcs = ["debian_tools_fd_swap_test.sh"],
     data = ["@mkosi_debian_tools//:namespace_runner"],
-    tags = ["requires_empty_groups"],
 )
 
 unsupported_version_test(name = "unsupported_version_test")
@@ -134,20 +123,12 @@ sh_test(
 mkosi_image(
     name = "golden_image",
     distribution = "debian",
-    tags = [
-        "manual",
-        "requires_empty_groups",
-    ],
 )
 
 diff_test(
     name = "golden_image_test",
     file1 = "testdata/debian.image.golden.txt",
     file2 = ":golden_image",
-    tags = [
-        "manual",
-        "requires_empty_groups",
-    ],
 )
 
 sh_test(
@@ -162,18 +143,10 @@ sh_test(
 mkosi_image(
     name = "ubuntu_golden_image",
     distribution = "ubuntu",
-    tags = [
-        "manual",
-        "requires_empty_groups",
-    ],
 )
 
 diff_test(
     name = "ubuntu_golden_image_test",
     file1 = "testdata/ubuntu.image.golden.txt",
     file2 = ":ubuntu_golden_image",
-    tags = [
-        "manual",
-        "requires_empty_groups",
-    ],
 )

@@ -7,18 +7,10 @@ load(":public_api_test.bzl", "public_api_test")
 mkosi_image(
     name = "demo",
     distribution = "debian",
-    tags = [
-        "manual",
-        "requires_empty_groups",
-    ],
 )
 
 build_test(
     name = "demo_build_test",
-    tags = [
-        "manual",
-        "requires_empty_groups",
-    ],
     targets = [":demo"],
 )
 
@@ -44,10 +36,6 @@ diff_test(
     name = "demo_content_test",
     file1 = "testdata/debian.image.golden.txt",
     file2 = ":demo",
-    tags = [
-        "manual",
-        "requires_empty_groups",
-    ],
 )
 
 sh_test(
@@ -66,18 +54,10 @@ qemu_ovmf_smoke_test(
 mkosi_image(
     name = "ubuntu_demo",
     distribution = "ubuntu",
-    tags = [
-        "manual",
-        "requires_empty_groups",
-    ],
 )
 
 diff_test(
     name = "ubuntu_demo_content_test",
     file1 = "testdata/ubuntu.image.golden.txt",
     file2 = ":ubuntu_demo",
-    tags = [
-        "manual",
-        "requires_empty_groups",
-    ],
 )

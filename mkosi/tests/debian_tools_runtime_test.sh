@@ -26,41 +26,6 @@ fi
     exit 1
 }
 
-host_group_values=
-while IFS= read -r status_line
-do
-    case "$status_line" in
-        Groups:*) host_group_values="${status_line#Groups:}" ;;
-    esac
-done < /proc/self/status
-host_has_supplementary_groups=0
-case "$host_group_values" in
-    *[![:space:]]*) host_has_supplementary_groups=1 ;;
-esac
-if [ "$host_has_supplementary_groups" -eq 1 ]; then
-    set +e
-    group_output="$(
-        MKOSI_DEBIAN_TOOLS_SCRATCH="$TEST_TMPDIR/debian-tools-groups" \
-            "$launcher" /usr/bin/dpkg --version 2>&1
-    )"
-    group_status=$?
-    set -e
-    [ "$group_status" -ne 0 ] || {
-        echo "launcher accepted a caller with supplementary groups" >&2
-        exit 1
-    }
-    case "$group_output" in
-        *"supplementary groups"*) ;;
-        *)
-            echo "launcher did not fail closed for supplementary groups" >&2
-            echo "$group_output" >&2
-            exit 1
-            ;;
-    esac
-    echo "supplementary-group caller rejected before namespace execution"
-    exit 0
-fi
-
 hostile_sitecustomize="$TEST_TMPDIR/sitecustomize.py"
 printf '%s\n' 'raise RuntimeError("hostile sitecustomize loaded")' > "$hostile_sitecustomize"
 set +e
@@ -188,17 +153,17 @@ case "$runtime_output" in
         ;;
 esac
 
-input="$TEST_TMPDIR/debian-tools-input"
-output="$TEST_TMPDIR/debian-tools-output"
-counter="$TEST_TMPDIR/debian-tools-counter"
+input="$PWD/debian-tools-input"
+output="$PWD/debian-tools-output"
+counter="$PWD/debian-tools-counter"
 printf '%s\n' "packaged-input" > "$input"
 : > "$output"
 : > "$counter"
 set +e
 bind_output="$(
     MKOSI_DEBIAN_TOOLS_SCRATCH="$TEST_TMPDIR/../debian-tools-binds" "$launcher" \
-        --ro-bind "$TEST_TMPDIR:/inputs/input-dir" \
-        --rw-bind "$TEST_TMPDIR:/outputs/output-dir" \
+        --ro-bind "$PWD:/inputs/input-dir" \
+        --rw-bind "$PWD:/outputs/output-dir" \
         /bin/sh -c '
             IFS= read -r value < /inputs/input-dir/debian-tools-input
             [ "$value" = packaged-input ]
@@ -208,6 +173,10 @@ bind_output="$(
                 case "$descriptor" in
                     /proc/self/fd/0|/proc/self/fd/1|/proc/self/fd/2) ;;
                     *)
+                        [ -d "$descriptor" ] && {
+                            echo "inherited O_PATH directory leaked: $descriptor" >&2
+                            exit 1
+                        }
                         leaked_value=
                         IFS= read -r leaked_value < "$descriptor" 2>/dev/null || true
                         [ "$leaked_value" = packaged-input ] && {
@@ -236,7 +205,7 @@ IFS= read -r value < "$output"
 set +e
 once_output="$(
     MKOSI_DEBIAN_TOOLS_SCRATCH="$TEST_TMPDIR/../debian-tools-once" "$launcher" \
-        --rw-bind "$TEST_TMPDIR:/outputs/counter-dir" \
+        --rw-bind "$PWD:/outputs/counter-dir" \
         /bin/sh -c 'printf "x\n" >> /outputs/counter-dir/debian-tools-counter; exit 37' 2>&1
 )"
 once_status=$?
