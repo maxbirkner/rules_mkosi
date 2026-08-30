@@ -97,6 +97,10 @@ independent consumer suites on pinned Bazel 7.7.1, 8.5.1, and 9.2.0; Bazel
 `--lockfile_mode=off` so compatibility is verified without silently
 rewriting the committed lockfile.
 
+The two static bootstrap executables are built by a checksum-pinned static
+Zig 0.16.0 compiler and musl target, not by `local_config_cc` or host
+headers/libc. Their action graph and ELF metadata are checked in CI.
+
 The root module may select a version with `mkosi.toolchain(version = "27")`;
 unsupported or conflicting requests fail during module resolution.
 
