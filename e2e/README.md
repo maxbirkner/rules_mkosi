@@ -12,9 +12,10 @@ standard Bzlmod pattern for an extension-provided toolchain: a downstream root
 module opts into the maintained default, while its own root registrations can
 override it.
 
-The BCR presubmit has separate floor, Bazel 8, and Bazel 9 tasks. Only the
-8.5.1 and 9.2.0 tasks pass `--lockfile_mode=off`; the 7.7.1 task and the
-repository's normal e2e command remain strict.
+The BCR presubmit has separate Bazel 8 and Bazel 9 tasks. The Bazel 8 task
+uses the committed lockfile strictly. The Bazel 9 task passes
+`--lockfile_mode=off` for compatibility because Bazel 9 uses a newer format;
+the repository's normal e2e command remains strict.
 
 The root `.bazelignore` deliberately excludes `e2e/`. A nested `MODULE.bazel`
 does not create a package traversal boundary: without that exclusion, a root
@@ -23,11 +24,12 @@ would not exercise its independent module resolution.
 
 Run the root and consumer suites separately using the canonical commands in
 [`CONTRIBUTING.md`](../CONTRIBUTING.md). BCR also executes `e2e/smoke` as the
-published module's consumer test. The consumer directory pins Bazel 7.7.1
-for plain local commands, matching its checked-in format-13 lockfile; CI
-explicitly exercises pinned Bazel 8.5.1 and 9.2.0 with lockfile mode off.
+published module's consumer test. The consumer directory pins Bazel 8.5.1
+for plain local commands, matching its checked-in Bazel 8 lockfile; CI
+explicitly exercises pinned Bazel 8.5.1 strictly and Bazel 9.2.0 with
+lockfile mode off.
 
 `module_resolution` contains checked-in Bazelmod fixtures for extension
 selection and failure diagnostics. Run one fixture with
 `e2e/module_resolution/test.sh <default|explicit|unsupported|conflicting_root|nonroot_name|root_dependency>`;
-CI runs every fixture on Bazel 7.7+, 8, and 9.
+CI runs every fixture on Bazel 8.5.1 and 9.2.0.

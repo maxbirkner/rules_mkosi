@@ -24,7 +24,6 @@ jobs:
       fail-fast: false
       matrix:
         bazel:
-          - "7.7.1"
           - "8.5.1"
           - "9.2.0"
         module:
@@ -68,12 +67,11 @@ jobs:
             esac
             echo "CI bootstrap identity has empty supplementary groups"
           '
-          if [ "${{ matrix.bazel }}" = "7.7.1" ]; then
+          if [ "${{ matrix.bazel }}" = "8.5.1" ]; then
             run_bazel bazel test --lockfile_mode=error //...
           else
-            # The committed format-13 lock is generated at the compatibility
-            # floor.  Bazel 8/9 validate module resolution without rewriting
-            # it, because those releases use newer lock formats.
+            # Bazel 9 uses a newer lockfile format; compatibility is tested
+            # without rewriting the committed Bazel 8 lockfile.
             run_bazel bazel test --lockfile_mode=off //...
           fi
 
@@ -84,7 +82,7 @@ jobs:
             sudo -n setpriv --reuid="$(id -u)" --regid="$(id -g)" \
               --clear-groups env HOME="$HOME" PATH="$PATH" "$@"
           }
-          if [ "${{ matrix.bazel }}" = "7.7.1" ]; then
+          if [ "${{ matrix.bazel }}" = "8.5.1" ]; then
             run_bazel bazel test --enable_runfiles=no --lockfile_mode=error \
               //mkosi/tests:debian_tools_launcher_probe_test
           else
@@ -99,7 +97,7 @@ jobs:
             sudo -n setpriv --reuid="$(id -u)" --regid="$(id -g)" \
               --clear-groups env HOME="$HOME" PATH="$PATH" "$@"
           }
-          if [ "${{ matrix.bazel }}" = "7.7.1" ]; then
+          if [ "${{ matrix.bazel }}" = "8.5.1" ]; then
             mode=error
           else
             mode=off
@@ -323,7 +321,7 @@ jobs:
               --clear-groups env HOME="$HOME" PATH="$PATH" "$@"
           }
           mode=off
-          if [ "${{ matrix.bazel }}" = "7.7.1" ]; then
+          if [ "${{ matrix.bazel }}" = "8.5.1" ]; then
             mode=error
           fi
           graph="$(run_bazel bazel --bazelrc=/dev/null aquery \
@@ -342,7 +340,7 @@ jobs:
           echo "no-RC downstream launcher resolves maintained hermetic C++ toolchain"
 
       - name: Verify deterministic bootstrap binaries
-        if: matrix.module == '.' && matrix.bazel == '7.7.1'
+        if: matrix.module == '.' && matrix.bazel == '8.5.1'
         run: |
           run_bazel() {
             sudo -n setpriv --reuid="$(id -u)" --regid="$(id -g)" \
@@ -413,7 +411,11 @@ jobs:
             sudo -n setpriv --reuid="$(id -u)" --regid="$(id -g)" \
               --clear-groups env HOME="$HOME" PATH="$PATH" "$@"
           }
-          install_base="$(run_bazel bazel info --lockfile_mode=off install_base)"
+          mode=error
+          if [ "${{ matrix.bazel }}" = "9.2.0" ]; then
+            mode=off
+          fi
+          install_base="$(run_bazel bazel info --lockfile_mode="$mode" install_base)"
           test -x "${install_base}/linux-sandbox"
           "${install_base}/linux-sandbox" /bin/true
 
@@ -424,9 +426,13 @@ jobs:
             sudo -n setpriv --reuid="$(id -u)" --regid="$(id -g)" \
               --clear-groups env HOME="$HOME" PATH="$PATH" "$@"
           }
+          mode=error
+          if [ "${{ matrix.bazel }}" = "9.2.0" ]; then
+            mode=off
+          fi
           run_bazel bazel shutdown
           set -o pipefail
-          run_bazel bazel test --lockfile_mode=off --config=kernel_preflight \
+          run_bazel bazel test --lockfile_mode="$mode" --config=kernel_preflight \
             //mkosi/private:kernel_preflight_host_test 2>&1 |
             tee kernel-preflight.log
           grep -F "Executed 1 out of 1 test" kernel-preflight.log
@@ -437,7 +443,7 @@ jobs:
     name: Namespace production contract
     runs-on: ubuntu-22.04
     env:
-      USE_BAZEL_VERSION: "7.7.1"
+      USE_BAZEL_VERSION: "8.5.1"
     steps:
       - name: Check out repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -478,7 +484,7 @@ jobs:
     name: Bazel lockfile
     runs-on: ubuntu-24.04
     env:
-      USE_BAZEL_VERSION: "7.7.1"
+      USE_BAZEL_VERSION: "8.5.1"
     steps:
       - name: Check out repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -493,7 +499,7 @@ jobs:
         run: |
           actual="$(bazel --version)"
           echo "$actual"
-          test "$actual" = "bazel 7.7.1"
+          test "$actual" = "bazel 8.5.1"
           bazel mod deps --lockfile_mode=error
 
       - name: Verify committed e2e lockfile
@@ -501,7 +507,7 @@ jobs:
         run: |
           actual="$(bazel --version)"
           echo "$actual"
-          test "$actual" = "bazel 7.7.1"
+          test "$actual" = "bazel 8.5.1"
           bazel mod deps --lockfile_mode=error
 
   module-resolution:
@@ -511,7 +517,6 @@ jobs:
       fail-fast: false
       matrix:
         bazel:
-          - "7.7.1"
           - "8.5.1"
           - "9.2.0"
         fixture:
@@ -539,6 +544,9 @@ jobs:
           actual="$(bazel --version)"
           echo "$actual"
           test "$actual" = "bazel ${{ matrix.bazel }}"
+          if [ "${{ matrix.bazel }}" = "9.2.0" ]; then
+            export LOCKFILE_MODE=off
+          fi
           e2e/module_resolution/test.sh ${{ matrix.fixture }}
 
   lint:

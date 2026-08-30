@@ -25,10 +25,9 @@ version causes problems for consumers using non-registry overrides.
 Bazel 8 and 9 releases. Breaking releases must instead provide explicit
 migration diagnostics and documentation.
 
-The initial compatibility range is Bazel 7.7 and newer because the pinned
-`rules_qemu` dependency requires Bazel 7.7. CI exercises the latest
-resolvable releases from Bazel 7.7, 8, and 9. `.bazelversion` pins the
-development version.
+The supported baseline is Bazel 8.5.1. The rolling policy supports the
+current and previous Bazel LTS majors, currently Bazel 8 and 9.
+`.bazelversion` pins the lockfile-generating development version.
 
 ## Public API boundary
 
@@ -107,14 +106,17 @@ themselves are pinned.
 
 ## CI
 
-GitHub Actions runs the root and consumer suites against Bazel 7, 8, and 9.
+GitHub Actions runs the root and consumer suites against pinned Bazel 8.5.1
+and 9.2.0. Bazel 8 validates the committed lockfiles strictly; Bazel 9 uses
+lockfile mode off only for compatibility commands and never rewrites them.
 Actions are pinned by commit SHA, permissions default to read-only, and
 concurrent superseded branch builds are cancelled. A stable conclusion job can
 be used for branch protection.
 
 The weekly scheduled run detects breakage from rolling Bazel releases and
-external dependency changes. The committed lockfile is validated separately
-with the development Bazel version.
+external dependency changes. Both committed lockfiles are generated and
+validated with Bazel 8.5.1. Bazel 9 compatibility commands use lockfile mode
+off without rewriting them.
 
 Real mkosi image tests will use a dedicated Linux job. Unsupported or
 privileged tests must not be mixed with portable analysis tests or the BCR

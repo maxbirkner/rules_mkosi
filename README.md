@@ -7,8 +7,8 @@ The ruleset provides checksum-pinned mkosi v27, QEMU 11.0.0.1, and OVMF
 `edk2-stable202605-r1` toolchains. QEMU binaries are supplied by
 [rules_qemu](https://github.com/hermeticbuild/rules_qemu); this ruleset adds
 the OVMF artifact and a small QEMU/OVMF provider and smoke-test wrapper.
-The supported Bazel floor is 7.7.0 because that is the minimum declared by
-rules_qemu 0.3.0.
+The supported Bazel baseline is 8.5.1. The project follows a rolling policy
+of supporting the current and previous Bazel LTS majors: Bazel 8 and 9.
 
 ## Configure the toolchain
 
@@ -93,12 +93,11 @@ state, rather than silently forcing offline execution; the TLS regression is
 offline in the sense that it verifies the deterministic packaged CA bundle
 without contacting a server.
 
-The default `.bazelversion` is Bazel 7.7.1, matching the checked-in Bzlmod
-lockfile format. CI runs the root and
-independent consumer suites on pinned Bazel 7.7.1, 8.5.1, and 9.2.0; Bazel
-7.7.1 uses `--lockfile_mode=error`, while Bazel 8/9 use
-`--lockfile_mode=off` so compatibility is verified without silently
-rewriting the committed lockfile.
+The default `.bazelversion` is Bazel 8.5.1, matching the checked-in Bzlmod
+lockfile format. CI runs the root and independent consumer suites on pinned
+Bazel 8.5.1 and 9.2.0. Bazel 8.5.1 uses `--lockfile_mode=error`; Bazel 9
+uses `--lockfile_mode=off` only for compatibility commands because it uses a
+newer lockfile format. CI never rewrites committed lockfiles.
 
 The module has a normal dependency on the maintained
 `hermetic_cc_toolchain` 4.3.0. The repository root registers its generic Linux

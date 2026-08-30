@@ -3,7 +3,7 @@
 `rules_mkosi` is a Bazelmod-native Starlark ruleset for assembling bootable
 Linux images with mkosi.
 
-- Preserve compatibility with Bazel 7, 8, and 9. Do not use newer Bazel APIs
+- Preserve compatibility with Bazel 8 and 9. Do not use newer Bazel APIs
   without a tested compatibility guard.
 - Do not add `WORKSPACE` support. `local_path_override` belongs only in
   independent test modules such as `e2e/smoke`.
@@ -23,7 +23,9 @@ Linux images with mkosi.
   Executed output behavior also needs an artifact test and coverage in the
   independent `e2e/smoke` consumer module.
 - `MODULE.bazel.lock` files are generated, committed artifacts. Regenerate
-  them deliberately with the pinned Bazel version; never edit them manually.
+  them deliberately with Bazel 8.5.1; never edit them manually. Bazel 9
+  compatibility commands may use lockfile mode off, but CI must never update
+  committed lockfiles.
 - Keep GitHub Actions permissions minimal and pin third-party actions to full
   commit SHAs with a version comment.
 - Use `prek` as the only formatting and linting entry point. Do not duplicate
@@ -40,4 +42,4 @@ Linux images with mkosi.
   refactoring when repeated friction indicates a code smell.
 
 When compatibility-sensitive Starlark changes are made, repeat the root and
-consumer suites with `USE_BAZEL_VERSION=7.7.1`.
+consumer suites with `USE_BAZEL_VERSION=8.5.1`.
