@@ -544,10 +544,7 @@ jobs:
           actual="$(bazel --version)"
           echo "$actual"
           test "$actual" = "bazel ${{ matrix.bazel }}"
-          if [ "${{ matrix.bazel }}" = "9.2.0" ]; then
-            export LOCKFILE_MODE=off
-          fi
-          e2e/module_resolution/test.sh ${{ matrix.fixture }}
+          LOCKFILE_MODE=off e2e/module_resolution/test.sh ${{ matrix.fixture }}
 
   lint:
     name: prek

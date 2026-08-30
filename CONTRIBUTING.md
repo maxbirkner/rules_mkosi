@@ -32,12 +32,15 @@ Run the independent consumer test module:
 )
 ```
 
-Both commands use Bazel 8.5.1 and the committed lockfiles by default. CI also
-tests pinned Bazel 9.2.0 with `--lockfile_mode=off` only for compatibility
-commands, preserving the committed lockfiles rather than rewriting them.
-If dependencies change, regenerate both lockfiles with Bazel 8.5.1 using
-`--lockfile_mode=update`; never edit generated lockfiles by hand or update
-them in CI.
+These commands use Bazel 8.5.1 and the two committed lockfiles by default:
+the root `MODULE.bazel.lock` and `e2e/smoke/MODULE.bazel.lock`. CI also tests
+pinned Bazel 9.2.0 with `--lockfile_mode=off` only for compatibility commands,
+preserving those lockfiles rather than rewriting them. The module-resolution
+fixtures intentionally run with `--lockfile_mode=off` on both supported
+versions because they test extension semantics, not dependency locking. If
+dependencies change, regenerate the two committed lockfiles with Bazel 8.5.1
+using `--lockfile_mode=update`; never edit generated lockfiles by hand or
+update them in CI.
 
 The root command intentionally excludes `e2e/`. See
 [the test architecture](docs/design/0003-ruleset-architecture.md#consumer-module)
