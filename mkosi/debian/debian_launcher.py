@@ -95,7 +95,6 @@ def _validate_root(root, tool):
     if loader is None:
         raise RuntimeError("Debian bootstrap loader is missing from extracted root")
 
-    bwrap = _require_executable(root, "/usr/bin/bwrap", "Debian root-isolation launcher")
     if tool not in TOOLS.values():
         raise RuntimeError("unknown or unmapped Debian tool: %s" % tool)
     executable = None
@@ -111,7 +110,7 @@ def _validate_root(root, tool):
         "/usr/lib64",
     ):
         _require_directory(root, library_directory, allow_symlink=library_directory.startswith("/lib"))
-    return loader, bwrap, executable
+    return loader, executable
 
 
 def _canonical_destination(destination):
@@ -277,67 +276,22 @@ def _run(tool, arguments, root, ro_binds, rw_binds, scratch_parent):
             prefix = "/workspace" if base == workspace else "/outputs"
             _prepare_mountpoint(base, destination[len(prefix):] or "/", source)
 
-        libraries = ":".join(
-            os.path.join(root, path) for path in (
-                "usr/lib/x86_64-linux-gnu",
-                "lib/x86_64-linux-gnu",
-                "usr/lib/x86_64-linux-gnu/systemd",
-                "usr/lib/systemd",
-                "usr/lib64",
-            )
-        )
-        loader, bwrap, _ = _validate_root(root, tool)
+        runner = os.environ.get("DEBIAN_TOOLS_NAMESPACE_RUNNER")
+        if not runner or not os.path.isfile(runner) or not os.access(runner, os.X_OK):
+            raise RuntimeError("static Debian namespace runner is missing")
+        loader, _ = _validate_root(root, tool)
+        loader_relative = "/" + os.path.relpath(loader, root)
         command = [
-            loader,
-            "--library-path",
-            libraries,
-            bwrap,
-            "--die-with-parent",
-            "--unshare-user-try",
-            "--unshare-pid",
-            "--unshare-ipc",
-            "--unshare-uts",
-            # Keep network policy under the invoking Bazel action.  Future
-            # mkosi acquisition actions may require declared network access.
-            "--new-session",
-            "--ro-bind",
+            runner,
             root,
-            "/",
-            "--bind",
             workspace,
-            "/workspace",
-            "--bind",
             outputs,
-            "/outputs",
-            "--bind",
             home,
-            "/root",
-            "--tmpfs",
-            "/tmp",
-            "--proc",
-            "/proc",
-            "--dev",
-            "/dev",
-        ] + sum((["--ro-bind", source, destination] for source, destination in ro_binds), []) + sum(
-            (["--bind", source, destination] for source, destination in rw_binds), []
-        ) + [
-            "--chdir",
-            "/workspace",
-            "--setenv",
-            "PATH",
-            "/usr/bin:/usr/sbin:/bin:/sbin",
-            "--setenv",
-            "HOME",
-            "/root",
-            "--setenv",
-            "TMPDIR",
-            "/tmp",
-            "--setenv",
-            "SSL_CERT_FILE",
-            "/etc/ssl/certs/ca-certificates.crt",
-            "--",
+            loader_relative,
             tool,
-        ] + arguments
+        ] + sum((["--ro-bind", source, destination] for source, destination in ro_binds), []) + sum(
+            (["--rw-bind", source, destination] for source, destination in rw_binds), []
+        ) + ["--"] + arguments
         return subprocess.run(command, env={"PATH": "", "HOME": "/root"}).returncode
     finally:
         shutil.rmtree(runtime, ignore_errors=True)

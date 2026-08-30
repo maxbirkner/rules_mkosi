@@ -84,36 +84,6 @@ static char *manifest_lookup(const char *manifest, const char *logical) {
   return NULL;
 }
 
-static char *manifest_python_lookup(const char *manifest) {
-  FILE *file = fopen(manifest, "r");
-  if (file == NULL) {
-    return NULL;
-  }
-  char line[4096];
-  while (fgets(line, sizeof(line), file) != NULL) {
-    char *separator = strchr(line, ' ');
-    if (separator == NULL) {
-      continue;
-    }
-    *separator = '\0';
-    size_t logical_length = strlen(line);
-    size_t suffix_length = strlen("/bin/python3");
-    if (strstr(line, "rules_python") == NULL ||
-        strstr(line, "python_3_11_") == NULL ||
-        logical_length < suffix_length ||
-        strcmp(line + logical_length - suffix_length, "/bin/python3") != 0) {
-      continue;
-    }
-    char *physical = separator + 1;
-    physical[strcspn(physical, "\n")] = '\0';
-    char *result = strdup(physical);
-    fclose(file);
-    return result;
-  }
-  fclose(file);
-  return NULL;
-}
-
 static char *repository_mapping(const char *apparent) {
   const char *root = getenv("RUNFILES_DIR");
   if (root == NULL || root[0] == '\0') {
@@ -196,19 +166,21 @@ int main(int argc, char **argv) {
   }
 
   char *python = NULL;
-  const char *manifest = getenv("RUNFILES_MANIFEST_FILE");
-  if (manifest != NULL && manifest[0] != '\0') {
-    python = manifest_python_lookup(manifest);
+  char *python_repository = repository_mapping("mkosi_debian_python");
+  if (python_repository != NULL) {
+    char logical_python[4096];
+    char alternate_python[4096];
+    snprintf(logical_python, sizeof(logical_python), "%s/bin/python3.11",
+             python_repository);
+    snprintf(alternate_python, sizeof(alternate_python),
+             "_main/external/%s/bin/python3.11", python_repository);
+    python = runfile(logical_python, alternate_python);
+    free(python_repository);
   }
   if (python == NULL) {
     python = runfile(
         DEBIAN_TOOLS_PYTHON_RLOCATION,
-        "_main/external/rules_python~~python~python_3_11_x86_64-unknown-linux-gnu/bin/python3");
-  }
-  if (python == NULL) {
-    python = runfile(
-        "rules_python~~python~python_3_11_x86_64-unknown-linux-gnu/bin/python3",
-        NULL);
+        "_main/external/mkosi_debian_python/bin/python3.11");
   }
   char *script = runfile(DEBIAN_TOOLS_SCRIPT_RLOCATION,
                          DEBIAN_TOOLS_SCRIPT_ALTERNATE_RLOCATION);
@@ -262,27 +234,49 @@ int main(int argc, char **argv) {
     archive = runfile(
         "rules_distroless~~apt~mkosi_debian_packages/flat.tar", NULL);
   }
-  if (python == NULL || script == NULL || extractor == NULL || archive == NULL) {
+  char *namespace_runner = NULL;
+  char *tools_repository = repository_mapping("mkosi_debian_tools");
+  if (tools_repository != NULL) {
+    char logical_runner[4096];
+    char alternate_runner[4096];
+    snprintf(logical_runner, sizeof(logical_runner), "%s/namespace_runner",
+             tools_repository);
+    snprintf(alternate_runner, sizeof(alternate_runner),
+             "_main/external/%s/namespace_runner", tools_repository);
+    namespace_runner = runfile(logical_runner, alternate_runner);
+    free(tools_repository);
+  }
+  if (namespace_runner == NULL) {
+    namespace_runner = runfile(
+        DEBIAN_TOOLS_NAMESPACE_RLOCATION,
+        "_main/external/mkosi_debian_tools/namespace_runner");
+  }
+  if (python == NULL || script == NULL || extractor == NULL || archive == NULL ||
+      namespace_runner == NULL) {
     fprintf(stderr, "Debian tools launcher runfiles are incomplete\n");
     free(python);
     free(script);
     free(extractor);
     free(archive);
+    free(namespace_runner);
     return 1;
   }
   if (access(python, X_OK) != 0 || access(script, R_OK) != 0 ||
-      access(extractor, R_OK) != 0 || access(archive, R_OK) != 0) {
+      access(extractor, R_OK) != 0 || access(archive, R_OK) != 0 ||
+      access(namespace_runner, X_OK) != 0) {
     fprintf(stderr, "Debian tools launcher runfiles are not executable/readable\n");
     free(python);
     free(script);
     free(extractor);
     free(archive);
+    free(namespace_runner);
     return 1;
   }
 
   clear_host_injection_environment();
   setenv("DEBIAN_TOOLS_ARCHIVE", archive, 1);
   setenv("DEBIAN_TOOLS_EXTRACTOR", extractor, 1);
+  setenv("DEBIAN_TOOLS_NAMESPACE_RUNNER", namespace_runner, 1);
   setenv("DEBIAN_TOOLS_ARCHIVE_SHA256", DEBIAN_TOOLS_ARCHIVE_SHA256, 1);
   setenv("PATH", "", 1);
   setenv("PYTHONNOUSERSITE", "1", 1);

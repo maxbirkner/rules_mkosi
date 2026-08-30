@@ -1,4 +1,4 @@
-load("@rules_python//python:defs.bzl", "py_binary", "py_test")
+load("@rules_python//python:defs.bzl", "py_test")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -12,15 +12,10 @@ exports_files([
     "debian_launcher.py",
     "debian_tools_security_test.py",
     "debian_tools_lock_digest_test.py",
+    "debian_python_hermetic_test.py",
     "launcher_main.c",
+    "namespace_runner.c",
 ])
-
-py_binary(
-    name = "extract_tree_runtime",
-    srcs = ["extract_tree.py"],
-    main = "extract_tree.py",
-    visibility = ["//visibility:public"],
-)
 
 py_test(
     name = "debian_tools_security_test",
@@ -46,6 +41,16 @@ py_test(
         "provenance.bzl",
     ],
     main = "debian_tools_lock_digest_test.py",
+)
+
+py_test(
+    name = "debian_python_hermetic_test",
+    srcs = ["debian_python_hermetic_test.py"],
+    data = [
+        "@mkosi_debian_python//:bin/python3.11",
+        "@mkosi_debian_tools//:launcher",
+        "@mkosi_debian_tools//:namespace_runner",
+    ],
 )
 
 py_test(

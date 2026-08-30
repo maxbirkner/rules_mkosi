@@ -30,11 +30,12 @@ DebianToolsInfo = provider(
 def _tree_impl(ctx):
     root = ctx.actions.declare_directory(ctx.label.name + "_root")
     python_home = ctx.executable._python.path
-    python_home = python_home[:python_home.rfind("/bin/python3")]
-    runtime_files = ctx.attr._python_runtime[DefaultInfo].default_runfiles.files
+    python_home = python_home[:python_home.rfind("/bin/")]
+    runtime_files = ctx.attr._python_runtime[DefaultInfo].files
     ctx.actions.run(
         executable = ctx.executable._python,
         arguments = [
+            "-I",
             ctx.file.extractor.path,
             ctx.file.archive.path,
             root.path,
@@ -66,12 +67,11 @@ debian_tools_tree = rule(
             allow_files = True,
             executable = True,
             cfg = "exec",
-            default = "@python_3_11//:python3",
+            default = "@mkosi_debian_python//:bin/python3.11",
         ),
         "_python_runtime": attr.label(
-            executable = True,
             cfg = "exec",
-            default = "//mkosi/debian:extract_tree_runtime",
+            default = "@mkosi_debian_python//:runtime",
         ),
     },
     doc = "Extracts a Debian archive with the Bazel-managed Python runtime.",

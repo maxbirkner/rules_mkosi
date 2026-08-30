@@ -55,9 +55,10 @@ The supported toolchain versions are intentionally explicit:
 | --- | --- | --- |
 | 27 | `https://github.com/systemd/mkosi/archive/4736cd836108a97772142c461c49f1ddb4172348.tar.gz` | `fa34b3ba66cc71d202b267a0f55e6c77f41d8db273ea5404f7fad99e464835f8` |
 
-The runtime uses only the Bazel-managed Python 3.11 standard library for
-`mkosi --version`. The pinned `pefile` wheel is included for v27's bootable
-PE inspection paths and is not obtained from the host environment.
+The runtime uses a checksum-pinned, statically linked Python 3.11 runtime for
+the Debian launcher and extractor. The pinned `pefile` wheel remains included
+for v27's bootable PE inspection paths and is not obtained from the host
+environment.
 
 The Debian build-time userspace is pinned to Debian 13 (trixie), `amd64`,
 and snapshot `20250814T000000Z`. It is resolved with `rules_distroless`
@@ -71,11 +72,13 @@ and digest as exact runfiles and an empty ambient `PATH`. The initial tracer set
 includes APT/dpkg bootstrap tools, `systemd-repart`, filesystem and partition
 utilities, GRUB/systemd-boot UEFI tools, `objcopy`, and their locked runtime
 dependencies. Target image package acquisition remains out of scope.
-Extraction uses the Bazel-managed Python 3.11 runtime and preserves modes,
-merged-`/usr` links, and in-root absolute links. The launcher runs bubblewrap
-from the extracted tree through its packaged ELF loader, binding that tree as
-`/`; in sandboxes where user namespaces are disabled it retains the packaged
-loader/library contract without silently consulting host libraries.
+Extraction uses that static Python runtime and preserves modes, merged-`/usr`
+links, and in-root absolute links. Before any dynamic Debian ELF runs, the
+static launcher and static namespace runner establish the user, mount, PID,
+IPC, and UTS namespaces, pivot into the extracted root, and detach the host
+root. Only then is the packaged Debian loader used for the requested tool;
+the packaged bubblewrap binary is retained as a pinned package input but is
+not used as a pre-isolation bootstrap.
 The lockfile's package SHA-256 values are the immutable trust roots consumed
 by `rules_distroless`. Package-index signature verification is intentionally
 not advertised because the resolver does not currently perform that check.

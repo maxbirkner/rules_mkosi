@@ -66,6 +66,6 @@ register_toolchains(
 
 debian_tools = use_extension("//mkosi/debian:extensions.bzl", "debian_tools")
 debian_tools.toolchain()
-use_repo(debian_tools, "mkosi_debian_tools")
+use_repo(debian_tools, "mkosi_debian_python", "mkosi_debian_tools")
 
 register_toolchains("@mkosi_debian_tools//:linux_x86_64")
