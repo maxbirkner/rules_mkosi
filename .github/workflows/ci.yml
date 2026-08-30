@@ -141,7 +141,7 @@ jobs:
                   dep_set = dep_sets[dep_set_id]
                   paths.update(
                       artifact_paths[artifact_id]
-                      for artifact_id in dep_set["directArtifactIds"]
+                      for artifact_id in dep_set.get("directArtifactIds", [])
                   )
                   for child in dep_set.get("transitiveDepSetIds", []):
                       collect(child)
