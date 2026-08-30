@@ -313,12 +313,13 @@ def _run(tool, arguments, root, ro_binds, rw_binds, scratch_parent):
         # source with open_tree; the dev/inode tuple rejects ancestor swaps.
         descriptors = _pin_bind_sources(ro_binds + rw_binds)
         mount_arguments = []
-        descriptor_index = 0
-        for bind in ro_binds:
+        all_binds = ro_binds + rw_binds
+        for index, (bind, source_descriptor) in enumerate(zip(all_binds, descriptors)):
+            option = "--ro-bind-fd" if index < len(ro_binds) else "--rw-bind-fd"
             mount_arguments.extend(
                 [
-                    "--ro-bind-fd",
-                    str(descriptors[descriptor_index]),
+                    option,
+                    str(source_descriptor),
                     bind[0],
                     bind[1],
                     str(bind[2]),
@@ -326,20 +327,6 @@ def _run(tool, arguments, root, ro_binds, rw_binds, scratch_parent):
                     "dir" if bind[4] else "file",
                 ]
             )
-            descriptor_index += 1
-        for bind in rw_binds:
-            mount_arguments.extend(
-                [
-                    "--rw-bind-fd",
-                    str(descriptors[descriptor_index]),
-                    bind[0],
-                    bind[1],
-                    str(bind[2]),
-                    str(bind[3]),
-                    "dir" if bind[4] else "file",
-                ]
-            )
-            descriptor_index += 1
         command = [
             runner,
             root,

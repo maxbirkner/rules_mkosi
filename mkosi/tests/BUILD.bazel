@@ -57,12 +57,14 @@ debian_tools_preflight(
 
 debian_tools_launcher_probe(
     name = "debian_tools_launcher_probe",
+    tags = ["requires_empty_groups"],
 )
 
 diff_test(
     name = "debian_tools_launcher_probe_test",
     file1 = "testdata/debian_tools_launcher_probe.golden.txt",
     file2 = ":debian_tools_launcher_probe",
+    tags = ["requires_empty_groups"],
 )
 
 sh_test(
@@ -88,18 +90,21 @@ sh_test(
     name = "debian_tools_recursive_ro_test",
     srcs = ["debian_tools_recursive_ro_test.sh"],
     data = ["@mkosi_debian_tools//:namespace_runner"],
+    tags = ["requires_empty_groups"],
 )
 
 sh_test(
     name = "debian_tools_manifest_test",
     srcs = ["debian_tools_manifest_test.sh"],
     data = ["@mkosi_debian_tools//:launcher"],
+    tags = ["requires_empty_groups"],
 )
 
 sh_test(
     name = "debian_tools_fd_swap_test",
     srcs = ["debian_tools_fd_swap_test.sh"],
     data = ["@mkosi_debian_tools//:namespace_runner"],
+    tags = ["requires_empty_groups"],
 )
 
 unsupported_version_test(name = "unsupported_version_test")

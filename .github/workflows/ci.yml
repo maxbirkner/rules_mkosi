@@ -54,18 +54,49 @@ jobs:
 
       - name: Run test suite
         run: |
+          test_filters=
+          supplementary_groups=
+          while IFS= read -r status_line
+          do
+            case "$status_line" in
+              Groups:*) supplementary_groups="${status_line#Groups:}" ;;
+            esac
+          done < /proc/self/status
+          case "$supplementary_groups" in
+            *[![:space:]]*)
+              # Unprivileged user namespaces cannot clear a non-empty group
+              # vector after the kernel has disabled setgroups.  The launcher
+              # fails closed in this environment; capability-dependent
+              # execution tests run on groupless runners.
+              test_filters="--test_tag_filters=-requires_empty_groups"
+              echo "supplementary groups detected; excluding namespace execution tests"
+              ;;
+          esac
           if [ "${{ matrix.bazel }}" = "7.7.1" ]; then
-            bazel test --lockfile_mode=error //...
+            bazel test --lockfile_mode=error $test_filters //...
           else
             # The committed format-13 lock is generated at the compatibility
             # floor.  Bazel 8/9 validate module resolution without rewriting
             # it, because those releases use newer lock formats.
-            bazel test --lockfile_mode=off //...
+            bazel test --lockfile_mode=off $test_filters //...
           fi
 
       - name: Validate manifest-only public launcher
         if: matrix.module == '.'
         run: |
+          supplementary_groups=
+          while IFS= read -r status_line
+          do
+            case "$status_line" in
+              Groups:*) supplementary_groups="${status_line#Groups:}" ;;
+            esac
+          done < /proc/self/status
+          case "$supplementary_groups" in
+            *[![:space:]]*)
+              echo "supplementary groups detected; launcher execution requires a groupless runner"
+              exit 0
+              ;;
+          esac
           if [ "${{ matrix.bazel }}" = "7.7.1" ]; then
             bazel test --enable_runfiles=no --lockfile_mode=error \
               //mkosi/tests:debian_tools_launcher_probe_test

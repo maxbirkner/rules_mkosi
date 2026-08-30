@@ -152,13 +152,6 @@ runtime_output="$(
             esac
         done
         printf "groups=%s\n" "$namespace_groups"
-        for descriptor in /proc/self/fd/*
-        do
-            case "$descriptor" in
-                /proc/self/fd/0|/proc/self/fd/1|/proc/self/fd/2) ;;
-                *) echo "inherited bind descriptor leaked: $descriptor" >&2; exit 1 ;;
-            esac
-        done
         tmpfs=0
         procfs=0
         devfs=0
@@ -203,15 +196,28 @@ printf '%s\n' "packaged-input" > "$input"
 : > "$counter"
 set +e
 bind_output="$(
-    MKOSI_DEBIAN_TOOLS_SCRATCH="$TEST_TMPDIR/debian-tools-binds" "$launcher" \
-        --ro-bind "$input:/inputs/input.txt" \
+    MKOSI_DEBIAN_TOOLS_SCRATCH="$TEST_TMPDIR/../debian-tools-binds" "$launcher" \
         --ro-bind "$TEST_TMPDIR:/inputs/input-dir" \
-        --rw-bind "$output:/outputs/output.txt" \
+        --rw-bind "$TEST_TMPDIR:/outputs/output-dir" \
         /bin/sh -c '
-            IFS= read -r value < /inputs/input.txt
+            IFS= read -r value < /inputs/input-dir/debian-tools-input
             [ "$value" = packaged-input ]
             [ -d /inputs/input-dir ]
-            printf "packaged-output\n" > /outputs/output.txt
+            for descriptor in /proc/self/fd/*
+            do
+                case "$descriptor" in
+                    /proc/self/fd/0|/proc/self/fd/1|/proc/self/fd/2) ;;
+                    *)
+                        leaked_value=
+                        IFS= read -r leaked_value < "$descriptor" 2>/dev/null || true
+                        [ "$leaked_value" = packaged-input ] && {
+                            echo "inherited bind descriptor leaked: $descriptor" >&2
+                            exit 1
+                        }
+                        ;;
+                esac
+            done
+            printf "packaged-output\n" > /outputs/output-dir/debian-tools-output
         ' 2>&1
 )"
 bind_status=$?
@@ -222,13 +228,16 @@ set -e
     exit 1
 }
 IFS= read -r value < "$output"
-[ "$value" = packaged-output ]
+[ "$value" = packaged-output ] || {
+    echo "rw directory bind did not update output: $value" >&2
+    exit 1
+}
 
 set +e
 once_output="$(
-    MKOSI_DEBIAN_TOOLS_SCRATCH="$TEST_TMPDIR/debian-tools-once" "$launcher" \
-        --rw-bind "$counter:/outputs/counter" \
-        /bin/sh -c 'printf "x\n" >> /outputs/counter; exit 37' 2>&1
+    MKOSI_DEBIAN_TOOLS_SCRATCH="$TEST_TMPDIR/../debian-tools-once" "$launcher" \
+        --rw-bind "$TEST_TMPDIR:/outputs/counter-dir" \
+        /bin/sh -c 'printf "x\n" >> /outputs/counter-dir/debian-tools-counter; exit 37' 2>&1
 )"
 once_status=$?
 set -e
