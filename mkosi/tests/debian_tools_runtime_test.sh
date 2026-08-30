@@ -84,6 +84,9 @@ runtime_output="$(
         done < /proc/self/mountinfo
         [ "$tmpfs" -eq 1 ] && [ "$procfs" -eq 1 ] && [ "$devfs" -eq 1 ]
         [ ! -e "$1" ]
+        printf "tmp\n" > /tmp/runtime-probe
+        printf "home\n" > "$HOME/runtime-probe"
+        printf "workspace\n" > /workspace/runtime-probe
         printf "runtime=%s,%s,%s,%s\n" "$PWD" "$HOME" "$tmpfs" "$procfs"
     ' sh "$host_marker" 2>&1
 )"
