@@ -28,6 +28,13 @@ _ALLOWED_DANGLING_SYMLINKS = {
     "usr/lib/systemd/system/x11-common.service",
 }
 
+# Debian's systemd package intentionally ships this link to an empty
+# configuration directory.  Keep a marker in the target so TreeArtifact
+# consumers retain the directory when Bazel materializes the output.
+_EMPTY_DIRECTORY_SYMLINK_TARGETS = {
+    "etc/xdg/systemd/user": "etc/systemd/user",
+}
+
 
 def _member_path(name):
     if name.startswith("/"):
@@ -141,6 +148,21 @@ def _materialize_runtime_link_targets(root):
             with open(path, "wb"):
                 pass
             os.chmod(path, 0o644)
+
+
+def _materialize_empty_directory_symlink_targets(root, symlinks):
+    for relative, target in _EMPTY_DIRECTORY_SYMLINK_TARGETS.items():
+        member = symlinks.get(relative)
+        if member is None or member.linkname != "../../systemd/user":
+            continue
+        directory = os.path.join(root, target)
+        if not os.path.isdir(directory) or os.path.islink(directory):
+            continue
+        marker = os.path.join(directory, ".rules_mkosi_empty_directory")
+        if not os.path.exists(marker):
+            with open(marker, "wb"):
+                pass
+            os.chmod(marker, 0o644)
 
 
 def _raw_link_components(relative, linkname):
@@ -325,6 +347,7 @@ def extract(archive, root, expected_digest):
 
             _write_ca_bundle(root)
             _materialize_runtime_link_targets(root)
+            _materialize_empty_directory_symlink_targets(root, symlinks)
             _resolve_hardlink_graph(root, hardlinks, members_by_path)
             _resolve_symlink_graph(root, symlinks, members_by_path)
 

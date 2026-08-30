@@ -37,6 +37,28 @@ class ExtractTreeSecurityTest(unittest.TestCase):
     def test_allows_in_root_relative_link(self):
         self.assertEqual(extract_tree._link_target("usr/bin/sh", "../lib/sh"), "usr/lib/sh")
 
+    def test_preserves_debian_empty_directory_symlink_target(self):
+        target = tarfile.TarInfo("etc/systemd/user")
+        target.type = tarfile.DIRTYPE
+        target.mode = 0o755
+        link = tarfile.TarInfo("etc/xdg/systemd/user")
+        link.type = tarfile.SYMTYPE
+        link.linkname = "../../systemd/user"
+        archive = self.directory / "systemd-user.tar"
+        with tarfile.open(archive, "w") as output:
+            output.addfile(target)
+            output.addfile(link)
+        digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+        root = self.directory / "root"
+        extract_tree.extract(str(archive), str(root), digest)
+        self.assertTrue((root / "etc/xdg/systemd/user").is_symlink())
+        self.assertEqual(
+            os.readlink(root / "etc/xdg/systemd/user"),
+            "../../systemd/user",
+        )
+        self.assertTrue((root / "etc/xdg/systemd/user").exists())
+        self.assertTrue((root / "etc/systemd/user/.rules_mkosi_empty_directory").is_file())
+
     def test_rejects_symlink_parent_archive(self):
         archive = self.directory / "bad.tar"
         root = self.directory / "root"
