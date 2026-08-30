@@ -222,23 +222,14 @@ static void bind_mount_fd(int source_fd, const char *destination,
     expected_device = (unsigned long long)source_stat.st_dev;
     expected_inode = (unsigned long long)source_stat.st_ino;
   }
-  int mount_source_fd = source_fd;
-  int reopened_source = -1;
+  char source_description[64];
+  snprintf(source_description, sizeof(source_description),
+           "/proc/self/fd/%d", source_fd);
+  int reopened_source =
+      open(source_description, O_PATH | O_NOFOLLOW | O_CLOEXEC);
+  int mount_source_fd = reopened_source >= 0 ? reopened_source : source_fd;
   int mount_tree = syscall(SYS_open_tree, mount_source_fd, "",
-                           OPEN_TREE_CLONE | OPEN_TREE_CLOEXEC | AT_EMPTY_PATH |
-                               (directory ? AT_RECURSIVE : 0));
-  if (mount_tree < 0) {
-    char source_description[64];
-    snprintf(source_description, sizeof(source_description),
-             "/proc/self/fd/%d", source_fd);
-    reopened_source = open(source_description, O_PATH | O_NOFOLLOW | O_CLOEXEC);
-    if (reopened_source >= 0) {
-      mount_source_fd = reopened_source;
-      mount_tree = syscall(SYS_open_tree, mount_source_fd, "",
-                           OPEN_TREE_CLONE | OPEN_TREE_CLOEXEC | AT_EMPTY_PATH |
-                               (directory ? AT_RECURSIVE : 0));
-    }
-  }
+                           OPEN_TREE_CLONE | OPEN_TREE_CLOEXEC | AT_EMPTY_PATH);
   if (mount_tree < 0) {
     if (reopened_source >= 0) {
       close(reopened_source);
@@ -264,7 +255,8 @@ static void bind_mount_fd(int source_fd, const char *destination,
       close(destination_fd);
     }
     close(mount_tree);
-    fail("cannot move pinned bind to %s: %s", destination, strerror(error));
+    fail("cannot move pinned bind to %s: %s (target fallback: %s)",
+         destination, strerror(error), strerror(errno));
   }
   close(mount_tree);
 mounted:
