@@ -9,16 +9,30 @@ def _provider_test_impl(ctx):
     target = analysistest.target_under_test(env)
 
     asserts.true(env, MkosiImageInfo in target)
-    asserts.equals(env, ctx.attr.expected_distribution, target[MkosiImageInfo].distribution)
     asserts.equals(env, ctx.attr.expected_output, target[MkosiImageInfo].image.basename)
-    asserts.equals(env, "mkosi", target[MkosiImageInfo].toolchain_name)
 
     actions = analysistest.target_actions(env)
     asserts.equals(env, 1, len(actions))
-    asserts.equals(env, "Action", actions[0].mnemonic)
+    asserts.equals(env, "MkosiImage", actions[0].mnemonic)
     action_inputs = [file.basename for file in actions[0].inputs.to_list()]
-    asserts.true(env, "launcher" in action_inputs)
-    asserts.true(env, "flat.tar" in action_inputs)
+    asserts.true(env, ctx.attr.expected_config in action_inputs)
+    asserts.true(env, "tree_root_root" in action_inputs)
+    asserts.true(env, "mkosi_cli" in action_inputs)
+    asserts.false(env, "flat.tar" in action_inputs)
+    asserts.false(env, "launcher" in action_inputs)
+    asserts.equals(env, 1, len(actions[0].outputs.to_list()))
+    asserts.equals(env, ctx.attr.expected_output, actions[0].outputs.to_list()[0].basename)
+    asserts.true(env, actions[0].argv[0].endswith("mkosi_cli"))
+    asserts.equals(env, "-I", actions[0].argv[1])
+    asserts.true(env, actions[0].argv[2].endswith(ctx.attr.expected_config))
+    asserts.equals(env, "--tools-tree", actions[0].argv[3])
+    asserts.true(env, actions[0].argv[4].endswith("tree_root_root"))
+    asserts.equals(env, "--output-directory", actions[0].argv[5])
+    asserts.true(env, actions[0].argv[6].endswith("/mkosi/tests"))
+    asserts.equals(env, "--output", actions[0].argv[7])
+    asserts.equals(env, "debian_subject", actions[0].argv[8])
+    asserts.equals(env, "build", actions[0].argv[-1])
+    asserts.equals(env, "", actions[0].env["PATH"])
 
     return analysistest.end(env)
 
@@ -80,7 +94,7 @@ def _debian_tools_provider_test_impl(ctx):
     asserts.equals(env, "13", info.release)
     asserts.equals(
         env,
-        "554f3ef7f266c2786e5e6fd0b80bc77198ffeb7dbf51aff36099898e46787e2b",
+        "d9d4ebdb252324d84d2817397df31fd016fbb6020f4919e2effbf8f7958fd657",
         info.archive_sha256,
     )
     asserts.equals(env, "trixie", info.codename)
@@ -88,7 +102,7 @@ def _debian_tools_provider_test_impl(ctx):
     asserts.equals(env, "20250814T000000Z", info.snapshot)
     asserts.equals(
         env,
-        "8af0b63f9a4f9844b10d6b1d4ca30839f0deef5b1f052750924648c1dd41e1ab",
+        "8828eb8e8f4b207e8cd765ebabb1ebdf23ffd006893d5dbd7ddb65bd481c0077",
         info.lock_sha256,
     )
     asserts.equals(
@@ -112,41 +126,28 @@ _qemu_toolchain_provider_test = analysistest.make(_qemu_toolchain_provider_test_
 _provider_test = analysistest.make(
     _provider_test_impl,
     attrs = {
-        "expected_distribution": attr.string(mandatory = True),
+        "expected_config": attr.string(mandatory = True),
         "expected_output": attr.string(mandatory = True),
     },
 )
 
 def mkosi_image_test_suite(name):
-    """Defines analysis tests for every supported placeholder distribution.
+    """Defines analysis tests for the config-driven image action.
 
     Args:
       name: Name of the generated test suite.
     """
     mkosi_image(
         name = "debian_subject",
-        distribution = "debian",
+        config = "testdata/minimal.conf",
         tags = ["manual"],
     )
 
     _provider_test(
         name = "debian_provider_test",
-        expected_distribution = "debian",
-        expected_output = "debian_subject.img",
+        expected_config = "minimal.conf",
+        expected_output = "debian_subject.raw",
         target_under_test = ":debian_subject",
-    )
-
-    mkosi_image(
-        name = "ubuntu_subject",
-        distribution = "ubuntu",
-        tags = ["manual"],
-    )
-
-    _provider_test(
-        name = "ubuntu_provider_test",
-        expected_distribution = "ubuntu",
-        expected_output = "ubuntu_subject.img",
-        target_under_test = ":ubuntu_subject",
     )
 
     _toolchain_provider_test(
@@ -168,7 +169,6 @@ def mkosi_image_test_suite(name):
         name = name,
         tests = [
             ":debian_provider_test",
-            ":ubuntu_provider_test",
             ":mkosi_toolchain_provider_test",
             ":qemu_toolchain_provider_test",
             ":debian_tools_provider_test",

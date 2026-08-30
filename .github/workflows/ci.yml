@@ -476,8 +476,7 @@ jobs:
                 //mkosi/tests:debian_tools_recursive_ro_test \
                 //mkosi/tests:debian_tools_manifest_test \
                 //mkosi/tests:debian_tools_fd_swap_test \
-                //mkosi/tests:golden_image_test \
-                //mkosi/tests:ubuntu_golden_image_test
+                //mkosi/tests:real_image_artifact_test
             '
 
   lockfile:

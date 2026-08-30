@@ -122,17 +122,6 @@ sh_test(
     data = [":qemu_ovmf_smoke_test"],
 )
 
-mkosi_image(
-    name = "golden_image",
-    distribution = "debian",
-)
-
-diff_test(
-    name = "golden_image_test",
-    file1 = "testdata/debian.image.golden.txt",
-    file2 = ":golden_image",
-)
-
 sh_test(
     name = "mkosi_version_test",
     srcs = ["mkosi_version_test.sh"],
@@ -143,12 +132,15 @@ sh_test(
 )
 
 mkosi_image(
-    name = "ubuntu_golden_image",
-    distribution = "ubuntu",
+    name = "real_image",
+    config = "testdata/minimal.conf",
+    tags = ["manual"],
 )
 
-diff_test(
-    name = "ubuntu_golden_image_test",
-    file1 = "testdata/ubuntu.image.golden.txt",
-    file2 = ":ubuntu_golden_image",
+sh_test(
+    name = "real_image_artifact_test",
+    srcs = ["real_image_artifact_test.sh"],
+    args = ["$(rootpath :real_image)"],
+    data = [":real_image"],
+    tags = ["manual"],
 )

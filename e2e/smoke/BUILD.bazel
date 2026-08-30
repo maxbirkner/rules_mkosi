@@ -1,22 +1,28 @@
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
-load("@bazel_skylib//rules:diff_test.bzl", "diff_test")
 load("@rules_mkosi//mkosi:defs.bzl", "mkosi_image", "qemu_ovmf_smoke_test")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
-load(":public_api_test.bzl", "public_api_test")
+load(":public_api_test.bzl", "image_public_api_test", "public_api_test")
 
 mkosi_image(
     name = "demo",
-    distribution = "debian",
+    config = "testdata/minimal.conf",
+    tags = ["manual"],
 )
 
 build_test(
     name = "demo_build_test",
+    tags = ["manual"],
     targets = [":demo"],
 )
 
 public_api_test(
     name = "debian_tools_public_provider_test",
     target_under_test = "@mkosi_debian_tools//:toolchain",
+)
+
+image_public_api_test(
+    name = "image_public_provider_test",
+    target_under_test = ":demo",
 )
 
 build_test(
@@ -32,12 +38,6 @@ build_test(
     ],
 )
 
-diff_test(
-    name = "demo_content_test",
-    file1 = "testdata/debian.image.golden.txt",
-    file2 = ":demo",
-)
-
 sh_test(
     name = "mkosi_version_test",
     srcs = ["mkosi_version_test.sh"],
@@ -51,13 +51,10 @@ qemu_ovmf_smoke_test(
     name = "qemu_ovmf_smoke_test",
 )
 
-mkosi_image(
-    name = "ubuntu_demo",
-    distribution = "ubuntu",
-)
-
-diff_test(
-    name = "ubuntu_demo_content_test",
-    file1 = "testdata/ubuntu.image.golden.txt",
-    file2 = ":ubuntu_demo",
+sh_test(
+    name = "demo_artifact_test",
+    srcs = ["real_image_artifact_test.sh"],
+    args = ["$(rootpath :demo)"],
+    data = [":demo"],
+    tags = ["manual"],
 )

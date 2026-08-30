@@ -1,0 +1,5 @@
+[allowlist]
+description = "The Debian package lock contains public package keys and hashes, not credentials."
+paths = [
+  '''mkosi/debian/debian13\.lock\.json$''',
+]

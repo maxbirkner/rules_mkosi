@@ -1,7 +1,7 @@
 """Independent consumer check for the public Debian toolchain API."""
 
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts")
-load("@rules_mkosi//mkosi:defs.bzl", "DebianToolsInfo")
+load("@rules_mkosi//mkosi:defs.bzl", "DebianToolsInfo", "MkosiImageInfo")
 
 def _public_api_test_impl(ctx):
     env = analysistest.begin(ctx)
@@ -13,3 +13,12 @@ def _public_api_test_impl(ctx):
     return analysistest.end(env)
 
 public_api_test = analysistest.make(_public_api_test_impl)
+
+def _image_public_api_test_impl(ctx):
+    env = analysistest.begin(ctx)
+    target = analysistest.target_under_test(env)
+    asserts.true(env, MkosiImageInfo in target)
+    asserts.equals(env, "demo.raw", target[MkosiImageInfo].image.basename)
+    return analysistest.end(env)
+
+image_public_api_test = analysistest.make(_image_public_api_test_impl)

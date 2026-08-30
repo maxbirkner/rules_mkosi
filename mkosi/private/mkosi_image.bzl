@@ -3,73 +3,76 @@
 MkosiImageInfo = provider(
     doc = "Information about an image produced by mkosi_image.",
     fields = {
-        "distribution": "Distribution selected for the image.",
-        "image": "The generated image artifact.",
-        "toolchain_name": "Logical name of the toolchain used to build the image.",
+        "image": "The generated raw disk image artifact.",
     },
 )
 
 def _mkosi_image_impl(ctx):
-    toolchain = ctx.toolchains["//mkosi/toolchain:toolchain_type"].mkosi
+    mkosi = ctx.toolchains["//mkosi/toolchain:toolchain_type"].mkosi
     debian_tools = ctx.toolchains["//mkosi/toolchain:debian_tools_toolchain_type"].debian_tools
-    image = ctx.actions.declare_file(ctx.label.name + ".img")
-    version = ctx.actions.declare_file(ctx.label.name + ".mkosi_version")
-    scratch = ctx.actions.declare_directory(ctx.label.name + ".debian_tools_scratch")
+    image = ctx.actions.declare_file(ctx.label.name + ".raw")
+    output_name = image.basename[:-len(".raw")]
+    workspace = image.dirname + "/." + ctx.label.name + "-mkosi"
+
+    arguments = ctx.actions.args()
+    arguments.add("-I")
+    arguments.add(ctx.file.config.path)
+    arguments.add("--tools-tree")
+    arguments.add(debian_tools.tree_root.path)
+    arguments.add("--output-directory")
+    arguments.add(image.dirname)
+    arguments.add("--output")
+    arguments.add(output_name)
+    arguments.add("--workspace-directory")
+    arguments.add(workspace)
+    arguments.add("--cache-directory")
+    arguments.add(workspace + "/cache")
+    arguments.add("--package-cache-directory")
+    arguments.add(workspace + "/package-cache")
+    arguments.add("--build-directory")
+    arguments.add(workspace + "/build")
+    arguments.add("--build-sources=")
+    arguments.add("--no-pager")
+    arguments.add("build")
 
     ctx.actions.run(
-        executable = debian_tools.launcher,
-        tools = [
-            toolchain.files_to_run,
-            debian_tools.tree,
-            debian_tools.launcher,
-            debian_tools.launcher_script,
-            debian_tools.extractor,
-        ],
-        arguments = [
-            "--write-image",
-            image.path,
-            version.path,
-            ctx.attr.distribution,
-            toolchain.format_version,
-            "/usr/bin/apt-get",
-            "--version",
-        ],
+        executable = mkosi.executable,
+        arguments = [arguments],
+        inputs = depset([ctx.file.config, debian_tools.tree_root]),
+        tools = [mkosi.files_to_run],
+        outputs = [image],
         env = {
             "PATH": "",
-            "MKOSI_DEBIAN_TOOLS_TREE": debian_tools.tree.path,
-            "MKOSI_DEBIAN_TOOLS_LAUNCHER": debian_tools.launcher.executable.path,
-            "MKOSI_DEBIAN_TOOLS_SCRATCH": scratch.path,
-            "MKOSI_DEBIAN_TOOLS_SCRATCH_FORMAT": "physical-v5",
-            "DEBIAN_TOOLS_ARCHIVE": debian_tools.tree.path,
-            "DEBIAN_TOOLS_ARCHIVE_SHA256": debian_tools.archive_sha256,
-            "DEBIAN_TOOLS_EXTRACTOR": debian_tools.extractor.path,
         },
-        outputs = [image, version, scratch],
+        execution_requirements = {
+            "no-cache": "1",
+            "no-remote-exec": "1",
+            "requires-network": "1",
+        },
+        mnemonic = "MkosiImage",
+        progress_message = "Building mkosi image %{label}",
     )
 
     return [
         DefaultInfo(files = depset([image])),
-        MkosiImageInfo(
-            distribution = ctx.attr.distribution,
-            image = image,
-            toolchain_name = toolchain.name,
-        ),
+        MkosiImageInfo(image = image),
     ]
 
 mkosi_image = rule(
     implementation = _mkosi_image_impl,
     attrs = {
-        "distribution": attr.string(
-            default = "debian",
-            doc = "Distribution to record in the placeholder image.",
-            values = ["debian", "ubuntu"],
+        "config": attr.label(
+            mandatory = True,
+            allow_single_file = True,
+            doc = "The mkosi configuration file to include.",
         ),
     },
-    doc = """Creates a deterministic placeholder image.
+    doc = """Builds a raw disk image using the pinned mkosi and Debian toolchains.
 
-This initial implementation validates the public rule, provider, module
-extension, and toolchain architecture without invoking host tools. It will be
-replaced by an mkosi-backed action.
+The action downloads target Debian packages over the network and requires the
+Linux namespace and mount capabilities documented by the host-kernel contract.
+It is intentionally non-cacheable and does not claim remote-execution or
+offline hermeticity.
 """,
     provides = [MkosiImageInfo],
     toolchains = [

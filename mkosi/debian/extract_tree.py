@@ -106,6 +106,15 @@ def _prepare_mount_roots(root):
             os.mkdir(destination)
         os.chmod(destination, 0o755)
 
+    # mkosi requires this path to exist before it uses the tools tree for a
+    # networked build. The sandbox replaces the file with the execution
+    # environment's resolver configuration.
+    resolv = os.path.join(root, "etc/resolv.conf")
+    if not os.path.lexists(resolv):
+        with open(resolv, "wb"):
+            pass
+        os.chmod(resolv, 0o644)
+
 
 def set_deterministic_metadata(root):
     for directory, dirnames, names in os.walk(root, topdown=False):
