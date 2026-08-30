@@ -40,6 +40,9 @@ Linux images with mkosi.
 - Before starting the next feature, triage retrospective findings. Fix missing
   guidance in the relevant instruction or skill, and schedule a focused
   refactoring when repeated friction indicates a code smell.
+- Use the `rules-mkosi-orchestrator` agent for roadmap execution and review.
+  It delegates one issue at a time to `rules-mkosi-worker`; the worker never
+  merges its own pull request.
 
 When compatibility-sensitive Starlark changes are made, repeat the root and
 consumer suites with `USE_BAZEL_VERSION=8.5.1`.
