@@ -222,59 +222,29 @@ static void bind_mount_fd(int source_fd, const char *destination,
   char source_description[64];
   snprintf(source_description, sizeof(source_description),
            "/proc/self/fd/%d", source_fd);
-  int mount_tree = syscall(SYS_open_tree, source_fd, "",
-                           OPEN_TREE_CLONE | OPEN_TREE_CLOEXEC | AT_EMPTY_PATH);
-  if (mount_tree < 0) {
-    char pinned_path[4096];
-    ssize_t path_length =
-        readlink(source_description, pinned_path, sizeof(pinned_path) - 1);
-    if (path_length < 0 || (size_t)path_length >= sizeof(pinned_path)) {
-      fail("fd-only %s bind mount is unsupported: %s",
-           directory ? "directory" : "non-directory", strerror(errno));
-    }
-    pinned_path[path_length] = '\0';
-    if (stat(pinned_path, &source_stat) < 0 ||
-        (unsigned long long)source_stat.st_dev != expected_device ||
-        (unsigned long long)source_stat.st_ino != expected_inode ||
-        S_ISDIR(source_stat.st_mode) != directory) {
-      fail("pinned bind source changed before compatibility mount");
-    }
-    unsigned long flags = MS_BIND | (directory ? MS_REC : 0);
-    if (mount(pinned_path, destination, NULL, flags, NULL) < 0) {
-      fail("fd-only bind mount is unsupported: %s", strerror(errno));
-    }
-    mount_tree = -2;
+  int mount_source_fd =
+      open(source_description, directory
+                                ? O_RDONLY | O_DIRECTORY | O_CLOEXEC
+                                : O_RDONLY | O_CLOEXEC);
+  if (mount_source_fd < 0) {
+    mount_source_fd = source_fd;
   }
-  if (mount_tree == -2) {
-    goto mounted;
+  int mount_tree = syscall(SYS_open_tree, mount_source_fd, "",
+                           OPEN_TREE_CLONE | OPEN_TREE_CLOEXEC | AT_EMPTY_PATH);
+  if (mount_source_fd != source_fd) {
+    close(mount_source_fd);
+  }
+  if (mount_tree < 0) {
+    fail("fd-only %s bind mount is unsupported: %s",
+         directory ? "directory" : "non-directory", strerror(errno));
   }
   if (syscall(SYS_move_mount, mount_tree, "", AT_FDCWD, destination,
               MOVE_MOUNT_F_EMPTY_PATH) < 0) {
     int error = errno;
     close(mount_tree);
-    char pinned_path[4096];
-    ssize_t path_length =
-        readlink(source_description, pinned_path, sizeof(pinned_path) - 1);
-    if (path_length < 0 || (size_t)path_length >= sizeof(pinned_path)) {
-      fail("cannot move pinned bind to %s: %s", destination, strerror(error));
-    }
-    pinned_path[path_length] = '\0';
-    if (stat(pinned_path, &source_stat) < 0 ||
-        (unsigned long long)source_stat.st_dev != expected_device ||
-        (unsigned long long)source_stat.st_ino != expected_inode ||
-        S_ISDIR(source_stat.st_mode) != directory) {
-      fail("pinned bind source changed before compatibility mount");
-    }
-    unsigned long flags = MS_BIND | (directory ? MS_REC : 0);
-    if (mount(pinned_path, destination, NULL, flags, NULL) < 0) {
-      fail("fd-only bind mount is unsupported: %s", strerror(errno));
-    }
-    mount_tree = -2;
+    fail("cannot move pinned bind to %s: %s", destination, strerror(error));
   }
-  if (mount_tree >= 0) {
-    close(mount_tree);
-  }
-mounted:
+  close(mount_tree);
   if (readonly) {
     struct mkosi_mount_attr attributes = {
         .attr_set = MOUNT_ATTR_RDONLY,
