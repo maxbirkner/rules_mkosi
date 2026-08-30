@@ -204,7 +204,8 @@ static void map_current_identity(uid_t uid, gid_t gid) {
 
 static void bind_mount_fd(int source_fd, const char *destination,
                           bool readonly, unsigned long long expected_device,
-                          unsigned long long expected_inode, bool directory) {
+                          unsigned long long expected_inode, bool directory,
+                          bool reopen) {
   struct stat source_stat;
   if (fstat(source_fd, &source_stat) < 0) {
     fail("cannot inspect pinned bind source: %s", strerror(errno));
@@ -219,15 +220,15 @@ static void bind_mount_fd(int source_fd, const char *destination,
     expected_device = (unsigned long long)source_stat.st_dev;
     expected_inode = (unsigned long long)source_stat.st_ino;
   }
-  char source_description[64];
-  snprintf(source_description, sizeof(source_description),
-           "/proc/self/fd/%d", source_fd);
-  int mount_source_fd =
-      open(source_description, directory
-                                ? O_RDONLY | O_DIRECTORY | O_CLOEXEC
-                                : O_RDONLY | O_CLOEXEC);
-  if (mount_source_fd < 0) {
-    mount_source_fd = source_fd;
+  int mount_source_fd = source_fd;
+  if (reopen) {
+    char source_description[64];
+    snprintf(source_description, sizeof(source_description),
+             "/proc/self/fd/%d", source_fd);
+    mount_source_fd = open(source_description, O_PATH | O_NOFOLLOW | O_CLOEXEC);
+    if (mount_source_fd < 0) {
+      fail("cannot reopen pinned bind source: %s", strerror(errno));
+    }
   }
   int mount_tree = syscall(SYS_open_tree, mount_source_fd, "",
                            OPEN_TREE_CLONE | OPEN_TREE_CLOEXEC | AT_EMPTY_PATH);
@@ -284,7 +285,7 @@ static void bind_mount(const char *source, const char *destination,
     fail("bind source changed after validation: %s", source);
   }
   bind_mount_fd(source_fd, destination, readonly, expected_device,
-                expected_inode, S_ISDIR(source_stat.st_mode));
+                expected_inode, S_ISDIR(source_stat.st_mode), false);
   close(source_fd);
 }
 
@@ -511,7 +512,7 @@ static int run_child(int argc, char **argv, uid_t uid, gid_t gid) {
       fail("namespace bind fd is invalid");
     }
     bind_mount_fd(source_fd, destination, readonly, expected_device,
-                  expected_inode, strcmp(argv[index + 6], "dir") == 0);
+                  expected_inode, strcmp(argv[index + 6], "dir") == 0, true);
     close(source_fd);
     index += 7;
   }
@@ -657,7 +658,7 @@ static int fd_swap_self_test(void) {
   if (file_mount_child == 0) {
     bind_mount_fd(source_fd, destination, false,
                   (unsigned long long)source_stat.st_dev,
-                  (unsigned long long)source_stat.st_ino, false);
+                  (unsigned long long)source_stat.st_ino, false, false);
     _exit(0);
   }
   int file_mount_status = 0;
@@ -699,7 +700,7 @@ static int fd_swap_self_test(void) {
   }
   bind_mount_fd(directory_fd, directory_destination, false,
                 (unsigned long long)directory_stat.st_dev,
-                (unsigned long long)directory_stat.st_ino, true);
+                (unsigned long long)directory_stat.st_ino, true, false);
   if (rename(directory_source, directory_replacement) < 0 ||
       mkdir(directory_source, 0700) < 0) {
     return 1;
