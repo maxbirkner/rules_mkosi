@@ -1,4 +1,4 @@
-load("@rules_python//python:defs.bzl", "py_test")
+load("@rules_python//python:defs.bzl", "py_binary", "py_test")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -10,7 +10,43 @@ exports_files([
     "components_missing.txt",
     "extract_tree.py",
     "debian_launcher.py",
+    "debian_tools_security_test.py",
+    "debian_tools_lock_digest_test.py",
+    "launcher_main.c",
 ])
+
+py_binary(
+    name = "extract_tree_runtime",
+    srcs = ["extract_tree.py"],
+    main = "extract_tree.py",
+    visibility = ["//visibility:public"],
+)
+
+py_test(
+    name = "debian_tools_security_test",
+    srcs = [
+        "debian_launcher.py",
+        "debian_tools_security_test.py",
+        "extract_tree.py",
+    ],
+    data = [
+        "provenance.bzl",
+        "@mkosi_debian_packages//:flat",
+    ],
+    main = "debian_tools_security_test.py",
+)
+
+py_test(
+    name = "debian_tools_lock_digest_test",
+    srcs = [
+        "debian_tools_lock_digest_test.py",
+    ],
+    data = [
+        "debian13.lock.json",
+        "provenance.bzl",
+    ],
+    main = "debian_tools_lock_digest_test.py",
+)
 
 py_test(
     name = "extract_tree_security_test",

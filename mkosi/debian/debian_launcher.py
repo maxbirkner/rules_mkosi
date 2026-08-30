@@ -1,12 +1,13 @@
-"""Execute a Debian build tool from an action-local, root-isolated tree."""
+"""Execute a Debian build tool from an authenticated, isolated package tree."""
 
 import hashlib
 import importlib.util
 import os
 import pathlib
+import posixpath
+import shutil
 import subprocess
 import sys
-import tempfile
 
 
 TOOLS = {
@@ -22,46 +23,325 @@ TOOLS = {
     "grub-install": "/usr/sbin/grub-install",
     "bootctl": "/usr/bin/bootctl",
     "objcopy": "/usr/bin/objcopy",
+    "openssl": "/usr/bin/openssl",
 }
 
+_MOUNT_ROOTS = ("/root", "/tmp", "/proc", "/dev", "/workspace", "/inputs", "/outputs")
 
-def _extract_root(archive, expected_digest):
-    digest = hashlib.sha256(pathlib.Path(archive).read_bytes()).hexdigest()
-    if digest != expected_digest:
-        raise RuntimeError("Debian tools archive digest mismatch: expected=%s actual=%s" % (expected_digest, digest))
+
+def _archive_digest(archive):
+    digest = hashlib.sha256()
+    with pathlib.Path(archive).open("rb") as source:
+        while True:
+            chunk = source.read(1024 * 1024)
+            if not chunk:
+                break
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _inside_root(root, path):
+    root = os.path.realpath(root)
+    resolved = os.path.realpath(path)
+    return resolved == root or resolved.startswith(root + os.sep)
+
+
+def _require_directory(root, relative, allow_symlink=False):
+    path = os.path.join(root, relative.lstrip("/"))
+    if (
+        not os.path.isdir(path)
+        or (os.path.islink(path) and not allow_symlink)
+        or not _inside_root(root, path)
+    ):
+        raise RuntimeError("Debian tools root has an invalid directory: %s" % relative)
+
+
+def _require_executable(root, relative, description):
+    path = os.path.join(root, relative.lstrip("/"))
+    if (
+        not os.path.isfile(path)
+        or not os.access(path, os.X_OK)
+        or not _inside_root(root, path)
+    ):
+        raise RuntimeError("%s is missing or not executable: %s" % (description, relative))
+    return path
+
+
+def _validate_root(root, tool):
+    if not os.path.isdir(root) or os.path.islink(root):
+        raise RuntimeError("Debian tools extraction did not produce a physical root")
+    for relative in _MOUNT_ROOTS + ("/etc", "/usr", "/usr/bin", "/usr/sbin"):
+        _require_directory(root, relative)
+
+    bundle = os.path.join(root, "etc/ssl/certs/ca-certificates.crt")
+    if (
+        not os.path.isfile(bundle)
+        or os.path.islink(bundle)
+        or os.path.getsize(bundle) == 0
+        or not _inside_root(root, bundle)
+    ):
+        raise RuntimeError("packaged CA bundle is missing or invalid: %s" % bundle)
+
+    loader = None
+    for candidate in (
+        "lib64/ld-linux-x86-64.so.2",
+        "lib/x86_64-linux-gnu/ld-linux-x86-64.so.2",
+        "usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2",
+    ):
+        path = os.path.join(root, candidate)
+        if os.path.isfile(path) and os.access(path, os.X_OK) and _inside_root(root, path):
+            loader = path
+            break
+    if loader is None:
+        raise RuntimeError("Debian bootstrap loader is missing from extracted root")
+
+    bwrap = _require_executable(root, "/usr/bin/bwrap", "Debian root-isolation launcher")
+    if tool not in TOOLS.values():
+        raise RuntimeError("unknown or unmapped Debian tool: %s" % tool)
+    executable = None
+    for mapped_tool in TOOLS.values():
+        mapped_executable = _require_executable(root, mapped_tool, "mapped Debian executable")
+        if mapped_tool == tool:
+            executable = mapped_executable
+    for library_directory in (
+        "/usr/lib/x86_64-linux-gnu",
+        "/lib/x86_64-linux-gnu",
+        "/usr/lib/x86_64-linux-gnu/systemd",
+        "/usr/lib/systemd",
+        "/usr/lib64",
+    ):
+        _require_directory(root, library_directory, allow_symlink=library_directory.startswith("/lib"))
+    return loader, bwrap, executable
+
+
+def _canonical_destination(destination):
+    if not destination.startswith("/") or "\x00" in destination:
+        raise RuntimeError("namespace destination must be absolute: %s" % destination)
+    if posixpath.normpath(destination) != destination:
+        raise RuntimeError("namespace destination is not canonical: %s" % destination)
+    parts = destination.split("/")
+    if any(part in ("", ".", "..") for part in parts[1:]):
+        raise RuntimeError("namespace destination contains unsafe path components: %s" % destination)
+    return destination
+
+
+def _under(destination, parent):
+    return destination == parent or destination.startswith(parent + "/")
+
+
+def _validate_binds(arguments):
+    ro_binds = []
+    rw_binds = []
+    destinations = []
+    while arguments and arguments[0] in ("--ro-bind", "--rw-bind"):
+        kind = arguments.pop(0)
+        if not arguments or ":" not in arguments[0]:
+            raise RuntimeError("%s requires SRC:DEST" % kind)
+        source, destination = arguments.pop(0).split(":", 1)
+        if not source.startswith("/") or "\x00" in source:
+            raise RuntimeError("namespace bind source must be absolute: %s" % source)
+        source = os.path.realpath(source)
+        if not os.path.exists(source):
+            raise FileNotFoundError("namespace bind source is missing: %s" % source)
+        destination = _canonical_destination(destination)
+        if destination in ("/",) + tuple(_MOUNT_ROOTS):
+            raise RuntimeError("namespace bind destination is a reserved mount root: %s" % destination)
+        if kind == "--ro-bind":
+            if not _under(destination, "/inputs"):
+                raise RuntimeError("read-only namespace binds must be under /inputs: %s" % destination)
+            ro_binds.append((source, destination))
+        else:
+            if not (_under(destination, "/workspace") or _under(destination, "/outputs")):
+                raise RuntimeError("read-write namespace binds must be under /workspace or /outputs: %s" % destination)
+            rw_binds.append((source, destination))
+        for prior in destinations:
+            if destination == prior or _under(destination, prior) or _under(prior, destination):
+                raise RuntimeError("namespace bind destinations overlap: %s and %s" % (prior, destination))
+        destinations.append(destination)
+    return ro_binds, rw_binds
+
+
+def _prepare_mountpoint(base, destination, source):
+    relative = destination.lstrip("/").split("/")
+    current = base
+    for part in relative[:-1]:
+        current = os.path.join(current, part)
+        if os.path.lexists(current):
+            if not os.path.isdir(current) or os.path.islink(current):
+                raise RuntimeError("namespace mount parent is not a directory: %s" % destination)
+        else:
+            os.mkdir(current)
+    path = os.path.join(base, *relative)
+    source_is_directory = os.path.isdir(source)
+    if os.path.lexists(path):
+        if source_is_directory and os.path.isdir(path) and not os.path.islink(path):
+            return
+        raise RuntimeError("namespace mount destination has the wrong type: %s" % destination)
+    if source_is_directory:
+        os.mkdir(path)
+    else:
+        pathlib.Path(path).touch()
+
+
+def _private_scratch():
     scratch_parent = os.environ.get("MKOSI_DEBIAN_TOOLS_SCRATCH") or os.environ.get("TEST_TMPDIR")
     if not scratch_parent:
         raise RuntimeError("MKOSI_DEBIAN_TOOLS_SCRATCH or TEST_TMPDIR is required")
     scratch_parent = os.path.abspath(scratch_parent)
-    if not os.path.exists(scratch_parent):
-        os.mkdir(scratch_parent)
+    current = os.path.sep
+    for component in scratch_parent.strip(os.path.sep).split(os.path.sep):
+        current = os.path.join(current, component)
+        if os.path.islink(current):
+            raise RuntimeError("invalid action-private Debian tools scratch directory: %s" % scratch_parent)
+    if os.path.lexists(scratch_parent):
+        if os.path.islink(scratch_parent) or not os.path.isdir(scratch_parent):
+            raise RuntimeError("invalid action-private Debian tools scratch directory: %s" % scratch_parent)
+    else:
+        os.makedirs(scratch_parent, mode=0o700)
     if os.path.islink(scratch_parent) or not os.path.isdir(scratch_parent):
         raise RuntimeError("invalid action-private Debian tools scratch directory: %s" % scratch_parent)
-    root = os.path.join(scratch_parent, "root")
-    if os.path.lexists(root):
-        raise RuntimeError("preexisting Debian tools scratch root is forbidden: %s" % root)
-    partial = tempfile.mkdtemp(prefix=".extract-", dir=scratch_parent)
+    entries = [entry for entry in os.listdir(scratch_parent) if entry != ".in-use"]
+    if entries:
+        raise RuntimeError("Debian tools scratch directory must be empty: %s" % scratch_parent)
+    return scratch_parent
+
+
+def _extract_root(archive, expected_digest, tool, binds):
+    if not expected_digest:
+        raise RuntimeError("DEBIAN_TOOLS_ARCHIVE_SHA256 is required")
+    # Hash the archive before importing the extractor or opening it as a tar.
+    actual_digest = _archive_digest(archive)
+    if actual_digest != expected_digest:
+        raise RuntimeError(
+            "Debian tools archive digest mismatch: expected=%s actual=%s"
+            % (expected_digest, actual_digest)
+        )
+    scratch_parent = _private_scratch()
+    lock = os.path.join(scratch_parent, ".in-use")
     try:
-        extractor_path = os.environ.get("DEBIAN_TOOLS_EXTRACTOR")
-        if not extractor_path:
-            raise RuntimeError("DEBIAN_TOOLS_EXTRACTOR is required")
-        spec = importlib.util.spec_from_file_location("extract_tree", extractor_path)
-        extractor = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(extractor)
-        extractor.extract(archive, partial)
-        with open(os.path.join(partial, ".complete"), "w", encoding="utf-8") as complete:
-            complete.write("mkosi-debian-tools-v1\n" + digest + "\n")
-        os.replace(partial, root)
-    except Exception:
-        import shutil
-        shutil.rmtree(partial, ignore_errors=True)
-        raise
+        os.mkdir(lock, 0o700)
+    except FileExistsError:
+        raise RuntimeError("Debian tools scratch directory is already in use: %s" % scratch_parent)
+    root = os.path.join(scratch_parent, "root")
+    try:
+        if os.path.lexists(root):
+            raise RuntimeError("preexisting Debian tools scratch root is forbidden: %s" % root)
+        partial = os.path.join(scratch_parent, ".partial")
+        os.mkdir(partial, 0o700)
+        try:
+            extractor_path = os.environ.get("DEBIAN_TOOLS_EXTRACTOR")
+            if not extractor_path:
+                raise RuntimeError("DEBIAN_TOOLS_EXTRACTOR is required")
+            extractor_path = os.path.realpath(extractor_path)
+            spec = importlib.util.spec_from_file_location("mkosi_debian_extract_tree", extractor_path)
+            if spec is None or spec.loader is None:
+                raise RuntimeError("Debian tools extractor cannot be loaded: %s" % extractor_path)
+            extractor = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(extractor)
+            extractor.extract(archive, partial, expected_digest)
+            _validate_root(partial, tool)
+            for source, destination in binds[0] + binds[1]:
+                _prepare_mountpoint(partial, destination, source)
+            marker = os.path.join(partial, ".complete")
+            with open(marker, "w", encoding="utf-8") as complete:
+                complete.write("mkosi-debian-tools-v1\n" + expected_digest + "\n")
+                complete.flush()
+                os.fsync(complete.fileno())
+            os.replace(partial, root)
+        except Exception:
+            shutil.rmtree(partial, ignore_errors=True)
+            raise
+    finally:
+        os.rmdir(lock)
     return root
+
+
+def _runtime_directory(parent, name, mode=0o700):
+    path = os.path.join(parent, name)
+    os.mkdir(path, mode)
+    os.chmod(path, mode)
+    return path
+
+
+def _run(tool, arguments, root, ro_binds, rw_binds, scratch_parent):
+    runtime = os.path.join(scratch_parent, ".runtime")
+    os.mkdir(runtime, 0o700)
+    try:
+        workspace = _runtime_directory(runtime, "workspace")
+        outputs = _runtime_directory(runtime, "outputs")
+        home = _runtime_directory(runtime, "home")
+        for source, destination in rw_binds:
+            base = workspace if _under(destination, "/workspace") else outputs
+            prefix = "/workspace" if base == workspace else "/outputs"
+            _prepare_mountpoint(base, destination[len(prefix):] or "/", source)
+
+        libraries = ":".join(
+            os.path.join(root, path) for path in (
+                "usr/lib/x86_64-linux-gnu",
+                "lib/x86_64-linux-gnu",
+                "usr/lib/x86_64-linux-gnu/systemd",
+                "usr/lib/systemd",
+                "usr/lib64",
+            )
+        )
+        loader, bwrap, _ = _validate_root(root, tool)
+        command = [
+            loader,
+            "--library-path",
+            libraries,
+            bwrap,
+            "--die-with-parent",
+            "--unshare-user-try",
+            "--unshare-pid",
+            "--unshare-ipc",
+            "--unshare-uts",
+            "--new-session",
+            "--ro-bind",
+            root,
+            "/",
+            "--bind",
+            workspace,
+            "/workspace",
+            "--bind",
+            outputs,
+            "/outputs",
+            "--bind",
+            home,
+            "/root",
+            "--tmpfs",
+            "/tmp",
+            "--proc",
+            "/proc",
+            "--dev",
+            "/dev",
+        ] + sum((["--ro-bind", source, destination] for source, destination in ro_binds), []) + sum(
+            (["--bind", source, destination] for source, destination in rw_binds), []
+        ) + [
+            "--chdir",
+            "/workspace",
+            "--setenv",
+            "PATH",
+            "/usr/bin:/usr/sbin:/bin:/sbin",
+            "--setenv",
+            "HOME",
+            "/root",
+            "--setenv",
+            "TMPDIR",
+            "/tmp",
+            "--setenv",
+            "SSL_CERT_FILE",
+            "/etc/ssl/certs/ca-certificates.crt",
+            "--",
+            tool,
+        ] + arguments
+        return subprocess.run(command, env={"PATH": "", "HOME": "/root"}).returncode
+    finally:
+        shutil.rmtree(runtime, ignore_errors=True)
 
 
 def main():
     if len(sys.argv) < 2:
-        print("usage: debian-launcher /absolute/tool [args...]", file=sys.stderr)
+        print("usage: debian-launcher [--write-version OUTPUT|--write-image ...] /absolute/tool [args...]", file=sys.stderr)
         return 2
     output = None
     image_output = None
@@ -80,34 +360,16 @@ def main():
             return 2
         image_output, output, image_distribution, image_format = arguments[1:5]
         arguments = arguments[5:]
-    ro_binds = []
-    rw_binds = []
-    while arguments and arguments[0] in ("--ro-bind", "--rw-bind"):
-        kind = arguments.pop(0)
-        if not arguments or ":" not in arguments[0]:
-            print("%s requires SRC:DEST" % kind, file=sys.stderr)
-            return 2
-        source, destination = arguments.pop(0).split(":", 1)
-        if (
-            not source.startswith("/")
-            or not destination.startswith("/")
-            or destination in ("/", "/usr", "/lib")
-            or not any(destination == prefix or destination.startswith(prefix + "/")
-                       for prefix in ("/workspace", "/inputs", "/outputs"))
-        ):
-            print("unsafe namespace bind: %s:%s" % (source, destination), file=sys.stderr)
-            return 2
-        if not os.path.exists(source):
-            print("namespace bind source is missing: %s" % source, file=sys.stderr)
-            return 1
-        (ro_binds if kind == "--ro-bind" else rw_binds).append((source, destination))
+
+    ro_binds, rw_binds = _validate_binds(arguments)
     if not arguments:
         print("tool path is required", file=sys.stderr)
         return 2
-    tool = arguments[0]
+    tool = arguments.pop(0)
     if tool not in TOOLS.values():
         print("unknown or unmapped Debian tool: %s" % tool, file=sys.stderr)
         return 2
+
     archive = os.environ.get("DEBIAN_TOOLS_ARCHIVE")
     if not archive:
         print("DEBIAN_TOOLS_ARCHIVE is required", file=sys.stderr)
@@ -116,53 +378,10 @@ def main():
     if not expected_digest:
         print("DEBIAN_TOOLS_ARCHIVE_SHA256 is required", file=sys.stderr)
         return 1
-    root = _extract_root(archive, expected_digest)
-    bundle = os.path.join(root, "etc/ssl/certs/ca-certificates.crt")
-    if not os.path.isfile(bundle) or os.path.getsize(bundle) == 0:
-        print("packaged CA bundle is missing or empty: %s" % bundle, file=sys.stderr)
-        return 1
-    loader = next(
-        (os.path.join(root, candidate) for candidate in (
-            "lib64/ld-linux-x86-64.so.2",
-            "lib/x86_64-linux-gnu/ld-linux-x86-64.so.2",
-            "usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2",
-        ) if os.path.exists(os.path.join(root, candidate))),
-        None,
-    )
-    if not loader:
-        print("Debian bootstrap loader is missing from extracted root", file=sys.stderr)
-        return 1
-    bwrap = os.path.join(root, "usr/bin/bwrap")
-    if not os.path.exists(bwrap):
-        print("Debian root-isolation launcher is missing: %s" % bwrap, file=sys.stderr)
-        return 1
-    executable = os.path.join(root, tool)
-    if not os.path.exists(executable):
-        print("in-root executable is missing: %s" % tool, file=sys.stderr)
-        return 1
-    libraries = ":".join(
-        os.path.join(root, path) for path in (
-            "usr/lib/x86_64-linux-gnu",
-            "lib/x86_64-linux-gnu",
-            "usr/lib/x86_64-linux-gnu/systemd",
-            "usr/lib/systemd",
-            "usr/lib64",
-        )
-    )
-    command = [
-        loader, "--library-path", libraries, bwrap,
-        "--die-with-parent", "--unshare-user", "--unshare-pid",
-        "--unshare-ipc", "--unshare-uts", "--new-session",
-        "--ro-bind", root, "/",
-    ] + sum((["--ro-bind", source, destination] for source, destination in ro_binds), []) + sum(
-        (["--bind", source, destination] for source, destination in rw_binds), []
-    ) + [
-        "--chdir", "/",
-        "--setenv", "PATH", "/usr/bin:/usr/sbin",
-        "--setenv", "HOME", "/root",
-        "--", tool,
-    ] + arguments[1:]
-    completed = subprocess.run(command, env={"PATH": "", "HOME": "/root"})
+
+    root = _extract_root(archive, expected_digest, tool, (ro_binds, rw_binds))
+    scratch_parent = os.path.dirname(root)
+    status = _run(tool, arguments, root, ro_binds, rw_binds, scratch_parent)
     if output:
         with open(output, "w", encoding="utf-8") as version:
             version.write("Debian tool probe: %s\n" % tool)
@@ -171,14 +390,12 @@ def main():
             image.write("rules_mkosi placeholder image\n")
             image.write("format=%s\n" % image_format)
             image.write("distribution=%s\n" % image_distribution)
-    if completed.returncode == 127:
-        print("root-isolation or in-root ELF interpreter setup failed for %s" % tool, file=sys.stderr)
-    return completed.returncode
+    return status
 
 
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
-    except Exception as error:
+    except (OSError, RuntimeError, ValueError) as error:
         print("Debian launcher setup failed: %s" % error, file=sys.stderr)
         raise SystemExit(1)

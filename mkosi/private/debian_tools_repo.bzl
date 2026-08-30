@@ -2,8 +2,21 @@
 
 def _impl(ctx):
     ctx.file(
+        "launcher_config.h",
+        """#define DEBIAN_TOOLS_ARCHIVE_SHA256 "{archive_sha256}"
+#define DEBIAN_TOOLS_ARCHIVE_RLOCATION "rules_distroless++apt+mkosi_debian_packages/flat.tar"
+#define DEBIAN_TOOLS_PYTHON_RLOCATION "rules_python++python+python_3_11_x86_64-unknown-linux-gnu/bin/python3"
+#define DEBIAN_TOOLS_SCRIPT_RLOCATION "rules_mkosi/mkosi/debian/debian_launcher.py"
+#define DEBIAN_TOOLS_SCRIPT_ALTERNATE_RLOCATION "_main/mkosi/debian/debian_launcher.py"
+#define DEBIAN_TOOLS_EXTRACTOR_RLOCATION "rules_mkosi/mkosi/debian/extract_tree.py"
+#define DEBIAN_TOOLS_EXTRACTOR_ALTERNATE_RLOCATION "_main/mkosi/debian/extract_tree.py"
+""".format(archive_sha256 = ctx.attr.archive_sha256),
+    )
+    ctx.file(
         "BUILD.bazel",
-        """load("@rules_mkosi//mkosi/debian:toolchain.bzl", "debian_tools_toolchain", "debian_tools_tree")
+        """load("@rules_cc//cc:defs.bzl", "cc_binary")
+load("@rules_python//python:defs.bzl", "py_binary")
+load("@rules_mkosi//mkosi/debian:toolchain.bzl", "debian_tools_toolchain", "debian_tools_tree")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -15,6 +28,7 @@ debian_tools_tree(
     name = "tree_root",
     archive = ":tree",
     extractor = "@rules_mkosi//mkosi/debian:extract_tree.py",
+    archive_sha256 = "{archive_sha256}",
 )
 
 alias(name = "python", actual = "@python_3_11//:python3")
@@ -25,6 +39,29 @@ filegroup(
 filegroup(
     name = "extractor",
     srcs = ["@rules_mkosi//mkosi/debian:extract_tree.py"],
+)
+
+cc_binary(
+    name = "launcher",
+    srcs = [
+        "launcher_config.h",
+        "@rules_mkosi//mkosi/debian:launcher_main.c",
+    ],
+    data = [
+        ":tree",
+        ":extractor",
+        ":launcher_script",
+        ":python",
+        ":python_bootstrap",
+    ],
+    linkopts = ["-static"],
+)
+
+py_binary(
+    name = "python_bootstrap",
+    srcs = ["@rules_mkosi//mkosi/debian:debian_launcher.py"],
+    main = "@rules_mkosi//mkosi/debian:debian_launcher.py",
+    data = ["@python_3_11//:python3"],
 )
 
 debian_tools_toolchain(
@@ -38,6 +75,7 @@ debian_tools_toolchain(
     archive_sha256 = "{archive_sha256}",
     tree = ":tree",
     tree_root = ":tree_root",
+    launcher = ":launcher",
     python = ":python",
     launcher_script = ":launcher_script",
     extractor = ":extractor",

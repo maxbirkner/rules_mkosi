@@ -28,7 +28,7 @@ sh_test(
 debian_tools_preflight_test(
     name = "debian_tools_preflight_test",
     components = "//mkosi/debian:components.txt",
-    launcher = "@mkosi_debian_tools//:python",
+    launcher = "@mkosi_debian_tools//:launcher",
     provenance = "//mkosi/debian:provenance.bzl",
     required_components = [
         "apt-get",
@@ -49,7 +49,7 @@ debian_tools_preflight_test(
 debian_tools_preflight(
     name = "debian_tools_missing_component",
     components = "//mkosi/debian:components_missing.txt",
-    launcher = "@mkosi_debian_tools//:python",
+    launcher = "@mkosi_debian_tools//:launcher",
     provenance = "//mkosi/debian:provenance.bzl",
     required_components = ["apt-get"],
     tree = "@mkosi_debian_tools//:tree_root",
@@ -61,23 +61,16 @@ sh_test(
     data = [":debian_tools_missing_component"],
 )
 
-sh_test(
+alias(
     name = "debian_tools_lock_digest_test",
-    srcs = ["debian_tools_lock_digest_test.sh"],
-    data = [
-        "//mkosi/debian:debian13.lock.json",
-        "//mkosi/debian:provenance.bzl",
-    ],
+    actual = "//mkosi/debian:debian_tools_lock_digest_test",
 )
 
 sh_test(
     name = "debian_tools_runtime_test",
     srcs = ["debian_tools_runtime_test.sh"],
     data = [
-        "@mkosi_debian_tools//:extractor",
-        "@mkosi_debian_tools//:python",
-        "@mkosi_debian_tools//:tree",
-        "@rules_mkosi//mkosi/debian:debian_launcher.py",
+        "@mkosi_debian_tools//:launcher",
     ],
 )
 

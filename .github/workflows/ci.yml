@@ -25,6 +25,8 @@ jobs:
       matrix:
         bazel:
           - "7.7.1"
+          - "8.5.1"
+          - "9.2.0"
         module:
           - "."
           - "e2e/smoke"
@@ -44,8 +46,22 @@ jobs:
           disk-cache: rules-mkosi-${{ matrix.bazel }}
           repository-cache: true
 
+      - name: Verify pinned Bazel version
+        run: |
+          actual="$(bazel --version)"
+          echo "$actual"
+          test "$actual" = "bazel ${{ matrix.bazel }}"
+
       - name: Run test suite
-        run: bazel test --lockfile_mode=error //...
+        run: |
+          if [ "${{ matrix.bazel }}" = "7.7.1" ]; then
+            bazel test --lockfile_mode=error //...
+          else
+            # The committed format-13 lock is generated at the compatibility
+            # floor.  Bazel 8/9 validate module resolution without rewriting
+            # it, because those releases use newer lock formats.
+            bazel test --lockfile_mode=off //...
+          fi
 
       - name: Verify Linux sandbox helper
         if: matrix.module == '.'
@@ -83,7 +99,9 @@ jobs:
 
       - name: Verify committed lockfile
         run: |
-          bazel --version
+          actual="$(bazel --version)"
+          echo "$actual"
+          test "$actual" = "bazel 7.7.1"
           bazel mod deps --lockfile_mode=error
 
   module-resolution:
@@ -94,6 +112,8 @@ jobs:
       matrix:
         bazel:
           - "7.7.1"
+          - "8.5.1"
+          - "9.2.0"
         fixture:
           - default
           - explicit
@@ -115,7 +135,11 @@ jobs:
           repository-cache: true
 
       - name: Test module resolution fixture
-        run: e2e/module_resolution/test.sh ${{ matrix.fixture }}
+        run: |
+          actual="$(bazel --version)"
+          echo "$actual"
+          test "$actual" = "bazel ${{ matrix.bazel }}"
+          e2e/module_resolution/test.sh ${{ matrix.fixture }}
 
   lint:
     name: prek
@@ -137,6 +161,7 @@ jobs:
       - lint
       - lockfile
       - test
+      - module-resolution
     runs-on: ubuntu-24.04
     steps:
       - name: Require successful jobs

@@ -65,8 +65,9 @@ and snapshot `20250814T000000Z`. It is resolved with `rules_distroless`
 version, dependency edge, and SHA-256 digest. The
 `@mkosi_debian_tools//:linux_x86_64` toolchain exposes the extracted
 TreeArtifact, root-isolated launcher, and provenance through
-`DebianToolsInfo`; image actions receive the root and launcher as declared
-inputs and run with an empty ambient `PATH`. The initial tracer set
+`DebianToolsInfo`; image actions invoke the advertised launcher (a static
+executable that starts the managed Python script) with the archive, extractor,
+and digest as exact runfiles and an empty ambient `PATH`. The initial tracer set
 includes APT/dpkg bootstrap tools, `systemd-repart`, filesystem and partition
 utilities, GRUB/systemd-boot UEFI tools, `objcopy`, and their locked runtime
 dependencies. Target image package acquisition remains out of scope.
@@ -79,8 +80,19 @@ The lockfile's package SHA-256 values are the immutable trust roots consumed
 by `rules_distroless`. Package-index signature verification is intentionally
 not advertised because the resolver does not currently perform that check.
 
+The checked-in Bzlmod lockfile uses Bazel 7.7.1's format. CI runs the root and
+independent consumer suites on pinned Bazel 7.7.1, 8.5.1, and 9.2.0; Bazel
+7.7.1 uses `--lockfile_mode=error`, while Bazel 8/9 use
+`--lockfile_mode=off` so compatibility is verified without silently
+rewriting the committed lockfile.
+
 The root module may select a version with `mkosi.toolchain(version = "27")`;
 unsupported or conflicting requests fail during module resolution.
+
+Consumers that need the Debian contract can import `DebianToolsInfo` from the
+public `@rules_mkosi//mkosi:defs.bzl` label (or the compatibility wrapper
+`@rules_mkosi//mkosi:debian_tools.bzl`). The canonical repository name remains
+`mkosi_debian_tools` after the Debian extension is used.
 
 ```starlark
 load("@rules_mkosi//mkosi:defs.bzl", "mkosi_image")

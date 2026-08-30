@@ -30,12 +30,28 @@ DebianToolsInfo = provider(
 
 def _tree_impl(ctx):
     root = ctx.actions.declare_directory(ctx.label.name + "_root")
+    python_home = ctx.executable._python.path
+    python_home = python_home[:python_home.rfind("/bin/python3")]
+    runtime_files = ctx.attr._python_runtime[DefaultInfo].default_runfiles.files
     ctx.actions.run(
         executable = ctx.executable._python,
-        arguments = [ctx.file.extractor.path, ctx.file.archive.path, root.path],
-        inputs = [ctx.file.extractor, ctx.file.archive],
+        arguments = [
+            ctx.file.extractor.path,
+            ctx.file.archive.path,
+            root.path,
+            ctx.attr.archive_sha256,
+        ],
+        inputs = depset(
+            [ctx.file.extractor, ctx.file.archive],
+            transitive = [runtime_files],
+        ),
         tools = [ctx.executable._python],
         outputs = [root],
+        env = {
+            "PYTHONHOME": python_home,
+            "PYTHONNOUSERSITE": "1",
+            "PATH": "",
+        },
         mnemonic = "ExtractDebianTools",
         progress_message = "Extracting Debian tools tree %{label}",
     )
@@ -46,86 +62,20 @@ debian_tools_tree = rule(
     attrs = {
         "archive": attr.label(mandatory = True, allow_single_file = True),
         "extractor": attr.label(mandatory = True, allow_single_file = True),
+        "archive_sha256": attr.string(mandatory = True),
         "_python": attr.label(
             allow_files = True,
             executable = True,
             cfg = "exec",
             default = "@python_3_11//:python3",
         ),
+        "_python_runtime": attr.label(
+            executable = True,
+            cfg = "exec",
+            default = "//mkosi/debian:extract_tree_runtime",
+        ),
     },
     doc = "Extracts a Debian archive with the Bazel-managed Python runtime.",
-)
-
-def _launcher_impl(ctx):
-    output = ctx.actions.declare_file(ctx.label.name)
-    root = ctx.attr.root[DefaultInfo].files.to_list()[0]
-    ctx.actions.write(
-        output = output,
-        is_executable = True,
-        content = """#!/bin/sh
-set -eu
-PATH=
-export PATH
-runfiles_root="${{RUNFILES_DIR:-$0.runfiles}}"
-root="{root}"
-case "$root" in
-    ../*) root="${{root#../}}" ;;
-    external/*) root="${{root#external/}}" ;;
-esac
-if [ -d "$runfiles_root/$root" ]; then root="$runfiles_root/$root"
-elif [ -d "$runfiles_root/_main/$root" ]; then root="$runfiles_root/_main/$root"
-elif [ -d "$runfiles_root/rules_mkosi/$root" ]; then root="$runfiles_root/rules_mkosi/$root"
-else
-    echo "Debian tools root is missing from runfiles: $root" >&2
-    exit 1
-fi
-root="$(cd "$root" && pwd -P)"
-bwrap="$root/usr/bin/bwrap"
-libs="$root/usr/lib/x86_64-linux-gnu:$root/lib/x86_64-linux-gnu:$root/usr/lib/x86_64-linux-gnu/systemd:$root/usr/lib/systemd:$root/usr/lib64"
-loader=
-for candidate in \
-    "$root/lib64/ld-linux-x86-64.so.2" \
-    "$root/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2" \
-    "$root/usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2"
-do
-    if [ -x "$candidate" ]; then loader="$candidate"; break; fi
-done
-[ -n "$loader" ] || {{ echo "Debian bootstrap loader is missing from extracted root" >&2; exit 1; }}
-[ -x "$bwrap" ] || {{ echo "Debian root-isolation launcher is missing: $bwrap" >&2; exit 1; }}
-[ "$#" -gt 0 ] || {{ echo "usage: $0 /usr/bin/tool [args...]" >&2; exit 2; }}
-case "$1" in
-    /*) ;;
-    *) echo "in-root tool path must be absolute: $1" >&2; exit 2 ;;
-esac
-[ -x "$root$1" ] || {{ echo "in-root executable is missing: $1" >&2; exit 1; }}
-"$loader" --library-path "$libs" "$bwrap" \
-    --die-with-parent --unshare-user-try --unshare-pid --unshare-ipc --unshare-uts --new-session \
-    --ro-bind "$root" / \
-    --setenv PATH /usr/bin:/usr/sbin \
-    --setenv HOME /root \
-    -- "$@"
-status=$?
-if [ "$status" -ne 0 ]; then
-    echo "root-isolation or in-root ELF execution failed for $1 (status=$status)" >&2
-    echo "bwrap argv: loader=$loader root=$root tool=$1 libraries=$libs" >&2
-fi
-exit "$status"
-""".format(root = root.short_path),
-    )
-    return [
-        DefaultInfo(
-            executable = output,
-            runfiles = ctx.runfiles(files = [output], transitive_files = depset([root])),
-        ),
-    ]
-
-debian_tools_launcher = rule(
-    implementation = _launcher_impl,
-    executable = True,
-    attrs = {
-        "root": attr.label(mandatory = True),
-    },
-    doc = "Runs a Debian tool inside its packaged root and loader.",
 )
 
 def _preflight_impl(ctx):
@@ -223,7 +173,7 @@ def _debian_tools_toolchain_impl(ctx):
     tree_info = ctx.attr.tree[DefaultInfo]
     tree_file = ctx.file.tree
     tree_root = ctx.attr.tree_root[DefaultInfo].files.to_list()[0]
-    launcher = ctx.attr.python[DefaultInfo]
+    launcher = ctx.attr.launcher[DefaultInfo]
     info = DebianToolsInfo(
         format_version = ctx.attr.format_version,
         distribution = ctx.attr.distribution,
@@ -264,6 +214,7 @@ debian_tools_toolchain = rule(
         "archive_sha256": attr.string(mandatory = True),
         "tree": attr.label(mandatory = True, allow_single_file = True),
         "tree_root": attr.label(mandatory = True),
+        "launcher": attr.label(mandatory = True, executable = True, cfg = "exec"),
         "python": attr.label(mandatory = True, allow_files = True, executable = True, cfg = "exec"),
         "launcher_script": attr.label(mandatory = True, allow_single_file = True),
         "extractor": attr.label(mandatory = True, allow_single_file = True),

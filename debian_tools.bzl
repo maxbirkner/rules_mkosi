@@ -1,5 +1,5 @@
-"""Public Debian userspace toolchain API."""
+"""Compatibility wrapper for the public Debian userspace toolchain API."""
 
-load("//mkosi/debian:toolchain.bzl", _DebianToolsInfo = "DebianToolsInfo")
+load("//mkosi:debian_tools.bzl", _DebianToolsInfo = "DebianToolsInfo")
 
 DebianToolsInfo = _DebianToolsInfo

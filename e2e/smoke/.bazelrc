@@ -1,2 +1,5 @@
 common --enable_bzlmod
+# The independent consumer is checked with the committed lock at the floor
+# and with lockfile mode off on newer Bazel versions; never rewrite it.
+common --lockfile_mode=off
 test --test_output=errors

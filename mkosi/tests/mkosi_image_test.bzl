@@ -17,8 +17,8 @@ def _provider_test_impl(ctx):
     asserts.equals(env, 1, len(actions))
     asserts.equals(env, "Action", actions[0].mnemonic)
     action_inputs = [file.basename for file in actions[0].inputs.to_list()]
-    asserts.true(env, "tree_root_root" in action_inputs)
-    asserts.true(env, "python3" in action_inputs)
+    asserts.true(env, "launcher" in action_inputs)
+    asserts.true(env, "flat.tar" in action_inputs)
 
     return analysistest.end(env)
 
@@ -98,7 +98,7 @@ def _debian_tools_provider_test_impl(ctx):
     )
     asserts.equals(env, "flat.tar", info.tree.basename)
     asserts.equals(env, "tree_root_root", info.tree_root.basename)
-    asserts.equals(env, "python3", info.launcher.basename)
+    asserts.equals(env, "launcher", info.launcher.basename)
     asserts.true(env, info.launcher_files_to_run.executable != None)
     asserts.true(env, info.tree_files_to_run.executable == None)
     asserts.equals(env, 11, len(info.required_components))

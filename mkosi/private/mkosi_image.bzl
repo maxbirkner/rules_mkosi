@@ -17,18 +17,13 @@ def _mkosi_image_impl(ctx):
     scratch = ctx.actions.declare_directory(ctx.label.name + ".debian_tools_scratch")
 
     ctx.actions.run(
-        executable = debian_tools.python_files_to_run,
+        executable = debian_tools.launcher_files_to_run,
         tools = [
             toolchain.files_to_run,
             debian_tools.tree,
-            debian_tools.tree_root,
             debian_tools.launcher_files_to_run,
-            debian_tools.python_files_to_run,
-            debian_tools.launcher_script,
-            debian_tools.extractor,
         ],
         arguments = [
-            debian_tools.launcher_script.path,
             "--write-image",
             image.path,
             version.path,
@@ -40,7 +35,6 @@ def _mkosi_image_impl(ctx):
         env = {
             "PATH": "",
             "MKOSI_DEBIAN_TOOLS_TREE": debian_tools.tree.path,
-            "MKOSI_DEBIAN_TOOLS_ROOT": debian_tools.tree_root.path,
             "MKOSI_DEBIAN_TOOLS_LAUNCHER": debian_tools.launcher.path,
             "MKOSI_DEBIAN_TOOLS_SCRATCH": scratch.path,
             "DEBIAN_TOOLS_ARCHIVE": debian_tools.tree.path,
