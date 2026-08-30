@@ -26,6 +26,33 @@ fi
     exit 1
 }
 
+hostile_sitecustomize="$TEST_TMPDIR/sitecustomize.py"
+printf '%s\n' 'raise RuntimeError("hostile sitecustomize loaded")' > "$hostile_sitecustomize"
+set +e
+hostile_output="$(
+    PYTHONPATH="$TEST_TMPDIR" \
+    PYTHONHOME="$TEST_TMPDIR" \
+    PYTHONSTARTUP="$hostile_sitecustomize" \
+    PYTHONINSPECT=1 \
+    LD_PRELOAD="$hostile_sitecustomize" \
+    LD_LIBRARY_PATH="$TEST_TMPDIR" \
+    MKOSI_DEBIAN_TOOLS_SCRATCH="$TEST_TMPDIR/debian-tools-hostile" \
+    "$launcher" /usr/bin/dpkg --version 2>&1
+)"
+hostile_status=$?
+set -e
+[ "$hostile_status" -eq 0 ] || {
+    echo "hostile Python/loader environment changed launcher status: $hostile_status" >&2
+    echo "$hostile_output" >&2
+    exit 1
+}
+case "$hostile_output" in
+    *"hostile sitecustomize loaded"*)
+        echo "hostile sitecustomize was imported" >&2
+        exit 1
+        ;;
+esac
+
 run_tool() {
     name="$1"
     expected="$2"
@@ -146,11 +173,28 @@ set -e
     echo "$once_output" >&2
     exit 1
 }
-IFS= read -r value < "$counter" || value=
-[ "$value" = x ] || {
+assert_one_x_record() {
+    exec 3< "$1"
+    first=
+    second=
+    first_status=0
+    IFS= read -r first <&3 || first_status=$?
+    second_status=0
+    IFS= read -r second <&3 || second_status=$?
+    exec 3<&-
+    [ "$first_status" -eq 0 ] && [ "$first" = x ] &&
+        [ "$second_status" -ne 0 ] && [ -z "$second" ]
+}
+assert_one_x_record "$counter" || {
     echo "launcher did not execute the nonzero command exactly once" >&2
     exit 1
 }
+duplicate="$TEST_TMPDIR/debian-tools-duplicate-counter"
+printf 'x\nx\n' > "$duplicate"
+if assert_one_x_record "$duplicate"; then
+    echo "duplicate execution records were accepted" >&2
+    exit 1
+fi
 
 run_tool openssl "OK" /usr/bin/openssl verify \
     -CAfile /etc/ssl/certs/ca-certificates.crt \

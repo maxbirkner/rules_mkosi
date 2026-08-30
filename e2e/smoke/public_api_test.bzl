@@ -9,7 +9,7 @@ def _public_api_test_impl(ctx):
     asserts.true(env, DebianToolsInfo in target)
     asserts.equals(env, "debian", target[DebianToolsInfo].distribution)
     asserts.equals(env, "13", target[DebianToolsInfo].release)
-    asserts.true(env, target[DebianToolsInfo].launcher_files_to_run.executable != None)
+    asserts.true(env, target[DebianToolsInfo].launcher.executable != None)
     return analysistest.end(env)
 
 public_api_test = analysistest.make(_public_api_test_impl)

@@ -133,9 +133,36 @@ def _materialize_runtime_link_targets(root):
             os.chmod(path, 0o644)
 
 
+def _resolve_link_path(relative, symlinks, members_by_path):
+    components = _link_target(relative, symlinks[relative].linkname).split(os.sep)
+    resolved_components = []
+    dependencies = []
+    seen = set()
+    resolutions = 0
+    while components:
+        component = components.pop(0)
+        current_components = resolved_components + [component]
+        current = os.path.join(*current_components)
+        member = members_by_path.get(current)
+        if member is not None and member.issym():
+            if current in seen:
+                raise ValueError("symlink cycle involving: %s" % current)
+            seen.add(current)
+            dependencies.append(current)
+            components = _link_target(current, member.linkname).split(os.sep) + components
+            resolved_components = []
+            resolutions += 1
+            if resolutions > len(symlinks) + len(components) + 1:
+                raise ValueError("symlink graph resolution exceeded its bound: %s" % relative)
+            continue
+        resolved_components.append(component)
+    return os.path.join(*resolved_components), dependencies
+
+
 def _resolve_symlink_graph(root, symlinks, members_by_path):
     state = {}
     resolved = {}
+    dependencies = {}
 
     def visit(relative):
         if state.get(relative) == "visiting":
@@ -143,12 +170,13 @@ def _resolve_symlink_graph(root, symlinks, members_by_path):
         if state.get(relative) == "done":
             return
         state[relative] = "visiting"
-        target = _link_target(relative, symlinks[relative].linkname)
+        target, direct_dependencies = _resolve_link_path(relative, symlinks, members_by_path)
+        for dependency in direct_dependencies:
+            if dependency != relative:
+                visit(dependency)
+        dependencies[relative] = direct_dependencies
         target_path = os.path.join(root, target)
-        target_member = members_by_path.get(target)
-        if target_member is not None and target_member.issym():
-            visit(target)
-        elif not os.path.exists(target_path):
+        if not os.path.exists(target_path):
             if relative not in _ALLOWED_DANGLING_SYMLINKS:
                 raise ValueError("dangling symlink: %s -> %s" % (relative, symlinks[relative].linkname))
         state[relative] = "done"
@@ -159,29 +187,24 @@ def _resolve_symlink_graph(root, symlinks, members_by_path):
 
     # The DFS above validates every edge before any link is created.  Create
     # links in graph order so forward chains work regardless of tar order.
-    for relative in sorted(symlinks, key=lambda item: _symlink_depth(item, symlinks)):
+    def depth(relative):
+        return max((depth(dependency) for dependency in dependencies[relative]), default=0) + 1
+
+    for relative in sorted(symlinks, key=lambda item: (depth(item), item)):
         member = symlinks[relative]
         _parent(root, relative)
         destination = os.path.join(root, relative)
         if os.path.lexists(destination):
             raise ValueError("archive path collision: %s" % relative)
-        target = _link_target(relative, member.linkname)
-        # Keep links rooted inside the extracted tree even when the archive
-        # used an absolute Debian path; TreeArtifact validation must not
-        # resolve it against the host root.
-        linkname = os.path.relpath(os.path.join(root, target), os.path.dirname(destination))
+        target = resolved[relative]
+        if member.linkname.startswith("/"):
+            # Keep links rooted inside the extracted tree even when the
+            # archive used an absolute Debian path; TreeArtifact validation
+            # must not resolve it against the host root.
+            linkname = os.path.relpath(os.path.join(root, target), os.path.dirname(destination))
+        else:
+            linkname = member.linkname
         os.symlink(linkname, destination)
-
-
-def _symlink_depth(relative, symlinks):
-    seen = set()
-    depth = 0
-    current = relative
-    while current in symlinks and current not in seen:
-        seen.add(current)
-        current = _link_target(current, symlinks[current].linkname)
-        depth += 1
-    return (depth, relative)
 
 
 def _resolve_hardlink_graph(root, hardlinks, members_by_path):

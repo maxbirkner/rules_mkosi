@@ -79,8 +79,15 @@ loader/library contract without silently consulting host libraries.
 The lockfile's package SHA-256 values are the immutable trust roots consumed
 by `rules_distroless`. Package-index signature verification is intentionally
 not advertised because the resolver does not currently perform that check.
+The launcher intentionally leaves the network namespace shared: Bazel's
+declared network policy remains the authority for future mkosi/package
+acquisition actions. Issue #6 isolates the packaged filesystem and runtime
+state, rather than silently forcing offline execution; the TLS regression is
+offline in the sense that it verifies the deterministic packaged CA bundle
+without contacting a server.
 
-The checked-in Bzlmod lockfile uses Bazel 7.7.1's format. CI runs the root and
+The default `.bazelversion` is Bazel 7.7.1, matching the checked-in Bzlmod
+lockfile format. CI runs the root and
 independent consumer suites on pinned Bazel 7.7.1, 8.5.1, and 9.2.0; Bazel
 7.7.1 uses `--lockfile_mode=error`, while Bazel 8/9 use
 `--lockfile_mode=off` so compatibility is verified without silently

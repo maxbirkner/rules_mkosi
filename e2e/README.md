@@ -12,7 +12,9 @@ would not exercise its independent module resolution.
 
 Run the root and consumer suites separately using the canonical commands in
 [`CONTRIBUTING.md`](../CONTRIBUTING.md). BCR also executes `e2e/smoke` as the
-published module's consumer test.
+published module's consumer test. The consumer directory pins Bazel 7.7.1
+for plain local commands, matching its checked-in format-13 lockfile; CI
+explicitly exercises pinned Bazel 8.5.1 and 9.2.0 with lockfile mode off.
 
 `module_resolution` contains checked-in Bazelmod fixtures for extension
 selection and failure diagnostics. Run one fixture with

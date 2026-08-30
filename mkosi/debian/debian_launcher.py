@@ -297,6 +297,8 @@ def _run(tool, arguments, root, ro_binds, rw_binds, scratch_parent):
             "--unshare-pid",
             "--unshare-ipc",
             "--unshare-uts",
+            # Keep network policy under the invoking Bazel action.  Future
+            # mkosi acquisition actions may require declared network access.
             "--new-session",
             "--ro-bind",
             root,

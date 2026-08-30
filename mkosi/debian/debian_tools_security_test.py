@@ -124,6 +124,27 @@ class DebianToolsSecurityTest(unittest.TestCase):
         self.assertEqual(os.stat(root / "usr/bin/hard").st_ino, os.stat(root / "usr/bin/base").st_ino)
         self.assertEqual(os.stat(root / "usr/bin/chain").st_ino, os.stat(root / "usr/bin/base").st_ino)
 
+    def test_directory_symlink_prefix_chain_is_order_independent(self):
+        real_directory = tarfile.TarInfo("realdir")
+        real_directory.type = tarfile.DIRTYPE
+        real_directory.mode = 0o755
+        real_file = tarfile.TarInfo("realdir/file")
+        real_file.mode = 0o644
+        real_file.size = 4
+        alias = tarfile.TarInfo("alias")
+        alias.type = tarfile.SYMTYPE
+        alias.linkname = "realdir"
+        leaf = tarfile.TarInfo("leaf")
+        leaf.type = tarfile.SYMTYPE
+        leaf.linkname = "alias/file"
+        archive = self._archive(
+            [(leaf, None), (alias, None), (real_file, b"data"), (real_directory, None)]
+        )
+        digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+        root = self.work / "prefix-root"
+        extract_tree.extract(str(archive), str(root), digest)
+        self.assertEqual((root / "leaf").resolve(), root / "realdir/file")
+
     def test_hardlink_target_is_archive_root_relative(self):
         directory = tarfile.TarInfo("usr")
         directory.type = tarfile.DIRTYPE

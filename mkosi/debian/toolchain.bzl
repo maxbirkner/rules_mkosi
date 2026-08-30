@@ -14,8 +14,7 @@ DebianToolsInfo = provider(
         "archive_sha256": "SHA-256 digest of the flattened package archive.",
         "tree": "Flattened tar archive containing the installed package tree.",
         "tree_root": "Extracted Debian tools TreeArtifact.",
-        "launcher": "Root-isolated executable launcher.",
-        "launcher_files_to_run": "FilesToRunProvider for the root launcher.",
+        "launcher": "FilesToRunProvider for the root-isolated executable launcher.",
         "python": "Bazel-managed standalone Python interpreter.",
         "python_files_to_run": "FilesToRunProvider for the standalone interpreter.",
         "launcher_script": "Python launcher script passed to the interpreter.",
@@ -186,8 +185,7 @@ def _debian_tools_toolchain_impl(ctx):
         archive_sha256 = ctx.attr.archive_sha256,
         tree = tree_file,
         tree_root = tree_root,
-        launcher = launcher.files_to_run.executable,
-        launcher_files_to_run = launcher.files_to_run,
+        launcher = launcher.files_to_run,
         python = ctx.attr.python[DefaultInfo].files_to_run.executable,
         python_files_to_run = ctx.attr.python[DefaultInfo].files_to_run,
         launcher_script = ctx.file.launcher_script,
@@ -223,4 +221,37 @@ debian_tools_toolchain = rule(
         "required_components": attr.string_list(mandatory = True),
     },
     doc = "Defines the pinned Debian userspace toolchain.",
+)
+
+def _launcher_probe_impl(ctx):
+    debian_tools = ctx.toolchains["//mkosi/toolchain:debian_tools_toolchain_type"].debian_tools
+    output = ctx.actions.declare_file(ctx.label.name + ".txt")
+    scratch = ctx.actions.declare_directory(ctx.label.name + ".scratch")
+    ctx.actions.run(
+        executable = debian_tools.launcher,
+        arguments = [
+            "--write-version",
+            output.path,
+            "/usr/bin/dpkg",
+            "--version",
+        ],
+        env = {
+            "PATH": "",
+            "MKOSI_DEBIAN_TOOLS_SCRATCH": scratch.path,
+        },
+        tools = [debian_tools.launcher],
+        outputs = [output, scratch],
+        mnemonic = "DebianToolsLauncherProbe",
+    )
+    return [DefaultInfo(files = depset([output]))]
+
+debian_tools_launcher_probe = rule(
+    implementation = _launcher_probe_impl,
+    attrs = {},
+    toolchains = ["//mkosi/toolchain:debian_tools_toolchain_type"],
+    exec_compatible_with = [
+        "@platforms//os:linux",
+        "@platforms//cpu:x86_64",
+    ],
+    doc = "Invokes the public DebianToolsInfo launcher through an action.",
 )

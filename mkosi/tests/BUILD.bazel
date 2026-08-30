@@ -1,7 +1,7 @@
 load("@bazel_skylib//rules:diff_test.bzl", "diff_test")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
 load("//mkosi:defs.bzl", "mkosi_image", "qemu_ovmf_smoke_test")
-load("//mkosi/debian:toolchain.bzl", "debian_tools_preflight", "debian_tools_preflight_test")
+load("//mkosi/debian:toolchain.bzl", "debian_tools_launcher_probe", "debian_tools_preflight", "debian_tools_preflight_test")
 load(
     ":extension_semantics_test.bzl",
     "conflicting_root_test",
@@ -53,6 +53,16 @@ debian_tools_preflight(
     provenance = "//mkosi/debian:provenance.bzl",
     required_components = ["apt-get"],
     tree = "@mkosi_debian_tools//:tree_root",
+)
+
+debian_tools_launcher_probe(
+    name = "debian_tools_launcher_probe",
+)
+
+diff_test(
+    name = "debian_tools_launcher_probe_test",
+    file1 = "testdata/debian_tools_launcher_probe.golden.txt",
+    file2 = ":debian_tools_launcher_probe",
 )
 
 sh_test(

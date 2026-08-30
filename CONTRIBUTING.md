@@ -32,6 +32,10 @@ Run the independent consumer test module:
 )
 ```
 
+Both commands use the Bazel 7.7.1 lock-generating floor by default. CI also
+tests pinned Bazel 8.5.1 and 9.2.0 with `--lockfile_mode=off`, preserving the
+committed lockfiles rather than rewriting them.
+
 The root command intentionally excludes `e2e/`. See
 [the test architecture](docs/design/0003-ruleset-architecture.md#consumer-module)
 and [`e2e/README.md`](e2e/README.md).

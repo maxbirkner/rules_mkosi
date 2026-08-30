@@ -36,6 +36,29 @@ static char *python_home(const char *python) {
   return home;
 }
 
+static void clear_host_injection_environment(void) {
+  const char *variables[] = {
+      "PYTHONPATH",       "PYTHONHOME",        "PYTHONSTARTUP",
+      "PYTHONINSPECT",    "PYTHONUSERBASE",    "PYTHONWARNINGS",
+      "PYTHONBREAKPOINT", "PYTHONHASHSEED",    "PYTHONIOENCODING",
+      "PYTHONMALLOC",     "PYTHONCOERCECLOCALE", "PYTHONUTF8",
+      "PYTHONFAULTHANDLER", "PYTHONDEVMODE",   "PYTHONTRACEMALLOC",
+      "PYTHONPROFILEIMPORTTIME", "PYTHONINTMAXSTRDIGITS",
+      "LD_PRELOAD",       "LD_LIBRARY_PATH",   "LD_AUDIT",
+      "LD_DEBUG",         "LD_DEBUG_OUTPUT",   "LD_PROFILE",
+      "LD_PROFILE_OUTPUT", "LD_USE_LOAD_BIAS",  "LD_ORIGIN_PATH",
+      "LD_ASSUME_KERNEL", "LD_HWCAP_MASK",     "LD_HWCAP",
+      "LD_PREFER_MAP_32BIT_EXEC", "LD_DYNAMIC_WEAK", "LD_BIND_NOW",
+      "LD_WARN",          "LD_SHOW_AUXV",      "LD_TRACE_LOADED_OBJECTS",
+      "LD_VERBOSE",       "LD_TRACE_PRELINKING", "GLIBC_TUNABLES",
+      "GCONV_PATH",       "LOCPATH",           "NLSPATH",
+      "NSS_MODULE_PATH",  "CHARSETALIASDIR",   "GETCONF_DIR",
+  };
+  for (size_t index = 0; index < sizeof(variables) / sizeof(variables[0]); ++index) {
+    unsetenv(variables[index]);
+  }
+}
+
 static char *manifest_lookup(const char *manifest, const char *logical) {
   FILE *file = fopen(manifest, "r");
   if (file == NULL) {
@@ -257,6 +280,7 @@ int main(int argc, char **argv) {
     return 1;
   }
 
+  clear_host_injection_environment();
   setenv("DEBIAN_TOOLS_ARCHIVE", archive, 1);
   setenv("DEBIAN_TOOLS_EXTRACTOR", extractor, 1);
   setenv("DEBIAN_TOOLS_ARCHIVE_SHA256", DEBIAN_TOOLS_ARCHIVE_SHA256, 1);
@@ -269,18 +293,19 @@ int main(int argc, char **argv) {
   }
   setenv("PYTHONHOME", home, 1);
 
-  char **python_argv = calloc((size_t)argc + 2, sizeof(char *));
+  char **python_argv = calloc((size_t)argc + 3, sizeof(char *));
   if (python_argv == NULL) {
     fprintf(stderr, "unable to allocate Debian tools launcher arguments: %s\n",
             strerror(errno));
     return 1;
   }
   python_argv[0] = python;
-  python_argv[1] = script;
+  python_argv[1] = "-I";
+  python_argv[2] = script;
   for (int index = 1; index < argc; ++index) {
-    python_argv[index + 1] = argv[index];
+    python_argv[index + 2] = argv[index];
   }
-  python_argv[argc + 1] = NULL;
+  python_argv[argc + 2] = NULL;
   execv(python, python_argv);
   fprintf(stderr, "unable to execute managed Python: %s: %s\n", python,
           strerror(errno));
