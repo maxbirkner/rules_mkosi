@@ -77,14 +77,13 @@ def _hardlink_target(linkname):
     return _member_path(linkname)
 
 
-def _digest(archive):
+def _digest_file(source):
     hasher = hashlib.sha256()
-    with open(archive, "rb") as source:
-        while True:
-            chunk = source.read(1024 * 1024)
-            if not chunk:
-                break
-            hasher.update(chunk)
+    while True:
+        chunk = source.read(1024 * 1024)
+        if not chunk:
+            break
+        hasher.update(chunk)
     return hasher.hexdigest()
 
 
@@ -128,6 +127,7 @@ def _write_ca_bundle(root):
                 with open(certificate, "rb") as source:
                     output.write(source.read())
                 output.write(b"\n")
+        os.chmod(bundle, 0o644)
 
 
 def _materialize_runtime_link_targets(root):
@@ -264,65 +264,69 @@ def _resolve_hardlink_graph(root, hardlinks, members_by_path):
 def extract(archive, root, expected_digest):
     if not expected_digest:
         raise ValueError("expected archive digest is required")
-    actual_digest = _digest(archive)
-    if actual_digest != expected_digest:
-        raise ValueError(
-            "Debian tools archive digest mismatch: expected=%s actual=%s"
-            % (expected_digest, actual_digest)
-        )
+    archive_path = os.path.realpath(archive)
+    archive_fd = os.open(archive_path, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
+    with os.fdopen(archive_fd, "rb") as archive_stream:
+        actual_digest = _digest_file(archive_stream)
+        if actual_digest != expected_digest:
+            raise ValueError(
+                "Debian tools archive digest mismatch: expected=%s actual=%s"
+                % (expected_digest, actual_digest)
+            )
+        archive_stream.seek(0)
+        # Authentication deliberately precedes tarfile.open: a tampered
+        # archive must not be parsed or partially materialized. Both phases
+        # operate on this one no-follow descriptor.
+        root = os.path.abspath(root)
+        os.makedirs(root, exist_ok=True)
+        os.chmod(root, 0o755)
+        with tarfile.open(fileobj=archive_stream, mode="r:*") as source:
+            members = []
+            members_by_path = {}
+            for member in source:
+                relative = _member_path(member.name)
+                if not relative:
+                    continue
+                if relative in members_by_path:
+                    raise ValueError("duplicate archive member")
+                members.append((member, relative))
+                members_by_path[relative] = member
 
-    root = os.path.abspath(root)
-    os.makedirs(root, exist_ok=True)
-    os.chmod(root, 0o755)
-    # Authentication deliberately precedes tarfile.open: a tampered archive
-    # must not be parsed or partially materialized.
-    with tarfile.open(archive, mode="r:*") as source:
-        members = []
-        members_by_path = {}
-        for member in source:
-            relative = _member_path(member.name)
-            if not relative:
-                continue
-            if relative in members_by_path:
-                raise ValueError("duplicate archive member")
-            members.append((member, relative))
-            members_by_path[relative] = member
+            symlinks = {relative: member for member, relative in members if member.issym()}
+            hardlinks = {relative: member for member, relative in members if member.islnk()}
 
-        symlinks = {relative: member for member, relative in members if member.issym()}
-        hardlinks = {relative: member for member, relative in members if member.islnk()}
+            # Materialize real directories and files first.  In particular, no
+            # archive symlink can redirect a later parent creation.
+            for member, relative in sorted(members, key=lambda item: (item[1].count(os.sep), item[1])):
+                destination = os.path.join(root, relative)
+                if member.isdir():
+                    _parent(root, relative)
+                    if os.path.lexists(destination) and not stat.S_ISDIR(os.lstat(destination).st_mode):
+                        raise ValueError("archive path collision: %s" % relative)
+                    if not os.path.exists(destination):
+                        os.mkdir(destination)
+                    os.chmod(destination, stat.S_IMODE(member.mode))
+                elif member.isfile():
+                    _parent(root, relative)
+                    if os.path.lexists(destination):
+                        raise ValueError("archive path collision: %s" % relative)
+                    source_file = source.extractfile(member)
+                    if source_file is None:
+                        raise ValueError("regular archive member has no data: %s" % relative)
+                    with source_file, open(destination, "wb") as output:
+                        while True:
+                            chunk = source_file.read(1024 * 1024)
+                            if not chunk:
+                                break
+                            output.write(chunk)
+                    os.chmod(destination, stat.S_IMODE(member.mode))
+                elif not member.issym() and not member.islnk():
+                    raise ValueError("unsupported archive member: %s" % relative)
 
-        # Materialize real directories and files first.  In particular, no
-        # archive symlink can redirect a later parent creation.
-        for member, relative in sorted(members, key=lambda item: (item[1].count(os.sep), item[1])):
-            destination = os.path.join(root, relative)
-            if member.isdir():
-                _parent(root, relative)
-                if os.path.lexists(destination) and not stat.S_ISDIR(os.lstat(destination).st_mode):
-                    raise ValueError("archive path collision: %s" % relative)
-                if not os.path.exists(destination):
-                    os.mkdir(destination)
-                os.chmod(destination, stat.S_IMODE(member.mode))
-            elif member.isfile():
-                _parent(root, relative)
-                if os.path.lexists(destination):
-                    raise ValueError("archive path collision: %s" % relative)
-                source_file = source.extractfile(member)
-                if source_file is None:
-                    raise ValueError("regular archive member has no data: %s" % relative)
-                with source_file, open(destination, "wb") as output:
-                    while True:
-                        chunk = source_file.read(1024 * 1024)
-                        if not chunk:
-                            break
-                        output.write(chunk)
-                os.chmod(destination, stat.S_IMODE(member.mode))
-            elif not member.issym() and not member.islnk():
-                raise ValueError("unsupported archive member: %s" % relative)
-
-        _write_ca_bundle(root)
-        _materialize_runtime_link_targets(root)
-        _resolve_hardlink_graph(root, hardlinks, members_by_path)
-        _resolve_symlink_graph(root, symlinks, members_by_path)
+            _write_ca_bundle(root)
+            _materialize_runtime_link_targets(root)
+            _resolve_hardlink_graph(root, hardlinks, members_by_path)
+            _resolve_symlink_graph(root, symlinks, members_by_path)
 
     _prepare_mount_roots(root)
 

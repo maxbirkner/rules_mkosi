@@ -68,9 +68,10 @@ def _archive_impl(ctx):
             "-I",
             ctx.file.archive_builder.path,
             output.path,
+            ctx.file.package_manifest.path,
         ] + [package.path for package in ctx.files.packages],
         inputs = depset(
-            [ctx.file.archive_builder] + ctx.files.packages,
+            [ctx.file.archive_builder, ctx.file.package_manifest] + ctx.files.packages,
             transitive = [runtime_files],
         ),
         tools = [ctx.executable._python],
@@ -93,6 +94,10 @@ def _static_binary_impl(ctx):
         "x86_64-linux-musl",
         "-static",
         "-O2",
+        "-g0",
+        "-fno-ident",
+        "-Wl,--strip-debug",
+        "-Wl,--build-id=none",
         "-o",
         output.path,
     ]
@@ -102,7 +107,7 @@ def _static_binary_impl(ctx):
     ctx.actions.run(
         executable = ctx.executable._zig,
         arguments = arguments,
-        inputs = [ctx.file.source] + ([ctx.file.config] if ctx.file.config != None else []),
+        inputs = [ctx.file.source] + ([ctx.file.config] if ctx.file.config != None else []) + ctx.files._zig_runtime,
         tools = [ctx.executable._zig],
         outputs = [output],
         env = {
@@ -134,7 +139,15 @@ debian_static_binary = rule(
             cfg = "exec",
             default = "@mkosi_debian_zig//:zig",
         ),
+        "_zig_runtime": attr.label(
+            cfg = "exec",
+            default = "@mkosi_debian_zig//:runtime",
+        ),
     },
+    exec_compatible_with = [
+        "@platforms//os:linux",
+        "@platforms//cpu:x86_64",
+    ],
     doc = "Builds a static Linux bootstrap binary with the pinned Zig compiler.",
 )
 
@@ -142,6 +155,7 @@ debian_tools_archive = rule(
     implementation = _archive_impl,
     attrs = {
         "packages": attr.label_list(mandatory = True, allow_files = True),
+        "package_manifest": attr.label(mandatory = True, allow_single_file = True),
         "archive_builder": attr.label(
             mandatory = False,
             allow_single_file = True,
@@ -158,6 +172,10 @@ debian_tools_archive = rule(
             default = "@mkosi_debian_python//:runtime",
         ),
     },
+    exec_compatible_with = [
+        "@platforms//os:linux",
+        "@platforms//cpu:x86_64",
+    ],
     doc = "Constructs a Debian archive from checksum-pinned package inputs.",
 )
 
@@ -178,6 +196,10 @@ debian_tools_tree = rule(
             default = "@mkosi_debian_python//:runtime",
         ),
     },
+    exec_compatible_with = [
+        "@platforms//os:linux",
+        "@platforms//cpu:x86_64",
+    ],
     doc = "Extracts a Debian archive with the Bazel-managed Python runtime.",
 )
 

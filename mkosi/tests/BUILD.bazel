@@ -90,6 +90,18 @@ sh_test(
     data = ["@mkosi_debian_tools//:namespace_runner"],
 )
 
+sh_test(
+    name = "debian_tools_manifest_test",
+    srcs = ["debian_tools_manifest_test.sh"],
+    data = ["@mkosi_debian_tools//:launcher"],
+)
+
+sh_test(
+    name = "debian_tools_fd_swap_test",
+    srcs = ["debian_tools_fd_swap_test.sh"],
+    data = ["@mkosi_debian_tools//:namespace_runner"],
+)
+
 unsupported_version_test(name = "unsupported_version_test")
 
 conflicting_root_test(name = "conflicting_root_test")

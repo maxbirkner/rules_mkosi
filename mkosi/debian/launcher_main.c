@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <signal.h>
+#include <stdbool.h>
 #include <string.h>
 #include <unistd.h>
 
@@ -76,6 +77,39 @@ static void reset_inherited_signals(void) {
   }
 }
 
+static char *unescape(const char *value) {
+  size_t length = strlen(value);
+  char *result = malloc(length + 1);
+  if (result == NULL) {
+    return NULL;
+  }
+  size_t output = 0;
+  for (size_t index = 0; index < length; ++index) {
+    if (value[index] == '\\' && index + 1 < length) {
+      switch (value[index + 1]) {
+        case 's':
+          result[output++] = ' ';
+          break;
+        case 'n':
+          result[output++] = '\n';
+          break;
+        case 'b':
+          result[output++] = '\\';
+          break;
+        default:
+          result[output++] = value[index];
+          result[output++] = value[++index];
+          break;
+      }
+      ++index;
+    } else {
+      result[output++] = value[index];
+    }
+  }
+  result[output] = '\0';
+  return result;
+}
+
 static char *manifest_lookup(const char *manifest, const char *logical) {
   FILE *file = fopen(manifest, "r");
   if (file == NULL) {
@@ -83,17 +117,22 @@ static char *manifest_lookup(const char *manifest, const char *logical) {
   }
   char line[4096];
   while (fgets(line, sizeof(line), file) != NULL) {
-    char *separator = strchr(line, ' ');
+    line[strcspn(line, "\n")] = '\0';
+    bool escaped = line[0] == ' ';
+    char *separator = strchr(line + (escaped ? 1 : 0), ' ');
     if (separator == NULL) {
       continue;
     }
     *separator = '\0';
-    if (strcmp(line, logical) != 0) {
+    char *source = escaped ? unescape(line + 1) : strdup(line);
+    char *physical = unescape(separator + 1);
+    if (source == NULL || physical == NULL || strcmp(source, logical) != 0) {
+      free(source);
+      free(physical);
       continue;
     }
-    char *physical = separator + 1;
-    physical[strcspn(physical, "\n")] = '\0';
-    char *result = strdup(physical);
+    char *result = physical;
+    free(source);
     fclose(file);
     return result;
   }
@@ -102,6 +141,24 @@ static char *manifest_lookup(const char *manifest, const char *logical) {
 }
 
 static char *manifest_lookup(const char *manifest, const char *logical);
+
+static int manifest_escape_self_test(void) {
+  const char *path = "manifest with space";
+  FILE *file = fopen(path, "w");
+  if (file == NULL) {
+    perror("manifest escape self-test");
+    return 1;
+  }
+  fputs(" \\slogical\\bvalue /physical\\nvalue\n", file);
+  fclose(file);
+  char *resolved = manifest_lookup(path, " logical\\value");
+  int result = resolved != NULL && strcmp(resolved, "/physical\nvalue") == 0
+                   ? 0
+                   : 1;
+  free(resolved);
+  unlink(path);
+  return result;
+}
 
 static char *repository_mapping(const char *apparent) {
   FILE *file = NULL;
@@ -184,6 +241,9 @@ static char *runfile(const char *logical, const char *alternate) {
 }
 
 int main(int argc, char **argv) {
+  if (argc == 2 && strcmp(argv[1], "--self-test-manifest-escaping") == 0) {
+    return manifest_escape_self_test();
+  }
   const char *runfiles_dir = getenv("RUNFILES_DIR");
   char derived_runfiles[4096];
   if ((runfiles_dir == NULL || runfiles_dir[0] == '\0') && argv[0] != NULL) {

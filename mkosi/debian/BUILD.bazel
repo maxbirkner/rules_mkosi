@@ -24,6 +24,7 @@ py_test(
         "debian_launcher.py",
         "debian_tools_security_test.py",
         "extract_tree.py",
+        "package_archive.py",
     ],
     data = [
         "provenance.bzl",
@@ -40,6 +41,7 @@ py_test(
     data = [
         "debian13.lock.json",
         "provenance.bzl",
+        "@mkosi_debian_package_inputs//:package_manifest.txt",
     ],
     main = "debian_tools_lock_digest_test.py",
 )

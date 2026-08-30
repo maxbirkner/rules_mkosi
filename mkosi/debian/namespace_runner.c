@@ -79,17 +79,21 @@ static void reset_inherited_signals(void) {
   }
 }
 
-static void write_text(const char *path, const char *format, ...) {
-  char contents[128];
-  va_list arguments;
-  va_start(arguments, format);
-  int length = vsnprintf(contents, sizeof(contents), format, arguments);
-  va_end(arguments);
-  if (length < 0 || (size_t)length >= sizeof(contents)) {
+static void write_child_mapping(pid_t child, const char *name,
+                                unsigned long value) {
+  char path[128];
+  char mapping[64];
+  int length = snprintf(path, sizeof(path), "/proc/%ld/%s_map", (long)child,
+                        name);
+  if (length < 0 || (size_t)length >= sizeof(path)) {
+    fail("namespace mapping path is too long");
+  }
+  length = snprintf(mapping, sizeof(mapping), "0 %lu 1\n", value);
+  if (length < 0 || (size_t)length >= sizeof(mapping)) {
     fail("namespace mapping is too long");
   }
   int file = open(path, O_WRONLY | O_CLOEXEC);
-  if (file < 0 || write(file, contents, (size_t)length) != length) {
+  if (file < 0 || write(file, mapping, (size_t)length) != length) {
     if (file >= 0) {
       close(file);
     }
@@ -98,36 +102,102 @@ static void write_text(const char *path, const char *format, ...) {
   close(file);
 }
 
+static void deny_child_setgroups(pid_t child) {
+  char path[128];
+  int length = snprintf(path, sizeof(path), "/proc/%ld/setgroups", (long)child);
+  if (length < 0 || (size_t)length >= sizeof(path)) {
+    fail("setgroups path is too long");
+  }
+  int file = open(path, O_WRONLY | O_CLOEXEC);
+  if (file < 0 || write(file, "deny\n", 5) != 5) {
+    if (file >= 0) {
+      close(file);
+    }
+    fail("cannot disable supplementary groups: %s", strerror(errno));
+  }
+  close(file);
+}
+
+static void read_byte(int file, char expected) {
+  char value;
+  ssize_t result;
+  do {
+    result = read(file, &value, 1);
+  } while (result < 0 && errno == EINTR);
+  if (result != 1 || value != expected) {
+    fail("namespace identity mapping handshake failed");
+  }
+}
+
+static void write_byte(int file, char value) {
+  if (write(file, &value, 1) != 1) {
+    fail("namespace identity mapping handshake failed: %s", strerror(errno));
+  }
+}
+
 static void map_current_identity(uid_t uid, gid_t gid) {
+  int ready[2];
+  int acknowledgement[2];
+  if (pipe(ready) < 0 || pipe(acknowledgement) < 0) {
+    fail("cannot create namespace identity mapping pipes: %s", strerror(errno));
+  }
+  pid_t child = fork();
+  if (child < 0) {
+    fail("cannot fork namespace identity mapper: %s", strerror(errno));
+  }
+  if (child > 0) {
+    close(ready[1]);
+    close(acknowledgement[0]);
+    read_byte(ready[0], 'U');
+    write_child_mapping(child, "uid", (unsigned long)uid);
+    write_byte(acknowledgement[1], 'U');
+    read_byte(ready[0], 'G');
+    deny_child_setgroups(child);
+    write_child_mapping(child, "gid", (unsigned long)gid);
+    write_byte(acknowledgement[1], 'G');
+    close(ready[0]);
+    close(acknowledgement[1]);
+    int status = 0;
+    pid_t waited;
+    do {
+      waited = waitpid(child, &status, 0);
+    } while (waited < 0 && errno == EINTR);
+    if (waited < 0) {
+      fail("cannot wait for namespace identity mapper: %s", strerror(errno));
+    }
+    if (WIFEXITED(status)) {
+      _exit(WEXITSTATUS(status));
+    }
+    if (WIFSIGNALED(status)) {
+      _exit(128 + WTERMSIG(status));
+    }
+    _exit(1);
+  }
+  close(ready[0]);
+  close(acknowledgement[1]);
   if (unshare(CLONE_NEWUSER) < 0) {
     fail("cannot establish a private user namespace: %s", strerror(errno));
   }
-  write_text("/proc/self/uid_map", "0 %lu 1\n", (unsigned long)uid);
+  write_byte(ready[1], 'U');
+  read_byte(acknowledgement[0], 'U');
   if (setresuid(0, 0, 0) < 0) {
     fail("cannot become namespace root before clearing groups: %s", strerror(errno));
   }
   if (setgroups(0, NULL) < 0) {
-    // Some sandbox kernels deny setgroups even after the UID map is
-    // installed. Unmapped inherited groups are represented as overflow
-    // 65534 inside this namespace and cannot confer host-group access.
+    // Restricted kernels may permanently deny setgroups in an unprivileged
+    // nested user namespace. The gid map then renders every inherited group
+    // as overflow 65534; the runtime contract rejects all other group IDs.
     if (errno != EPERM) {
       fail("cannot clear supplementary groups: %s", strerror(errno));
     }
   }
-  if (access("/proc/self/setgroups", F_OK) == 0) {
-    int file = open("/proc/self/setgroups", O_WRONLY | O_CLOEXEC);
-    if (file < 0 || write(file, "deny\n", 5) != 5) {
-      if (file >= 0) {
-        close(file);
-      }
-      fail("cannot disable supplementary groups: %s", strerror(errno));
-    }
-    close(file);
-  }
-  write_text("/proc/self/gid_map", "0 %lu 1\n", (unsigned long)gid);
+  write_byte(ready[1], 'G');
+  read_byte(acknowledgement[0], 'G');
   if (setresgid(0, 0, 0) < 0) {
     fail("cannot become namespace root: %s", strerror(errno));
   }
+  close(ready[1]);
+  close(acknowledgement[0]);
 }
 
 static bool source_has_submounts(const char *source) {
@@ -225,7 +295,7 @@ static void bind_mount(const char *source, const char *destination,
     };
     if (syscall(SYS_mount_setattr, AT_FDCWD, destination, AT_RECURSIVE,
                 &attributes, sizeof(attributes)) == 0) {
-      return;
+      goto identity_check;
     }
     if (errno != ENOSYS && errno != EINVAL && errno != EOPNOTSUPP) {
       fail("cannot recursively make bind read-only at %s: %s", destination,
@@ -240,6 +310,7 @@ static void bind_mount(const char *source, const char *destination,
       fail("cannot make bind read-only at %s: %s", destination, strerror(errno));
     }
   }
+identity_check:
   if (expected_device != 0) {
     struct stat mounted_stat;
     if (stat(destination, &mounted_stat) < 0 ||
@@ -248,6 +319,109 @@ static void bind_mount(const char *source, const char *destination,
       umount2(destination, MNT_DETACH);
       fail("bind source changed during mount: %s", source);
     }
+  }
+}
+
+static void bind_mount_fd(int source_fd, const char *source_path,
+                          const char *root, const char *destination,
+                          bool readonly, unsigned long long expected_device,
+                          unsigned long long expected_inode, bool directory) {
+  struct stat source_stat;
+  if (fstat(source_fd, &source_stat) < 0) {
+    fail("cannot inspect pinned bind source: %s", strerror(errno));
+  }
+  if ((unsigned long long)source_stat.st_dev != expected_device ||
+      (unsigned long long)source_stat.st_ino != expected_inode ||
+      S_ISDIR(source_stat.st_mode) != directory) {
+    fail("pinned bind source changed after validation");
+  }
+  char source_description[64];
+  snprintf(source_description, sizeof(source_description), "/proc/self/fd/%d",
+           source_fd);
+  int mount_tree = directory
+                       ? syscall(SYS_open_tree, source_fd, "",
+                                 OPEN_TREE_CLONE | OPEN_TREE_CLOEXEC | AT_EMPTY_PATH)
+                       : -1;
+  char temporary[4096];
+  bool temporary_link = false;
+  if (mount_tree >= 0) {
+    if (syscall(SYS_move_mount, mount_tree, "", AT_FDCWD, destination,
+                MOVE_MOUNT_F_EMPTY_PATH) < 0) {
+      int error = errno;
+      close(mount_tree);
+      fail("cannot move pinned bind to %s: %s", destination, strerror(error));
+    }
+    close(mount_tree);
+  } else if (!directory) {
+    char source_directory[4096];
+    strncpy(source_directory, source_path, sizeof(source_directory) - 1);
+    source_directory[sizeof(source_directory) - 1] = '\0';
+    char *separator = strrchr(source_directory, '/');
+    if (separator == NULL) {
+      fail("pinned bind source has no parent");
+    }
+    if (separator == source_directory) {
+      separator[1] = '\0';
+    } else {
+      *separator = '\0';
+    }
+    if (snprintf(temporary, sizeof(temporary), "%s/.mkosi-bind-%ld-%d",
+                 source_directory, (long)getpid(), source_fd) >=
+        (int)sizeof(temporary)) {
+      fail("pinned bind path is too long");
+    }
+    int link_result = linkat(AT_FDCWD, source_description, AT_FDCWD, temporary,
+                             AT_SYMLINK_FOLLOW);
+    if (link_result < 0) {
+      if (mount(source_path, destination, NULL, MS_BIND, NULL) < 0) {
+        fail("cannot bind file source %s to %s: %s", source_path, destination,
+             strerror(errno));
+      }
+    } else {
+      temporary_link = true;
+      if (mount(temporary, destination, NULL, MS_BIND, NULL) < 0) {
+        fail("cannot bind pinned file source to %s: %s", destination,
+             strerror(errno));
+      }
+      unlink(temporary);
+      temporary_link = false;
+    }
+  } else {
+    if (mount(source_path, destination, NULL, MS_BIND | MS_REC, NULL) < 0) {
+      fail("cannot bind pinned directory source to %s: %s", destination,
+           strerror(errno));
+    }
+  }
+  if (temporary_link) {
+    unlink(temporary);
+  }
+  if (readonly) {
+    struct mkosi_mount_attr attributes = {
+        .attr_set = MOUNT_ATTR_RDONLY,
+    };
+    if (syscall(SYS_mount_setattr, AT_FDCWD, destination, AT_RECURSIVE,
+                &attributes, sizeof(attributes)) != 0) {
+      if (errno != ENOSYS && errno != EINVAL && errno != EOPNOTSUPP) {
+        fail("cannot recursively make bind read-only at %s: %s", destination,
+             strerror(errno));
+      }
+      if (source_has_submounts(source_description)) {
+        fail("kernel lacks recursive read-only mounts for source with submounts: %s",
+             source_description);
+      }
+      if (mount(NULL, destination, NULL, MS_BIND | MS_REMOUNT | MS_RDONLY,
+                NULL) < 0) {
+        fail("cannot make bind read-only at %s: %s", destination,
+             strerror(errno));
+      }
+    }
+  }
+  struct stat mounted_stat;
+  if (stat(destination, &mounted_stat) < 0 ||
+      (unsigned long long)mounted_stat.st_dev != expected_device ||
+      (unsigned long long)mounted_stat.st_ino != expected_inode) {
+    umount2(destination, MNT_DETACH);
+    fail("bind source changed during mount: %s", source_description);
   }
 }
 
@@ -265,6 +439,14 @@ static void mount_runtime(const char *root) {
   }
   if (mkdir(oldroot, 0700) < 0 && errno != EEXIST) {
     fail("cannot prepare old root: %s", strerror(errno));
+  }
+  char bind_files[4096];
+  if (snprintf(bind_files, sizeof(bind_files), "%s/.namespace-bind-files",
+               root) >= (int)sizeof(bind_files)) {
+    fail("extracted root path is too long");
+  }
+  if (mkdir(bind_files, 0700) < 0 && errno != EEXIST) {
+    fail("cannot prepare pinned bind directory: %s", strerror(errno));
   }
   if (mount(NULL, root, NULL, MS_BIND | MS_REMOUNT | MS_RDONLY, NULL) < 0) {
     fail("cannot make extracted root read-only: %s", strerror(errno));
@@ -289,6 +471,9 @@ static void enter_root(const char *root) {
   }
   if (rmdir("/.namespace-oldroot") < 0) {
     fail("cannot remove old root marker: %s", strerror(errno));
+  }
+  if (rmdir("/.namespace-bind-files") < 0) {
+    fail("cannot remove pinned bind directory: %s", strerror(errno));
   }
   if (mount(NULL, "/", NULL, MS_BIND | MS_REMOUNT | MS_RDONLY, NULL) < 0) {
     fail("cannot make private root read-only: %s", strerror(errno));
@@ -394,30 +579,39 @@ static int run_child(int argc, char **argv, uid_t uid, gid_t gid) {
 
   while (index < argc && strcmp(argv[index], "--") != 0) {
     bool readonly;
-    if (strcmp(argv[index], "--ro-bind") == 0) {
+    if (strcmp(argv[index], "--ro-bind-fd") == 0) {
       readonly = true;
-    } else if (strcmp(argv[index], "--rw-bind") == 0) {
+    } else if (strcmp(argv[index], "--rw-bind-fd") == 0) {
       readonly = false;
     } else {
       fail("unknown namespace mount option: %s", argv[index]);
     }
-    if (index + 4 >= argc || argv[index + 2][0] != '/') {
-      fail("namespace mount options require separate source and destination");
+    if (index + 6 >= argc || argv[index + 2][0] != '/' ||
+        argv[index + 3][0] != '/' ||
+        (strcmp(argv[index + 6], "dir") != 0 &&
+         strcmp(argv[index + 6], "file") != 0)) {
+      fail("namespace mount options require fd, source, destination, identity, and type");
     }
     if (snprintf(destination, sizeof(destination), "%s%s", root,
-                argv[index + 2]) >= (int)sizeof(destination)) {
+                argv[index + 3]) >= (int)sizeof(destination)) {
       fail("namespace mount destination is too long");
     }
     char *device_end;
     char *inode_end;
-    unsigned long long expected_device = strtoull(argv[index + 3], &device_end, 10);
-    unsigned long long expected_inode = strtoull(argv[index + 4], &inode_end, 10);
+    unsigned long long expected_device = strtoull(argv[index + 4], &device_end, 10);
+    unsigned long long expected_inode = strtoull(argv[index + 5], &inode_end, 10);
     if (*device_end != '\0' || *inode_end != '\0') {
       fail("namespace mount identity is invalid");
     }
-    bind_mount(argv[index + 1], destination, readonly, expected_device,
-               expected_inode);
-    index += 5;
+    char *fd_end;
+    int source_fd = (int)strtol(argv[index + 1], &fd_end, 10);
+    if (*fd_end != '\0' || source_fd < 0) {
+      fail("namespace bind fd is invalid");
+    }
+    bind_mount_fd(source_fd, argv[index + 2], root, destination, readonly,
+                  expected_device, expected_inode,
+                  strcmp(argv[index + 6], "dir") == 0);
+    index += 7;
   }
   if (index >= argc || strcmp(argv[index], "--") != 0) {
     fail("namespace runner command separator is missing");
@@ -501,9 +695,68 @@ static int recursive_readonly_self_test(void) {
   return 0;
 }
 
+static int fd_swap_self_test(void) {
+  const char *base = "namespace-runner-fd-swap";
+  const char *source = "namespace-runner-fd-swap/source";
+  const char *replacement = "namespace-runner-fd-swap/replacement";
+  const char *destination_directory = "namespace-runner-fd-swap/destination";
+  const char *destination = "namespace-runner-fd-swap/destination/file";
+  map_current_identity(getuid(), getgid());
+  if (unshare(CLONE_NEWNS) < 0 ||
+      mount(NULL, "/", NULL, MS_REC | MS_PRIVATE, NULL) < 0) {
+    return 1;
+  }
+  if (mkdir(base, 0700) < 0 || mkdir(destination_directory, 0700) < 0) {
+    return 1;
+  }
+  int original = open(source, O_WRONLY | O_CREAT | O_CLOEXEC, 0644);
+  if (original < 0 || write(original, "original\n", 9) != 9) {
+    return 1;
+  }
+  close(original);
+  int source_fd = open(source, O_PATH | O_NOFOLLOW | O_CLOEXEC);
+  if (source_fd < 0) {
+    return 1;
+  }
+  struct stat source_stat;
+  if (fstat(source_fd, &source_stat) < 0 || rename(source, replacement) < 0) {
+    return 1;
+  }
+  int changed = open(source, O_WRONLY | O_CREAT | O_CLOEXEC, 0644);
+  if (changed < 0 || write(changed, "changed\n", 8) != 8) {
+    return 1;
+  }
+  close(changed);
+  int destination_file = open(destination, O_WRONLY | O_CREAT | O_CLOEXEC, 0644);
+  if (destination_file < 0) {
+    return 1;
+  }
+  close(destination_file);
+  bind_mount_fd(source_fd, source, base, destination, false,
+                (unsigned long long)source_stat.st_dev,
+                (unsigned long long)source_stat.st_ino, false);
+  int mounted = open(destination, O_RDONLY | O_CLOEXEC);
+  char contents[16] = {0};
+  ssize_t length = mounted < 0 ? -1 : read(mounted, contents, sizeof(contents) - 1);
+  if (mounted >= 0) {
+    close(mounted);
+  }
+  umount2(destination, MNT_DETACH);
+  close(source_fd);
+  unlink(destination);
+  unlink(source);
+  unlink(replacement);
+  rmdir(destination_directory);
+  rmdir(base);
+  return length == 9 && memcmp(contents, "original\n", 9) == 0 ? 0 : 1;
+}
+
 int main(int argc, char **argv) {
   if (argc == 2 && strcmp(argv[1], "--self-test-recursive-ro") == 0) {
     return recursive_readonly_self_test();
+  }
+  if (argc == 2 && strcmp(argv[1], "--self-test-fd-swap") == 0) {
+    return fd_swap_self_test();
   }
   if (argc < 8) {
     fprintf(stderr,

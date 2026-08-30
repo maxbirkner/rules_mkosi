@@ -1,6 +1,7 @@
 """Build a deterministic Debian package tree archive without host tools."""
 
 import io
+import hashlib
 import os
 import shutil
 import stat
@@ -43,13 +44,12 @@ def _ar_members(data):
         offset = end + (end & 1)
 
 
-def _package_data(path):
-    with open(path, "rb") as package:
-        data = package.read()
+def _package_data(package):
+    data = package.read()
     for name, member in _ar_members(data):
         if name.startswith("data.tar"):
             return member
-    raise ValueError("Debian package has no data archive: %s" % path)
+    raise ValueError("Debian package has no data archive")
 
 
 def _ensure_parent(objects, relative):
@@ -63,32 +63,76 @@ def _ensure_parent(objects, relative):
             objects[current] = ("dir", 0o755, None, None)
 
 
-def _collect(packages, work):
-    objects = {}
+def _collect(packages, manifest, work):
+    expected = {}
+    with open(manifest, "r", encoding="utf-8") as entries:
+        for line in entries:
+            fields = line.rstrip("\n").split("|", 2)
+            if len(fields) != 3 or fields[0] in expected:
+                raise ValueError("invalid or duplicate package manifest entry")
+            expected[fields[0]] = fields[1]
+    if len(expected) != len(packages):
+        raise ValueError("package manifest does not match package inputs")
+
+    streams = []
+    seen = set()
     for package in packages:
-        with tarfile.open(fileobj=io.BytesIO(_package_data(package)), mode="r:*") as source:
-            for member in source:
-                relative = _member_path(member.name)
-                if not relative:
-                    continue
-                _ensure_parent(objects, relative)
-                if member.isdir():
-                    objects[relative] = ("dir", stat.S_IMODE(member.mode), None, None)
-                elif member.isfile():
-                    destination = os.path.join(work, relative)
-                    os.makedirs(os.path.dirname(destination), exist_ok=True)
-                    source_file = source.extractfile(member)
-                    if source_file is None:
-                        raise ValueError("package member has no data: %s" % relative)
-                    with source_file, open(destination, "wb") as output:
-                        shutil.copyfileobj(source_file, output)
-                    objects[relative] = ("file", stat.S_IMODE(member.mode), destination, None)
-                elif member.issym():
-                    objects[relative] = ("symlink", stat.S_IMODE(member.mode), None, member.linkname)
-                elif member.islnk():
-                    objects[relative] = ("hardlink", stat.S_IMODE(member.mode), None, member.linkname)
-                else:
-                    raise ValueError("unsupported package member: %s" % relative)
+        name = os.path.basename(package)
+        if name not in expected:
+            raise ValueError("package is absent from manifest: %s" % name)
+        if name in seen:
+            raise ValueError("package is duplicated in action inputs: %s" % name)
+        seen.add(name)
+        package_path = os.path.realpath(package)
+        fd = os.open(package_path, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
+        stream = os.fdopen(fd, "rb")
+        digest = hashlib.sha256()
+        while True:
+            chunk = stream.read(1024 * 1024)
+            if not chunk:
+                break
+            digest.update(chunk)
+        actual = digest.hexdigest()
+        if actual != expected[name]:
+            stream.close()
+            raise ValueError(
+                "Debian package digest mismatch for %s: expected=%s actual=%s"
+                % (name, expected[name], actual)
+            )
+        stream.seek(0)
+        streams.append((package, stream))
+    if seen != set(expected):
+        raise ValueError("package manifest does not match package inputs")
+
+    objects = {}
+    try:
+        for package, stream in streams:
+            with tarfile.open(fileobj=io.BytesIO(_package_data(stream)), mode="r:*") as source:
+                for member in source:
+                    relative = _member_path(member.name)
+                    if not relative:
+                        continue
+                    _ensure_parent(objects, relative)
+                    if member.isdir():
+                        objects[relative] = ("dir", stat.S_IMODE(member.mode), None, None)
+                    elif member.isfile():
+                        destination = os.path.join(work, relative)
+                        os.makedirs(os.path.dirname(destination), exist_ok=True)
+                        source_file = source.extractfile(member)
+                        if source_file is None:
+                            raise ValueError("package member has no data: %s" % relative)
+                        with source_file, open(destination, "wb") as output:
+                            shutil.copyfileobj(source_file, output)
+                        objects[relative] = ("file", stat.S_IMODE(member.mode), destination, None)
+                    elif member.issym():
+                        objects[relative] = ("symlink", stat.S_IMODE(member.mode), None, member.linkname)
+                    elif member.islnk():
+                        objects[relative] = ("hardlink", stat.S_IMODE(member.mode), None, member.linkname)
+                    else:
+                        raise ValueError("unsupported package member: %s" % relative)
+    finally:
+        for _, stream in streams:
+            stream.close()
     return objects
 
 
@@ -121,14 +165,15 @@ def _archive(output, objects):
 
 
 def main():
-    if len(sys.argv) < 3:
-        raise SystemExit("usage: package_archive.py OUTPUT PACKAGE...")
+    if len(sys.argv) < 4:
+        raise SystemExit("usage: package_archive.py OUTPUT MANIFEST PACKAGE...")
     output = os.path.abspath(sys.argv[1])
+    manifest = sys.argv[2]
     work = output + ".work"
     shutil.rmtree(work, ignore_errors=True)
     os.makedirs(work, mode=0o700)
     try:
-        _archive(output, _collect(sys.argv[2:], work))
+        _archive(output, _collect(sys.argv[3:], manifest, work))
     finally:
         shutil.rmtree(work, ignore_errors=True)
 

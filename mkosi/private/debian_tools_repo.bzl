@@ -25,6 +25,7 @@ alias(name = "components", actual = "{components_label}")
 debian_tools_archive(
     name = "tree",
     packages = ["{repo}//:all"],
+    package_manifest = "{repo}//:package_manifest.txt",
 )
 
 debian_tools_tree(

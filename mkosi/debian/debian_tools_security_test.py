@@ -23,6 +23,7 @@ def _load(name):
 
 extract_tree = _load("extract_tree")
 debian_launcher = _load("debian_launcher")
+package_archive = _load("package_archive")
 
 
 class DebianToolsSecurityTest(unittest.TestCase):
@@ -54,6 +55,61 @@ class DebianToolsSecurityTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "digest mismatch"):
                 extract_tree.extract(str(tampered), str(self.work / "root"), "0" * 64)
         self.assertFalse((self.work / "root").exists())
+
+    def test_archive_path_swap_after_hash_cannot_change_parsed_bytes(self):
+        original = tarfile.TarInfo("safe")
+        original.size = len(b"original")
+        archive = self._archive([(original, b"original")])
+        replacement = self.work / "replacement.tar"
+        member = tarfile.TarInfo("safe")
+        member.size = len(b"replacement")
+        with tarfile.open(replacement, "w") as output:
+            output.addfile(member, io.BytesIO(b"replacement"))
+        digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+        original_open = extract_tree.tarfile.open
+
+        def swap_path(*args, **kwargs):
+            os.replace(replacement, archive)
+            return original_open(*args, **kwargs)
+
+        with mock.patch.object(extract_tree.tarfile, "open", side_effect=swap_path):
+            root = self.work / "swap-root"
+            extract_tree.extract(str(archive), str(root), digest)
+        self.assertEqual((root / "safe").read_bytes(), b"original")
+
+    def test_tampered_package_is_rejected_before_ar_parse(self):
+        data_archive = io.BytesIO()
+        member = tarfile.TarInfo("safe")
+        member.size = 8
+        with tarfile.open(fileobj=data_archive, mode="w") as output:
+            output.addfile(member, io.BytesIO(b"package!"))
+        payload = data_archive.getvalue()
+
+        def ar_member(name, contents):
+            header = (
+                (name + "/").ljust(16)
+                + "0".ljust(12)
+                + "0".ljust(6)
+                + "0".ljust(6)
+                + "100644".ljust(8)
+                + str(len(contents)).ljust(10)
+                + "`\n"
+            ).encode("ascii")
+            return header + contents + (b"\n" if len(contents) % 2 else b"")
+
+        package = self.work / "pkg.deb"
+        package.write_bytes(b"!<arch>\n" + ar_member("data.tar", payload))
+        expected = hashlib.sha256(package.read_bytes()).hexdigest()
+        manifest = self.work / "package-manifest.txt"
+        manifest.write_text("pkg.deb|%s|pkg\n" % expected, encoding="utf-8")
+        original = bytearray(package.read_bytes())
+        original[-1] ^= 1
+        package.write_bytes(original)
+        with mock.patch.object(package_archive, "_ar_members", side_effect=AssertionError("ar parsed")):
+            with self.assertRaisesRegex(ValueError, "package digest mismatch"):
+                package_archive._collect(
+                    [str(package)], str(manifest), str(self.work / "package-work")
+                )
 
     def test_launcher_rejects_tampered_archive_before_scratch(self):
         archive = self._archive([(tarfile.TarInfo("safe"), b"safe")])
@@ -168,7 +224,16 @@ class DebianToolsSecurityTest(unittest.TestCase):
         file_info = tarfile.TarInfo("etc/metadata")
         file_info.mode = 0o640
         file_info.size = 4
-        archive = self._archive([(directory, None), (file_info, b"same")])
+        certificate = tarfile.TarInfo("usr/share/ca-certificates/mozilla/test.crt")
+        certificate.mode = 0o644
+        certificate.size = len(b"certificate")
+        archive = self._archive(
+            [
+                (directory, None),
+                (file_info, b"same"),
+                (certificate, b"certificate"),
+            ]
+        )
         digest = hashlib.sha256(archive.read_bytes()).hexdigest()
 
         def metadata(root):
@@ -197,7 +262,13 @@ class DebianToolsSecurityTest(unittest.TestCase):
             extract_tree.extract(str(archive), str(second), digest)
         finally:
             os.umask(original_umask)
-        self.assertEqual(metadata(first), metadata(second))
+        first_metadata = metadata(first)
+        second_metadata = metadata(second)
+        self.assertEqual(first_metadata, second_metadata)
+        bundle = first / "etc/ssl/certs/ca-certificates.crt"
+        self.assertEqual(bundle.read_bytes(), b"certificate\n")
+        self.assertEqual(bundle.stat().st_mode & 0o777, 0o644)
+        self.assertEqual(bundle.stat().st_mtime_ns, 0)
 
     def test_rejects_link_cycle_and_unexpected_dangling(self):
         first = tarfile.TarInfo("first")

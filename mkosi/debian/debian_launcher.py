@@ -197,12 +197,10 @@ def _prepare_mountpoint(base, destination, source):
 def _pin_bind_sources(binds):
     descriptors = []
     try:
-        for source, _, device, inode, _ in binds:
-            flags = (
-                getattr(os, "O_PATH", 0o10000000)
-                | os.O_NOFOLLOW
-                | os.O_CLOEXEC
-            )
+        for bind in binds:
+            source, _, device, inode, _ = bind
+            flags = (getattr(os, "O_PATH", 0o10000000) if bind[4] else os.O_RDONLY)
+            flags |= os.O_NOFOLLOW | os.O_CLOEXEC
             try:
                 descriptor = os.open(source, flags)
             except OSError:
@@ -328,14 +326,33 @@ def _run(tool, arguments, root, ro_binds, rw_binds, scratch_parent):
         # source with open_tree; the dev/inode tuple rejects ancestor swaps.
         descriptors = _pin_bind_sources(ro_binds + rw_binds)
         mount_arguments = []
+        descriptor_index = 0
         for bind in ro_binds:
             mount_arguments.extend(
-                ["--ro-bind", bind[0], bind[1], str(bind[2]), str(bind[3])]
+                [
+                    "--ro-bind-fd",
+                    str(descriptors[descriptor_index]),
+                    bind[0],
+                    bind[1],
+                    str(bind[2]),
+                    str(bind[3]),
+                    "dir" if bind[4] else "file",
+                ]
             )
+            descriptor_index += 1
         for bind in rw_binds:
             mount_arguments.extend(
-                ["--rw-bind", bind[0], bind[1], str(bind[2]), str(bind[3])]
+                [
+                    "--rw-bind-fd",
+                    str(descriptors[descriptor_index]),
+                    bind[0],
+                    bind[1],
+                    str(bind[2]),
+                    str(bind[3]),
+                    "dir" if bind[4] else "file",
+                ]
             )
+            descriptor_index += 1
         command = [
             runner,
             root,

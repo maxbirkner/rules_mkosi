@@ -12,6 +12,12 @@ def _impl(ctx):
         "BUILD.bazel",
         """package(default_visibility = ["//visibility:public"])
 exports_files(["zig"])
+exports_files(glob(["lib/**"]))
+
+filegroup(
+    name = "runtime",
+    srcs = glob(["lib/**"]),
+)
 """,
     )
     if hasattr(ctx, "repo_metadata"):

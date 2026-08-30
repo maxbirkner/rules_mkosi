@@ -94,7 +94,117 @@ jobs:
             *"BuildDebianToolsArchive"*|*"BuildHermeticDebianBootstrap"*) ;;
             *) echo "Debian tools hermetic actions are missing" >&2; exit 1 ;;
           esac
+          bazel aquery --lockfile_mode="${mode}" --output=jsonproto \
+            'deps(@mkosi_debian_tools//:launcher)' > debian-tools-aquery.json
+          python3 - debian-tools-aquery.json <<'PY'
+          import json
+          import sys
+
+          graph = json.load(open(sys.argv[1], encoding="utf-8"))
+          archive = []
+          bootstrap = []
+          fragments = {
+              fragment["id"]: fragment for fragment in graph["pathFragments"]
+          }
+          artifacts = {
+              artifact["id"]: artifact for artifact in graph["artifacts"]
+          }
+          dep_sets = {
+              dep_set["id"]: dep_set for dep_set in graph["depSetOfFiles"]
+          }
+
+          def path(fragment_id):
+              parts = []
+              while fragment_id:
+                  fragment = fragments[fragment_id]
+                  parts.append(fragment["label"])
+                  fragment_id = fragment.get("parentId")
+              return "/".join(reversed(parts))
+
+          artifact_paths = {
+              artifact_id: path(artifact["pathFragmentId"])
+              for artifact_id, artifact in artifacts.items()
+          }
+
+          def input_paths(action):
+              paths = set()
+              seen = set()
+
+              def collect(dep_set_id):
+                  if dep_set_id in seen:
+                      return
+                  seen.add(dep_set_id)
+                  dep_set = dep_sets[dep_set_id]
+                  paths.update(
+                      artifact_paths[artifact_id]
+                      for artifact_id in dep_set["directArtifactIds"]
+                  )
+                  for child in dep_set.get("transitiveDepSetIds", []):
+                      collect(child)
+
+              for dep_set_id in action.get("inputDepSetIds", []):
+                  collect(dep_set_id)
+              return paths
+
+          for action in graph["actions"]:
+              arguments = action.get("arguments", [])
+              inputs = input_paths(action)
+              if action["mnemonic"] == "BuildDebianToolsArchive":
+                  archive.append((arguments, inputs))
+              if action["mnemonic"] == "BuildHermeticDebianBootstrap":
+                  bootstrap.append((arguments, inputs))
+              if any(
+                  token.endswith("/bin/bash")
+                  or token.endswith("/usr/bin/gcc")
+                  or token.endswith("/usr/bin/ar")
+                  or token.endswith("/usr/bin/strip")
+                  or "local_config_cc" in token
+                  for token in arguments
+              ):
+                  raise SystemExit("host compiler or shell in structured action graph")
+          if len(archive) != 1 or any(
+              not args
+              or not args[0][0].endswith("/mkosi_debian_python/bin/python3.11")
+              or not any("mkosi_debian_python/lib/" in path for path in args[1])
+              for args in archive
+          ):
+              raise SystemExit("archive action lacks complete static Python inputs")
+          if len(bootstrap) != 2 or any(
+              not args
+              or not args[0][0].endswith("/mkosi_debian_zig/zig")
+              or not any("mkosi_debian_zig/lib/" in path for path in args[1])
+              for args in bootstrap
+          ):
+              raise SystemExit("bootstrap action lacks complete pinned Zig inputs")
+          print("structured action graph: archive=static-python bootstrap=static-zig")
+          PY
+          rm debian-tools-aquery.json
           echo "Debian tools archive/bootstrap graph contains only managed actions"
+
+      - name: Verify deterministic bootstrap binaries
+        if: matrix.module == '.' && matrix.bazel == '7.7.1'
+        run: |
+          bazel build --lockfile_mode=error \
+            @mkosi_debian_tools//:launcher \
+            @mkosi_debian_tools//:namespace_runner
+          first_launcher="$(bazel cquery --lockfile_mode=error \
+            --output=files @mkosi_debian_tools//:launcher)"
+          first_runner="$(bazel cquery --lockfile_mode=error \
+            --output=files @mkosi_debian_tools//:namespace_runner)"
+          first_launcher_sha="$(sha256sum "$first_launcher" | cut -d' ' -f1)"
+          first_runner_sha="$(sha256sum "$first_runner" | cut -d' ' -f1)"
+          bazel clean --expunge
+          bazel build --lockfile_mode=error \
+            @mkosi_debian_tools//:launcher \
+            @mkosi_debian_tools//:namespace_runner
+          second_launcher="$(bazel cquery --lockfile_mode=error \
+            --output=files @mkosi_debian_tools//:launcher)"
+          second_runner="$(bazel cquery --lockfile_mode=error \
+            --output=files @mkosi_debian_tools//:namespace_runner)"
+          test "$first_launcher_sha" = "$(sha256sum "$second_launcher" | cut -d' ' -f1)"
+          test "$first_runner_sha" = "$(sha256sum "$second_runner" | cut -d' ' -f1)"
+          echo "clean rebuild launcher SHA: $first_launcher_sha"
+          echo "clean rebuild namespace runner SHA: $first_runner_sha"
 
       - name: Verify Linux sandbox helper
         if: matrix.module == '.'
