@@ -181,15 +181,20 @@ jobs:
                   collect(dep_set_id)
               return paths
 
-          allowed_input_roots = (
-              "bazel-out/",
-              "mkosi/debian/",
-              "external/bazel_tools/",
-              "external/hermetic_cc_toolchain~~",
-              "external/_main~debian_tools~mkosi_debian_tools/",
-              "external/_main~debian_tools~mkosi_debian_package_inputs/",
-              "external/_main~debian_tools~mkosi_debian_python/",
-          )
+          def allowed_input(path):
+              if path.startswith(("bazel-out/", "mkosi/debian/")):
+                  return True
+              if not path.startswith("external/"):
+                  return False
+              repository = path.split("/", 2)[1]
+              return repository.startswith(
+                  (
+                      "bazel_tools",
+                      "hermetic_cc_toolchain",
+                      "_main~debian_tools~",
+                      "+debian_tools+",
+                  )
+              )
           compiler_tokens = (
               "/bin/bash",
               "/usr/bin/gcc",
@@ -222,7 +227,7 @@ jobs:
                       )
                   unexpected = sorted(
                       path for path in inputs
-                      if not path.startswith(allowed_input_roots)
+                      if not allowed_input(path)
                   )
                   if unexpected:
                       raise SystemExit(

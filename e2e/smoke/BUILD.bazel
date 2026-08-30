@@ -44,6 +44,10 @@ diff_test(
     name = "demo_content_test",
     file1 = "testdata/debian.image.golden.txt",
     file2 = ":demo",
+    tags = [
+        "manual",
+        "requires_empty_groups",
+    ],
 )
 
 sh_test(
