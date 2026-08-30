@@ -33,10 +33,11 @@ problems. Check:
     are not accidentally marked dev-only, and source archives remain stable.
 
 Separate merge blockers from follow-up hardening. A review finding blocks the
-current PR only when it breaks the stated behavior, makes a supported
-configuration fail, creates an immediate security problem in the documented
-threat model, or contradicts the public API. Record broader hardening and
-refactoring as focused follow-up issues.
+current PR when it violates an explicit repository requirement, breaks the
+stated behavior, makes a supported configuration fail, creates an immediate
+security problem in the documented threat model, or contradicts the public
+API. Record optional hardening and unrelated refactoring as focused follow-up
+issues.
 
 After review, use the `implementation-retrospective` skill to capture recurring
 review findings as either missing guidance or architectural friction.
