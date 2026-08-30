@@ -44,7 +44,7 @@ fi
     echo "managed Python runtime is missing" >&2
     exit 1
 }
-bind_source="$TEST_TMPDIR/../debian-tools-bind-source"
+bind_source="$PWD/debian-tools-bind-source"
 python_home="${python%/bin/python3.11}"
 PYTHONHOME="$python_home" PYTHONNOUSERSITE=1 "$python" -I "$setup_script" "$bind_source"
 
