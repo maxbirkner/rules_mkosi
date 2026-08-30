@@ -10,7 +10,7 @@ bcr_test_module:
       name: "Run smoke tests (Bazel 7.7.1 strict lock)"
       platform: ${{ platform }}
       bazel: "7.7.1"
-      bazel_flags:
+      test_flags:
         - "--lockfile_mode=error"
       test_targets:
         - "//..."
@@ -18,7 +18,7 @@ bcr_test_module:
       name: "Run smoke tests (Bazel 8.5.1 compatibility)"
       platform: ${{ platform }}
       bazel: "8.5.1"
-      bazel_flags:
+      test_flags:
         - "--lockfile_mode=off"
       test_targets:
         - "//..."
@@ -26,7 +26,7 @@ bcr_test_module:
       name: "Run smoke tests (Bazel 9.2.0 compatibility)"
       platform: ${{ platform }}
       bazel: "9.2.0"
-      bazel_flags:
+      test_flags:
         - "--lockfile_mode=off"
       test_targets:
         - "//..."
