@@ -198,18 +198,18 @@ def _pin_bind_sources(binds):
     descriptors = []
     try:
         for source, _, device, inode, _ in binds:
-            flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC
-            if os.path.isdir(source):
-                flags |= os.O_DIRECTORY
+            flags = (
+                getattr(os, "O_PATH", 0o10000000)
+                | os.O_NOFOLLOW
+                | os.O_CLOEXEC
+            )
             try:
                 descriptor = os.open(source, flags)
-            except PermissionError:
-                descriptor = os.open(
-                    source,
-                    getattr(os, "O_PATH", 0o10000000)
-                    | os.O_NOFOLLOW
-                    | os.O_CLOEXEC,
-                )
+            except OSError:
+                flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC
+                if os.path.isdir(source):
+                    flags |= os.O_DIRECTORY
+                descriptor = os.open(source, flags)
             descriptors.append(descriptor)
             current = os.fstat(descriptor)
             if current.st_dev != device or current.st_ino != inode:
@@ -324,6 +324,8 @@ def _run(tool, arguments, root, ro_binds, rw_binds, scratch_parent):
             raise RuntimeError("static Debian namespace runner is missing")
         loader, _ = _validate_root(root, tool)
         loader_relative = "/" + os.path.relpath(loader, root)
+        # Hold O_PATH descriptors while the runner revalidates and pins each
+        # source with open_tree; the dev/inode tuple rejects ancestor swaps.
         descriptors = _pin_bind_sources(ro_binds + rw_binds)
         mount_arguments = []
         for bind in ro_binds:
