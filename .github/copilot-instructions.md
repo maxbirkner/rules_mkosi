@@ -30,6 +30,14 @@ Linux images with mkosi.
   individual formatter commands in documentation or CI.
 - Follow the canonical validation commands and nested-module rationale in
   `CONTRIBUTING.md`.
+- Keep pull requests small and single-purpose. Do not expand a feature PR with
+  non-blocking hardening; record that work as focused follow-up issues.
+- Every implementation handoff must include an implementation retrospective:
+  documentation gaps, confusing APIs or architecture, repeated failures, and
+  deferred work. Write `None` for empty categories rather than omitting them.
+- Before starting the next feature, triage retrospective findings. Fix missing
+  guidance in the relevant instruction or skill, and schedule a focused
+  refactoring when repeated friction indicates a code smell.
 
 When compatibility-sensitive Starlark changes are made, repeat the root and
 consumer suites with `USE_BAZEL_VERSION=7.7.1`.
