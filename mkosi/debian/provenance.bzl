@@ -11,9 +11,6 @@ DEBIAN_TOOLS_ARCHIVE_SHA256 = "554f3ef7f266c2786e5e6fd0b80bc77198ffeb7dbf51aff36
 DEBIAN_TOOLS_PYTHON_VERSION = "3.11.16"
 DEBIAN_TOOLS_PYTHON_URL = "https://github.com/astral-sh/python-build-standalone/releases/download/20260825/cpython-3.11.16%2B20260825-x86_64-unknown-linux-musl-lto%2Bstatic-full.tar.zst"
 DEBIAN_TOOLS_PYTHON_SHA256 = "db37cb55adaf13d3eb78c56e76d2fcefaf7472945c8b52c17da60aede58d7529"
-DEBIAN_TOOLS_ZIG_VERSION = "0.16.0"
-DEBIAN_TOOLS_ZIG_URL = "https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz"
-DEBIAN_TOOLS_ZIG_SHA256 = "70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00"
 
 # The package lock is authoritative for package versions, URLs, hashes, and
 # dependency edges.  These are the initial tracer-required command names.

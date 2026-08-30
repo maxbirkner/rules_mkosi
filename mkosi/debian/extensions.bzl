@@ -4,7 +4,6 @@ load("//mkosi/debian:provenance.bzl", "DEBIAN_TOOLS_ARCHIVE_SHA256", "DEBIAN_TOO
 load("//mkosi/private:debian_package_repo.bzl", "debian_package_repo")
 load("//mkosi/private:debian_python_repo.bzl", "debian_python_repo")
 load("//mkosi/private:debian_tools_repo.bzl", "debian_tools_repo")
-load("//mkosi/private:debian_zig_repo.bzl", "debian_zig_repo")
 
 _toolchain = tag_class(
     attrs = {},
@@ -16,7 +15,6 @@ def _debian_tools_impl(module_ctx):
         lock = "@rules_mkosi//mkosi/debian:debian13.lock.json",
     )
     debian_python_repo(name = "mkosi_debian_python")
-    debian_zig_repo(name = "mkosi_debian_zig")
     debian_tools_repo(
         name = "mkosi_debian_tools",
         package_repo = "@mkosi_debian_package_inputs",

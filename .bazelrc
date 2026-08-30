@@ -1,5 +1,7 @@
 common --enable_bzlmod
 common --lockfile_mode=error
+common --platforms=@zig_sdk//libc_aware/platform:linux_amd64_musl
+common --host_platform=@zig_sdk//libc_aware/platform:linux_amd64_musl
 test --test_output=errors
 
 build:kernel_preflight --compilation_mode=opt

@@ -98,10 +98,6 @@ jobs:
             *"mkosi_debian_python/lib/"*) ;;
             *) echo "declared static Python library tree is missing" >&2; exit 1 ;;
           esac
-          case "$graph" in
-            *"mkosi_debian_zig/lib/"*) ;;
-            *) echo "declared Zig library tree is missing" >&2; exit 1 ;;
-          esac
           bazel aquery --lockfile_mode="${mode}" --output=jsonproto \
             'deps(@mkosi_debian_tools//:launcher)' > debian-tools-aquery.json
           python3 - debian-tools-aquery.json <<'PY'
@@ -110,7 +106,7 @@ jobs:
 
           graph = json.load(open(sys.argv[1], encoding="utf-8"))
           archive = []
-          bootstrap = []
+          compilation = []
           fragments = {
               fragment["id"]: fragment for fragment in graph["pathFragments"]
           }
@@ -159,8 +155,8 @@ jobs:
               inputs = input_paths(action)
               if action["mnemonic"] == "BuildDebianToolsArchive":
                   archive.append((arguments, inputs))
-              if action["mnemonic"] == "BuildHermeticDebianBootstrap":
-                  bootstrap.append((arguments, inputs))
+              if action["mnemonic"] in ("CppCompile", "CppLink"):
+                  compilation.append((action["mnemonic"], arguments, inputs))
               if any(
                   token.endswith("/bin/bash")
                   or token.endswith("/usr/bin/gcc")
@@ -178,17 +174,32 @@ jobs:
               for args in archive
           ):
               raise SystemExit("archive action lacks complete static Python inputs")
-          print("structured bootstrap actions:", len(bootstrap), [args[0][0] for args in bootstrap if args[0]])
-          if len(bootstrap) != 2 or any(
-              not args
-              or "mkosi_debian_zig" not in args[0][0]
-              or not args[0][0].endswith("/zig")
-              for args in bootstrap
+          if not any(
+              mnemonic in ("CppCompile", "CppLink") and args
+              for mnemonic, args, _ in compilation
           ):
-              raise SystemExit("bootstrap action lacks complete pinned Zig inputs")
-          print("structured action graph: archive=static-python bootstrap=static-zig")
+              raise SystemExit("standard C++ toolchain actions are missing")
+          print("structured C++ toolchain actions:", len(compilation))
+          print("structured action graph: archive=static-python standard-cc=resolved")
           PY
           rm debian-tools-aquery.json
+          for target in launcher namespace_runner
+          do
+            definition="$(bazel cquery --lockfile_mode="${mode}" \
+              --output=build "@mkosi_debian_tools//:${target}")"
+            case "$definition" in
+              *"exec_compatible_with"*) ;;
+              *) echo "direct ${target} target lacks exec constraints" >&2; exit 1 ;;
+            esac
+            case "$definition" in
+              *"target_compatible_with"*) ;;
+              *) echo "direct ${target} target lacks target constraints" >&2; exit 1 ;;
+            esac
+            case "$definition" in
+              *"@platforms//os:linux"*'"@platforms//cpu:x86_64"'*) ;;
+              *) echo "direct ${target} target lacks Linux x86-64 constraints" >&2; exit 1 ;;
+            esac
+          done
           echo "Debian tools archive/bootstrap graph contains only managed actions"
 
       - name: Verify deterministic bootstrap binaries

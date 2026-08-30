@@ -15,7 +15,8 @@ def _impl(ctx):
     )
     ctx.file(
         "BUILD.bazel",
-        """load("@rules_mkosi//mkosi/debian:toolchain.bzl", "debian_static_binary", "debian_tools_archive", "debian_tools_toolchain", "debian_tools_tree")
+        """load("@rules_cc//cc:defs.bzl", "cc_binary")
+load("@rules_mkosi//mkosi/debian:toolchain.bzl", "debian_tools_archive", "debian_tools_toolchain", "debian_tools_tree")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -45,10 +46,12 @@ filegroup(
     srcs = ["@rules_mkosi//mkosi/debian:extract_tree.py"],
 )
 
-debian_static_binary(
+cc_binary(
     name = "launcher",
-    source = "@rules_mkosi//mkosi/debian:launcher_main.c",
-    config = "launcher_config.h",
+    srcs = [
+        "@rules_mkosi//mkosi/debian:launcher_main.c",
+        "launcher_config.h",
+    ],
     data = [
         ":tree",
         ":extractor",
@@ -57,11 +60,31 @@ debian_static_binary(
         ":python_runtime",
         ":namespace_runner",
     ],
+    features = ["fully_static_link"],
+    linkopts = ["-static", "-Wl,--strip-debug", "-Wl,--build-id=none"],
+    exec_compatible_with = [
+        "@platforms//os:linux",
+        "@platforms//cpu:x86_64",
+    ],
+    target_compatible_with = [
+        "@platforms//os:linux",
+        "@platforms//cpu:x86_64",
+    ],
 )
 
-debian_static_binary(
+cc_binary(
     name = "namespace_runner",
-    source = "@rules_mkosi//mkosi/debian:namespace_runner.c",
+    srcs = ["@rules_mkosi//mkosi/debian:namespace_runner.c"],
+    features = ["fully_static_link"],
+    linkopts = ["-static", "-Wl,--strip-debug", "-Wl,--build-id=none"],
+    exec_compatible_with = [
+        "@platforms//os:linux",
+        "@platforms//cpu:x86_64",
+    ],
+    target_compatible_with = [
+        "@platforms//os:linux",
+        "@platforms//cpu:x86_64",
+    ],
 )
 
 filegroup(

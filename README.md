@@ -97,9 +97,20 @@ independent consumer suites on pinned Bazel 7.7.1, 8.5.1, and 9.2.0; Bazel
 `--lockfile_mode=off` so compatibility is verified without silently
 rewriting the committed lockfile.
 
-The two static bootstrap executables are built by a checksum-pinned static
-Zig 0.16.0 compiler and musl target, not by `local_config_cc` or host
-headers/libc. Their action graph and ELF metadata are checked in CI.
+Repository tests and the independent consumer register the maintained
+`hermetic_cc_toolchain` 4.3.0 default on its Linux amd64 musl platform. The
+bootstrap targets use ordinary `cc_binary` toolchain resolution with
+`fully_static_link`; consumers may register another compatible standard C/C++
+toolchain. rules_mkosi does not download, invoke, or select a raw compiler
+itself. The resolved action graph and static ELF metadata are checked in CI.
+
+For a consumer that overrides the default, register a compatible
+`@bazel_tools//tools/cpp:toolchain_type` toolchain for Linux x86-64 and static
+linking. The default platform is
+`@zig_sdk//libc_aware/platform:linux_amd64_musl`, supplied by the maintained
+toolchain module; repository tests set it for both `--platforms` and
+`--host_platform` so tools built in the exec configuration select the same
+static toolchain.
 
 The root module may select a version with `mkosi.toolchain(version = "27")`;
 unsupported or conflicting requests fail during module resolution.
