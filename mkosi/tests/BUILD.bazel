@@ -80,6 +80,8 @@ sh_test(
     name = "debian_tools_runtime_test",
     srcs = ["debian_tools_runtime_test.sh"],
     data = [
+        "debian_tools_runtime_setup.py",
+        "@mkosi_debian_python//:bin/python3.11",
         "@mkosi_debian_tools//:launcher",
     ],
 )

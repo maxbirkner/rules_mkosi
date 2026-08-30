@@ -25,6 +25,28 @@ fi
     echo "advertised Debian launcher is missing" >&2
     exit 1
 }
+setup_script="$runfiles_root/_main/mkosi/tests/debian_tools_runtime_setup.py"
+python=
+mapping="$runfiles_root/_repo_mapping"
+if [ -f "$mapping" ]; then
+    while IFS= read -r mapping_line
+    do
+        case "$mapping_line" in
+            ",mkosi_debian_python,"*)
+                repository="${mapping_line#*,mkosi_debian_python,}"
+                python="$runfiles_root/$repository/bin/python3.11"
+                break
+                ;;
+        esac
+    done < "$mapping"
+fi
+[ -x "$python" ] || {
+    echo "managed Python runtime is missing" >&2
+    exit 1
+}
+bind_source="$TEST_TMPDIR/../debian-tools-bind-source"
+python_home="${python%/bin/python3.11}"
+PYTHONHOME="$python_home" PYTHONNOUSERSITE=1 "$python" -I "$setup_script" "$bind_source"
 
 hostile_sitecustomize="$TEST_TMPDIR/sitecustomize.py"
 printf '%s\n' 'raise RuntimeError("hostile sitecustomize loaded")' > "$hostile_sitecustomize"
@@ -153,17 +175,14 @@ case "$runtime_output" in
         ;;
 esac
 
-input="$PWD/debian-tools-input"
-output="$PWD/debian-tools-output"
-counter="$PWD/debian-tools-counter"
-printf '%s\n' "packaged-input" > "$input"
-: > "$output"
-: > "$counter"
+input="$bind_source/debian-tools-input"
+output="$bind_source/debian-tools-output"
+counter="$bind_source/debian-tools-counter"
 set +e
 bind_output="$(
     MKOSI_DEBIAN_TOOLS_SCRATCH="$TEST_TMPDIR/../debian-tools-binds" "$launcher" \
-        --ro-bind "$PWD:/inputs/input-dir" \
-        --rw-bind "$PWD:/outputs/output-dir" \
+        --ro-bind "$bind_source:/inputs/input-dir" \
+        --rw-bind "$bind_source:/outputs/output-dir" \
         /bin/sh -c '
             IFS= read -r value < /inputs/input-dir/debian-tools-input
             [ "$value" = packaged-input ]
@@ -205,7 +224,7 @@ IFS= read -r value < "$output"
 set +e
 once_output="$(
     MKOSI_DEBIAN_TOOLS_SCRATCH="$TEST_TMPDIR/../debian-tools-once" "$launcher" \
-        --rw-bind "$PWD:/outputs/counter-dir" \
+        --rw-bind "$bind_source:/outputs/counter-dir" \
         /bin/sh -c 'printf "x\n" >> /outputs/counter-dir/debian-tools-counter; exit 37' 2>&1
 )"
 once_status=$?

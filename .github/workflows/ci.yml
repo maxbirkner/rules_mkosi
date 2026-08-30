@@ -272,11 +272,6 @@ jobs:
                   archive.append((arguments, inputs))
               if action["mnemonic"] in ("CppCompile", "CppLink"):
                   compilation.append((action["mnemonic"], arguments, inputs))
-              relevant = action["mnemonic"] in (
-                  "BuildDebianToolsArchive",
-                  "CppCompile",
-                  "CppLink",
-              )
               validate_action(action)
           print("structured actions audited:", action_count)
           print("CcStrip actions audited:", strip_actions,
@@ -487,6 +482,14 @@ jobs:
           repository-cache: true
 
       - name: Verify committed lockfile
+        run: |
+          actual="$(bazel --version)"
+          echo "$actual"
+          test "$actual" = "bazel 7.7.1"
+          bazel mod deps --lockfile_mode=error
+
+      - name: Verify committed e2e lockfile
+        working-directory: e2e/smoke
         run: |
           actual="$(bazel --version)"
           echo "$actual"
