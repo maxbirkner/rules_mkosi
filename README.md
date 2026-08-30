@@ -105,10 +105,12 @@ The module has a normal dependency on the maintained
 amd64 musl `@zig_sdk//toolchain:linux_amd64_musl` toolchain as the bootstrap
 default; an independent downstream root opts into the same maintained
 extension and registration (as shown by `e2e/smoke`) without setting
-`--platforms` or `--host_platform`. This is required by Bzlmod's root-module
-extension visibility rules and is not a custom compiler mechanism. The
-bootstrap targets use ordinary `cc_binary` toolchain resolution with
-`fully_static_link`, and a consumer's root-module registration takes
+`--platforms` or `--host_platform`. Bzlmod requires that extension-provided
+repositories be opted into by the downstream root module, so the maintained
+dependency, extension, and registration are part of the documented consumer
+setup rather than hidden development-only state. This is not a custom compiler
+mechanism. The bootstrap targets use ordinary `cc_binary` toolchain resolution
+with `fully_static_link`, and a consumer's root-module registration takes
 precedence when it provides another compatible standard C/C++ toolchain.
 rules_mkosi does not download, invoke, or select a raw compiler itself. The
 resolved action graph and static ELF metadata are checked in CI.
