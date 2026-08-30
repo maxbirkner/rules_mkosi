@@ -101,15 +101,17 @@ independent consumer suites on pinned Bazel 7.7.1, 8.5.1, and 9.2.0; Bazel
 rewriting the committed lockfile.
 
 The module has a normal dependency on the maintained
-`hermetic_cc_toolchain` 4.3.0 and registers its generic Linux amd64 musl
-`@zig_sdk//toolchain:linux_amd64_musl` toolchain as the default for bootstrap
-targets. This registration is available to downstream modules; it does not
-force a target or host platform on the consumer. The bootstrap targets use
-ordinary `cc_binary` toolchain resolution with `fully_static_link`, and a
-consumer's root-module registration takes precedence when it provides another
-compatible standard C/C++ toolchain. rules_mkosi does not download, invoke, or
-select a raw compiler itself. The resolved action graph and static ELF
-metadata are checked in CI.
+`hermetic_cc_toolchain` 4.3.0. The repository root registers its generic Linux
+amd64 musl `@zig_sdk//toolchain:linux_amd64_musl` toolchain as the bootstrap
+default; an independent downstream root opts into the same maintained
+extension and registration (as shown by `e2e/smoke`) without setting
+`--platforms` or `--host_platform`. This is required by Bzlmod's root-module
+extension visibility rules and is not a custom compiler mechanism. The
+bootstrap targets use ordinary `cc_binary` toolchain resolution with
+`fully_static_link`, and a consumer's root-module registration takes
+precedence when it provides another compatible standard C/C++ toolchain.
+rules_mkosi does not download, invoke, or select a raw compiler itself. The
+resolved action graph and static ELF metadata are checked in CI.
 
 For a consumer that overrides the default, register a compatible
 `@bazel_tools//tools/cpp:toolchain_type` toolchain for Linux x86-64 and static

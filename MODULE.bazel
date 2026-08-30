@@ -23,6 +23,7 @@ bazel_dep(name = "hermetic_cc_toolchain", version = "4.3.0")
 hermetic_cc = use_extension(
     "@hermetic_cc_toolchain//toolchain:ext.bzl",
     "toolchains",
+    dev_dependency = True,
 )
 hermetic_cc.exec_platform(
     arch = "amd64",
@@ -32,6 +33,7 @@ use_repo(hermetic_cc, "zig_sdk")
 
 register_toolchains(
     "@zig_sdk//toolchain:linux_amd64_musl",
+    dev_dependency = True,
 )
 
 qemu = use_extension("@rules_qemu//qemu/extension:qemu.bzl", "qemu")
