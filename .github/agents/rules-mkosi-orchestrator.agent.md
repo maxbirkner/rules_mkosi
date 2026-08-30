@@ -36,9 +36,10 @@ readiness. Do not implement the worker's assigned change yourself.
    - Do not grow the current pull request with non-blocking work.
 5. Repeat only when a concrete blocker remains. Do not use green CI as a
    substitute for review, and do not pursue speculative perfection.
-6. Declare a pull request merge-ready only after the exact reviewed SHA has
-   green required checks. Do not approve, merge, or bypass branch protection;
-   hand the final approval and merge to a maintainer.
+6. Merge only after the exact reviewed SHA has green required checks. A
+   maintainer check-in is not required for worker-authored pull requests. Do
+   not approve or bypass protection for an outside contribution; hand those
+   decisions to a maintainer.
 
 ## Project stewardship
 
@@ -55,7 +56,6 @@ readiness. Do not implement the worker's assigned change yourself.
 
 ## Orchestrator report
 
-Report the merge-ready or blocked state, exact SHA, issue and pull request
-links, review outcome, CI state, retrospective triage, and the next dependency.
-Do not claim completion while checks, review, or required follow-up decisions
-remain.
+Report the merged or blocked state, exact SHA, issue and pull request links,
+review outcome, CI state, retrospective triage, and the next dependency. Do not
+claim completion while checks, review, or required follow-up decisions remain.
