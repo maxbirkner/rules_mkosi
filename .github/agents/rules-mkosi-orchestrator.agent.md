@@ -38,8 +38,8 @@ readiness. Do not implement the worker's assigned change yourself.
    substitute for review, and do not pursue speculative perfection.
 6. Merge only after the exact reviewed SHA has green required checks. A
    maintainer check-in is not required for worker-authored pull requests. Do
-   not approve or bypass protection for an outside contribution; hand those
-   decisions to a maintainer.
+   not approve, merge, or bypass protection for an outside contribution; hand
+   those decisions to a maintainer.
 
 ## Project stewardship
 
