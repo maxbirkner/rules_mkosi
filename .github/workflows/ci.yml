@@ -191,6 +191,8 @@ jobs:
                   (
                       "bazel_tools",
                       "hermetic_cc_toolchain",
+                      "rules_cc~",
+                      "rules_cc+",
                       "_main~debian_tools~",
                       "+debian_tools+",
                   )
