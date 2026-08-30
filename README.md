@@ -146,12 +146,16 @@ described in [`e2e/README.md`](e2e/README.md).
 `mkosi_image` declares a single `<name>.raw` output and consumes one mkosi
 configuration file. It invokes the pinned mkosi v27 executable and the
 extracted Debian 13 tools tree through their registered toolchains, with an
-empty ambient `PATH`; no host executable lookup is used. The minimal tracer
-configuration may acquire target Debian packages over the network, so the
-action is explicitly non-cacheable, does not use remote execution, and
-requires a Linux x86-64 execution platform with the namespace and mount
-capabilities in the host-kernel contract. It is not an offline or
-remote-execution-hermetic action.
+empty ambient `PATH`; no host executable lookup or shebang launcher is used.
+The configuration label is mandatory and must resolve to exactly one file;
+invalid file targets fail during Bazel analysis.
+The rule overrides config output settings to `Format=disk`, `OutputExtension=raw`,
+`CompressOutput=none`, and no split artifacts, so custom formats and redirected
+outputs are not part of this tracer contract. The minimal tracer configuration
+may acquire target Debian packages over the network, so the action is
+explicitly non-cacheable, does not use remote execution, and requires a Linux
+x86-64 execution platform with the namespace and mount capabilities in the
+host-kernel contract. It is not an offline or remote-execution-hermetic action.
 
 Before adding an image action, run the explicitly sandboxed
 `//mkosi/private:kernel_preflight_host_test` on the intended Linux execution

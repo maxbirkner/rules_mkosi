@@ -1,4 +1,5 @@
 load("@bazel_skylib//rules:diff_test.bzl", "diff_test")
+load("@rules_python//python:defs.bzl", "py_test")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
 load("//mkosi:defs.bzl", "mkosi_image", "qemu_ovmf_smoke_test")
 load("//mkosi/debian:toolchain.bzl", "debian_tools_launcher_probe", "debian_tools_preflight", "debian_tools_preflight_test")
@@ -125,9 +126,15 @@ sh_test(
 sh_test(
     name = "mkosi_version_test",
     srcs = ["mkosi_version_test.sh"],
+    args = [
+        "$(rootpath @mkosi_toolchains//:mkosi_python)",
+        "$(rootpath @mkosi_toolchains//:mkosi_script)",
+    ],
     data = [
         "sitecustomize.py",
-        "@mkosi_toolchains//:mkosi",
+        "@mkosi_toolchains//:mkosi_python",
+        "@mkosi_toolchains//:mkosi_runfiles",
+        "@mkosi_toolchains//:mkosi_script",
     ],
 )
 
@@ -137,10 +144,26 @@ mkosi_image(
     tags = ["manual"],
 )
 
-sh_test(
+py_test(
     name = "real_image_artifact_test",
-    srcs = ["real_image_artifact_test.sh"],
+    srcs = ["raw_image_validator.py"],
     args = ["$(rootpath :real_image)"],
     data = [":real_image"],
+    main = "raw_image_validator.py",
     tags = ["manual"],
+)
+
+py_test(
+    name = "mkosi_config_test",
+    srcs = ["mkosi_config_test.py"],
+    args = ["$(rootpath testdata/minimal.conf)"],
+    data = ["testdata/minimal.conf"],
+)
+
+filegroup(
+    name = "invalid_mkosi_config",
+    srcs = [
+        "testdata/minimal.conf",
+        "testdata/redirect.conf",
+    ],
 )

@@ -118,6 +118,30 @@ jobs:
             *"mkosi_debian_python/lib/"*) ;;
             *) echo "declared static Python library tree is missing" >&2; exit 1 ;;
           esac
+          image_graph="$(run_bazel bazel aquery --lockfile_mode="${mode}" --output=text \
+            'mnemonic("MkosiImage", //mkosi/tests:real_image)')"
+          case "$image_graph" in
+            *"python3"*"/mkosi/__main__.py"*) ;;
+            *) echo "mkosi image action is not using the direct managed-Python entrypoint" >&2; exit 1 ;;
+          esac
+          case "$image_graph" in
+            *"Environment: [PATH=, PYTHONPATH="*) ;;
+            *) echo "mkosi image action environment is not hermetically declared" >&2; exit 1 ;;
+          esac
+          case "$image_graph" in
+            *"mkosi_cli"*|*"mkosi_launcher.sh"*)
+              echo "host-shell mkosi launcher leaked into the image action" >&2
+              exit 1
+              ;;
+          esac
+          case "$image_graph" in
+            *"ExecutionInfo: {no-cache: 1, no-remote-exec: 1, requires-network: 1}"*) ;;
+            *) echo "mkosi image execution requirements are incomplete" >&2; exit 1 ;;
+          esac
+          case "$image_graph" in
+            *"--format=disk"*"--output-extension=raw"*"--compress-output=none"*"--split-artifacts="*) ;;
+            *) echo "mkosi image output contract overrides are missing" >&2; exit 1 ;;
+          esac
           run_bazel bazel aquery --lockfile_mode="${mode}" --output=jsonproto \
             'deps(@mkosi_debian_tools//:launcher)' > debian-tools-aquery.json
           python3 - debian-tools-aquery.json <<'PY'
@@ -468,6 +492,10 @@ jobs:
                 *[![:space:]]*) echo "CI namespace lane has supplementary groups" >&2; exit 1 ;;
               esac
               echo "CI namespace lane: Groups: (empty)"
+              bazel shutdown
+              bazel test --lockfile_mode=error --disk_cache= \
+                --cache_test_results=no --config=kernel_preflight \
+                //mkosi/private:kernel_preflight_host_test
               bazel test --lockfile_mode=error --disk_cache= \
                 --cache_test_results=no --spawn_strategy=linux-sandbox \
                 --test_output=all \
@@ -477,6 +505,11 @@ jobs:
                 //mkosi/tests:debian_tools_manifest_test \
                 //mkosi/tests:debian_tools_fd_swap_test \
                 //mkosi/tests:real_image_artifact_test
+              cd e2e/smoke
+              bazel shutdown
+              bazel test --lockfile_mode=error --disk_cache= \
+                --cache_test_results=no --spawn_strategy=linux-sandbox \
+                --test_output=all //:demo_artifact_test
             '
 
   lockfile:

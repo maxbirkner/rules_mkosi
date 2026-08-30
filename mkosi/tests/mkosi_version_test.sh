@@ -2,43 +2,71 @@
 set -eu
 
 runfiles_root="${RUNFILES_DIR:-$0.runfiles}"
-executable=
-if [ -f "${RUNFILES_MANIFEST_FILE:-}" ]; then
+manifest="${RUNFILES_MANIFEST_FILE:-}"
+
+resolve_runfile() {
+    requested="$1"
+    if [ -n "$manifest" ] && [ -f "$manifest" ]; then
+        while read -r logical physical
+        do
+            case "$logical" in
+                "$requested"|../"$requested"|external/"$requested")
+                    printf '%s\n' "$physical"
+                    return 0
+                    ;;
+            esac
+        done < "$manifest"
+    fi
+    for candidate in \
+        "$runfiles_root/$requested" \
+        "$runfiles_root/_main/$requested" \
+        "$runfiles_root/${requested#external/}" \
+        "$runfiles_root/_main/${requested#external/}"
+    do
+        if [ -f "$candidate" ] || [ -x "$candidate" ]; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+    done
+    return 1
+}
+
+python="$(resolve_runfile "$1")" || {
+    echo "managed mkosi Python is missing from runfiles" >&2
+    exit 1
+}
+main="$(resolve_runfile "$2")" || {
+    echo "mkosi Python entrypoint is missing from runfiles" >&2
+    exit 1
+}
+
+pefile_root=
+if [ -n "$manifest" ] && [ -f "$manifest" ]; then
     while read -r logical physical
     do
         case "$logical" in
-            *mkosi_toolchains/mkosi_cli)
-                executable="$physical"
+            */pefile.py)
+                pefile_root="${physical%/pefile.py}"
                 break
                 ;;
         esac
-    done < "$RUNFILES_MANIFEST_FILE"
+    done < "$manifest"
 fi
-
-for repository in "$runfiles_root"/*mkosi*toolchains
-do
-    if [ -z "$executable" ] && [ -x "$repository/mkosi_cli" ]; then
-        executable="$repository/mkosi_cli"
-        break
-    fi
-done
-
-for candidate in \
-    "$runfiles_root/+mkosi+mkosi_toolchains/mkosi_cli" \
-    "$runfiles_root/+rules_mkosi+mkosi_toolchains/mkosi_cli" \
-    "$runfiles_root/rules_mkosi++mkosi+mkosi_toolchains/mkosi_cli" \
-    "$runfiles_root/mkosi_toolchains/mkosi_cli"
-do
-    if [ -z "$executable" ] && [ -x "$candidate" ]; then
-        executable="$candidate"
-        break
-    fi
-done
-
-if [ -z "$executable" ]; then
-    echo "mkosi toolchain executable is missing from runfiles" >&2
+if [ -z "$pefile_root" ]; then
+    for candidate in \
+        "$runfiles_root"/*pefile*/site-packages/pefile.py \
+        "$runfiles_root/_main"/*pefile*/site-packages/pefile.py
+    do
+        if [ -f "$candidate" ]; then
+            pefile_root="${candidate%/pefile.py}"
+            break
+        fi
+    done
+fi
+[ -n "$pefile_root" ] || {
+    echo "pinned pefile module is missing from runfiles" >&2
     exit 1
-fi
+}
 
 PATH=
 export PATH
@@ -54,8 +82,10 @@ do
         break
     fi
 done
-export PYTHONPATH="$customize_root"
-version="$("$executable" --version)"
+PYTHONNOUSERSITE=1 \
+PYTHONPATH="$customize_root:${main%/mkosi/__main__.py}:$pefile_root" \
+    "$python" "$main" --version > "$TEST_TMPDIR/mkosi.version"
+IFS= read -r version < "$TEST_TMPDIR/mkosi.version"
 [ "$version" = "mkosi 27" ] || {
     echo "unexpected mkosi version: $version" >&2
     exit 1

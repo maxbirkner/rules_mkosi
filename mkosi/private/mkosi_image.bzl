@@ -13,12 +13,19 @@ def _mkosi_image_impl(ctx):
     image = ctx.actions.declare_file(ctx.label.name + ".raw")
     output_name = image.basename[:-len(".raw")]
     workspace = image.dirname + "/." + ctx.label.name + "-mkosi"
+    mkosi_root = mkosi.script.path[:-len("/mkosi/__main__.py")]
+    pefile_root = mkosi.pefile.path[:-len("/pefile.py")]
 
     arguments = ctx.actions.args()
+    arguments.add(mkosi.script.path)
     arguments.add("-I")
     arguments.add(ctx.file.config.path)
     arguments.add("--tools-tree")
     arguments.add(debian_tools.tree_root.path)
+    arguments.add("--format=disk")
+    arguments.add("--output-extension=raw")
+    arguments.add("--compress-output=none")
+    arguments.add("--split-artifacts=")
     arguments.add("--output-directory")
     arguments.add(image.dirname)
     arguments.add("--output")
@@ -36,13 +43,17 @@ def _mkosi_image_impl(ctx):
     arguments.add("build")
 
     ctx.actions.run(
-        executable = mkosi.executable,
+        executable = mkosi.python,
         arguments = [arguments],
-        inputs = depset([ctx.file.config, debian_tools.tree_root]),
-        tools = [mkosi.files_to_run],
+        inputs = depset(
+            [ctx.file.config, mkosi.script, mkosi.pefile, debian_tools.tree_root],
+            transitive = [mkosi.runfiles_files],
+        ),
+        tools = [mkosi.python_files_to_run],
         outputs = [image],
         env = {
             "PATH": "",
+            "PYTHONPATH": mkosi_root + ":" + pefile_root,
         },
         execution_requirements = {
             "no-cache": "1",

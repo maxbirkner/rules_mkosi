@@ -17,21 +17,40 @@ def _provider_test_impl(ctx):
     action_inputs = [file.basename for file in actions[0].inputs.to_list()]
     asserts.true(env, ctx.attr.expected_config in action_inputs)
     asserts.true(env, "tree_root_root" in action_inputs)
-    asserts.true(env, "mkosi_cli" in action_inputs)
+    asserts.true(env, "python3" in action_inputs, "managed Python is an action input")
+    asserts.true(env, "__main__.py" in action_inputs, "mkosi script is an action input")
+    asserts.true(env, "pefile.py" in action_inputs, "pefile is an action input")
+    asserts.false(env, "mkosi_cli" in action_inputs)
+    asserts.false(env, "mkosi_launcher.sh" in action_inputs)
     asserts.false(env, "flat.tar" in action_inputs)
     asserts.false(env, "launcher" in action_inputs)
     asserts.equals(env, 1, len(actions[0].outputs.to_list()))
     asserts.equals(env, ctx.attr.expected_output, actions[0].outputs.to_list()[0].basename)
-    asserts.true(env, actions[0].argv[0].endswith("mkosi_cli"))
-    asserts.equals(env, "-I", actions[0].argv[1])
-    asserts.true(env, actions[0].argv[2].endswith(ctx.attr.expected_config))
-    asserts.equals(env, "--tools-tree", actions[0].argv[3])
-    asserts.true(env, actions[0].argv[4].endswith("tree_root_root"))
-    asserts.equals(env, "--output-directory", actions[0].argv[5])
-    asserts.true(env, actions[0].argv[6].endswith("/mkosi/tests"))
-    asserts.equals(env, "--output", actions[0].argv[7])
-    asserts.equals(env, "debian_subject", actions[0].argv[8])
-    asserts.equals(env, "build", actions[0].argv[-1])
+    asserts.true(env, actions[0].argv[0].endswith("python3"))
+    asserts.true(env, actions[0].argv[1].endswith("/mkosi/__main__.py"))
+    asserts.equals(env, "-I", actions[0].argv[2])
+    asserts.true(env, actions[0].argv[3].endswith(ctx.attr.expected_config))
+    asserts.equals(env, "--tools-tree", actions[0].argv[4])
+    asserts.true(env, actions[0].argv[5].endswith("tree_root_root"))
+    asserts.equals(env, "--format=disk", actions[0].argv[6])
+    asserts.equals(env, "--output-extension=raw", actions[0].argv[7])
+    asserts.equals(env, "--compress-output=none", actions[0].argv[8])
+    asserts.equals(env, "--split-artifacts=", actions[0].argv[9])
+    asserts.equals(env, "--output-directory", actions[0].argv[10])
+    asserts.true(env, actions[0].argv[11].endswith("/mkosi/tests"))
+    asserts.equals(env, "--output", actions[0].argv[12])
+    asserts.equals(env, ctx.attr.expected_name, actions[0].argv[13])
+    asserts.equals(env, "--workspace-directory", actions[0].argv[14])
+    asserts.true(env, actions[0].argv[15].endswith("/.{}-mkosi".format(ctx.attr.expected_name)))
+    asserts.equals(env, "--cache-directory", actions[0].argv[16])
+    asserts.true(env, actions[0].argv[17].endswith("/cache"))
+    asserts.equals(env, "--package-cache-directory", actions[0].argv[18])
+    asserts.true(env, actions[0].argv[19].endswith("/package-cache"))
+    asserts.equals(env, "--build-directory", actions[0].argv[20])
+    asserts.true(env, actions[0].argv[21].endswith("/build"))
+    asserts.equals(env, "--build-sources=", actions[0].argv[22])
+    asserts.equals(env, "--no-pager", actions[0].argv[23])
+    asserts.equals(env, "build", actions[0].argv[24])
     asserts.equals(env, "", actions[0].env["PATH"])
 
     return analysistest.end(env)
@@ -49,8 +68,12 @@ def _toolchain_provider_test_impl(ctx):
     asserts.equals(env, "sha256-+jSzumbMcdICsmeg9V5sd/QdjbJz6lQE9/rZnkZINfg=", info.integrity)
     asserts.equals(env, "3.11", info.python_version)
     asserts.equals(env, "mkosi-v1", info.format_version)
-    asserts.true(env, info.executable.basename.endswith("mkosi_cli"))
-    asserts.true(env, info.files_to_run.executable != None)
+    asserts.equals(env, "python3", info.executable.basename)
+    asserts.equals(env, "python3", info.python.basename)
+    asserts.true(env, info.python_files_to_run != None, "managed Python FilesToRunProvider is present")
+    asserts.true(env, info.files_to_run != None, "compatibility FilesToRunProvider is present")
+    asserts.equals(env, "__main__.py", info.script.basename)
+    asserts.equals(env, "pefile.py", info.pefile.basename)
     asserts.true(env, len(info.runfiles_files.to_list()) > 0)
 
     return analysistest.end(env)
@@ -127,8 +150,19 @@ _provider_test = analysistest.make(
     _provider_test_impl,
     attrs = {
         "expected_config": attr.string(mandatory = True),
+        "expected_name": attr.string(mandatory = True),
         "expected_output": attr.string(mandatory = True),
     },
+)
+
+def _invalid_config_test_impl(ctx):
+    env = analysistest.begin(ctx)
+    asserts.expect_failure(env, "single file")
+    return analysistest.end(env)
+
+_invalid_config_test = analysistest.make(
+    _invalid_config_test_impl,
+    expect_failure = True,
 )
 
 def mkosi_image_test_suite(name):
@@ -146,8 +180,34 @@ def mkosi_image_test_suite(name):
     _provider_test(
         name = "debian_provider_test",
         expected_config = "minimal.conf",
+        expected_name = "debian_subject",
         expected_output = "debian_subject.raw",
         target_under_test = ":debian_subject",
+    )
+
+    mkosi_image(
+        name = "override_subject",
+        config = "testdata/redirect.conf",
+        tags = ["manual"],
+    )
+
+    _provider_test(
+        name = "output_override_provider_test",
+        expected_config = "redirect.conf",
+        expected_name = "override_subject",
+        expected_output = "override_subject.raw",
+        target_under_test = ":override_subject",
+    )
+
+    mkosi_image(
+        name = "invalid_config_subject",
+        config = ":invalid_mkosi_config",
+        tags = ["manual"],
+    )
+
+    _invalid_config_test(
+        name = "invalid_config_test",
+        target_under_test = ":invalid_config_subject",
     )
 
     _toolchain_provider_test(
@@ -169,6 +229,8 @@ def mkosi_image_test_suite(name):
         name = name,
         tests = [
             ":debian_provider_test",
+            ":output_override_provider_test",
+            ":invalid_config_test",
             ":mkosi_toolchain_provider_test",
             ":qemu_toolchain_provider_test",
             ":debian_tools_provider_test",

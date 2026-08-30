@@ -12,17 +12,28 @@ MkosiToolchainInfo = provider(
         "source_sha256": "SHA-256 integrity hash of the mkosi source archive.",
         "integrity": "SRI integrity string for the mkosi source archive.",
         "python_version": "Bazel-managed Python runtime version.",
-        "executable": "The mkosi CLI executable.",
-        "runfiles": "Runfiles object preserving repository mappings for the mkosi CLI.",
-        "files_to_run": "FilesToRunProvider preserving executable and runfiles mappings.",
-        "runfiles_files": "Complete runfiles files for inspection and compatibility.",
+        "executable": "The Bazel-managed Python executable used to run mkosi.",
+        "python": "The Bazel-managed Python executable used to run mkosi.",
+        "python_files_to_run": "FilesToRunProvider for the managed Python executable.",
+        "files_to_run": "Compatibility alias for the managed Python FilesToRunProvider.",
+        "script": "The exact mkosi Python entrypoint script.",
+        "pefile": "The pinned pefile module used by mkosi.",
+        "runfiles": "Runfiles object preserving mappings for mkosi and its dependencies.",
+        "runfiles_files": "Complete mkosi source and dependency runfiles.",
     },
 )
 
 def _mkosi_toolchain_impl(ctx):
     if ctx.attr.version not in MKOSI_VERSIONS:
         fail("Unsupported mkosi version {}.".format(ctx.attr.version))
-    executable = ctx.attr.executable[DefaultInfo]
+    python = ctx.attr.python[DefaultInfo]
+    pefile = None
+    for file in ctx.files.python_dependency:
+        if file.basename == "pefile.py":
+            pefile = file
+            break
+    if pefile == None:
+        fail("The mkosi Python dependency must provide pefile.py.")
     return [
         platform_common.ToolchainInfo(
             mkosi = MkosiToolchainInfo(
@@ -33,12 +44,19 @@ def _mkosi_toolchain_impl(ctx):
                 source_sha256 = ctx.attr.source_sha256,
                 integrity = ctx.attr.source_integrity,
                 python_version = ctx.attr.python_version,
-                executable = executable.files_to_run.executable,
-                runfiles = executable.default_runfiles,
-                files_to_run = executable.files_to_run,
+                executable = python.files_to_run.executable,
+                python = python.files_to_run.executable,
+                python_files_to_run = python.files_to_run,
+                files_to_run = python.files_to_run,
+                script = ctx.file.script,
+                pefile = pefile,
+                runfiles = ctx.attr.runfiles[DefaultInfo].default_runfiles,
                 runfiles_files = depset(
-                    [executable.files_to_run.executable],
-                    transitive = [executable.default_runfiles.files],
+                    [ctx.file.script, pefile],
+                    transitive = [
+                        ctx.attr.runfiles[DefaultInfo].files,
+                        python.default_runfiles.files,
+                    ],
                 ),
             ),
         ),
@@ -69,11 +87,26 @@ mkosi_toolchain = rule(
             mandatory = True,
             doc = "Bazel-managed Python runtime version.",
         ),
-        "executable": attr.label(
+        "python": attr.label(
+            allow_files = True,
             cfg = "exec",
             executable = True,
             mandatory = True,
-            doc = "The mkosi CLI target.",
+            doc = "The Bazel-managed Python executable.",
+        ),
+        "script": attr.label(
+            allow_single_file = True,
+            mandatory = True,
+            doc = "The mkosi Python entrypoint script.",
+        ),
+        "python_dependency": attr.label(
+            allow_files = True,
+            mandatory = True,
+            doc = "The pinned Python dependency containing pefile.py.",
+        ),
+        "runfiles": attr.label(
+            mandatory = True,
+            doc = "The complete mkosi source and dependency runfiles.",
         ),
     },
     doc = "Defines an mkosi toolchain.",
