@@ -222,7 +222,8 @@ static void bind_mount_fd(int source_fd, const char *destination,
   int mount_source_fd = source_fd;
   int reopened_source = -1;
   int mount_tree = syscall(SYS_open_tree, mount_source_fd, "",
-                           OPEN_TREE_CLONE | OPEN_TREE_CLOEXEC | AT_EMPTY_PATH);
+                           OPEN_TREE_CLONE | OPEN_TREE_CLOEXEC | AT_EMPTY_PATH |
+                               (directory ? AT_RECURSIVE : 0));
   if (mount_tree < 0) {
     char source_description[64];
     snprintf(source_description, sizeof(source_description),
@@ -231,7 +232,8 @@ static void bind_mount_fd(int source_fd, const char *destination,
     if (reopened_source >= 0) {
       mount_source_fd = reopened_source;
       mount_tree = syscall(SYS_open_tree, mount_source_fd, "",
-                           OPEN_TREE_CLONE | OPEN_TREE_CLOEXEC | AT_EMPTY_PATH);
+                           OPEN_TREE_CLONE | OPEN_TREE_CLOEXEC | AT_EMPTY_PATH |
+                               (directory ? AT_RECURSIVE : 0));
     }
   }
   if (mount_tree < 0) {
@@ -464,6 +466,9 @@ static int run_child(int argc, char **argv, uid_t uid, gid_t gid) {
     fail("cannot set deterministic UTS identity: %s", strerror(errno));
   }
   mount_runtime(root);
+  if (mount(NULL, root, NULL, MS_BIND | MS_REMOUNT, NULL) < 0) {
+    fail("cannot prepare extracted root for typed mounts: %s", strerror(errno));
+  }
   char destination[4096];
   if (snprintf(destination, sizeof(destination), "%s/workspace", root) >=
       (int)sizeof(destination)) {
@@ -522,6 +527,10 @@ static int run_child(int argc, char **argv, uid_t uid, gid_t gid) {
     fail("namespace runner command separator is missing");
   }
 
+  if (mount(NULL, root, NULL, MS_BIND | MS_REMOUNT | MS_RDONLY, NULL) < 0) {
+    fail("cannot make extracted root read-only after typed mounts: %s",
+         strerror(errno));
+  }
   enter_root(root);
   close_non_stdio_fds();
   if (chdir("/workspace") < 0) {
