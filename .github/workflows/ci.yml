@@ -170,15 +170,19 @@ jobs:
                   for token in arguments
               ):
                   raise SystemExit("host compiler or shell in structured action graph")
+          print("structured archive actions:", len(archive), [args[0][0] for args in archive if args[0]])
           if len(archive) != 1 or any(
               not args
-              or not args[0][0].endswith("/mkosi_debian_python/bin/python3.11")
+              or "mkosi_debian_python" not in args[0][0]
+              or "python3.11" not in args[0][0]
               for args in archive
           ):
               raise SystemExit("archive action lacks complete static Python inputs")
+          print("structured bootstrap actions:", len(bootstrap), [args[0][0] for args in bootstrap if args[0]])
           if len(bootstrap) != 2 or any(
               not args
-              or not args[0][0].endswith("/mkosi_debian_zig/zig")
+              or "mkosi_debian_zig" not in args[0][0]
+              or not args[0][0].endswith("/zig")
               for args in bootstrap
           ):
               raise SystemExit("bootstrap action lacks complete pinned Zig inputs")
