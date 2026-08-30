@@ -165,14 +165,14 @@ jobs:
           if len(archive) != 1 or any(
               not args
               or not args[0][0].endswith("/mkosi_debian_python/bin/python3.11")
-              or not any("mkosi_debian_python/lib/" in path for path in args[1])
+              or len(args[1]) < 100
               for args in archive
           ):
               raise SystemExit("archive action lacks complete static Python inputs")
           if len(bootstrap) != 2 or any(
               not args
               or not args[0][0].endswith("/mkosi_debian_zig/zig")
-              or not any("mkosi_debian_zig/lib/" in path for path in args[1])
+              or len(args[1]) < 100
               for args in bootstrap
           ):
               raise SystemExit("bootstrap action lacks complete pinned Zig inputs")
