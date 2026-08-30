@@ -28,6 +28,9 @@ Use this workflow when implementing public Starlark behavior.
 10. Regenerate lockfiles only when module dependencies change.
 11. Run the canonical validation commands from `CONTRIBUTING.md`. Run all
     supported Bazel majors for compatibility-sensitive changes.
+12. Complete the `implementation-retrospective` skill before handoff. Keep
+    non-blocking findings out of the feature PR and propose focused follow-up
+    issues instead.
 
 Do not weaken tests, disable sandboxing, enable network access, or mark an
 action local merely to make it pass. If mkosi requires an exception, document
