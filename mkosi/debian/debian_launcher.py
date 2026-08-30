@@ -245,7 +245,7 @@ def _private_scratch():
 def _extract_root(archive, expected_digest, tool, binds):
     if not expected_digest:
         raise RuntimeError("DEBIAN_TOOLS_ARCHIVE_SHA256 is required")
-    if os.environ.get("MKOSI_DEBIAN_TOOLS_SCRATCH_FORMAT", "physical-v4") != "physical-v4":
+    if os.environ.get("MKOSI_DEBIAN_TOOLS_SCRATCH_FORMAT", "physical-v5") != "physical-v5":
         raise RuntimeError("unsupported Debian tools scratch format")
     # Hash the archive before importing the extractor or opening it as a tar.
     actual_digest = _archive_digest(archive)
