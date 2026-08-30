@@ -4,13 +4,14 @@ set -eu
 fixture="${1:?fixture name is required}"
 root="$(CDPATH= cd -- "$(dirname "$0")/$fixture" && pwd)"
 bazel_command="${BAZEL:-bazel}"
+lockfile_mode="${LOCKFILE_MODE:-off}"
 
 cd "$root"
 
 case "$fixture" in
     default|explicit)
         version="$("$bazel_command" --nosystem_rc --nohome_rc \
-            run --lockfile_mode=off @mkosi_toolchains//:mkosi -- --version)"
+            run --lockfile_mode="$lockfile_mode" @mkosi_toolchains//:mkosi -- --version)"
         [ "$version" = "mkosi 27" ]
         ;;
     unsupported)
@@ -33,7 +34,8 @@ esac
 
 if [ "${expected:-}" ]; then
     set +e
-    output="$("$bazel_command" --nosystem_rc --nohome_rc mod deps --lockfile_mode=off 2>&1)"
+    output="$("$bazel_command" --nosystem_rc --nohome_rc mod deps \
+        --lockfile_mode="$lockfile_mode" 2>&1)"
     status=$?
     set -e
     [ "$status" -ne 0 ]

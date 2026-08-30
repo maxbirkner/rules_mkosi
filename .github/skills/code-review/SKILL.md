@@ -11,7 +11,7 @@ problems. Check:
 
 1. **Public API:** consumers load only `mkosi/defs.bzl`; private symbols and
    labels have not become accidental contracts.
-2. **Bazel compatibility:** Starlark and module APIs work on Bazel 7, 8, and 9,
+2. **Bazel compatibility:** Starlark and module APIs work on Bazel 8 and 9,
    or newer usage has a tested guard.
 3. **Toolchains:** executables use the execution configuration, complete
    runfiles are inputs, and platform constraints describe where the tool can
@@ -24,8 +24,9 @@ problems. Check:
    inputs and timestamps are pinned; output names and providers are stable.
 7. **Tests:** behavior is covered by analysis tests, executed artifact tests,
    and the independent `e2e/smoke` module where it affects consumers.
-8. **Lockfiles:** generated lockfiles changed only when module resolution
-   changed and were not edited manually.
+8. **Lockfiles:** generated with Bazel 8.5.1 and changed only when module
+   resolution changed; they were not edited manually and CI never updates
+   them. Bazel 9 compatibility commands may use lockfile mode off.
 9. **CI:** action references remain full commit SHAs, permissions remain
    least-privilege, and the `CI conclusion` gate cannot pass after a required
    job fails or is cancelled.

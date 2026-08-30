@@ -32,7 +32,8 @@ _ALLOWED_DANGLING_SYMLINKS = {
 # configuration directory.  Keep a marker in the target so TreeArtifact
 # consumers retain the directory when Bazel materializes the output.
 _EMPTY_DIRECTORY_SYMLINK_TARGETS = {
-    "etc/xdg/systemd/user": "etc/systemd/user",
+    "etc/xdg/systemd/user": ("etc/systemd/user", "../../systemd/user"),
+    "usr/lib/ssl/private": ("etc/ssl/private", "/etc/ssl/private"),
 }
 
 
@@ -151,9 +152,9 @@ def _materialize_runtime_link_targets(root):
 
 
 def _materialize_empty_directory_symlink_targets(root, symlinks):
-    for relative, target in _EMPTY_DIRECTORY_SYMLINK_TARGETS.items():
+    for relative, (target, expected_linkname) in _EMPTY_DIRECTORY_SYMLINK_TARGETS.items():
         member = symlinks.get(relative)
-        if member is None or member.linkname != "../../systemd/user":
+        if member is None or member.linkname != expected_linkname:
             continue
         directory = os.path.join(root, target)
         if not os.path.isdir(directory) or os.path.islink(directory):

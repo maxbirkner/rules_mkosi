@@ -59,6 +59,24 @@ class ExtractTreeSecurityTest(unittest.TestCase):
         self.assertTrue((root / "etc/xdg/systemd/user").exists())
         self.assertTrue((root / "etc/systemd/user/.rules_mkosi_empty_directory").is_file())
 
+    def test_preserves_empty_ssl_private_symlink_target(self):
+        target = tarfile.TarInfo("etc/ssl/private")
+        target.type = tarfile.DIRTYPE
+        target.mode = 0o700
+        link = tarfile.TarInfo("usr/lib/ssl/private")
+        link.type = tarfile.SYMTYPE
+        link.linkname = "/etc/ssl/private"
+        archive = self.directory / "ssl-private.tar"
+        with tarfile.open(archive, "w") as output:
+            output.addfile(target)
+            output.addfile(link)
+        digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+        root = self.directory / "root"
+        extract_tree.extract(str(archive), str(root), digest)
+        self.assertTrue((root / "usr/lib/ssl/private").is_symlink())
+        self.assertEqual(os.readlink(root / "usr/lib/ssl/private"), "../../../etc/ssl/private")
+        self.assertTrue((root / "etc/ssl/private/.rules_mkosi_empty_directory").is_file())
+
     def test_rejects_symlink_parent_archive(self):
         archive = self.directory / "bad.tar"
         root = self.directory / "root"

@@ -16,12 +16,12 @@ qemu=0
 while IFS= read -r module_line
 do
     case "$module_line" in
-        *'">=7.7.0"'*) floor=1 ;;
+        *'">=8.5.1"'*) floor=1 ;;
         *'bazel_dep(name = "rules_qemu", version = "0.3.0")'*) qemu=1 ;;
     esac
 done < "$module_file"
 [ "$floor" -eq 1 ] || {
-    echo "MODULE.bazel must advertise the supported Bazel 7.7.0 floor" >&2
+    echo "MODULE.bazel must advertise the supported Bazel 8.5.1 floor" >&2
     exit 1
 }
 [ "$qemu" -eq 1 ] || {
