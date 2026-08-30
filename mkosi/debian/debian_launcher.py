@@ -189,6 +189,8 @@ def _pin_bind_sources(binds):
             source, _, device, inode, _ = bind
             flags = getattr(os, "O_PATH", 0o10000000)
             flags |= os.O_NOFOLLOW | os.O_CLOEXEC
+            if bind[4]:
+                flags |= getattr(os, "O_DIRECTORY", 0o200000)
             descriptor = os.open(source, flags)
             descriptors.append(descriptor)
             current = os.fstat(descriptor)

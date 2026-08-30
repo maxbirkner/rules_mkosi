@@ -314,11 +314,15 @@ jobs:
 
       - name: Verify downstream no-RC toolchain default
         run: |
+          run_bazel() {
+            sudo -n setpriv --reuid="$(id -u)" --regid="$(id -g)" \
+              --clear-groups env HOME="$HOME" PATH="$PATH" "$@"
+          }
           mode=off
           if [ "${{ matrix.bazel }}" = "7.7.1" ]; then
             mode=error
           fi
-          graph="$(bazel --bazelrc=/dev/null aquery \
+          graph="$(run_bazel bazel --bazelrc=/dev/null aquery \
             --lockfile_mode="${mode}" --output=text \
             'deps(@mkosi_debian_tools//:launcher)')"
           case "$graph" in
