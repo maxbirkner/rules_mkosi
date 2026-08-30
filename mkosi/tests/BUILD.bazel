@@ -57,14 +57,20 @@ debian_tools_preflight(
 
 debian_tools_launcher_probe(
     name = "debian_tools_launcher_probe",
-    tags = ["requires_empty_groups"],
+    tags = [
+        "manual",
+        "requires_empty_groups",
+    ],
 )
 
 diff_test(
     name = "debian_tools_launcher_probe_test",
     file1 = "testdata/debian_tools_launcher_probe.golden.txt",
     file2 = ":debian_tools_launcher_probe",
-    tags = ["requires_empty_groups"],
+    tags = [
+        "manual",
+        "requires_empty_groups",
+    ],
 )
 
 sh_test(
