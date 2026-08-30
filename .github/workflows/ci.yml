@@ -66,7 +66,7 @@ jobs:
       - name: Verify Linux sandbox helper
         if: matrix.module == '.'
         run: |
-          install_base="$(bazel info install_base)"
+          install_base="$(bazel --lockfile_mode=off info install_base)"
           test -x "${install_base}/linux-sandbox"
           "${install_base}/linux-sandbox" /bin/true
 
@@ -75,7 +75,7 @@ jobs:
         run: |
           bazel shutdown
           set -o pipefail
-          bazel test --config=kernel_preflight \
+          bazel test --lockfile_mode=off --config=kernel_preflight \
             //mkosi/private:kernel_preflight_host_test 2>&1 |
             tee kernel-preflight.log
           grep -F "Executed 1 out of 1 test" kernel-preflight.log
