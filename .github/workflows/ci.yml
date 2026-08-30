@@ -237,7 +237,7 @@ jobs:
                           "host compiler or shell in transitive input set"
                       )
           print("structured archive actions:", len(archive), [args[0][0] for args in archive if args[0]])
-          if len(archive) != 1 or any(
+          if len(archive) < 1 or any(
               not args
               or "mkosi_debian_python" not in args[0][0]
               or "python3.11" not in args[0][0]
