@@ -79,7 +79,7 @@ export TMPDIR
 qemu_pid=$!
 ready=0
 iteration=0
-while [ "$iteration" -lt 100 ]
+while [ "$iteration" -lt 300 ]
 do
     if [ -f "$serial_log" ] && /usr/bin/grep -Fq "Shell>" "$serial_log"; then
         ready=1
