@@ -37,6 +37,7 @@ def _mkosi_image_impl(ctx):
             "MKOSI_DEBIAN_TOOLS_TREE": debian_tools.tree.path,
             "MKOSI_DEBIAN_TOOLS_LAUNCHER": debian_tools.launcher.path,
             "MKOSI_DEBIAN_TOOLS_SCRATCH": scratch.path,
+            "MKOSI_DEBIAN_TOOLS_SCRATCH_FORMAT": "physical-v2",
             "DEBIAN_TOOLS_ARCHIVE": debian_tools.tree.path,
             "DEBIAN_TOOLS_ARCHIVE_SHA256": debian_tools.archive_sha256,
             "DEBIAN_TOOLS_EXTRACTOR": debian_tools.extractor.path,
