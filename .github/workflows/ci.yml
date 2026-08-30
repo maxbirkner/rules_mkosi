@@ -66,7 +66,7 @@ jobs:
       - name: Verify Linux sandbox helper
         if: matrix.module == '.'
         run: |
-          install_base="$(bazel --lockfile_mode=off info install_base)"
+          install_base="$(bazel info --lockfile_mode=off install_base)"
           test -x "${install_base}/linux-sandbox"
           "${install_base}/linux-sandbox" /bin/true
 
