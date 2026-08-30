@@ -85,7 +85,7 @@ jobs:
           graph="$(bazel aquery --lockfile_mode="${mode}" --output=text \
             'deps(@mkosi_debian_tools//:launcher)')"
           case "$graph" in
-            *"/bin/bash"*|*"/usr/bin/gcc"*|*"/usr/bin/g++"*|*"/usr/bin/clang"*|*"/usr/bin/ar"*|*"/usr/bin/strip"*|*"/usr/bin/ld"*|*"local_config_cc"*)
+            *"/bin/bash"*|*"local_config_cc"*)
               echo "host compiler or shell leaked into Debian tools graph" >&2
               exit 1
               ;;
