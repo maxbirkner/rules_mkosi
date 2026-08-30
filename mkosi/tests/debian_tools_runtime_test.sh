@@ -98,6 +98,29 @@ runtime_output="$(
         [ "$PWD" = /workspace ]
         [ "$HOME" = /root ]
         [ -d /tmp ] && [ -d /proc ] && [ -c /dev/null ]
+        IFS= read -r namespace_hostname < /proc/sys/kernel/hostname
+        IFS= read -r namespace_domain < /proc/sys/kernel/domainname
+        [ "$namespace_hostname" = mkosi-debian-tools ]
+        [ "$namespace_domain" = localdomain ]
+        namespace_groups=
+        while IFS= read -r status_line
+        do
+            case "$status_line" in
+                Groups:*) namespace_groups="$status_line" ;;
+            esac
+        done < /proc/self/status
+        zero_groups=0
+        for group in $namespace_groups
+        do
+            case "$group" in
+                Groups:) ;;
+                0) zero_groups=$((zero_groups + 1)) ;;
+                65534) ;;
+                *) exit 1 ;;
+            esac
+        done
+        [ "$zero_groups" -eq 1 ]
+        printf "groups=%s\n" "$namespace_groups"
         tmpfs=0
         procfs=0
         devfs=0
@@ -119,6 +142,7 @@ runtime_output="$(
 )"
 runtime_status=$?
 set -e
+printf '%s\n' "$runtime_output"
 [ "$runtime_status" -eq 0 ] || {
     echo "runtime namespace contract failed with status $runtime_status" >&2
     echo "$runtime_output" >&2
@@ -143,10 +167,12 @@ set +e
 bind_output="$(
     MKOSI_DEBIAN_TOOLS_SCRATCH="$TEST_TMPDIR/debian-tools-binds" "$launcher" \
         --ro-bind "$input:/inputs/input.txt" \
+        --ro-bind "$TEST_TMPDIR:/inputs/input-dir" \
         --rw-bind "$output:/outputs/output.txt" \
         /bin/sh -c '
             IFS= read -r value < /inputs/input.txt
             [ "$value" = packaged-input ]
+            [ -d /inputs/input-dir ]
             printf "packaged-output\n" > /outputs/output.txt
         ' 2>&1
 )"
@@ -195,6 +221,19 @@ if assert_one_x_record "$duplicate"; then
     echo "duplicate execution records were accepted" >&2
     exit 1
 fi
+
+set +e
+(
+    trap '' CHLD
+    MKOSI_DEBIAN_TOOLS_SCRATCH="$TEST_TMPDIR/debian-tools-sigchld" \
+        "$launcher" /bin/sh -c 'exit 37'
+)
+ignored_chld_status=$?
+set -e
+[ "$ignored_chld_status" -eq 37 ] || {
+    echo "SIGCHLD=SIG_IGN did not preserve synchronous status: $ignored_chld_status" >&2
+    exit 1
+}
 
 run_tool openssl "OK" /usr/bin/openssl verify \
     -CAfile /etc/ssl/certs/ca-certificates.crt \

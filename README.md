@@ -61,9 +61,10 @@ for v27's bootable PE inspection paths and is not obtained from the host
 environment.
 
 The Debian build-time userspace is pinned to Debian 13 (trixie), `amd64`,
-and snapshot `20250814T000000Z`. It is resolved with `rules_distroless`
-0.7.1 from the checked-in manifest and lockfile, which pin every package URL,
-version, dependency edge, and SHA-256 digest. The
+and snapshot `20250814T000000Z`. The checked-in lockfile pins every package
+URL, version, dependency edge, and SHA-256 digest. A repository fetches those
+immutable `.deb` inputs, and a static-Python archive action builds the
+deterministic tree without shell, compiler, or host archive tools. The
 `@mkosi_debian_tools//:linux_x86_64` toolchain exposes the extracted
 TreeArtifact, root-isolated launcher, and provenance through
 `DebianToolsInfo`; image actions invoke the advertised launcher (a static
@@ -79,9 +80,9 @@ IPC, and UTS namespaces, pivot into the extracted root, and detach the host
 root. Only then is the packaged Debian loader used for the requested tool;
 the packaged bubblewrap binary is retained as a pinned package input but is
 not used as a pre-isolation bootstrap.
-The lockfile's package SHA-256 values are the immutable trust roots consumed
-by `rules_distroless`. Package-index signature verification is intentionally
-not advertised because the resolver does not currently perform that check.
+The lockfile's package SHA-256 values are the immutable download trust roots.
+Package-index signature verification is intentionally not advertised because
+the resolver does not currently perform that check.
 The launcher intentionally leaves the network namespace shared: Bazel's
 declared network policy remains the authority for future mkosi/package
 acquisition actions. Issue #6 isolates the packaged filesystem and runtime

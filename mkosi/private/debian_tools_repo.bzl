@@ -4,7 +4,7 @@ def _impl(ctx):
     ctx.file(
         "launcher_config.h",
         """#define DEBIAN_TOOLS_ARCHIVE_SHA256 "{archive_sha256}"
-#define DEBIAN_TOOLS_ARCHIVE_RLOCATION "rules_distroless++apt+mkosi_debian_packages/flat.tar"
+#define DEBIAN_TOOLS_ARCHIVE_RLOCATION "mkosi_debian_tools/flat.tar"
 #define DEBIAN_TOOLS_PYTHON_RLOCATION "mkosi_debian_python/bin/python3.11"
 #define DEBIAN_TOOLS_SCRIPT_RLOCATION "rules_mkosi/mkosi/debian/debian_launcher.py"
 #define DEBIAN_TOOLS_SCRIPT_ALTERNATE_RLOCATION "_main/mkosi/debian/debian_launcher.py"
@@ -15,14 +15,17 @@ def _impl(ctx):
     )
     ctx.file(
         "BUILD.bazel",
-        """load("@rules_cc//cc:defs.bzl", "cc_binary")
-load("@rules_mkosi//mkosi/debian:toolchain.bzl", "debian_tools_toolchain", "debian_tools_tree")
+        """load("@rules_mkosi//mkosi/debian:toolchain.bzl", "debian_static_binary", "debian_tools_archive", "debian_tools_toolchain", "debian_tools_tree")
 
 package(default_visibility = ["//visibility:public"])
 
-alias(name = "tree", actual = "{repo}//:flat")
 alias(name = "provenance", actual = "{provenance}")
 alias(name = "components", actual = "{components_label}")
+
+debian_tools_archive(
+    name = "tree",
+    packages = ["{repo}//:all"],
+)
 
 debian_tools_tree(
     name = "tree_root",
@@ -41,12 +44,10 @@ filegroup(
     srcs = ["@rules_mkosi//mkosi/debian:extract_tree.py"],
 )
 
-cc_binary(
+debian_static_binary(
     name = "launcher",
-    srcs = [
-        "launcher_config.h",
-        "@rules_mkosi//mkosi/debian:launcher_main.c",
-    ],
+    source = "@rules_mkosi//mkosi/debian:launcher_main.c",
+    config = "launcher_config.h",
     data = [
         ":tree",
         ":extractor",
@@ -55,13 +56,11 @@ cc_binary(
         ":python_runtime",
         ":namespace_runner",
     ],
-    linkopts = ["-static"],
 )
 
-cc_binary(
+debian_static_binary(
     name = "namespace_runner",
-    srcs = ["@rules_mkosi//mkosi/debian:namespace_runner.c"],
-    linkopts = ["-static"],
+    source = "@rules_mkosi//mkosi/debian:namespace_runner.c",
 )
 
 filegroup(

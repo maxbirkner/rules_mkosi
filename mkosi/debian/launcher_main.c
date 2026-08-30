@@ -3,6 +3,7 @@
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <signal.h>
 #include <string.h>
 #include <unistd.h>
 
@@ -59,6 +60,22 @@ static void clear_host_injection_environment(void) {
   }
 }
 
+static void reset_inherited_signals(void) {
+  sigset_t empty;
+  sigemptyset(&empty);
+  sigprocmask(SIG_SETMASK, &empty, NULL);
+  struct sigaction default_action;
+  memset(&default_action, 0, sizeof(default_action));
+  default_action.sa_handler = SIG_DFL;
+  sigemptyset(&default_action.sa_mask);
+  const int signals[] = {SIGHUP,  SIGINT,  SIGQUIT, SIGILL,  SIGABRT,
+                         SIGFPE,  SIGSEGV, SIGTERM, SIGCHLD, SIGPIPE,
+                         SIGALRM, SIGUSR1, SIGUSR2};
+  for (size_t index = 0; index < sizeof(signals) / sizeof(signals[0]); ++index) {
+    sigaction(signals[index], &default_action, NULL);
+  }
+}
+
 static char *manifest_lookup(const char *manifest, const char *logical) {
   FILE *file = fopen(manifest, "r");
   if (file == NULL) {
@@ -84,17 +101,26 @@ static char *manifest_lookup(const char *manifest, const char *logical) {
   return NULL;
 }
 
+static char *manifest_lookup(const char *manifest, const char *logical);
+
 static char *repository_mapping(const char *apparent) {
+  FILE *file = NULL;
   const char *root = getenv("RUNFILES_DIR");
-  if (root == NULL || root[0] == '\0') {
-    return NULL;
+  if (root != NULL && root[0] != '\0') {
+    char *mapping = join_path(root, "_repo_mapping");
+    if (mapping != NULL) {
+      file = fopen(mapping, "r");
+      free(mapping);
+    }
   }
-  char *mapping = join_path(root, "_repo_mapping");
-  if (mapping == NULL) {
-    return NULL;
+  if (file == NULL) {
+    const char *manifest = getenv("RUNFILES_MANIFEST_FILE");
+    char *mapping = manifest == NULL ? NULL : manifest_lookup(manifest, "_repo_mapping");
+    if (mapping != NULL) {
+      file = fopen(mapping, "r");
+      free(mapping);
+    }
   }
-  FILE *file = fopen(mapping, "r");
-  free(mapping);
   if (file == NULL) {
     return NULL;
   }
@@ -216,7 +242,7 @@ int main(int argc, char **argv) {
     free(rules_repository);
   }
   char *archive = NULL;
-  char *package_repository = repository_mapping("mkosi_debian_packages");
+  char *package_repository = repository_mapping("mkosi_debian_tools");
   if (package_repository != NULL) {
     char logical_archive[4096];
     snprintf(logical_archive, sizeof(logical_archive), "%s/flat.tar",
@@ -231,8 +257,7 @@ int main(int argc, char **argv) {
     archive = runfile(DEBIAN_TOOLS_ARCHIVE_RLOCATION, NULL);
   }
   if (archive == NULL) {
-    archive = runfile(
-        "rules_distroless~~apt~mkosi_debian_packages/flat.tar", NULL);
+    archive = runfile("mkosi_debian_tools/flat.tar", NULL);
   }
   char *namespace_runner = NULL;
   char *tools_repository = repository_mapping("mkosi_debian_tools");
@@ -274,6 +299,7 @@ int main(int argc, char **argv) {
   }
 
   clear_host_injection_environment();
+  reset_inherited_signals();
   setenv("DEBIAN_TOOLS_ARCHIVE", archive, 1);
   setenv("DEBIAN_TOOLS_EXTRACTOR", extractor, 1);
   setenv("DEBIAN_TOOLS_NAMESPACE_RUNNER", namespace_runner, 1);

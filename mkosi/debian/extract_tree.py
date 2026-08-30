@@ -55,6 +55,7 @@ def _parent(root, relative):
                 raise ValueError("archive member parent is not a directory: %s" % relative)
         else:
             os.mkdir(parent)
+            os.chmod(parent, 0o755)
     return parent
 
 
@@ -99,6 +100,15 @@ def _prepare_mount_roots(root):
         os.chmod(destination, 0o755)
 
 
+def set_deterministic_metadata(root):
+    for directory, dirnames, names in os.walk(root, topdown=False):
+        for name in names + dirnames:
+            path = os.path.join(directory, name)
+            os.utime(path, (0, 0), follow_symlinks=False)
+        os.utime(directory, (0, 0), follow_symlinks=False)
+    os.utime(root, (0, 0), follow_symlinks=False)
+
+
 def _write_ca_bundle(root):
     certificates = []
     certificate_root = os.path.join(root, "usr/share/ca-certificates")
@@ -133,30 +143,43 @@ def _materialize_runtime_link_targets(root):
             os.chmod(path, 0o644)
 
 
+def _raw_link_components(relative, linkname):
+    if linkname.startswith("/"):
+        return linkname.split("/")
+    parent = os.path.dirname(relative).split(os.sep) if os.path.dirname(relative) else []
+    return parent + linkname.split("/")
+
+
 def _resolve_link_path(relative, symlinks, members_by_path):
-    components = _link_target(relative, symlinks[relative].linkname).split(os.sep)
+    components = _raw_link_components(relative, symlinks[relative].linkname)
     resolved_components = []
     dependencies = []
     seen = set()
     resolutions = 0
     while components:
         component = components.pop(0)
-        current_components = resolved_components + [component]
-        current = os.path.join(*current_components)
+        if component in ("", "."):
+            continue
+        if component == "..":
+            if not resolved_components:
+                raise ValueError("symlink escapes output root: %s" % relative)
+            resolved_components.pop()
+            continue
+        resolved_components.append(component)
+        current = os.path.join(*resolved_components)
         member = members_by_path.get(current)
         if member is not None and member.issym():
             if current in seen:
                 raise ValueError("symlink cycle involving: %s" % current)
             seen.add(current)
             dependencies.append(current)
-            components = _link_target(current, member.linkname).split(os.sep) + components
             resolved_components = []
+            components = _raw_link_components(current, member.linkname) + components
             resolutions += 1
             if resolutions > len(symlinks) + len(components) + 1:
                 raise ValueError("symlink graph resolution exceeded its bound: %s" % relative)
             continue
-        resolved_components.append(component)
-    return os.path.join(*resolved_components), dependencies
+    return (os.path.join(*resolved_components) if resolved_components else ""), dependencies
 
 
 def _resolve_symlink_graph(root, symlinks, members_by_path):
@@ -250,6 +273,7 @@ def extract(archive, root, expected_digest):
 
     root = os.path.abspath(root)
     os.makedirs(root, exist_ok=True)
+    os.chmod(root, 0o755)
     # Authentication deliberately precedes tarfile.open: a tampered archive
     # must not be parsed or partially materialized.
     with tarfile.open(archive, mode="r:*") as source:
@@ -323,6 +347,7 @@ def extract(archive, root, expected_digest):
     if os.path.isdir(temporary) and not os.path.islink(temporary):
         for name in os.listdir(temporary):
             raise ValueError("package content unexpectedly populated /tmp: %s" % name)
+    set_deterministic_metadata(root)
 
 
 def main():

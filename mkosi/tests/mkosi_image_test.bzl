@@ -80,7 +80,7 @@ def _debian_tools_provider_test_impl(ctx):
     asserts.equals(env, "13", info.release)
     asserts.equals(
         env,
-        "f1c9a83ec17380d5a35ff37e263d09f27c1ddd7ab57f34be48a7b0d329bf5975",
+        "554f3ef7f266c2786e5e6fd0b80bc77198ffeb7dbf51aff36099898e46787e2b",
         info.archive_sha256,
     )
     asserts.equals(env, "trixie", info.codename)

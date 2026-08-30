@@ -161,6 +161,44 @@ class DebianToolsSecurityTest(unittest.TestCase):
         extract_tree.extract(str(archive), str(root), digest)
         self.assertEqual(os.stat(root / "usr/base").st_ino, os.stat(root / "usr/bin-link").st_ino)
 
+    def test_extraction_metadata_is_deterministic(self):
+        directory = tarfile.TarInfo("etc")
+        directory.type = tarfile.DIRTYPE
+        directory.mode = 0o755
+        file_info = tarfile.TarInfo("etc/metadata")
+        file_info.mode = 0o640
+        file_info.size = 4
+        archive = self._archive([(directory, None), (file_info, b"same")])
+        digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+
+        def metadata(root):
+            result = {}
+            for current, dirnames, names in os.walk(root):
+                for name in dirnames + names:
+                    path = pathlib.Path(current) / name
+                    information = path.lstat()
+                    result[str(path.relative_to(root))] = (
+                        information.st_mode,
+                        information.st_mtime_ns,
+                        os.readlink(path) if path.is_symlink() else None,
+                    )
+            information = pathlib.Path(root).lstat()
+            result["."] = (information.st_mode, information.st_mtime_ns, None)
+            return result
+
+        original_umask = os.umask(0)
+        try:
+            first = self.work / "metadata-first"
+            extract_tree.extract(str(archive), str(first), digest)
+        finally:
+            os.umask(0o077)
+        try:
+            second = self.work / "metadata-second"
+            extract_tree.extract(str(archive), str(second), digest)
+        finally:
+            os.umask(original_umask)
+        self.assertEqual(metadata(first), metadata(second))
+
     def test_rejects_link_cycle_and_unexpected_dangling(self):
         first = tarfile.TarInfo("first")
         first.type = tarfile.SYMTYPE
@@ -180,6 +218,23 @@ class DebianToolsSecurityTest(unittest.TestCase):
         digest = hashlib.sha256(archive.read_bytes()).hexdigest()
         with self.assertRaisesRegex(ValueError, "dangling"):
             extract_tree.extract(str(archive), str(self.work / "dangling"), digest)
+
+    def test_rejects_symlink_then_dotdot_escape(self):
+        safe = tarfile.TarInfo("safe")
+        safe.type = tarfile.DIRTYPE
+        safe.mode = 0o755
+        alias = tarfile.TarInfo("safe/a")
+        alias.type = tarfile.SYMTYPE
+        alias.linkname = ".."
+        outside = tarfile.TarInfo("safe/outside")
+        outside.size = 1
+        exploit = tarfile.TarInfo("x")
+        exploit.type = tarfile.SYMTYPE
+        exploit.linkname = "safe/a/../outside"
+        archive = self._archive([(exploit, None), (outside, b"x"), (alias, None), (safe, None)])
+        digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+        with self.assertRaisesRegex(ValueError, "escapes output root"):
+            extract_tree.extract(str(archive), str(self.work / "escape"), digest)
 
     def test_preserves_documented_masks_and_environment_link(self):
         mask = tarfile.TarInfo("usr/lib/systemd/system/hwclock.service")
@@ -203,7 +258,7 @@ class DebianToolsSecurityTest(unittest.TestCase):
         repository = None
         for line in mapping.read_text(encoding="utf-8").splitlines():
             fields = line.split(",", 2)
-            if len(fields) == 3 and fields[1] == "mkosi_debian_packages":
+            if len(fields) == 3 and fields[1] == "mkosi_debian_tools":
                 repository = fields[2]
                 break
         self.assertIsNotNone(repository)
@@ -263,6 +318,18 @@ class DebianToolsSecurityTest(unittest.TestCase):
             debian_launcher._validate_binds(
                 ["--ro-bind", "%s:/inputs/missing" % (self.work / "missing")]
             )
+
+    def test_bind_source_swap_after_validation_is_rejected(self):
+        source = self.work / "source"
+        source.write_text("original", encoding="utf-8")
+        binds, _ = debian_launcher._validate_binds(
+            ["--ro-bind", "%s:/inputs/source" % source]
+        )
+        replacement = self.work / "replacement"
+        replacement.write_text("replacement", encoding="utf-8")
+        os.replace(replacement, source)
+        with self.assertRaisesRegex(RuntimeError, "changed"):
+            debian_launcher._pin_bind_sources(binds)
 
     def test_missing_mapping_and_executable_fail_precisely(self):
         original_argv = sys.argv

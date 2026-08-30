@@ -15,6 +15,7 @@ exports_files([
     "debian_python_hermetic_test.py",
     "launcher_main.c",
     "namespace_runner.c",
+    "package_archive.py",
 ])
 
 py_test(
@@ -26,7 +27,7 @@ py_test(
     ],
     data = [
         "provenance.bzl",
-        "@mkosi_debian_packages//:flat",
+        "@mkosi_debian_tools//:tree",
     ],
     main = "debian_tools_security_test.py",
 )

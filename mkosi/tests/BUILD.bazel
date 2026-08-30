@@ -84,6 +84,12 @@ sh_test(
     ],
 )
 
+sh_test(
+    name = "debian_tools_recursive_ro_test",
+    srcs = ["debian_tools_recursive_ro_test.sh"],
+    data = ["@mkosi_debian_tools//:namespace_runner"],
+)
+
 unsupported_version_test(name = "unsupported_version_test")
 
 conflicting_root_test(name = "conflicting_root_test")

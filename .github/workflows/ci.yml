@@ -63,6 +63,39 @@ jobs:
             bazel test --lockfile_mode=off //...
           fi
 
+      - name: Validate manifest-only public launcher
+        if: matrix.module == '.'
+        run: |
+          if [ "${{ matrix.bazel }}" = "7.7.1" ]; then
+            bazel test --enable_runfiles=no --lockfile_mode=error \
+              //mkosi/tests:debian_tools_launcher_probe_test
+          else
+            bazel test --enable_runfiles=no --lockfile_mode=off \
+              //mkosi/tests:debian_tools_launcher_probe_test
+          fi
+
+      - name: Audit Debian tools action graph
+        if: matrix.module == '.'
+        run: |
+          if [ "${{ matrix.bazel }}" = "7.7.1" ]; then
+            mode=error
+          else
+            mode=off
+          fi
+          graph="$(bazel aquery --lockfile_mode="${mode}" --output=text \
+            'deps(@mkosi_debian_tools//:launcher)')"
+          case "$graph" in
+            *"/bin/bash"*|*"/usr/bin/gcc"*|*"/usr/bin/g++"*|*"/usr/bin/clang"*|*"/usr/bin/ar"*|*"/usr/bin/strip"*|*"/usr/bin/ld"*|*"local_config_cc"*)
+              echo "host compiler or shell leaked into Debian tools graph" >&2
+              exit 1
+              ;;
+          esac
+          case "$graph" in
+            *"BuildDebianToolsArchive"*|*"BuildHermeticDebianBootstrap"*) ;;
+            *) echo "Debian tools hermetic actions are missing" >&2; exit 1 ;;
+          esac
+          echo "Debian tools archive/bootstrap graph contains only managed actions"
+
       - name: Verify Linux sandbox helper
         if: matrix.module == '.'
         run: |

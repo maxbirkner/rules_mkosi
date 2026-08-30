@@ -57,6 +57,110 @@ def _tree_impl(ctx):
     )
     return [DefaultInfo(files = depset([root]))]
 
+def _archive_impl(ctx):
+    output = ctx.actions.declare_file("flat.tar")
+    python_home = ctx.executable._python.path
+    python_home = python_home[:python_home.rfind("/bin/")]
+    runtime_files = ctx.attr._python_runtime[DefaultInfo].files
+    ctx.actions.run(
+        executable = ctx.executable._python,
+        arguments = [
+            "-I",
+            ctx.file.archive_builder.path,
+            output.path,
+        ] + [package.path for package in ctx.files.packages],
+        inputs = depset(
+            [ctx.file.archive_builder] + ctx.files.packages,
+            transitive = [runtime_files],
+        ),
+        tools = [ctx.executable._python],
+        outputs = [output],
+        env = {
+            "PYTHONHOME": python_home,
+            "PYTHONNOUSERSITE": "1",
+            "PATH": "",
+        },
+        mnemonic = "BuildDebianToolsArchive",
+        progress_message = "Building Debian tools archive %{label}",
+    )
+    return [DefaultInfo(files = depset([output]))]
+
+def _static_binary_impl(ctx):
+    output = ctx.actions.declare_file(ctx.label.name)
+    arguments = [
+        "cc",
+        "-target",
+        "x86_64-linux-musl",
+        "-static",
+        "-O2",
+        "-o",
+        output.path,
+    ]
+    if ctx.file.config != None:
+        arguments.extend(["-I", ctx.file.config.dirname])
+    arguments.append(ctx.file.source.path)
+    ctx.actions.run(
+        executable = ctx.executable._zig,
+        arguments = arguments,
+        inputs = [ctx.file.source] + ([ctx.file.config] if ctx.file.config != None else []),
+        tools = [ctx.executable._zig],
+        outputs = [output],
+        env = {
+            "HOME": ".",
+            "ZIG_LOCAL_CACHE_DIR": output.path + ".zig-cache",
+            "ZIG_GLOBAL_CACHE_DIR": output.path + ".zig-global-cache",
+            "PATH": "",
+        },
+        mnemonic = "BuildHermeticDebianBootstrap",
+        progress_message = "Building hermetic Debian bootstrap %{label}",
+    )
+    return [
+        DefaultInfo(
+            executable = output,
+            runfiles = ctx.runfiles(transitive_files = depset(ctx.files.data)),
+        ),
+    ]
+
+debian_static_binary = rule(
+    implementation = _static_binary_impl,
+    executable = True,
+    attrs = {
+        "source": attr.label(mandatory = True, allow_single_file = True),
+        "config": attr.label(allow_single_file = True),
+        "data": attr.label_list(allow_files = True),
+        "_zig": attr.label(
+            allow_files = True,
+            executable = True,
+            cfg = "exec",
+            default = "@mkosi_debian_zig//:zig",
+        ),
+    },
+    doc = "Builds a static Linux bootstrap binary with the pinned Zig compiler.",
+)
+
+debian_tools_archive = rule(
+    implementation = _archive_impl,
+    attrs = {
+        "packages": attr.label_list(mandatory = True, allow_files = True),
+        "archive_builder": attr.label(
+            mandatory = False,
+            allow_single_file = True,
+            default = "//mkosi/debian:package_archive.py",
+        ),
+        "_python": attr.label(
+            allow_files = True,
+            executable = True,
+            cfg = "exec",
+            default = "@mkosi_debian_python//:bin/python3.11",
+        ),
+        "_python_runtime": attr.label(
+            cfg = "exec",
+            default = "@mkosi_debian_python//:runtime",
+        ),
+    },
+    doc = "Constructs a Debian archive from checksum-pinned package inputs.",
+)
+
 debian_tools_tree = rule(
     implementation = _tree_impl,
     attrs = {

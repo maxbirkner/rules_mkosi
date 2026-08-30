@@ -6,6 +6,7 @@ import os
 import pathlib
 import posixpath
 import shutil
+import stat
 import subprocess
 import sys
 
@@ -145,14 +146,22 @@ def _validate_binds(arguments):
         destination = _canonical_destination(destination)
         if destination in ("/",) + tuple(_MOUNT_ROOTS):
             raise RuntimeError("namespace bind destination is a reserved mount root: %s" % destination)
+        source_stat = os.stat(source)
+        bind = (
+            source,
+            destination,
+            source_stat.st_dev,
+            source_stat.st_ino,
+            stat.S_ISDIR(source_stat.st_mode),
+        )
         if kind == "--ro-bind":
             if not _under(destination, "/inputs"):
                 raise RuntimeError("read-only namespace binds must be under /inputs: %s" % destination)
-            ro_binds.append((source, destination))
+            ro_binds.append(bind)
         else:
             if not (_under(destination, "/workspace") or _under(destination, "/outputs")):
                 raise RuntimeError("read-write namespace binds must be under /workspace or /outputs: %s" % destination)
-            rw_binds.append((source, destination))
+            rw_binds.append(bind)
         for prior in destinations:
             if destination == prior or _under(destination, prior) or _under(prior, destination):
                 raise RuntimeError("namespace bind destinations overlap: %s and %s" % (prior, destination))
@@ -170,6 +179,7 @@ def _prepare_mountpoint(base, destination, source):
                 raise RuntimeError("namespace mount parent is not a directory: %s" % destination)
         else:
             os.mkdir(current)
+        os.chmod(current, 0o755)
     path = os.path.join(base, *relative)
     source_is_directory = os.path.isdir(source)
     if os.path.lexists(path):
@@ -178,8 +188,37 @@ def _prepare_mountpoint(base, destination, source):
         raise RuntimeError("namespace mount destination has the wrong type: %s" % destination)
     if source_is_directory:
         os.mkdir(path)
+        os.chmod(path, 0o755)
     else:
         pathlib.Path(path).touch()
+        os.chmod(path, 0o644)
+
+
+def _pin_bind_sources(binds):
+    descriptors = []
+    try:
+        for source, _, device, inode, _ in binds:
+            flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC
+            if os.path.isdir(source):
+                flags |= os.O_DIRECTORY
+            try:
+                descriptor = os.open(source, flags)
+            except PermissionError:
+                descriptor = os.open(
+                    source,
+                    getattr(os, "O_PATH", 0o10000000)
+                    | os.O_NOFOLLOW
+                    | os.O_CLOEXEC,
+                )
+            descriptors.append(descriptor)
+            current = os.fstat(descriptor)
+            if current.st_dev != device or current.st_ino != inode:
+                raise RuntimeError("namespace bind source changed after validation: %s" % source)
+    except Exception:
+        for descriptor in descriptors:
+            os.close(descriptor)
+        raise
+    return descriptors
 
 
 def _private_scratch():
@@ -241,13 +280,17 @@ def _extract_root(archive, expected_digest, tool, binds):
             spec.loader.exec_module(extractor)
             extractor.extract(archive, partial, expected_digest)
             _validate_root(partial, tool)
-            for source, destination in binds[0] + binds[1]:
+            for source, destination, _, _, _ in binds[0] + binds[1]:
                 _prepare_mountpoint(partial, destination, source)
+            extractor.set_deterministic_metadata(partial)
             marker = os.path.join(partial, ".complete")
             with open(marker, "w", encoding="utf-8") as complete:
                 complete.write("mkosi-debian-tools-v1\n" + expected_digest + "\n")
+                os.chmod(marker, 0o644)
+                os.utime(marker, (0, 0))
                 complete.flush()
                 os.fsync(complete.fileno())
+            os.utime(partial, (0, 0))
             os.replace(partial, root)
         except Exception:
             shutil.rmtree(partial, ignore_errors=True)
@@ -271,7 +314,7 @@ def _run(tool, arguments, root, ro_binds, rw_binds, scratch_parent):
         workspace = _runtime_directory(runtime, "workspace")
         outputs = _runtime_directory(runtime, "outputs")
         home = _runtime_directory(runtime, "home")
-        for source, destination in rw_binds:
+        for source, destination, _, _, _ in rw_binds:
             base = workspace if _under(destination, "/workspace") else outputs
             prefix = "/workspace" if base == workspace else "/outputs"
             _prepare_mountpoint(base, destination[len(prefix):] or "/", source)
@@ -281,6 +324,16 @@ def _run(tool, arguments, root, ro_binds, rw_binds, scratch_parent):
             raise RuntimeError("static Debian namespace runner is missing")
         loader, _ = _validate_root(root, tool)
         loader_relative = "/" + os.path.relpath(loader, root)
+        descriptors = _pin_bind_sources(ro_binds + rw_binds)
+        mount_arguments = []
+        for bind in ro_binds:
+            mount_arguments.extend(
+                ["--ro-bind", bind[0], bind[1], str(bind[2]), str(bind[3])]
+            )
+        for bind in rw_binds:
+            mount_arguments.extend(
+                ["--rw-bind", bind[0], bind[1], str(bind[2]), str(bind[3])]
+            )
         command = [
             runner,
             root,
@@ -289,10 +342,16 @@ def _run(tool, arguments, root, ro_binds, rw_binds, scratch_parent):
             home,
             loader_relative,
             tool,
-        ] + sum((["--ro-bind", source, destination] for source, destination in ro_binds), []) + sum(
-            (["--rw-bind", source, destination] for source, destination in rw_binds), []
-        ) + ["--"] + arguments
-        return subprocess.run(command, env={"PATH": "", "HOME": "/root"}).returncode
+        ] + mount_arguments + ["--"] + arguments
+        try:
+            return subprocess.run(
+                command,
+                env={"PATH": "", "HOME": "/root"},
+                pass_fds=tuple(descriptors),
+            ).returncode
+        finally:
+            for descriptor in descriptors:
+                os.close(descriptor)
     finally:
         shutil.rmtree(runtime, ignore_errors=True)
 
