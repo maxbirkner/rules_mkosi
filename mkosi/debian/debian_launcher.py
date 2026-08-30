@@ -1,6 +1,5 @@
 """Execute a Debian build tool from an authenticated, isolated package tree."""
 
-import hashlib
 import importlib.util
 import os
 import pathlib
@@ -28,17 +27,6 @@ TOOLS = {
 }
 
 _MOUNT_ROOTS = ("/root", "/tmp", "/proc", "/dev", "/workspace", "/inputs", "/outputs")
-
-
-def _archive_digest(archive):
-    digest = hashlib.sha256()
-    with pathlib.Path(archive).open("rb") as source:
-        while True:
-            chunk = source.read(1024 * 1024)
-            if not chunk:
-                break
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def _inside_root(root, path):
@@ -199,15 +187,9 @@ def _pin_bind_sources(binds):
     try:
         for bind in binds:
             source, _, device, inode, _ = bind
-            flags = (getattr(os, "O_PATH", 0o10000000) if bind[4] else os.O_RDONLY)
+            flags = getattr(os, "O_PATH", 0o10000000)
             flags |= os.O_NOFOLLOW | os.O_CLOEXEC
-            try:
-                descriptor = os.open(source, flags)
-            except OSError:
-                flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC
-                if os.path.isdir(source):
-                    flags |= os.O_DIRECTORY
-                descriptor = os.open(source, flags)
+            descriptor = os.open(source, flags)
             descriptors.append(descriptor)
             current = os.fstat(descriptor)
             if current.st_dev != device or current.st_ino != inode:
@@ -247,13 +229,13 @@ def _extract_root(archive, expected_digest, tool, binds):
         raise RuntimeError("DEBIAN_TOOLS_ARCHIVE_SHA256 is required")
     if os.environ.get("MKOSI_DEBIAN_TOOLS_SCRATCH_FORMAT", "physical-v5") != "physical-v5":
         raise RuntimeError("unsupported Debian tools scratch format")
-    # Hash the archive before importing the extractor or opening it as a tar.
-    actual_digest = _archive_digest(archive)
-    if actual_digest != expected_digest:
-        raise RuntimeError(
-            "Debian tools archive digest mismatch: expected=%s actual=%s"
-            % (expected_digest, actual_digest)
-        )
+    scratch_parent_value = os.environ.get("MKOSI_DEBIAN_TOOLS_SCRATCH") or os.environ.get(
+        "TEST_TMPDIR"
+    )
+    if not scratch_parent_value:
+        raise RuntimeError("MKOSI_DEBIAN_TOOLS_SCRATCH or TEST_TMPDIR is required")
+    scratch_parent_hint = os.path.abspath(scratch_parent_value)
+    scratch_was_present = os.path.lexists(scratch_parent_hint)
     scratch_parent = _private_scratch()
     lock = os.path.join(scratch_parent, ".in-use")
     try:
@@ -295,6 +277,11 @@ def _extract_root(archive, expected_digest, tool, binds):
             raise
     finally:
         os.rmdir(lock)
+        if not scratch_was_present and not os.path.lexists(root):
+            try:
+                os.rmdir(scratch_parent)
+            except OSError:
+                pass
     return root
 
 

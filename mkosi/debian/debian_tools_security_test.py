@@ -126,7 +126,7 @@ class DebianToolsSecurityTest(unittest.TestCase):
                 "DEBIAN_TOOLS_EXTRACTOR": str(_HERE / "extract_tree.py"),
             },
         ):
-            with self.assertRaisesRegex(RuntimeError, "digest mismatch"):
+            with self.assertRaisesRegex(ValueError, "digest mismatch"):
                 debian_launcher._extract_root(
                     str(tampered),
                     hashlib.sha256(archive.read_bytes()).hexdigest(),

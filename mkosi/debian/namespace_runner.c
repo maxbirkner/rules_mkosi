@@ -136,6 +136,16 @@ static void write_byte(int file, char value) {
 }
 
 static void map_current_identity(uid_t uid, gid_t gid) {
+  int group_count = getgroups(0, NULL);
+  if (group_count < 0) {
+    fail("cannot inspect supplementary groups: %s", strerror(errno));
+  }
+  if (group_count != 0) {
+    if (setgroups(0, NULL) < 0 || getgroups(0, NULL) != 0) {
+      fail("cannot clear supplementary groups before user namespace setup: %s",
+           strerror(errno));
+    }
+  }
   int ready[2];
   int acknowledgement[2];
   if (pipe(ready) < 0 || pipe(acknowledgement) < 0) {
@@ -180,20 +190,12 @@ static void map_current_identity(uid_t uid, gid_t gid) {
   }
   write_byte(ready[1], 'U');
   read_byte(acknowledgement[0], 'U');
-  if (setresuid(0, 0, 0) < 0) {
-    fail("cannot become namespace root before clearing groups: %s", strerror(errno));
-  }
-  if (setgroups(0, NULL) < 0) {
-    // Restricted kernels may permanently deny setgroups in an unprivileged
-    // nested user namespace. The gid map then renders every inherited group
-    // as overflow 65534; the runtime contract rejects all other group IDs.
-    if (errno != EPERM) {
-      fail("cannot clear supplementary groups: %s", strerror(errno));
-    }
+  if (getgroups(0, NULL) != 0) {
+    fail("supplementary groups were inherited into the user namespace");
   }
   write_byte(ready[1], 'G');
   read_byte(acknowledgement[0], 'G');
-  if (setresgid(0, 0, 0) < 0) {
+  if (setresgid(0, 0, 0) < 0 || setresuid(0, 0, 0) < 0) {
     fail("cannot become namespace root: %s", strerror(errno));
   }
   close(ready[1]);
@@ -247,103 +249,24 @@ static bool source_has_submounts(const char *source) {
   return found;
 }
 
-static void bind_mount(const char *source, const char *destination,
-                       bool readonly, unsigned long long expected_device,
-                       unsigned long long expected_inode) {
-  struct stat source_stat;
-  if (stat(source, &source_stat) < 0) {
-    fail("cannot inspect bind source %s: %s", source, strerror(errno));
-  }
-  if (expected_device != 0 &&
-      ((unsigned long long)source_stat.st_dev != expected_device ||
-       (unsigned long long)source_stat.st_ino != expected_inode)) {
-    fail("bind source changed after validation: %s", source);
-  }
-  int mount_tree = -1;
-  if (strncmp(source, "/proc/self/fd/", strlen("/proc/self/fd/")) == 0) {
-    char *end;
-    int source_fd = (int)strtol(source + strlen("/proc/self/fd/"), &end, 10);
-    if (*end == '\0') {
-      mount_tree = syscall(SYS_open_tree, source_fd, "",
-                           OPEN_TREE_CLONE | OPEN_TREE_CLOEXEC | AT_EMPTY_PATH);
-    }
-  } else {
-    mount_tree = syscall(SYS_open_tree, AT_FDCWD, source,
-                         OPEN_TREE_CLONE | OPEN_TREE_CLOEXEC);
-  }
-  if (mount_tree >= 0) {
-    if (syscall(SYS_move_mount, mount_tree, "", AT_FDCWD, destination,
-                MOVE_MOUNT_F_EMPTY_PATH) < 0) {
-      int error = errno;
-      close(mount_tree);
-      fail("cannot move pinned bind %s to %s: %s", source, destination,
-           strerror(error));
-    }
-    close(mount_tree);
-  } else {
-    int tree_error = errno;
-    unsigned long flags = MS_BIND | (S_ISDIR(source_stat.st_mode) ? MS_REC : 0);
-    if (mount(source, destination, NULL, flags, NULL) < 0) {
-      int error = errno;
-      fail("cannot bind %s to %s: %s (open_tree: %s)", source, destination,
-           strerror(error), strerror(tree_error));
-    }
-  }
-  if (readonly) {
-    struct mkosi_mount_attr attributes = {
-        .attr_set = MOUNT_ATTR_RDONLY,
-    };
-    if (syscall(SYS_mount_setattr, AT_FDCWD, destination, AT_RECURSIVE,
-                &attributes, sizeof(attributes)) == 0) {
-      goto identity_check;
-    }
-    if (errno != ENOSYS && errno != EINVAL && errno != EOPNOTSUPP) {
-      fail("cannot recursively make bind read-only at %s: %s", destination,
-           strerror(errno));
-    }
-    if (source_has_submounts(source)) {
-      fail("kernel lacks recursive read-only mounts for source with submounts: %s",
-           source);
-    }
-    if (mount(NULL, destination, NULL, MS_BIND | MS_REMOUNT | MS_RDONLY, NULL) <
-        0) {
-      fail("cannot make bind read-only at %s: %s", destination, strerror(errno));
-    }
-  }
-identity_check:
-  if (expected_device != 0) {
-    struct stat mounted_stat;
-    if (stat(destination, &mounted_stat) < 0 ||
-        (unsigned long long)mounted_stat.st_dev != expected_device ||
-        (unsigned long long)mounted_stat.st_ino != expected_inode) {
-      umount2(destination, MNT_DETACH);
-      fail("bind source changed during mount: %s", source);
-    }
-  }
-}
-
-static void bind_mount_fd(int source_fd, const char *source_path,
-                          const char *root, const char *destination,
+static void bind_mount_fd(int source_fd, const char *destination,
                           bool readonly, unsigned long long expected_device,
                           unsigned long long expected_inode, bool directory) {
   struct stat source_stat;
   if (fstat(source_fd, &source_stat) < 0) {
     fail("cannot inspect pinned bind source: %s", strerror(errno));
   }
-  if ((unsigned long long)source_stat.st_dev != expected_device ||
-      (unsigned long long)source_stat.st_ino != expected_inode ||
+  if ((expected_device != 0 &&
+       ((unsigned long long)source_stat.st_dev != expected_device ||
+        (unsigned long long)source_stat.st_ino != expected_inode)) ||
       S_ISDIR(source_stat.st_mode) != directory) {
     fail("pinned bind source changed after validation");
   }
   char source_description[64];
   snprintf(source_description, sizeof(source_description), "/proc/self/fd/%d",
            source_fd);
-  int mount_tree = directory
-                       ? syscall(SYS_open_tree, source_fd, "",
-                                 OPEN_TREE_CLONE | OPEN_TREE_CLOEXEC | AT_EMPTY_PATH)
-                       : -1;
-  char temporary[4096];
-  bool temporary_link = false;
+  int mount_tree = syscall(SYS_open_tree, source_fd, "",
+                           OPEN_TREE_CLONE | OPEN_TREE_CLOEXEC | AT_EMPTY_PATH);
   if (mount_tree >= 0) {
     if (syscall(SYS_move_mount, mount_tree, "", AT_FDCWD, destination,
                 MOVE_MOUNT_F_EMPTY_PATH) < 0) {
@@ -352,48 +275,18 @@ static void bind_mount_fd(int source_fd, const char *source_path,
       fail("cannot move pinned bind to %s: %s", destination, strerror(error));
     }
     close(mount_tree);
-  } else if (!directory) {
-    char source_directory[4096];
-    strncpy(source_directory, source_path, sizeof(source_directory) - 1);
-    source_directory[sizeof(source_directory) - 1] = '\0';
-    char *separator = strrchr(source_directory, '/');
-    if (separator == NULL) {
-      fail("pinned bind source has no parent");
-    }
-    if (separator == source_directory) {
-      separator[1] = '\0';
-    } else {
-      *separator = '\0';
-    }
-    if (snprintf(temporary, sizeof(temporary), "%s/.mkosi-bind-%ld-%d",
-                 source_directory, (long)getpid(), source_fd) >=
-        (int)sizeof(temporary)) {
-      fail("pinned bind path is too long");
-    }
-    int link_result = linkat(AT_FDCWD, source_description, AT_FDCWD, temporary,
-                             AT_SYMLINK_FOLLOW);
-    if (link_result < 0) {
-      if (mount(source_path, destination, NULL, MS_BIND, NULL) < 0) {
-        fail("cannot bind file source %s to %s: %s", source_path, destination,
-             strerror(errno));
-      }
-    } else {
-      temporary_link = true;
-      if (mount(temporary, destination, NULL, MS_BIND, NULL) < 0) {
-        fail("cannot bind pinned file source to %s: %s", destination,
-             strerror(errno));
-      }
-      unlink(temporary);
-      temporary_link = false;
-    }
   } else {
-    if (mount(source_path, destination, NULL, MS_BIND | MS_REC, NULL) < 0) {
-      fail("cannot bind pinned directory source to %s: %s", destination,
-           strerror(errno));
+    int tree_error = errno;
+    /*
+     * Kernels before open_tree gained regular-file support.  This fallback
+     * still names only the open O_PATH object through procfs; it never
+     * follows the original source pathname or creates a hardlink.
+     */
+    unsigned long flags = MS_BIND | (directory ? MS_REC : 0);
+    if (mount(source_description, destination, NULL, flags, NULL) < 0) {
+      fail("cannot fd-bind %s to %s: %s (open_tree: %s)", source_description,
+           destination, strerror(errno), strerror(tree_error));
     }
-  }
-  if (temporary_link) {
-    unlink(temporary);
   }
   if (readonly) {
     struct mkosi_mount_attr attributes = {
@@ -417,11 +310,51 @@ static void bind_mount_fd(int source_fd, const char *source_path,
     }
   }
   struct stat mounted_stat;
-  if (stat(destination, &mounted_stat) < 0 ||
-      (unsigned long long)mounted_stat.st_dev != expected_device ||
-      (unsigned long long)mounted_stat.st_ino != expected_inode) {
+  if (expected_device != 0 &&
+      (stat(destination, &mounted_stat) < 0 ||
+       (unsigned long long)mounted_stat.st_dev != expected_device ||
+       (unsigned long long)mounted_stat.st_ino != expected_inode)) {
     umount2(destination, MNT_DETACH);
     fail("bind source changed during mount: %s", source_description);
+  }
+}
+
+static void bind_mount(const char *source, const char *destination,
+                       bool readonly, unsigned long long expected_device,
+                       unsigned long long expected_inode) {
+  int source_fd = open(source, O_PATH | O_NOFOLLOW | O_CLOEXEC);
+  if (source_fd < 0) {
+    fail("cannot open bind source %s: %s", source, strerror(errno));
+  }
+  struct stat source_stat;
+  if (fstat(source_fd, &source_stat) < 0) {
+    close(source_fd);
+    fail("cannot inspect bind source %s: %s", source, strerror(errno));
+  }
+  if (expected_device != 0 &&
+      ((unsigned long long)source_stat.st_dev != expected_device ||
+       (unsigned long long)source_stat.st_ino != expected_inode)) {
+    close(source_fd);
+    fail("bind source changed after validation: %s", source);
+  }
+  bind_mount_fd(source_fd, destination, readonly, expected_device,
+                expected_inode, S_ISDIR(source_stat.st_mode));
+  close(source_fd);
+}
+
+static void close_non_stdio_fds(void) {
+  long configured_limit = sysconf(_SC_OPEN_MAX);
+  long limit = configured_limit > 0 ? configured_limit : 1048576;
+  for (int file = 3; file < limit; ++file) {
+    int flags = fcntl(file, F_GETFD);
+    if (flags < 0) {
+      continue;
+    }
+    if (fcntl(file, F_SETFD, flags | FD_CLOEXEC) < 0 ||
+        (fcntl(file, F_GETFD) & FD_CLOEXEC) == 0) {
+      fail("cannot mark inherited descriptor close-on-exec: %d", file);
+    }
+    close(file);
   }
 }
 
@@ -429,9 +362,26 @@ static void mount_runtime(const char *root) {
   if (mount(NULL, "/", NULL, MS_REC | MS_PRIVATE, NULL) < 0) {
     fail("cannot make mount propagation private: %s", strerror(errno));
   }
-  if (mount(root, root, NULL, MS_BIND | MS_REC, NULL) < 0) {
-    fail("cannot bind extracted root: %s", strerror(errno));
+  int root_fd = open(root, O_PATH | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
+  if (root_fd < 0) {
+    fail("cannot open extracted root: %s", strerror(errno));
   }
+  int root_tree = syscall(SYS_open_tree, root_fd, "",
+                          OPEN_TREE_CLONE | OPEN_TREE_CLOEXEC | AT_EMPTY_PATH);
+  if (root_tree < 0) {
+    int error = errno;
+    close(root_fd);
+    fail("cannot clone extracted root mount: %s", strerror(error));
+  }
+  if (syscall(SYS_move_mount, root_tree, "", AT_FDCWD, root,
+              MOVE_MOUNT_F_EMPTY_PATH) < 0) {
+    int error = errno;
+    close(root_tree);
+    close(root_fd);
+    fail("cannot mount extracted root: %s", strerror(error));
+  }
+  close(root_tree);
+  close(root_fd);
   char oldroot[4096];
   if (snprintf(oldroot, sizeof(oldroot), "%s/.namespace-oldroot", root) >=
       (int)sizeof(oldroot)) {
@@ -608,9 +558,10 @@ static int run_child(int argc, char **argv, uid_t uid, gid_t gid) {
     if (*fd_end != '\0' || source_fd < 0) {
       fail("namespace bind fd is invalid");
     }
-    bind_mount_fd(source_fd, argv[index + 2], root, destination, readonly,
+    bind_mount_fd(source_fd, destination, readonly,
                   expected_device, expected_inode,
                   strcmp(argv[index + 6], "dir") == 0);
+    close(source_fd);
     index += 7;
   }
   if (index >= argc || strcmp(argv[index], "--") != 0) {
@@ -618,6 +569,7 @@ static int run_child(int argc, char **argv, uid_t uid, gid_t gid) {
   }
 
   enter_root(root);
+  close_non_stdio_fds();
   if (chdir("/workspace") < 0) {
     fail("cannot set namespace working directory: %s", strerror(errno));
   }
@@ -699,8 +651,16 @@ static int fd_swap_self_test(void) {
   const char *base = "namespace-runner-fd-swap";
   const char *source = "namespace-runner-fd-swap/source";
   const char *replacement = "namespace-runner-fd-swap/replacement";
+  const char *directory_source = "namespace-runner-fd-swap/directory-source";
+  const char *directory_replacement =
+      "namespace-runner-fd-swap/directory-replacement";
   const char *destination_directory = "namespace-runner-fd-swap/destination";
   const char *destination = "namespace-runner-fd-swap/destination/file";
+  const char *directory_destination =
+      "namespace-runner-fd-swap/destination/directory";
+  const char *directory_marker = "namespace-runner-fd-swap/directory-source/marker";
+  const char *directory_destination_marker =
+      "namespace-runner-fd-swap/destination/directory/marker";
   map_current_identity(getuid(), getgid());
   if (unshare(CLONE_NEWNS) < 0 ||
       mount(NULL, "/", NULL, MS_REC | MS_PRIVATE, NULL) < 0) {
@@ -732,7 +692,7 @@ static int fd_swap_self_test(void) {
     return 1;
   }
   close(destination_file);
-  bind_mount_fd(source_fd, source, base, destination, false,
+  bind_mount_fd(source_fd, destination, false,
                 (unsigned long long)source_stat.st_dev,
                 (unsigned long long)source_stat.st_ino, false);
   int mounted = open(destination, O_RDONLY | O_CLOEXEC);
@@ -746,9 +706,53 @@ static int fd_swap_self_test(void) {
   unlink(destination);
   unlink(source);
   unlink(replacement);
+  if (mkdir(directory_source, 0700) < 0) {
+    return 1;
+  }
+  int directory_file =
+      open(directory_marker, O_WRONLY | O_CREAT | O_CLOEXEC, 0644);
+  if (directory_file < 0 || write(directory_file, "directory\n", 10) != 10) {
+    return 1;
+  }
+  close(directory_file);
+  int directory_fd = open(directory_source, O_PATH | O_NOFOLLOW | O_CLOEXEC);
+  if (directory_fd < 0) {
+    return 1;
+  }
+  struct stat directory_stat;
+  if (fstat(directory_fd, &directory_stat) < 0 ||
+      rename(directory_source, directory_replacement) < 0 ||
+      mkdir(directory_source, 0700) < 0 ||
+      mkdir(directory_destination, 0700) < 0) {
+    return 1;
+  }
+  bind_mount_fd(directory_fd, directory_destination, false,
+                (unsigned long long)directory_stat.st_dev,
+                (unsigned long long)directory_stat.st_ino, true);
+  int directory_mounted = open(directory_destination_marker, O_RDONLY | O_CLOEXEC);
+  char directory_contents[20] = {0};
+  ssize_t directory_length =
+      directory_mounted < 0
+          ? -1
+          : read(directory_mounted, directory_contents,
+                 sizeof(directory_contents) - 1);
+  if (directory_mounted >= 0) {
+    close(directory_mounted);
+  }
+  umount2(directory_destination, MNT_DETACH);
+  close(directory_fd);
+  unlink(directory_destination_marker);
+  rmdir(directory_destination);
+  unlink(directory_marker);
+  rmdir(directory_source);
+  rmdir(directory_replacement);
   rmdir(destination_directory);
   rmdir(base);
-  return length == 9 && memcmp(contents, "original\n", 9) == 0 ? 0 : 1;
+  return length == 9 && memcmp(contents, "original\n", 9) == 0 &&
+                 directory_length == 10 &&
+                 memcmp(directory_contents, "directory\n", 10) == 0
+             ? 0
+             : 1;
 }
 
 int main(int argc, char **argv) {

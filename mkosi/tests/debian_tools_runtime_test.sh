@@ -26,6 +26,41 @@ fi
     exit 1
 }
 
+host_group_values=
+while IFS= read -r status_line
+do
+    case "$status_line" in
+        Groups:*) host_group_values="${status_line#Groups:}" ;;
+    esac
+done < /proc/self/status
+host_has_supplementary_groups=0
+case "$host_group_values" in
+    *[![:space:]]*) host_has_supplementary_groups=1 ;;
+esac
+if [ "$host_has_supplementary_groups" -eq 1 ]; then
+    set +e
+    group_output="$(
+        MKOSI_DEBIAN_TOOLS_SCRATCH="$TEST_TMPDIR/debian-tools-groups" \
+            "$launcher" /usr/bin/dpkg --version 2>&1
+    )"
+    group_status=$?
+    set -e
+    [ "$group_status" -ne 0 ] || {
+        echo "launcher accepted a caller with supplementary groups" >&2
+        exit 1
+    }
+    case "$group_output" in
+        *"supplementary groups"*) ;;
+        *)
+            echo "launcher did not fail closed for supplementary groups" >&2
+            echo "$group_output" >&2
+            exit 1
+            ;;
+    esac
+    echo "supplementary-group caller rejected before namespace execution"
+    exit 0
+fi
+
 hostile_sitecustomize="$TEST_TMPDIR/sitecustomize.py"
 printf '%s\n' 'raise RuntimeError("hostile sitecustomize loaded")' > "$hostile_sitecustomize"
 set +e
@@ -109,18 +144,21 @@ runtime_output="$(
                 Groups:*) namespace_groups="$status_line" ;;
             esac
         done < /proc/self/status
-        zero_groups=0
         for group in $namespace_groups
         do
             case "$group" in
                 Groups:) ;;
-                0) zero_groups=$((zero_groups + 1)) ;;
-                65534) ;;
-                *) exit 1 ;;
+                *) echo "supplementary group leaked: $group" >&2; exit 1 ;;
             esac
         done
-        [ "$zero_groups" -eq 1 ]
         printf "groups=%s\n" "$namespace_groups"
+        for descriptor in /proc/self/fd/*
+        do
+            case "$descriptor" in
+                /proc/self/fd/0|/proc/self/fd/1|/proc/self/fd/2) ;;
+                *) echo "inherited bind descriptor leaked: $descriptor" >&2; exit 1 ;;
+            esac
+        done
         tmpfs=0
         procfs=0
         devfs=0

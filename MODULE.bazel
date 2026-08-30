@@ -18,13 +18,11 @@ bazel_dep(name = "rules_cc", version = "0.2.17")
 bazel_dep(name = "rules_python", version = "1.7.0")
 bazel_dep(name = "rules_shell", version = "0.6.1")
 bazel_dep(name = "rules_qemu", version = "0.3.0")
-
-bazel_dep(name = "hermetic_cc_toolchain", version = "4.3.0", dev_dependency = True)
+bazel_dep(name = "hermetic_cc_toolchain", version = "4.3.0")
 
 hermetic_cc = use_extension(
     "@hermetic_cc_toolchain//toolchain:ext.bzl",
     "toolchains",
-    dev_dependency = True,
 )
 hermetic_cc.exec_platform(
     arch = "amd64",
@@ -33,8 +31,7 @@ hermetic_cc.exec_platform(
 use_repo(hermetic_cc, "zig_sdk")
 
 register_toolchains(
-    "@zig_sdk//libc_aware/toolchain:linux_amd64_musl",
-    dev_dependency = True,
+    "@zig_sdk//toolchain:linux_amd64_musl",
 )
 
 qemu = use_extension("@rules_qemu//qemu/extension:qemu.bzl", "qemu")

@@ -5,6 +5,13 @@ through its public API and a `local_path_override`. This catches dependency,
 module-extension, toolchain-registration, visibility, and public-label
 problems that tests inside the ruleset cannot detect.
 
+The consumer declares the maintained `hermetic_cc_toolchain` as a normal
+dependency and registers its generic `@zig_sdk//toolchain:linux_amd64_musl`
+toolchain without setting `--platforms` or `--host_platform`. This is the
+standard Bzlmod pattern for an extension-provided toolchain: a downstream root
+module opts into the maintained default, while its own root registrations can
+override it.
+
 The root `.bazelignore` deliberately excludes `e2e/`. A nested `MODULE.bazel`
 does not create a package traversal boundary: without that exclusion, a root
 `bazel test //...` would load `e2e/smoke` as part of the root repository and

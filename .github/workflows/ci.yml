@@ -150,6 +150,24 @@ jobs:
                   collect(dep_set_id)
               return paths
 
+          allowed_input_roots = (
+              "bazel-out/",
+              "mkosi/debian/",
+              "external/bazel_tools/",
+              "external/hermetic_cc_toolchain~~",
+              "external/_main~debian_tools~mkosi_debian_tools/",
+              "external/_main~debian_tools~mkosi_debian_package_inputs/",
+              "external/_main~debian_tools~mkosi_debian_python/",
+          )
+          compiler_tokens = (
+              "/bin/bash",
+              "/usr/bin/gcc",
+              "/usr/bin/clang",
+              "/usr/bin/ar",
+              "/usr/bin/ld",
+              "/usr/bin/strip",
+              "local_config_cc",
+          )
           for action in graph["actions"]:
               arguments = action.get("arguments", [])
               inputs = input_paths(action)
@@ -158,14 +176,33 @@ jobs:
               if action["mnemonic"] in ("CppCompile", "CppLink"):
                   compilation.append((action["mnemonic"], arguments, inputs))
               if any(
-                  token.endswith("/bin/bash")
-                  or token.endswith("/usr/bin/gcc")
-                  or token.endswith("/usr/bin/ar")
-                  or token.endswith("/usr/bin/strip")
-                  or "local_config_cc" in token
+                  token.startswith("/") or
+                  any(bad in token for bad in compiler_tokens)
                   for token in arguments
               ):
                   raise SystemExit("host compiler or shell in structured action graph")
+              relevant = action["mnemonic"] in (
+                  "BuildDebianToolsArchive",
+                  "CppCompile",
+                  "CppLink",
+              )
+              if relevant:
+                  unexpected = sorted(
+                      path for path in inputs
+                      if not path.startswith(allowed_input_roots)
+                  )
+                  if unexpected:
+                      raise SystemExit(
+                          "unexpected transitive tool/input roots: "
+                          + ", ".join(unexpected[:20])
+                      )
+                  if any(
+                      any(bad in path for bad in compiler_tokens)
+                      for path in inputs
+                  ):
+                      raise SystemExit(
+                          "host compiler or shell in transitive input set"
+                      )
           print("structured archive actions:", len(archive), [args[0][0] for args in archive if args[0]])
           if len(archive) != 1 or any(
               not args
@@ -202,10 +239,32 @@ jobs:
           done
           echo "Debian tools archive/bootstrap graph contains only managed actions"
 
+      - name: Verify downstream no-RC toolchain default
+        run: |
+          mode=off
+          if [ "${{ matrix.bazel }}" = "7.7.1" ]; then
+            mode=error
+          fi
+          graph="$(bazel --bazelrc=/dev/null aquery \
+            --lockfile_mode="${mode}" --output=text \
+            'deps(@mkosi_debian_tools//:launcher)')"
+          case "$graph" in
+            *"local_config_cc"*|*"/usr/bin/gcc"*|*"/usr/bin/clang"*)
+              echo "downstream no-RC graph selected a host C++ toolchain" >&2
+              exit 1
+              ;;
+          esac
+          case "$graph" in
+            *"hermetic_cc_toolchain"*) ;;
+            *) echo "downstream no-RC graph lacks maintained C++ toolchain" >&2; exit 1 ;;
+          esac
+          echo "no-RC downstream launcher resolves maintained hermetic C++ toolchain"
+
       - name: Verify deterministic bootstrap binaries
         if: matrix.module == '.' && matrix.bazel == '7.7.1'
         run: |
-          bazel build --lockfile_mode=error \
+          bazel build --lockfile_mode=error --disk_cache= \
+            --noremote_accept_cached --noremote_upload_local_results \
             @mkosi_debian_tools//:launcher \
             @mkosi_debian_tools//:namespace_runner
           first_launcher="$(bazel cquery --lockfile_mode=error \
@@ -215,7 +274,8 @@ jobs:
           first_launcher_sha="$(sha256sum "$first_launcher" | cut -d' ' -f1)"
           first_runner_sha="$(sha256sum "$first_runner" | cut -d' ' -f1)"
           bazel clean --expunge
-          bazel build --lockfile_mode=error \
+          bazel build --lockfile_mode=error --disk_cache= \
+            --noremote_accept_cached --noremote_upload_local_results \
             @mkosi_debian_tools//:launcher \
             @mkosi_debian_tools//:namespace_runner
           second_launcher="$(bazel cquery --lockfile_mode=error \

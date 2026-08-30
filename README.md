@@ -80,6 +80,9 @@ IPC, and UTS namespaces, pivot into the extracted root, and detach the host
 root. Only then is the packaged Debian loader used for the requested tool;
 the packaged bubblewrap binary is retained as a pinned package input but is
 not used as a pre-isolation bootstrap.
+The runner requires an empty supplementary-group list: it clears groups while
+still permitted to do so and fails closed before entering the namespace when
+the caller's groups cannot be cleared.
 The lockfile's package SHA-256 values are the immutable download trust roots.
 Package-index signature verification is intentionally not advertised because
 the resolver does not currently perform that check.
@@ -97,20 +100,24 @@ independent consumer suites on pinned Bazel 7.7.1, 8.5.1, and 9.2.0; Bazel
 `--lockfile_mode=off` so compatibility is verified without silently
 rewriting the committed lockfile.
 
-Repository tests and the independent consumer register the maintained
-`hermetic_cc_toolchain` 4.3.0 default on its Linux amd64 musl platform. The
-bootstrap targets use ordinary `cc_binary` toolchain resolution with
-`fully_static_link`; consumers may register another compatible standard C/C++
-toolchain. rules_mkosi does not download, invoke, or select a raw compiler
-itself. The resolved action graph and static ELF metadata are checked in CI.
+The module has a normal dependency on the maintained
+`hermetic_cc_toolchain` 4.3.0 and registers its generic Linux amd64 musl
+`@zig_sdk//toolchain:linux_amd64_musl` toolchain as the default for bootstrap
+targets. This registration is available to downstream modules; it does not
+force a target or host platform on the consumer. The bootstrap targets use
+ordinary `cc_binary` toolchain resolution with `fully_static_link`, and a
+consumer's root-module registration takes precedence when it provides another
+compatible standard C/C++ toolchain. rules_mkosi does not download, invoke, or
+select a raw compiler itself. The resolved action graph and static ELF
+metadata are checked in CI.
 
 For a consumer that overrides the default, register a compatible
 `@bazel_tools//tools/cpp:toolchain_type` toolchain for Linux x86-64 and static
-linking. The default platform is
-`@zig_sdk//libc_aware/platform:linux_amd64_musl`, supplied by the maintained
-toolchain module; repository tests set it for both `--platforms` and
-`--host_platform` so tools built in the exec configuration select the same
-static toolchain.
+linking. The default registration is deliberately generic for normal Linux
+x86-64 target and execution platforms, so unrelated consumer targets are not
+silently transitioned to a musl platform. The maintained toolchain's own
+constraints prevent the bootstrap binaries from being scheduled on another
+operating system or CPU architecture.
 
 The root module may select a version with `mkosi.toolchain(version = "27")`;
 unsupported or conflicting requests fail during module resolution.
