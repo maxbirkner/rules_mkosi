@@ -134,12 +134,20 @@ sh_test(
 mkosi_image(
     name = "golden_image",
     distribution = "debian",
+    tags = [
+        "manual",
+        "requires_empty_groups",
+    ],
 )
 
 diff_test(
     name = "golden_image_test",
     file1 = "testdata/debian.image.golden.txt",
     file2 = ":golden_image",
+    tags = [
+        "manual",
+        "requires_empty_groups",
+    ],
 )
 
 sh_test(
@@ -154,10 +162,18 @@ sh_test(
 mkosi_image(
     name = "ubuntu_golden_image",
     distribution = "ubuntu",
+    tags = [
+        "manual",
+        "requires_empty_groups",
+    ],
 )
 
 diff_test(
     name = "ubuntu_golden_image_test",
     file1 = "testdata/ubuntu.image.golden.txt",
     file2 = ":ubuntu_golden_image",
+    tags = [
+        "manual",
+        "requires_empty_groups",
+    ],
 )
