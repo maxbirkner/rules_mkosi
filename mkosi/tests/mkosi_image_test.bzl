@@ -18,6 +18,8 @@ def _provider_test_impl(ctx):
     asserts.true(env, ctx.attr.expected_config in action_inputs)
     asserts.true(env, "tree_root_root" in action_inputs)
     asserts.true(env, "python3" in action_inputs, "managed Python is an action input")
+    asserts.true(env, "libpython3.11.so.1.0" in action_inputs, "Python library is an action input")
+    asserts.true(env, "os.py" in action_inputs, "Python standard library is an action input")
     asserts.true(env, "__main__.py" in action_inputs, "mkosi script is an action input")
     asserts.true(env, "pefile.py" in action_inputs, "pefile is an action input")
     asserts.false(env, "mkosi_cli" in action_inputs)
@@ -52,6 +54,7 @@ def _provider_test_impl(ctx):
     asserts.equals(env, "--no-pager", actions[0].argv[23])
     asserts.equals(env, "build", actions[0].argv[24])
     asserts.equals(env, "", actions[0].env["PATH"])
+    asserts.equals(env, "1", actions[0].env["PYTHONNOUSERSITE"])
 
     return analysistest.end(env)
 
@@ -72,6 +75,11 @@ def _toolchain_provider_test_impl(ctx):
     asserts.equals(env, "python3", info.python.basename)
     asserts.true(env, info.python_files_to_run != None, "managed Python FilesToRunProvider is present")
     asserts.true(env, info.files_to_run != None, "compatibility FilesToRunProvider is present")
+    runtime_paths = [file.path for file in info.python_runtime_files.to_list()]
+    asserts.true(env, len(runtime_paths) > 1000, "managed Python runtime is complete")
+    asserts.true(env, any([path.endswith("/lib/libpython3.11.so.1.0") for path in runtime_paths]))
+    asserts.true(env, any([path.endswith("/lib/python3.11/os.py") for path in runtime_paths]))
+    asserts.true(env, len(info.runfiles.files.to_list()) > 1000)
     asserts.equals(env, "__main__.py", info.script.basename)
     asserts.equals(env, "pefile.py", info.pefile.basename)
     asserts.true(env, len(info.runfiles_files.to_list()) > 0)

@@ -125,7 +125,7 @@ jobs:
             *) echo "mkosi image action is not using the direct managed-Python entrypoint" >&2; exit 1 ;;
           esac
           case "$image_graph" in
-            *"Environment: [PATH=, PYTHONPATH="*) ;;
+            *"Environment: [PATH=, PYTHONNOUSERSITE=1, PYTHONPATH="*) ;;
             *) echo "mkosi image action environment is not hermetically declared" >&2; exit 1 ;;
           esac
           case "$image_graph" in

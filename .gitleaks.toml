@@ -1,3 +1,6 @@
+[extend]
+useDefault = true
+
 [allowlist]
 description = "The Debian package lock contains public package keys and hashes, not credentials."
 paths = [

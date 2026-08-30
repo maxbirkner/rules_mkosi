@@ -4,6 +4,9 @@ def _toolchains_repo_impl(repository_ctx):
     python_label = "@python_{}//:python3".format(
         repository_ctx.attr.python_version.replace(".", "_"),
     )
+    python_runtime_label = "@python_{}//:files".format(
+        repository_ctx.attr.python_version.replace(".", "_"),
+    )
     repository_ctx.download_and_extract(
         url = repository_ctx.attr.source_url,
         sha256 = repository_ctx.attr.source_sha256,
@@ -31,6 +34,11 @@ filegroup(
     srcs = ["mkosi/__main__.py"],
 )
 
+filegroup(
+    name = "mkosi_runtime",
+    srcs = [{python_runtime_label_repr}],
+)
+
 alias(
     name = "mkosi_python",
     actual = {python_label_repr},
@@ -45,6 +53,7 @@ mkosi_toolchain(
     source_integrity = {source_integrity},
     python_version = {python_version},
     python = {python_label_repr},
+    python_runtime = {python_runtime_label_repr},
     script = "mkosi/__main__.py",
     python_dependency = {python_import_dependency_repr},
     runfiles = ":mkosi_runfiles",
@@ -68,6 +77,7 @@ toolchain(
         python_version = repr(repository_ctx.attr.python_version),
         python_label = python_label,
         python_label_repr = repr(python_label),
+        python_runtime_label_repr = repr(python_runtime_label),
         python_dependencies = repr(repository_ctx.attr.python_dependencies),
         python_import_dependency_repr = repr(repository_ctx.attr.python_import_dependencies[0]),
     )

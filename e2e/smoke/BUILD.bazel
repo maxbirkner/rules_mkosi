@@ -49,6 +49,7 @@ sh_test(
         "sitecustomize.py",
         "@mkosi_toolchains//:mkosi_python",
         "@mkosi_toolchains//:mkosi_runfiles",
+        "@mkosi_toolchains//:mkosi_runtime",
         "@mkosi_toolchains//:mkosi_script",
     ],
 )
@@ -71,6 +72,20 @@ sh_test(
         "@mkosi_debian_python//:bin/python3.11",
     ],
     tags = ["manual"],
+)
+
+sh_test(
+    name = "raw_image_validator_test",
+    srcs = ["raw_image_validator_unit_test.sh"],
+    args = [
+        "$(rootpath raw_image_validator_test.py)",
+        "$(rootpath @mkosi_debian_python//:bin/python3.11)",
+    ],
+    data = [
+        "raw_image_validator.py",
+        "raw_image_validator_test.py",
+        "@mkosi_debian_python//:bin/python3.11",
+    ],
 )
 
 sh_test(

@@ -16,6 +16,7 @@ MkosiToolchainInfo = provider(
         "python": "The Bazel-managed Python executable used to run mkosi.",
         "python_files_to_run": "FilesToRunProvider for the managed Python executable.",
         "files_to_run": "Compatibility alias for the managed Python FilesToRunProvider.",
+        "python_runtime_files": "Complete files from the managed Python runtime.",
         "script": "The exact mkosi Python entrypoint script.",
         "pefile": "The pinned pefile module used by mkosi.",
         "runfiles": "Runfiles object preserving mappings for mkosi and its dependencies.",
@@ -27,6 +28,7 @@ def _mkosi_toolchain_impl(ctx):
     if ctx.attr.version not in MKOSI_VERSIONS:
         fail("Unsupported mkosi version {}.".format(ctx.attr.version))
     python = ctx.attr.python[DefaultInfo]
+    python_runtime_files = ctx.attr.python_runtime[DefaultInfo].files
     pefile = None
     for file in ctx.files.python_dependency:
         if file.basename == "pefile.py":
@@ -34,6 +36,13 @@ def _mkosi_toolchain_impl(ctx):
             break
     if pefile == None:
         fail("The mkosi Python dependency must provide pefile.py.")
+    runfiles_files = depset(
+        [ctx.file.script, pefile],
+        transitive = [
+            ctx.attr.runfiles[DefaultInfo].files,
+            python_runtime_files,
+        ],
+    )
     return [
         platform_common.ToolchainInfo(
             mkosi = MkosiToolchainInfo(
@@ -48,16 +57,11 @@ def _mkosi_toolchain_impl(ctx):
                 python = python.files_to_run.executable,
                 python_files_to_run = python.files_to_run,
                 files_to_run = python.files_to_run,
+                python_runtime_files = python_runtime_files,
                 script = ctx.file.script,
                 pefile = pefile,
-                runfiles = ctx.attr.runfiles[DefaultInfo].default_runfiles,
-                runfiles_files = depset(
-                    [ctx.file.script, pefile],
-                    transitive = [
-                        ctx.attr.runfiles[DefaultInfo].files,
-                        python.default_runfiles.files,
-                    ],
-                ),
+                runfiles = ctx.runfiles(transitive_files = runfiles_files),
+                runfiles_files = runfiles_files,
             ),
         ),
     ]
@@ -93,6 +97,10 @@ mkosi_toolchain = rule(
             executable = True,
             mandatory = True,
             doc = "The Bazel-managed Python executable.",
+        ),
+        "python_runtime": attr.label(
+            mandatory = True,
+            doc = "The complete managed Python runtime file closure.",
         ),
         "script": attr.label(
             allow_single_file = True,

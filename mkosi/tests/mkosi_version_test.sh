@@ -68,6 +68,36 @@ fi
     exit 1
 }
 
+runtime_lib=
+runtime_stdlib=
+if [ -n "$manifest" ] && [ -f "$manifest" ]; then
+    while read -r logical physical
+    do
+        case "$logical" in
+            */lib/libpython3.11.so.1.0) runtime_lib=1 ;;
+            */lib/python3.11/os.py) runtime_stdlib=1 ;;
+        esac
+    done < "$manifest"
+else
+    for runtime in "$runfiles_root"/*python* "$runfiles_root/_main"/*python*
+    do
+        if [ -f "$runtime/lib/libpython3.11.so.1.0" ]; then
+            runtime_lib=1
+        fi
+        if [ -f "$runtime/lib/python3.11/os.py" ]; then
+            runtime_stdlib=1
+        fi
+    done
+fi
+[ "$runtime_lib" = 1 ] || {
+    echo "managed Python shared library is missing from runfiles" >&2
+    exit 1
+}
+[ "$runtime_stdlib" = 1 ] || {
+    echo "managed Python standard library is missing from runfiles" >&2
+    exit 1
+}
+
 PATH=
 export PATH
 probe="$TEST_TMPDIR/pefile.version"

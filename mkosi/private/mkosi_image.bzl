@@ -47,12 +47,13 @@ def _mkosi_image_impl(ctx):
         arguments = [arguments],
         inputs = depset(
             [ctx.file.config, mkosi.script, mkosi.pefile, debian_tools.tree_root],
-            transitive = [mkosi.runfiles_files],
+            transitive = [mkosi.runfiles_files, mkosi.python_runtime_files],
         ),
         tools = [mkosi.python_files_to_run],
         outputs = [image],
         env = {
             "PATH": "",
+            "PYTHONNOUSERSITE": "1",
             "PYTHONPATH": mkosi_root + ":" + pefile_root,
         },
         execution_requirements = {

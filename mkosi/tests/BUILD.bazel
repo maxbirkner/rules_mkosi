@@ -134,6 +134,7 @@ sh_test(
         "sitecustomize.py",
         "@mkosi_toolchains//:mkosi_python",
         "@mkosi_toolchains//:mkosi_runfiles",
+        "@mkosi_toolchains//:mkosi_runtime",
         "@mkosi_toolchains//:mkosi_script",
     ],
 )
@@ -151,6 +152,15 @@ py_test(
     data = [":real_image"],
     main = "raw_image_validator.py",
     tags = ["manual"],
+)
+
+py_test(
+    name = "raw_image_validator_test",
+    srcs = [
+        "raw_image_validator.py",
+        "raw_image_validator_test.py",
+    ],
+    main = "raw_image_validator_test.py",
 )
 
 py_test(
