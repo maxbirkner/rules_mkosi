@@ -6,7 +6,7 @@ import sys
 
 def main():
     directory = sys.argv[1]
-    os.mkdir(directory, 0o700)
+    os.makedirs(directory, mode=0o700, exist_ok=True)
     for name, contents in (
         ("debian-tools-input", "packaged-input\n"),
         ("debian-tools-output", ""),

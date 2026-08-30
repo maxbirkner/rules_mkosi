@@ -44,9 +44,10 @@ fi
     echo "managed Python runtime is missing" >&2
     exit 1
 }
-bind_source="$PWD/debian-tools-bind-source"
+bind_source="/dev/shm"
+bind_directory="$bind_source/rules-mkosi-${TEST_TMPDIR##*/}"
 python_home="${python%/bin/python3.11}"
-PYTHONHOME="$python_home" PYTHONNOUSERSITE=1 "$python" -I "$setup_script" "$bind_source"
+PYTHONHOME="$python_home" PYTHONNOUSERSITE=1 "$python" -I "$setup_script" "$bind_directory"
 
 hostile_sitecustomize="$TEST_TMPDIR/sitecustomize.py"
 printf '%s\n' 'raise RuntimeError("hostile sitecustomize loaded")' > "$hostile_sitecustomize"
@@ -175,16 +176,16 @@ case "$runtime_output" in
         ;;
 esac
 
-input="$bind_source/debian-tools-input"
-output="$bind_source/debian-tools-output"
-counter="$bind_source/debian-tools-counter"
+input="$bind_directory/debian-tools-input"
+output="$bind_directory/debian-tools-output"
+counter="$bind_directory/debian-tools-counter"
 set +e
 bind_output="$(
     MKOSI_DEBIAN_TOOLS_SCRATCH="$TEST_TMPDIR/../debian-tools-binds" "$launcher" \
         --ro-bind "$bind_source:/inputs/input-dir" \
         --rw-bind "$bind_source:/outputs/output-dir" \
         /bin/sh -c '
-            IFS= read -r value < /inputs/input-dir/debian-tools-input
+            IFS= read -r value < /inputs/input-dir/'"${bind_directory##*/}"'/debian-tools-input
             [ "$value" = packaged-input ]
             [ -d /inputs/input-dir ]
             for descriptor in /proc/self/fd/*
@@ -205,7 +206,7 @@ bind_output="$(
                         ;;
                 esac
             done
-            printf "packaged-output\n" > /outputs/output-dir/debian-tools-output
+            printf "packaged-output\n" > /outputs/output-dir/'"${bind_directory##*/}"'/debian-tools-output
         ' 2>&1
 )"
 bind_status=$?
@@ -225,7 +226,7 @@ set +e
 once_output="$(
     MKOSI_DEBIAN_TOOLS_SCRATCH="$TEST_TMPDIR/../debian-tools-once" "$launcher" \
         --rw-bind "$bind_source:/outputs/counter-dir" \
-        /bin/sh -c 'printf "x\n" >> /outputs/counter-dir/debian-tools-counter; exit 37' 2>&1
+        /bin/sh -c 'printf "x\n" >> /outputs/counter-dir/'"${bind_directory##*/}"'/debian-tools-counter; exit 37' 2>&1
 )"
 once_status=$?
 set -e
