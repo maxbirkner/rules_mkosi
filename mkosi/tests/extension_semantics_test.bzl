@@ -2,7 +2,11 @@
 
 load("@bazel_skylib//lib:unittest.bzl", "asserts", "unittest")
 load("//mkosi:extensions.bzl", "resolve_mkosi_name", "resolve_mkosi_version")
-load("//mkosi:qemu_versions.bzl", "RULES_QEMU_BAZEL_MIN_VERSION")
+load(
+    "//mkosi:qemu_versions.bzl",
+    "RULES_MKOSI_BAZEL_MIN_VERSION",
+    "RULES_QEMU_BAZEL_MIN_VERSION",
+)
 
 def _default_test_impl(ctx):
     env = unittest.begin(ctx)
@@ -52,8 +56,9 @@ root_dependency_test = unittest.make(_root_dependency_test_impl)
 def _qemu_bazel_compatibility_test_impl(ctx):
     env = unittest.begin(ctx)
 
-    # Keep the test synchronized with the module's supported Bazel baseline.
-    asserts.equals(env, "8.5.1", RULES_QEMU_BAZEL_MIN_VERSION)
+    # Keep the dependency and public module floors distinct.
+    asserts.equals(env, "7.7.0", RULES_QEMU_BAZEL_MIN_VERSION)
+    asserts.equals(env, "8.5.1", RULES_MKOSI_BAZEL_MIN_VERSION)
     return unittest.end(env)
 
 qemu_bazel_compatibility_test = unittest.make(_qemu_bazel_compatibility_test_impl)

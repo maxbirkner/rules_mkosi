@@ -1,6 +1,9 @@
 """Immutable QEMU and OVMF artifacts used by the test toolchain."""
 
-RULES_QEMU_BAZEL_MIN_VERSION = "8.5.1"
+# rules_qemu 0.3.0 has its own lower bound, but rules_mkosi intentionally
+# exposes the stricter Bazel 8.5.1 public baseline.
+RULES_QEMU_BAZEL_MIN_VERSION = "7.7.0"
+RULES_MKOSI_BAZEL_MIN_VERSION = "8.5.1"
 QEMU_VERSION = "11.0.0.1"
 QEMU_SYSTEM_URL = "https://github.com/hermeticbuild/qemu-prebuilt/releases/download/11.0.0.1/qemu-system-bin-linux-amd64-x86_64-softmmu-11.0.0.1.tar.zst"
 QEMU_SYSTEM_SHA256 = "b84d359893a0a1d565f368adb8290933ef9c99431acd98cff0fc4c9b35de3d22"
