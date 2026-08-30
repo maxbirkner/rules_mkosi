@@ -94,6 +94,14 @@ jobs:
             *"BuildDebianToolsArchive"*|*"BuildHermeticDebianBootstrap"*) ;;
             *) echo "Debian tools hermetic actions are missing" >&2; exit 1 ;;
           esac
+          case "$graph" in
+            *"mkosi_debian_python/lib/"*) ;;
+            *) echo "declared static Python library tree is missing" >&2; exit 1 ;;
+          esac
+          case "$graph" in
+            *"mkosi_debian_zig/lib/"*) ;;
+            *) echo "declared Zig library tree is missing" >&2; exit 1 ;;
+          esac
           bazel aquery --lockfile_mode="${mode}" --output=jsonproto \
             'deps(@mkosi_debian_tools//:launcher)' > debian-tools-aquery.json
           python3 - debian-tools-aquery.json <<'PY'
@@ -165,14 +173,12 @@ jobs:
           if len(archive) != 1 or any(
               not args
               or not args[0][0].endswith("/mkosi_debian_python/bin/python3.11")
-              or len(args[1]) < 100
               for args in archive
           ):
               raise SystemExit("archive action lacks complete static Python inputs")
           if len(bootstrap) != 2 or any(
               not args
               or not args[0][0].endswith("/mkosi_debian_zig/zig")
-              or len(args[1]) < 100
               for args in bootstrap
           ):
               raise SystemExit("bootstrap action lacks complete pinned Zig inputs")
