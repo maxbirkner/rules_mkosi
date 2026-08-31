@@ -211,13 +211,13 @@ jobs:
           fi
           (
             cd mkosi/tests
-            run_bazel bazel query --lockfile_mode="$cache_mode" //... \
-              --output=label >/dev/null
+            run_bazel bazel info --lockfile_mode="$cache_mode" workspace \
+              >/dev/null
           )
           (
             cd e2e/smoke
-            run_bazel bazel query --lockfile_mode="$cache_mode" //... \
-              --output=label >/dev/null
+            run_bazel bazel info --lockfile_mode="$cache_mode" workspace \
+              >/dev/null
           )
           for cache in \
             "$GITHUB_WORKSPACE/.cache/bazel-disk" \
