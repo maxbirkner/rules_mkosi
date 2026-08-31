@@ -7,6 +7,46 @@ MkosiImageInfo = provider(
     },
 )
 
+MkosiConfigTreeInfo = provider(
+    doc = "Explicitly typed mkosi configuration tree.",
+    fields = {"tree": "The declared configuration directory artifact."},
+)
+
+MkosiSourceTreeInfo = provider(
+    doc = "Explicitly typed mkosi BuildSources tree.",
+    fields = {"tree": "The declared source directory artifact."},
+)
+
+def _tree_target_impl(ctx, info):
+    files = ctx.files.src
+    if len(files) != 1:
+        fail("{} must resolve to exactly one directory artifact".format(ctx.label))
+    return [DefaultInfo(files = depset(files)), info(tree = files[0])]
+
+mkosi_config_tree = rule(
+    implementation = lambda ctx: _tree_target_impl(ctx, MkosiConfigTreeInfo),
+    attrs = {
+        "src": attr.label(
+            mandatory = True,
+            allow_files = True,
+            doc = "A declared configuration directory, including mkosi.conf.",
+        ),
+    },
+    doc = "Marks a label as an mkosi configuration tree.",
+)
+
+mkosi_source_tree = rule(
+    implementation = lambda ctx: _tree_target_impl(ctx, MkosiSourceTreeInfo),
+    attrs = {
+        "src": attr.label(
+            mandatory = True,
+            allow_files = True,
+            doc = "A declared directory mounted for mkosi BuildSources.",
+        ),
+    },
+    doc = "Marks a label as an mkosi BuildSources tree.",
+)
+
 def _normalise_destination(destination, attribute):
     """Validates a path inside the staged mkosi directory."""
     if not destination:
@@ -24,12 +64,6 @@ def _single_input(target, attribute):
     if len(files) != 1:
         fail("{} must resolve to exactly one single file or directory, got {}".format(attribute, len(files)))
     return files[0]
-
-def _looks_like_directory(file):
-    # Bazel marks declared TreeArtifacts with is_directory. Source directories
-    # exported from a package are represented as a source artifact instead,
-    # whose extension is empty.
-    return file.is_directory or not file.extension
 
 def _stage_inputs(ctx, config, config_is_directory, source_trees):
     staging = ctx.actions.declare_directory(ctx.label.name + ".mkosi")
@@ -74,23 +108,6 @@ def _stage_inputs(ctx, config, config_is_directory, source_trees):
             if destination.startswith(other + "/") or other.startswith(destination + "/"):
                 fail("colliding staged destinations '{}' and '{}'".format(destination, other))
 
-        # These names are created by mkosi itself while parsing a config tree.
-        # Allowing a source tree to replace one makes the result depend on
-        # whether the config input happened to contain that path.
-        if not config_is_directory and destination == config.basename:
-            fail("source tree destination '{}' collides with the primary config".format(destination))
-        config_paths = (
-            "mkosi.conf",
-            "mkosi.conf.d",
-            "mkosi.extra",
-            "mkosi.profiles",
-        )
-        if config_is_directory and any([
-            destination == path or destination.startswith(path + "/")
-            for path in config_paths
-        ]):
-            fail("source tree destination '{}' collides with the mkosi config tree".format(destination))
-
     stage_args = ctx.actions.args()
     stage_args.add(ctx.file._stage_script.path)
     stage_args.add("--output")
@@ -123,14 +140,18 @@ def _stage_inputs(ctx, config, config_is_directory, source_trees):
 def _mkosi_image_impl(ctx):
     mkosi = ctx.toolchains["//mkosi/toolchain:toolchain_type"].mkosi
     debian_tools = ctx.toolchains["//mkosi/toolchain:debian_tools_toolchain_type"].debian_tools
-    config = _single_input(ctx.attr.config, "config")
-    config_is_directory = _looks_like_directory(config)
+    if ctx.attr.config and ctx.attr.config_tree:
+        fail("set exactly one of config and config_tree")
+    if not ctx.attr.config and not ctx.attr.config_tree:
+        fail("one of config or config_tree is required")
+
+    config_is_directory = bool(ctx.attr.config_tree)
+    config = (
+        ctx.attr.config_tree[MkosiConfigTreeInfo].tree if config_is_directory else _single_input(ctx.attr.config, "config")
+    )
     source_trees = {}
     for destination, target in ctx.attr.source_trees.items():
-        source = _single_input(target, "source_trees['{}']".format(destination))
-        if not _looks_like_directory(source):
-            fail("source_trees['{}'] must resolve to a directory".format(destination))
-        source_trees[destination] = source
+        source_trees[destination] = target[MkosiSourceTreeInfo].tree
 
     staging = None
     if config_is_directory or source_trees:
@@ -143,11 +164,17 @@ def _mkosi_image_impl(ctx):
     pefile_root = mkosi.pefile.path[:-len("/pefile.py")]
 
     arguments = ctx.actions.args()
+    arguments.add(ctx.file._run_script.path)
     arguments.add(mkosi.script.path)
-    arguments.add("-I")
+    arguments.add("--")
     if staging:
-        arguments.add(staging.path if config_is_directory else staging.path + "/" + config.basename)
+        arguments.add("-C")
+        arguments.add(staging.path)
+        if not config_is_directory:
+            arguments.add("-I")
+            arguments.add(staging.path + "/" + config.basename)
     else:
+        arguments.add("-I")
         arguments.add(config.path)
     arguments.add("--tools-tree")
     arguments.add(debian_tools.tree_root.path)
@@ -169,7 +196,8 @@ def _mkosi_image_impl(ctx):
     arguments.add(workspace + "/package-cache")
     arguments.add("--build-directory")
     arguments.add(workspace + "/build")
-    arguments.add("--build-sources=")
+    if not source_trees:
+        arguments.add("--build-sources=")
     arguments.add("--no-pager")
     arguments.add("build")
 
@@ -177,7 +205,7 @@ def _mkosi_image_impl(ctx):
         executable = mkosi.python,
         arguments = [arguments],
         inputs = depset(
-            [config, mkosi.script, mkosi.pefile, debian_tools.tree_root] +
+            [config, mkosi.script, ctx.file._run_script, mkosi.pefile, debian_tools.tree_root] +
             ([staging] if staging else []),
             transitive = [mkosi.runfiles_files, mkosi.python_runtime_files],
         ),
@@ -206,22 +234,31 @@ mkosi_image = rule(
     implementation = _mkosi_image_impl,
     attrs = {
         "config": attr.label(
-            mandatory = True,
             allow_files = True,
-            doc = "A single mkosi configuration file or complete configuration directory.",
+            doc = "A single mkosi configuration file (legacy compatibility API).",
+        ),
+        "config_tree": attr.label(
+            providers = [MkosiConfigTreeInfo],
+            doc = "An explicitly typed complete mkosi configuration tree.",
         ),
         "source_trees": attr.string_keyed_label_dict(
             allow_files = True,
+            providers = [MkosiSourceTreeInfo],
             doc = """Source directories staged at the relative paths used by BuildSources.
 
 The keys are normalized relative paths such as "src". Each value must resolve
-to exactly one directory. The directory contents, rather than its label
-basename, are copied to that key.
+to an explicitly typed directory tree. The directory contents, rather than
+its label basename, are copied to that key.
 """,
         ),
         "_stage_script": attr.label(
             cfg = "exec",
             default = "//mkosi/private:stage_inputs.py",
+            allow_single_file = True,
+        ),
+        "_run_script": attr.label(
+            cfg = "exec",
+            default = "//mkosi/private:run_mkosi.py",
             allow_single_file = True,
         ),
     },

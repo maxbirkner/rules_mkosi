@@ -222,8 +222,8 @@ sh_test(
 
 mkosi_image(
     name = "real_image",
-    config = "testdata/minimal.conf",
-    tags = ["manual"],
+    config_tree = ":config_tree",
+    source_trees = {"src": ":source_tree"},
 )
 
 py_test(
@@ -232,7 +232,14 @@ py_test(
     args = ["$(rootpath :real_image)"],
     data = [":real_image"],
     main = "raw_image_validator.py",
-    tags = ["manual"],
+)
+
+py_test(
+    name = "real_image_semantics_test",
+    srcs = ["staged_image_semantics_test.py"],
+    args = ["$(rootpath :real_image)"],
+    data = [":real_image"],
+    main = "staged_image_semantics_test.py",
 )
 
 py_test(
@@ -297,7 +304,21 @@ sh_test(
     ],
 )
 
+sh_test(
+    name = "mkosi_staging_security_test",
+    srcs = ["mkosi_staging_security_test.sh"],
+    args = [
+        "$(rootpath @mkosi_toolchains//:mkosi_python)",
+        "$(rootpath //mkosi/private:stage_inputs.py)",
+    ],
+    data = [
+        "//mkosi/private:stage_inputs.py",
+        "@mkosi_toolchains//:mkosi_python",
+    ],
+)
+
 exports_files([
+    "staged_image_semantics_test.py",
     "testdata/config-tree",
     "testdata/source-tree",
     "testdata/source-tree-two",

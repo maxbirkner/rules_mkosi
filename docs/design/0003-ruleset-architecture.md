@@ -43,13 +43,13 @@ networked and its Linux namespace/mount requirements are execution-platform
 properties, so it is explicitly non-cacheable and not a remote- or
 offline-hermetic action. The tracer action forces disk/raw/uncompressed output
 and disables split artifacts; configuration files cannot redirect the declared
-artifact or select a custom format. The configuration label is mandatory and
-must resolve to one file or one exported source directory; Bazel rejects
-multi-file config targets during analysis. A directory is staged as the mkosi
-configuration root, preserving `mkosi.conf.d/`, `mkosi.profiles/`, and
-`mkosi.extra/`. `source_trees` is an explicit normalized-relative-destination
-map; each declared directory is staged at its map key, preserving paths used
-by `BuildSources`. A single-file config remains compatible with existing
+artifact or select a custom format. The legacy `config` attribute accepts
+exactly one file. Complete
+configuration directories use the explicitly typed `config_tree` provider,
+which preserves `mkosi.conf.d/`, `mkosi.profiles/`, and `mkosi.extra/`.
+`source_trees` is an explicitly typed normalized-relative-destination map;
+each declared directory is staged at its map key, preserving paths used by
+`BuildSources`. A single-file config remains compatible with existing
 callers, while adding source trees stages that file at its basename so
 relative references remain stable. Staging actions consume only their declared
 labels and use deterministic map ordering.
@@ -103,8 +103,9 @@ reproducibility while target packages are acquired over the network.
 
 `e2e/smoke` is an independent Bazel module. It depends on `rules_mkosi` through
 `local_path_override`, registers the public module extension and toolchain,
-consumes a minimal configuration through the public `mkosi_image` rule, and
-has a manually selected artifact test for the real image.
+consumes both a minimal configuration and a typed configuration/source tree
+through the public `mkosi_image` rule. Its image builds and semantic artifact
+tests run in the default consumer suite.
 
 A nested `MODULE.bazel` does not stop root `//...` traversal. `.bazelignore`
 therefore excludes `e2e/`, and CI invokes the consumer from its own working

@@ -1,0 +1,3 @@
+#!/bin/sh
+set -eu
+install -D -m 0644 "$SRCDIR/hello.txt" "$DESTDIR/usr/share/rules-mkosi/staged-source-marker"

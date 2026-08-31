@@ -172,37 +172,40 @@ mkosi_image(
 )
 ```
 
-For a complete mkosi configuration directory, export the directory as a
-source target and pass it as `config`. The directory must contain
-`mkosi.conf`; mkosi's relative `mkosi.conf.d/`, `mkosi.profiles/`, and
-`mkosi.extra/` paths are preserved. Declared build source directories are
-mapped explicitly so their paths match `BuildSources`:
+For a complete mkosi configuration directory, mark the exported directory
+with `mkosi_config_tree`. The directory must contain `mkosi.conf`; mkosi's
+relative `mkosi.conf.d/`, `mkosi.profiles/`, and `mkosi.extra/` paths are
+preserved. Declared build source directories are marked with
+`mkosi_source_tree` and mapped explicitly so their paths match `BuildSources`:
 
 ```starlark
-exports_files(["mkosi"])
-exports_files(["src"])
+load("@rules_mkosi//mkosi:defs.bzl", "mkosi_config_tree", "mkosi_image", "mkosi_source_tree")
 
+mkosi_config_tree(name = "mkosi_config", src = "mkosi")
+mkosi_source_tree(name = "project_sources", src = "src")
 mkosi_image(
     name = "demo",
-    config = ":mkosi",
-    source_trees = {"src": ":src"},
+    config_tree = ":mkosi_config",
+    source_trees = {"src": ":project_sources"},
 )
 ```
 
-`source_trees` keys are normalized relative paths and values must each resolve
-to one directory. Absolute paths, `..` traversal, duplicate sources, and
-overlapping destinations are rejected during analysis. This explicit mapping
-also works for labels from external repositories and avoids relying on
-repository-relative runfiles paths. A single-file `config` remains supported
-unchanged; source trees cause that file to be staged at its basename before
-mkosi is invoked.
+`source_trees` keys are normalized relative paths and values must be
+`mkosi_source_tree` targets. Absolute paths, `..` traversal, duplicate
+sources, overlapping destinations, and manifest collisions with configuration
+content are rejected before staging writes. This explicit mapping also works
+for labels from external repositories and avoids relying on repository-relative
+runfiles paths. A single-file `config` remains supported unchanged; when source
+trees are supplied, that file is staged at its basename and selected with
+`-I`.
 
 Development and test commands are documented once in
 [CONTRIBUTING.md](CONTRIBUTING.md). The independent consumer module is
 described in [`e2e/README.md`](e2e/README.md).
 
-`mkosi_image` declares a single `<name>.raw` output and consumes one mkosi
-configuration file. It invokes the pinned mkosi v27 executable and the
+`mkosi_image` declares a single `<name>.raw` output and consumes either one
+mkosi configuration file through `config` or one explicitly typed configuration
+tree through `config_tree`. It invokes the pinned mkosi v27 executable and the
 extracted Debian 13 tools tree through their registered toolchains, with an
 empty ambient `PATH`; no host executable lookup or shebang launcher is used.
 The configuration label is mandatory and must resolve to exactly one file;
@@ -235,6 +238,9 @@ boot, and shutdown deadlines must be positive and, together with a reserved
 (`60`, `300`, or `900` seconds). Invalid categories or deadline combinations
 fail during analysis, so a lifecycle timeout reports its own diagnostic before
 Bazel's test deadline can terminate the process.
+The `config` label remains compatible with existing consumers and must resolve
+to exactly one file; typed tree targets are validated at analysis and again by
+the staging preflight.
 The rule overrides config output settings to `Format=disk`, `OutputExtension=raw`,
 `CompressOutput=none`, and no split artifacts, so custom formats and redirected
 outputs are not part of this tracer contract. The minimal tracer configuration

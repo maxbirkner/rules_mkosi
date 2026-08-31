@@ -1,9 +1,10 @@
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
-<<<<<<< HEAD
 load(
     "@rules_mkosi//mkosi:defs.bzl",
+    "mkosi_config_tree",
     "managed_python_test",
     "mkosi_image",
+    "mkosi_source_tree",
     "qemu_ovmf_boot_test",
     "qemu_ovmf_smoke_test",
 )
@@ -19,27 +20,33 @@ load(
 mkosi_image(
     name = "demo",
     config = "testdata/minimal.conf",
-    tags = ["manual"],
 )
 
 mkosi_image(
     name = "tree_demo",
-    config = "@rules_mkosi//mkosi/tests:testdata/config-tree",
+    config_tree = ":config_tree",
     source_trees = {
-        "src": "@rules_mkosi//mkosi/tests:testdata/source-tree",
+        "src": ":source_tree",
     },
-    tags = ["manual"],
+)
+
+mkosi_config_tree(
+    name = "config_tree",
+    src = "@rules_mkosi//mkosi/tests:testdata/config-tree",
+)
+
+mkosi_source_tree(
+    name = "source_tree",
+    src = "@rules_mkosi//mkosi/tests:testdata/source-tree",
 )
 
 build_test(
     name = "demo_build_test",
-    tags = ["manual"],
     targets = [":demo"],
 )
 
 build_test(
     name = "tree_demo_build_test",
-    tags = ["manual"],
     targets = [":tree_demo"],
 )
 
@@ -156,7 +163,6 @@ sh_test(
         ":demo",
         "@mkosi_debian_python//:bin/python3.11",
     ],
-    tags = ["manual"],
 )
 
 sh_test(
@@ -203,5 +209,12 @@ py_test(
     args = ["$(rootpath :tree_demo)"],
     data = [":tree_demo"],
     main = "raw_image_validator.py",
-    tags = ["manual"],
+)
+
+py_test(
+    name = "tree_demo_semantics_test",
+    srcs = ["staged_image_semantics_test.py"],
+    args = ["$(rootpath :tree_demo)"],
+    data = [":tree_demo"],
+    main = "staged_image_semantics_test.py",
 )

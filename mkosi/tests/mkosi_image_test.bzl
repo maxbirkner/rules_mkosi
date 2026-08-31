@@ -7,9 +7,11 @@ load(
     "MkosiImageInfo",
     "MkosiQemuToolchainInfo",
     "QemuOvmfBootConfigInfo",
+    "mkosi_config_tree",
     "mkosi_image",
     "qemu_ovmf_boot_config",
     "qemu_ovmf_boot_test",
+    "mkosi_source_tree",
 )
 load("//mkosi/debian:toolchain.bzl", "DebianToolsInfo")
 
@@ -39,33 +41,38 @@ def _provider_test_impl(ctx):
     asserts.false(env, "launcher" in action_inputs)
     asserts.equals(env, 1, len(actions[0].outputs.to_list()))
     asserts.equals(env, ctx.attr.expected_output, actions[0].outputs.to_list()[0].basename)
-    asserts.true(env, actions[0].argv[0].endswith("python3"))
-    asserts.true(env, actions[0].argv[1].endswith("/mkosi/__main__.py"))
-    asserts.equals(env, "-I", actions[0].argv[2])
-    asserts.true(env, actions[0].argv[3].endswith(ctx.attr.expected_config))
-    asserts.equals(env, "--tools-tree", actions[0].argv[4])
-    asserts.true(env, actions[0].argv[5].endswith("tree_root_root"))
-    asserts.equals(env, "--extra-search-path", actions[0].argv[6])
-    asserts.true(env, actions[0].argv[7].endswith("site-packages"))
-    asserts.equals(env, "--format=disk", actions[0].argv[8])
-    asserts.equals(env, "--output-extension=raw", actions[0].argv[9])
-    asserts.equals(env, "--compress-output=none", actions[0].argv[10])
-    asserts.equals(env, "--split-artifacts=", actions[0].argv[11])
-    asserts.equals(env, "--output-directory", actions[0].argv[12])
-    asserts.true(env, actions[0].argv[13].endswith("/mkosi/tests"))
-    asserts.equals(env, "--output", actions[0].argv[14])
-    asserts.equals(env, ctx.attr.expected_name, actions[0].argv[15])
-    asserts.equals(env, "--workspace-directory", actions[0].argv[16])
-    asserts.true(env, actions[0].argv[17].endswith("/.{}-mkosi".format(ctx.attr.expected_name)))
-    asserts.equals(env, "--cache-directory", actions[0].argv[18])
-    asserts.true(env, actions[0].argv[19].endswith("/cache"))
-    asserts.equals(env, "--package-cache-directory", actions[0].argv[20])
-    asserts.true(env, actions[0].argv[21].endswith("/package-cache"))
-    asserts.equals(env, "--build-directory", actions[0].argv[22])
-    asserts.true(env, actions[0].argv[23].endswith("/build"))
-    asserts.equals(env, "--build-sources=", actions[0].argv[24])
-    asserts.equals(env, "--no-pager", actions[0].argv[25])
-    asserts.equals(env, "build", actions[0].argv[26])
+    argv = actions[0].argv
+    asserts.true(env, argv[0].endswith("python3"))
+    asserts.true(env, argv[1].endswith("/run_mkosi.py"))
+    asserts.true(env, argv[2].endswith("/mkosi/__main__.py"))
+    asserts.equals(env, "--", argv[3])
+    include = argv.index("-I")
+    asserts.true(env, argv[include + 1].endswith(ctx.attr.expected_config))
+    tools = argv.index("--tools-tree")
+    asserts.true(env, argv[tools + 1].endswith("tree_root_root"))
+    search = argv.index("--extra-search-path")
+    asserts.true(env, argv[search + 1].endswith("site-packages"))
+    asserts.true(env, "--format=disk" in argv)
+    asserts.true(env, "--output-extension=raw" in argv)
+    asserts.true(env, "--compress-output=none" in argv)
+    asserts.true(env, "--split-artifacts=" in argv)
+    output_directory = argv.index("--output-directory")
+    asserts.true(env, argv[output_directory + 1].endswith("/mkosi/tests"))
+    output = argv.index("--output")
+    asserts.equals(env, ctx.attr.expected_name, argv[output + 1])
+    workspace = argv.index("--workspace-directory")
+    asserts.true(env, argv[workspace + 1].endswith("/.{}-mkosi".format(ctx.attr.expected_name)))
+    expected_suffixes = {
+        "--cache-directory": "/cache",
+        "--package-cache-directory": "/package-cache",
+        "--build-directory": "/build",
+    }
+    for option in expected_suffixes:
+        asserts.true(env, option in argv)
+        asserts.true(env, argv[argv.index(option) + 1].endswith(expected_suffixes[option]))
+    asserts.true(env, "--build-sources=" in argv)
+    asserts.true(env, "--no-pager" in argv)
+    asserts.equals(env, "build", argv[-1])
     asserts.equals(env, "", actions[0].env["PATH"])
     asserts.equals(env, "1", actions[0].env["PYTHONNOUSERSITE"])
 
@@ -207,7 +214,14 @@ def _tree_provider_test_impl(ctx):
     asserts.true(env, any([arg.endswith("config-tree") for arg in stage.argv]))
     asserts.true(env, any([arg.endswith("source-tree") for arg in stage.argv]))
     asserts.true(env, any([arg == "src" for arg in stage.argv]))
-    asserts.true(env, any([arg.endswith("tree_subject.mkosi") for arg in image.argv]))
+    asserts.true(env, "-C" in image.argv)
+    asserts.true(env, any([
+        image.argv[index + 1].endswith("tree_subject.mkosi")
+        for index, arg in enumerate(image.argv)
+        if arg == "-C"
+    ]))
+    asserts.false(env, "--build-sources=" in image.argv)
+    asserts.false(env, "-I" in image.argv)
     asserts.true(env, any([file.basename == "tree_subject.mkosi" for file in image.inputs.to_list()]))
     asserts.false(env, any([file.basename == "hello.txt" for file in image.inputs.to_list()]))
     return analysistest.end(env)
@@ -308,11 +322,24 @@ def mkosi_image_test_suite(name):
 
     mkosi_image(
         name = "tree_subject",
-        config = "testdata/config-tree",
+        config_tree = ":config_tree",
         source_trees = {
-            "src": "testdata/source-tree",
+            "src": ":source_tree",
         },
         tags = ["manual"],
+    )
+
+    mkosi_config_tree(
+        name = "config_tree",
+        src = "testdata/config-tree",
+    )
+    mkosi_source_tree(
+        name = "source_tree",
+        src = "testdata/source-tree",
+    )
+    mkosi_source_tree(
+        name = "source_tree_two",
+        src = "testdata/source-tree-two",
     )
 
     _tree_provider_test(
@@ -322,8 +349,8 @@ def mkosi_image_test_suite(name):
 
     mkosi_image(
         name = "traversal_tree_subject",
-        config = "testdata/config-tree",
-        source_trees = {"../src": "testdata/source-tree"},
+        config_tree = ":config_tree",
+        source_trees = {"../src": ":source_tree"},
         tags = ["manual"],
     )
     _invalid_tree_mapping_test(
@@ -334,10 +361,10 @@ def mkosi_image_test_suite(name):
 
     mkosi_image(
         name = "collision_tree_subject",
-        config = "testdata/config-tree",
+        config_tree = ":config_tree",
         source_trees = {
-            "src": "testdata/source-tree",
-            "src/nested": "testdata/source-tree-two",
+            "src": ":source_tree",
+            "src/nested": ":source_tree_two",
         },
         tags = ["manual"],
     )
@@ -349,10 +376,10 @@ def mkosi_image_test_suite(name):
 
     mkosi_image(
         name = "duplicate_tree_subject",
-        config = "testdata/config-tree",
+        config_tree = ":config_tree",
         source_trees = {
-            "one": "testdata/source-tree",
-            "two": "testdata/source-tree",
+            "one": ":source_tree",
+            "two": ":source_tree",
         },
         tags = ["manual"],
     )
@@ -364,13 +391,13 @@ def mkosi_image_test_suite(name):
 
     mkosi_image(
         name = "invalid_source_tree_subject",
-        config = "testdata/config-tree",
+        config_tree = ":config_tree",
         source_trees = {"src": "testdata/minimal.conf"},
         tags = ["manual"],
     )
     _invalid_tree_mapping_test(
         name = "invalid_source_tree_test",
-        expected_error = "must resolve to a directory",
+        expected_error = "MkosiSourceTreeInfo",
         target_under_test = ":invalid_source_tree_subject",
     )
 
