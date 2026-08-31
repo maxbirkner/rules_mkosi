@@ -67,9 +67,9 @@ immutable `.deb` inputs, and a static-Python archive action builds the
 deterministic tree without shell, compiler, or host archive tools. The
 `@mkosi_debian_tools//:linux_x86_64` toolchain exposes the extracted
 TreeArtifact, root-isolated launcher, and provenance through
-`DebianToolsInfo`; image actions invoke the advertised launcher (a static
-executable that starts the managed Python script) with the archive, extractor,
-and digest as exact runfiles and an empty ambient `PATH`. The initial tracer set
+`DebianToolsInfo`; image actions invoke the pinned mkosi Python entrypoint
+directly with its managed Python runtime, package dependencies, and an empty
+ambient `PATH`. The initial tracer set
 includes APT/dpkg bootstrap tools, `systemd-repart`, filesystem and partition
 utilities, GRUB/systemd-boot UEFI tools, `objcopy`, and their locked runtime
 dependencies. Target image package acquisition remains out of scope.

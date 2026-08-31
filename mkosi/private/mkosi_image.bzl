@@ -22,6 +22,8 @@ def _mkosi_image_impl(ctx):
     arguments.add(ctx.file.config.path)
     arguments.add("--tools-tree")
     arguments.add(debian_tools.tree_root.path)
+    arguments.add("--extra-search-path")
+    arguments.add(pefile_root)
     arguments.add("--format=disk")
     arguments.add("--output-extension=raw")
     arguments.add("--compress-output=none")

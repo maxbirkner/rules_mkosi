@@ -34,25 +34,27 @@ def _provider_test_impl(ctx):
     asserts.true(env, actions[0].argv[3].endswith(ctx.attr.expected_config))
     asserts.equals(env, "--tools-tree", actions[0].argv[4])
     asserts.true(env, actions[0].argv[5].endswith("tree_root_root"))
-    asserts.equals(env, "--format=disk", actions[0].argv[6])
-    asserts.equals(env, "--output-extension=raw", actions[0].argv[7])
-    asserts.equals(env, "--compress-output=none", actions[0].argv[8])
-    asserts.equals(env, "--split-artifacts=", actions[0].argv[9])
-    asserts.equals(env, "--output-directory", actions[0].argv[10])
-    asserts.true(env, actions[0].argv[11].endswith("/mkosi/tests"))
-    asserts.equals(env, "--output", actions[0].argv[12])
-    asserts.equals(env, ctx.attr.expected_name, actions[0].argv[13])
-    asserts.equals(env, "--workspace-directory", actions[0].argv[14])
-    asserts.true(env, actions[0].argv[15].endswith("/.{}-mkosi".format(ctx.attr.expected_name)))
-    asserts.equals(env, "--cache-directory", actions[0].argv[16])
-    asserts.true(env, actions[0].argv[17].endswith("/cache"))
-    asserts.equals(env, "--package-cache-directory", actions[0].argv[18])
-    asserts.true(env, actions[0].argv[19].endswith("/package-cache"))
-    asserts.equals(env, "--build-directory", actions[0].argv[20])
-    asserts.true(env, actions[0].argv[21].endswith("/build"))
-    asserts.equals(env, "--build-sources=", actions[0].argv[22])
-    asserts.equals(env, "--no-pager", actions[0].argv[23])
-    asserts.equals(env, "build", actions[0].argv[24])
+    asserts.equals(env, "--extra-search-path", actions[0].argv[6])
+    asserts.true(env, actions[0].argv[7].endswith("site-packages"))
+    asserts.equals(env, "--format=disk", actions[0].argv[8])
+    asserts.equals(env, "--output-extension=raw", actions[0].argv[9])
+    asserts.equals(env, "--compress-output=none", actions[0].argv[10])
+    asserts.equals(env, "--split-artifacts=", actions[0].argv[11])
+    asserts.equals(env, "--output-directory", actions[0].argv[12])
+    asserts.true(env, actions[0].argv[13].endswith("/mkosi/tests"))
+    asserts.equals(env, "--output", actions[0].argv[14])
+    asserts.equals(env, ctx.attr.expected_name, actions[0].argv[15])
+    asserts.equals(env, "--workspace-directory", actions[0].argv[16])
+    asserts.true(env, actions[0].argv[17].endswith("/.{}-mkosi".format(ctx.attr.expected_name)))
+    asserts.equals(env, "--cache-directory", actions[0].argv[18])
+    asserts.true(env, actions[0].argv[19].endswith("/cache"))
+    asserts.equals(env, "--package-cache-directory", actions[0].argv[20])
+    asserts.true(env, actions[0].argv[21].endswith("/package-cache"))
+    asserts.equals(env, "--build-directory", actions[0].argv[22])
+    asserts.true(env, actions[0].argv[23].endswith("/build"))
+    asserts.equals(env, "--build-sources=", actions[0].argv[24])
+    asserts.equals(env, "--no-pager", actions[0].argv[25])
+    asserts.equals(env, "build", actions[0].argv[26])
     asserts.equals(env, "", actions[0].env["PATH"])
     asserts.equals(env, "1", actions[0].env["PYTHONNOUSERSITE"])
 
@@ -125,7 +127,7 @@ def _debian_tools_provider_test_impl(ctx):
     asserts.equals(env, "13", info.release)
     asserts.equals(
         env,
-        "d9d4ebdb252324d84d2817397df31fd016fbb6020f4919e2effbf8f7958fd657",
+        "ebc174414d5291b2f06597dd72b8c210e99442dc316aad6a9e020590040c3fbb",
         info.archive_sha256,
     )
     asserts.equals(env, "trixie", info.codename)
@@ -133,7 +135,7 @@ def _debian_tools_provider_test_impl(ctx):
     asserts.equals(env, "20250814T000000Z", info.snapshot)
     asserts.equals(
         env,
-        "8828eb8e8f4b207e8cd765ebabb1ebdf23ffd006893d5dbd7ddb65bd481c0077",
+        "6aa03be72d0a493f0426ec0655e65af2f76a060cb2d2132fb61cdab365a28006",
         info.lock_sha256,
     )
     asserts.equals(

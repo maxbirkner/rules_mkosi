@@ -12,7 +12,15 @@ IMAGE_PATH = None
 def _corrupt_third_directory_record(path):
     image = bytearray(path.read_bytes())
     sector_size = raw_image_validator.SECTOR_SIZE
-    root_entry = image[2 * sector_size : 3 * sector_size]
+    partition_array = image[2 * sector_size : 2 * sector_size + 128 * 128]
+    root_entry = None
+    for offset in range(0, len(partition_array), 128):
+        entry = partition_array[offset : offset + 128]
+        if entry[:16] == raw_image_validator.LINUX_ROOT_X86_64:
+            root_entry = entry
+            break
+    if root_entry is None:
+        raise AssertionError("real image has no Linux root partition")
     partition_start = struct.unpack_from("<Q", root_entry, 32)[0]
     partition_offset = partition_start * sector_size
     superblock = image[partition_offset + 1024 : partition_offset + 2048]

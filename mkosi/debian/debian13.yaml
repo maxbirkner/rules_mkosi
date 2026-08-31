@@ -15,6 +15,7 @@ packages:
   - bubblewrap
   - btrfs-progs
   - ca-certificates
+  - cpio
   - coreutils
   - debian-archive-keyring
   - debootstrap
@@ -26,7 +27,11 @@ packages:
   - grub-efi-amd64-bin
   - grub2-common
   - libarchive-tools
+  - libexpat1
   - libc-bin
+  - libpython3.13-stdlib
+  - libpython3.13-minimal
+  - mtools
   - parted
   - systemd
   - systemd-boot
@@ -36,3 +41,10 @@ packages:
   - util-linux
   - util-linux-extra
   - dash
+  - zstd
+  - python3-minimal
+  - python3-pefile
+  - python3.13-minimal
+  - media-types
+  - netbase
+  - tzdata

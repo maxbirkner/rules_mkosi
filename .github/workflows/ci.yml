@@ -519,7 +519,15 @@ jobs:
                 --cache_test_results=no --spawn_strategy=linux-sandbox \
                 --test_output=all \
                 //:demo_artifact_test \
-                //:raw_image_corruption_test
+                //:raw_image_corruption_test \
+                //:boot_launcher_contract_test \
+                //:demo_boot_test
+              bazel test --lockfile_mode=error --disk_cache= \
+                --cache_test_results=no --spawn_strategy=linux-sandbox \
+                --test_strategy=exclusive --enable_runfiles=no \
+                --test_output=all \
+                //:boot_launcher_contract_test \
+                //:demo_boot_test
             '
 
   lockfile:
