@@ -16,6 +16,7 @@ enum {
   FAIL_PIVOT_ROOT_WORKSPACE = 1u << 4,
   FAIL_PIVOT_ROOT = 1u << 5,
   FAIL_OLD_ROOT_DETACH = 1u << 6,
+  FAIL_FD_MOUNT_API = 1u << 7,
 };
 
 typedef struct {
@@ -65,6 +66,7 @@ static int fake_namespace_setup(rules_mkosi_namespace_checks *checks,
   checks->pivot_root_workspace =
       (fixture->failure_mask & FAIL_PIVOT_ROOT_WORKSPACE) == 0;
   checks->bind_mount = (fixture->failure_mask & FAIL_BIND_MOUNT) == 0;
+  checks->fd_mount_api = (fixture->failure_mask & FAIL_FD_MOUNT_API) == 0;
   checks->pivot_root = (fixture->failure_mask & FAIL_PIVOT_ROOT) == 0;
   checks->old_root_detach =
       (fixture->failure_mask & FAIL_OLD_ROOT_DETACH) == 0;
@@ -191,6 +193,8 @@ static void test_failure_diagnostic(void) {
        "report workspace pivot check");
   must(strstr(diagnostics, "PASS bind_mount") != NULL,
        "report bind mount check");
+  must(strstr(diagnostics, "PASS fd_mount_api") != NULL,
+       "report descriptor mount API check");
   must(strstr(diagnostics, "PASS pivot_root") != NULL,
        "report final pivot check");
   must(strstr(diagnostics, "PASS old_root_detach") != NULL,
@@ -237,13 +241,42 @@ static void test_focused_failures(void) {
   test_focused_failure(FAIL_CAPABILITY_EXEC, "capability_exec", 2);
   test_focused_failure(FAIL_TMPFS_WORKSPACE, "tmpfs_workspace", 3);
   test_focused_failure(FAIL_BIND_MOUNT, "bind_mount", 4);
-  test_focused_failure(FAIL_PIVOT_ROOT_WORKSPACE, "pivot_root_workspace", 5);
-  test_focused_failure(FAIL_PIVOT_ROOT, "pivot_root", 6);
-  test_focused_failure(FAIL_OLD_ROOT_DETACH, "old_root_detach", 7);
+  test_focused_failure(FAIL_FD_MOUNT_API, "fd_mount_api", 5);
+  test_focused_failure(FAIL_PIVOT_ROOT_WORKSPACE, "pivot_root_workspace", 6);
+  test_focused_failure(FAIL_PIVOT_ROOT, "pivot_root", 7);
+  test_focused_failure(FAIL_OLD_ROOT_DETACH, "old_root_detach", 8);
+}
+
+static void test_unsupported_fd_mount_api_diagnostic(void) {
+  char root[128];
+  char diagnostics[8192];
+  FILE *output;
+  fixture_context context = {.failure_mask = FAIL_FD_MOUNT_API};
+  rules_mkosi_kernel_preflight_ops ops = {
+      .check_initial_privilege = fake_initial_privilege,
+      .run_namespace_setup = fake_namespace_setup,
+      .context = &context,
+  };
+
+  snprintf(root, sizeof(root), "kernel-preflight-fixture-%ld-unsupported",
+           (long)getpid());
+  output = create_fixture(root, 1);
+  must(rules_mkosi_kernel_preflight_with_ops(root, output, &ops) != 0,
+       "unsupported descriptor mount API should fail closed");
+  read_diagnostics(output, diagnostics, sizeof(diagnostics));
+  must(strstr(diagnostics, "FAIL fd_mount_api") != NULL,
+       "report unsupported descriptor mount API");
+  must(strstr(diagnostics, "open_tree(AT_EMPTY_PATH)") != NULL,
+       "name the unsupported syscall contract");
+  must(strstr(diagnostics, "upgrade the kernel") != NULL,
+       "provide kernel remediation");
+  must(fclose(output) == 0, "close unsupported API diagnostics");
+  remove_fixture(root);
 }
 
 int main(void) {
   test_failure_diagnostic();
   test_focused_failures();
+  test_unsupported_fd_mount_api_diagnostic();
   return 0;
 }

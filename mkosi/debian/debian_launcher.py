@@ -311,8 +311,8 @@ def _run(tool, arguments, root, ro_binds, rw_binds, scratch_parent):
             raise RuntimeError("static Debian namespace runner is missing")
         loader, _ = _validate_root(root, tool)
         loader_relative = "/" + os.path.relpath(loader, root)
-        # Hold O_PATH descriptors while the runner revalidates and pins each
-        # source with open_tree; the dev/inode tuple rejects ancestor swaps.
+        # Hold the validated O_PATH descriptors until the runner has completed
+        # every descriptor-only mount operation.
         descriptors = _pin_bind_sources(ro_binds + rw_binds)
         mount_arguments = []
         all_binds = ro_binds + rw_binds
@@ -322,7 +322,6 @@ def _run(tool, arguments, root, ro_binds, rw_binds, scratch_parent):
                 [
                     option,
                     str(source_descriptor),
-                    bind[0],
                     bind[1],
                     str(bind[2]),
                     str(bind[3]),

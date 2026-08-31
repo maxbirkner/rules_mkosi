@@ -27,6 +27,7 @@ py_test(
         "package_archive.py",
     ],
     data = [
+        "namespace_runner.c",
         "provenance.bzl",
         "@mkosi_debian_tools//:tree",
     ],

@@ -14,6 +14,7 @@ typedef struct {
   int tmpfs_workspace;
   int pivot_root_workspace;
   int bind_mount;
+  int fd_mount_api;
   int pivot_root;
   int old_root_detach;
 } rules_mkosi_namespace_checks;

@@ -37,6 +37,15 @@ class DebianToolsSecurityTest(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.work, ignore_errors=True)
 
+    def test_namespace_runner_has_no_path_fallback_for_typed_binds(self):
+        source = (_HERE / "namespace_runner.c").read_text(encoding="utf-8")
+        self.assertIn("AT_EMPTY_PATH", source)
+        self.assertIn("MOVE_MOUNT_F_EMPTY_PATH", source)
+        self.assertIn("AT_RECURSIVE", source)
+        self.assertNotIn("readlink", source)
+        self.assertNotIn("pinned_path", source)
+        self.assertNotIn("compatibility mount", source)
+
     def _archive(self, members):
         archive = self.work / "tree.tar"
         with tarfile.open(archive, "w") as output:
