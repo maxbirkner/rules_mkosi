@@ -14,9 +14,17 @@ load(
     _debian_snapshot = "debian_snapshot",
 )
 load(
+    "//mkosi/private:managed_python_test.bzl",
+    _managed_python_test = "managed_python_test",
+)
+load(
     "//mkosi/private:mkosi_image.bzl",
     _MkosiImageInfo = "MkosiImageInfo",
     _mkosi_image = "mkosi_image",
+)
+load(
+    "//mkosi/private:qemu_ovmf_boot_test.bzl",
+    _qemu_ovmf_boot_test = "qemu_ovmf_boot_test",
 )
 load(
     "//mkosi/private:qemu_ovmf_smoke_test.bzl",
@@ -31,5 +39,7 @@ DebianSnapshotInfo = _DebianSnapshotInfo
 mkosi_image = _mkosi_image
 debian_snapshot = _debian_snapshot
 qemu_ovmf_smoke_test = _qemu_ovmf_smoke_test
+qemu_ovmf_boot_test = _qemu_ovmf_boot_test
+managed_python_test = _managed_python_test
 qemu_executable = _qemu_executable
 qemu_ovmf_toolchain = _qemu_ovmf_toolchain

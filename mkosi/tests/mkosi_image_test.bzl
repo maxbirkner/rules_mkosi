@@ -156,6 +156,20 @@ _debian_tools_provider_test = analysistest.make(_debian_tools_provider_test_impl
 
 _qemu_toolchain_provider_test = analysistest.make(_qemu_toolchain_provider_test_impl)
 
+def _boot_config_test_impl(ctx):
+    env = analysistest.begin(ctx)
+    target = analysistest.target_under_test(env)
+    output = target[DefaultInfo].files.to_list()[0]
+    asserts.equals(env, "analysis_boot_test_config.json", output.basename)
+    runfile_names = [
+        file.basename
+        for file in target[DefaultInfo].default_runfiles.files.to_list()
+    ]
+    asserts.true(env, "code.fd" in runfile_names)
+    return analysistest.end(env)
+
+boot_config_test = analysistest.make(_boot_config_test_impl)
+
 _provider_test = analysistest.make(
     _provider_test_impl,
     attrs = {
@@ -244,5 +258,6 @@ def mkosi_image_test_suite(name):
             ":mkosi_toolchain_provider_test",
             ":qemu_toolchain_provider_test",
             ":debian_tools_provider_test",
+            ":boot_config_test",
         ],
     )

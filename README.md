@@ -182,6 +182,27 @@ extracted Debian 13 tools tree through their registered toolchains, with an
 empty ambient `PATH`; no host executable lookup or shebang launcher is used.
 The configuration label is mandatory and must resolve to exactly one file;
 invalid file targets fail during Bazel analysis.
+
+`qemu_ovmf_boot_test` is the reusable public boot-test adapter:
+
+```starlark
+load("@rules_mkosi//mkosi:defs.bzl", "qemu_ovmf_boot_test")
+
+qemu_ovmf_boot_test(
+    name = "demo_boot_test",
+    image = ":demo",
+    readiness_marker = "systemd[1]: Hostname set to <demo>.",
+)
+```
+
+It resolves QEMU and OVMF through the registered toolchain, runs QEMU with TCG,
+no default devices, and a read-only snapshot of the image, then requires exact
+serial readiness and guest shutdown markers. QMP, launch, firmware, guest,
+readiness-timeout, and shutdown failures are reported separately with bounded
+deadlines and retained serial/QEMU diagnostics. The state machine is
+firmware-neutral; only this adapter supplies OVMF flash arguments. Machine
+arguments and all deadlines/diagnostic retention are attributes so a future
+SeaBIOS adapter can reuse the lifecycle.
 The rule overrides config output settings to `Format=disk`, `OutputExtension=raw`,
 `CompressOutput=none`, and no split artifacts, so custom formats and redirected
 outputs are not part of this tracer contract. The minimal tracer configuration

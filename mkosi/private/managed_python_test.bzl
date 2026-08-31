@@ -1,4 +1,4 @@
-"""A native Bazel test rule for direct managed Python execution."""
+"""Native test launcher for a Bazel-managed Python interpreter."""
 
 def _managed_python_test_impl(ctx):
     runtime = ctx.toolchains["@rules_python//python:toolchain_type"].py3_runtime
@@ -27,23 +27,15 @@ def _managed_python_test_impl(ctx):
             executable = executable,
             runfiles = runfiles,
         ),
-        RunEnvironmentInfo(
-            environment = {
-                "PYTHONNOUSERSITE": "1",
-            },
-        ),
+        RunEnvironmentInfo(environment = {"PYTHONNOUSERSITE": "1"}),
     ]
 
 managed_python_test = rule(
     implementation = _managed_python_test_impl,
     test = True,
     attrs = {
-        "src": attr.label(
-            allow_single_file = [".py"],
-        ),
-        "data": attr.label_list(
-            allow_files = True,
-        ),
+        "src": attr.label(allow_single_file = [".py"]),
+        "data": attr.label_list(allow_files = True),
     },
     toolchains = ["@rules_python//python:toolchain_type"],
     doc = "Runs a Python test directly with the registered managed interpreter.",

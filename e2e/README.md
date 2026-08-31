@@ -19,19 +19,17 @@ host-kernel namespace/mount contract; the ordinary smoke suite remains
 portable.
 
 `demo_boot_test` is the dedicated UEFI tracer test. It consumes `demo` through
-the dependency graph, boots it with the registered QEMU/OVMF artifacts and
-TCG, waits for the exact systemd hostname marker on the guest serial stream,
-and verifies the guest's clean `Powering off` shutdown. It is manually
-selected because it requires the qualified Linux kernel contract. The test is
-a native `managed_python_test`: its TestRunner executable is a symlink to the
-registered managed interpreter, not a `rules_python` shell bootstrap or a
-`/usr/bin/env` shebang. `boot_launcher_contract_test` executes that same
-launcher contract and checks the managed interpreter and user-site isolation.
-The runner performs a bounded QMP greeting/capabilities handshake before
-classifying QEMU initialization, firmware, guest, readiness-timeout, and
-shutdown failures. Its negative cases drive the same `_boot` lifecycle with
-real Unix-domain QMP sockets, controlled process exits, deadlines, diagnostic
-logs, and cleanup checks rather than testing classification strings alone.
+the public `qemu_ovmf_boot_test` macro, boots it with the registered QEMU/OVMF
+artifacts and TCG, waits for the exact systemd hostname marker on the guest
+serial stream, and verifies the guest's clean `Powering off` shutdown. It is
+manually selected because it requires the qualified Linux kernel contract. The
+macro creates a native `managed_python_test`: its TestRunner executable is a
+symlink to the registered managed interpreter, not a `rules_python` shell
+bootstrap or a `/usr/bin/env` shebang. The runner performs a bounded QMP
+greeting/capabilities handshake before classifying QEMU initialization,
+firmware, guest, readiness-timeout, and shutdown failures. Root lifecycle
+tests drive the same state machine through launch, QMP, marker, exit, timeout,
+shutdown, diagnostic, and cleanup transitions.
 
 The BCR presubmit has separate Bazel 8 and Bazel 9 tasks. The Bazel 8 task
 uses the committed `e2e/smoke/MODULE.bazel.lock` strictly. The Bazel 9 task
