@@ -1,7 +1,13 @@
 """Analysis tests for mkosi_image."""
 
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts")
-load("//mkosi:defs.bzl", "MkosiImageInfo", "MkosiQemuToolchainInfo", "mkosi_image")
+load(
+    "//mkosi:defs.bzl",
+    "MkosiImageInfo",
+    "MkosiQemuToolchainInfo",
+    "mkosi_image",
+    "qemu_ovmf_boot_test",
+)
 load("//mkosi/debian:toolchain.bzl", "DebianToolsInfo")
 load(
     "//mkosi/private:qemu_ovmf_boot_test.bzl",
@@ -290,6 +296,46 @@ def mkosi_image_test_suite(name):
         target_under_test = ":invalid_boot_deadline_subject",
     )
 
+    qemu_ovmf_boot_test(
+        name = "invalid_public_boot_deadline_subject",
+        image = ":debian_subject",
+        readiness_marker = "READY",
+        shutdown_markers = ["SHUTDOWN"],
+        machine_args = ["-machine", "q35"],
+        boot_timeout_seconds = 600,
+        qmp_initialization_timeout_seconds = 15,
+        shutdown_timeout_seconds = 30,
+        diagnostic_bytes = 4096,
+        tags = ["manual"],
+    )
+    _invalid_qemu_config_test(
+        name = "invalid_public_boot_deadline_test",
+        expected_failure = "exceed",
+        target_under_test = ":invalid_public_boot_deadline_subject",
+    )
+
+    qemu_ovmf_boot_test(
+        name = "long_public_boot_deadline_subject",
+        image = ":debian_subject",
+        readiness_marker = "READY",
+        shutdown_markers = ["SHUTDOWN"],
+        machine_args = ["-machine", "q35"],
+        boot_timeout_seconds = 600,
+        qmp_initialization_timeout_seconds = 15,
+        shutdown_timeout_seconds = 30,
+        diagnostic_bytes = 4096,
+        timeout = "long",
+        tags = ["manual"],
+    )
+    _boot_deadline_provider_test(
+        name = "long_public_boot_deadline_test",
+        expected_timeout = "long",
+        expected_qmp = 15,
+        expected_boot = 600,
+        expected_shutdown = 30,
+        target_under_test = ":long_public_boot_deadline_subject_config",
+    )
+
     _qemu_ovmf_boot_config(
         name = "invalid_boot_marker_subject",
         image = ":debian_subject",
@@ -451,6 +497,8 @@ def mkosi_image_test_suite(name):
             ":output_override_provider_test",
             ":invalid_config_test",
             ":invalid_boot_deadline_test",
+            ":invalid_public_boot_deadline_test",
+            ":long_public_boot_deadline_test",
             ":invalid_boot_marker_test",
             ":invalid_boot_positive_test",
             ":invalid_boot_eternal_test",
