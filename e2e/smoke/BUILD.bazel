@@ -2,7 +2,12 @@ load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("@rules_mkosi//mkosi:defs.bzl", "mkosi_image", "qemu_ovmf_smoke_test")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
 load(":managed_python_test.bzl", "managed_python_test")
-load(":public_api_test.bzl", "image_public_api_test", "public_api_test")
+load(
+    ":public_api_test.bzl",
+    "image_public_api_test",
+    "public_api_test",
+    "snapshot_public_api_test",
+)
 
 mkosi_image(
     name = "demo",
@@ -19,6 +24,16 @@ build_test(
 public_api_test(
     name = "debian_tools_public_provider_test",
     target_under_test = "@mkosi_debian_tools//:toolchain",
+)
+
+snapshot_public_api_test(
+    name = "debian_snapshot_public_provider_test",
+    target_under_test = "@mkosi_debian_snapshot//:repository",
+)
+
+snapshot_public_api_test(
+    name = "debian_snapshot_second_consumer_test",
+    target_under_test = "@mkosi_debian_snapshot//:repository",
 )
 
 image_public_api_test(

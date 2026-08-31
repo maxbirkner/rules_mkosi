@@ -210,6 +210,17 @@ The target is to provide through Bazel:
 - Image inspection and compression tools where redistributable.
 - Package manifests and offline package repositories.
 
+The Debian extension's `@mkosi_debian_snapshot//:repository` target is the
+first offline repository input. Its repository rule performs only
+content-addressed downloads of the locked `InRelease`, `Release`,
+`Release.gpg`, and architecture-specific `Packages.xz` indexes. A declared
+managed-Python action verifies both OpenPGP signatures with the pinned Debian
+archive keyring, checks Release index hashes and package records, and stages
+the exact `dists/` and `pool/` layout. This boundary is intentionally
+separate from `mkosi_image`: it supplies stable provenance and inputs for a
+future network-disabled mode without changing that rule's current package
+acquisition or cache semantics.
+
 Some requirements are properties of the execution platform rather than files:
 
 - Linux kernel namespace support.

@@ -8,6 +8,9 @@ exports_files([
     "qemu_ovmf_smoke_test.bzl",
     "toolchains_repo.bzl",
     "debian_tools_repo.bzl",
+    "debian_snapshot.bzl",
+    "debian_snapshot_repo.bzl",
+    "debian_snapshot.py",
 ])
 
 cc_library(

@@ -92,6 +92,15 @@ for security-critical validation and uses no compatibility fallback.
 The lockfile's package SHA-256 values are the immutable download trust roots.
 Package-index signature verification is intentionally not advertised because
 the resolver does not currently perform that check.
+
+The lockfile also pins the signed `InRelease`, detached `Release.gpg`, and
+compressed `Packages.xz` metadata. The snapshot repository rule downloads
+these files with Bazel's content-addressed repository downloader; the build
+action verifies the clear-signed `InRelease` with Debian's pinned archive
+keyring, checks that it authenticates the separately pinned `Release`, verifies
+the `Packages.xz` hash listed by that Release, and checks every locked package
+record before staging it. Invalid signatures, changed metadata, duplicate
+records, and unsafe package paths fail closed.
 The launcher intentionally leaves the network namespace shared: Bazel's
 declared network policy is the authority for mkosi's target-package
 acquisition. Issue #6 isolates the packaged filesystem and runtime state,
@@ -135,6 +144,24 @@ Consumers that need the Debian contract can import `DebianToolsInfo` from the
 public `@rules_mkosi//mkosi:defs.bzl` label (or the compatibility wrapper
 `@rules_mkosi//mkosi:debian_tools.bzl`). The canonical repository name remains
 `mkosi_debian_tools` after the Debian extension is used.
+
+The extension also exposes `@mkosi_debian_snapshot//:repository`. This target
+provides `DebianSnapshotInfo` and a deterministic local APT tree rooted at
+`dists/trixie`, with locked packages under their original `pool/` paths:
+
+```starlark
+load("@rules_mkosi//mkosi:defs.bzl", "DebianSnapshotInfo")
+
+debian_repository = "@mkosi_debian_snapshot//:repository"
+```
+
+The repository rule performs network fetches only while Bazel resolves the
+extension. The staging action itself has only downloaded metadata, locked
+packages, the managed Python runtime, and the Debian toolchain as inputs; it
+does not invoke apt, dpkg, curl, gpg, or host filesystem tools. This mirror is
+the stable input boundary for a future offline image mode; it does not change
+the current `mkosi_image` network/cache behavior. The lock is an explicitly
+selected representative Debian tools closure, not a general dependency solver.
 
 ```starlark
 load("@rules_mkosi//mkosi:defs.bzl", "mkosi_image")

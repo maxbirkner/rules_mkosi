@@ -135,7 +135,7 @@ def _debian_tools_provider_test_impl(ctx):
     asserts.equals(env, "20250814T000000Z", info.snapshot)
     asserts.equals(
         env,
-        "6aa03be72d0a493f0426ec0655e65af2f76a060cb2d2132fb61cdab365a28006",
+        "d92b93836d652799006045aec102c5487dec01b5b478f4e7e1e4e1018811d409",
         info.lock_sha256,
     )
     asserts.equals(
