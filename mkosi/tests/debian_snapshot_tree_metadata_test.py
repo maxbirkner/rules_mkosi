@@ -11,7 +11,9 @@ class DebianSnapshotTreeMetadataTest(unittest.TestCase):
         root = pathlib.Path(sys.argv[1]).resolve()
         self.assertTrue((root / "dists/trixie/InRelease").is_file())
         self.assertTrue((root / "pool").is_dir())
-        paths = [root] + sorted(root.rglob("*"))
+        # Bazel owns the TreeArtifact wrapper directory and may retimestamp it
+        # during materialization. The repository contract covers its entries.
+        paths = sorted(root.rglob("*"))
         for path in paths:
             mode = stat.S_IMODE(path.lstat().st_mode)
             if path.is_symlink():
