@@ -843,14 +843,18 @@ static int fd_swap_self_test(void) {
 }
 
 static int empty_path_regression_self_test(void) {
-  const char *base = "namespace-runner-empty-path";
-  const char *source = "namespace-runner-empty-path/source";
+  char base[128];
+  char source[160];
   int source_fd = -1;
   int tree_fd = -1;
   int result = 1;
 
   map_current_identity(getuid(), getgid());
-  if (unshare(CLONE_NEWNS) < 0 ||
+  if (snprintf(base, sizeof(base), "/dev/shm/namespace-runner-empty-path-%ld",
+               (long)getpid()) >= (int)sizeof(base) ||
+      snprintf(source, sizeof(source), "%s/source", base) >=
+          (int)sizeof(source) ||
+      unshare(CLONE_NEWNS) < 0 ||
       mount(NULL, "/", NULL, MS_REC | MS_PRIVATE, NULL) < 0 ||
       mkdir(base, 0700) < 0 || mkdir(source, 0700) < 0) {
     goto cleanup;
