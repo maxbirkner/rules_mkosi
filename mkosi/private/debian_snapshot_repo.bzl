@@ -39,7 +39,13 @@ def _validate_lock(lock):
         filename = package.get("filename", "")
         if not name or not version or architecture not in ["amd64", "all"]:
             fail("Debian package lock has incomplete identity")
-        if not filename.startswith("pool/") or ".." in filename.split("/"):
+        parts = filename.split("/")
+        if (
+            not filename.startswith("pool/") or
+            ".." in parts or
+            "." in parts or
+            "" in parts
+        ):
             fail("unsafe Debian package filename: %s" % filename)
         if not filename.endswith(".deb"):
             fail("Debian package filename is not a .deb: %s" % filename)

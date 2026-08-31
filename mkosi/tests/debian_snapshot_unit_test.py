@@ -107,6 +107,9 @@ class DebianSnapshotUnitTest(unittest.TestCase):
         )
         with self.assertRaisesRegex(ValueError, "unsafe package path"):
             debian_snapshot._safe_package_path("../pool/a.deb")
+        for unsafe in ("pool/./a.deb", "pool//a.deb"):
+            with self.assertRaisesRegex(ValueError, "unsafe package path"):
+                debian_snapshot._safe_package_path(unsafe)
 
     def test_identical_all_architecture_duplicates_are_accepted(self):
         first = self.work / "amd64"

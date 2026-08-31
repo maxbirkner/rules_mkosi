@@ -167,7 +167,12 @@ def _copy(source, destination):
 
 def _safe_package_path(filename):
     relative = pathlib.PurePosixPath(filename)
-    if relative.is_absolute() or ".." in relative.parts or not str(relative).startswith("pool/"):
+    if (
+        relative.is_absolute()
+        or ".." in relative.parts
+        or str(relative) != filename
+        or not str(relative).startswith("pool/")
+    ):
         raise ValueError("unsafe package path: %s" % filename)
     return relative
 
@@ -278,13 +283,14 @@ def stage(args):
         if not size.isdigit():
             raise ValueError("locked package size is invalid")
         key = (name, version, architecture)
+        relative_filename = _safe_package_path(filename)
+        filename = str(relative_filename)
         if key in expected:
             raise ValueError("duplicate locked package: %s" % "|".join(key))
         if filename in filenames:
             raise ValueError("package path collision: %s" % filename)
         if local_name in local_names:
             raise ValueError("duplicate local package name: %s" % local_name)
-        _safe_package_path(filename)
         filenames.add(filename)
         local_names.add(local_name)
         expected[key] = (filename, int(size), digest, local_name)
