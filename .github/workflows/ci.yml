@@ -42,7 +42,10 @@ jobs:
         uses: bazel-contrib/setup-bazel@c5acdfb288317d0b5c0bbd7a396a3dc868bb0f86 # v0.19.0
         with:
           bazelisk-cache: true
+          cache-save: ${{ github.event_name != 'pull_request' }}
           disk-cache: rules-mkosi-${{ matrix.bazel }}
+          external-cache: true
+          module-root: ${{ matrix.module }}
           repository-cache: true
 
       - name: Verify pinned Bazel version
@@ -363,71 +366,6 @@ jobs:
           esac
           echo "no-RC downstream launcher resolves maintained hermetic C++ toolchain"
 
-      - name: Verify deterministic bootstrap binaries
-        if: matrix.module == '.' && matrix.bazel == '8.5.1'
-        run: |
-          run_bazel() {
-            sudo -n setpriv --reuid="$(id -u)" --regid="$(id -g)" \
-              --clear-groups env HOME="$HOME" PATH="$PATH" "$@"
-          }
-          output_a="$GITHUB_WORKSPACE/.ci-output-a"
-          output_b="$GITHUB_WORKSPACE/.ci-output-b"
-          execution_log="$GITHUB_WORKSPACE/.ci-execution-log.json"
-          rm -rf "$output_a" "$output_b"
-          rm -f "$execution_log"
-          run_bazel bazel --output_base="$output_a" build \
-            --lockfile_mode=error --disk_cache= \
-            --execution_log_json_file="$execution_log" \
-            --noremote_accept_cached --noremote_upload_local_results \
-            @mkosi_debian_tools//:launcher \
-            @mkosi_debian_tools//:namespace_runner
-          first_launcher="$(run_bazel bazel --output_base="$output_a" cquery \
-            --lockfile_mode=error \
-            --output=files @mkosi_debian_tools//:launcher | tail -n 1)"
-          first_runner="$(run_bazel bazel --output_base="$output_a" cquery \
-            --lockfile_mode=error \
-            --output=files @mkosi_debian_tools//:namespace_runner | tail -n 1)"
-          first_launcher_sha="$(sha256sum "$first_launcher" | cut -d' ' -f1)"
-          first_runner_sha="$(sha256sum "$first_runner" | cut -d' ' -f1)"
-          python3 - "$execution_log" <<'PY'
-          import json
-          import sys
-
-          decoder = json.JSONDecoder()
-          text = open(sys.argv[1], encoding="utf-8").read()
-          offset = 0
-          records = 0
-          while offset < len(text):
-              while offset < len(text) and text[offset].isspace():
-                  offset += 1
-              if offset == len(text):
-                  break
-              record, offset = decoder.raw_decode(text, offset)
-              records += 1
-              if "/usr/bin/false" in record.get("commandArgs", []):
-                  raise SystemExit("CcStrip placeholder was executed")
-          if records == 0:
-              raise SystemExit("uncached bootstrap execution log is empty")
-          print("uncached bootstrap execution records:", records)
-          print("CcStrip /usr/bin/false execution records: 0")
-          PY
-          run_bazel bazel --output_base="$output_b" build \
-            --lockfile_mode=error --disk_cache= \
-            --noremote_accept_cached --noremote_upload_local_results \
-            @mkosi_debian_tools//:launcher \
-            @mkosi_debian_tools//:namespace_runner
-          second_launcher="$(run_bazel bazel --output_base="$output_b" cquery \
-            --lockfile_mode=error \
-            --output=files @mkosi_debian_tools//:launcher | tail -n 1)"
-          second_runner="$(run_bazel bazel --output_base="$output_b" cquery \
-            --lockfile_mode=error \
-            --output=files @mkosi_debian_tools//:namespace_runner | tail -n 1)"
-          test "$first_launcher_sha" = "$(sha256sum "$second_launcher" | cut -d' ' -f1)"
-          test "$first_runner_sha" = "$(sha256sum "$second_runner" | cut -d' ' -f1)"
-          echo "clean rebuild launcher SHA: $first_launcher_sha"
-          echo "clean rebuild namespace runner SHA: $first_runner_sha"
-          rm -rf "$output_a" "$output_b" "$execution_log"
-
       - name: Verify Linux sandbox helper
         if: matrix.module == '.'
         run: |
@@ -476,6 +414,8 @@ jobs:
         uses: bazel-contrib/setup-bazel@c5acdfb288317d0b5c0bbd7a396a3dc868bb0f86 # v0.19.0
         with:
           bazelisk-cache: true
+          cache-save: ${{ github.event_name != 'pull_request' }}
+          external-cache: true
           repository-cache: true
 
       - name: Run production namespace and image targets
@@ -543,6 +483,7 @@ jobs:
         uses: bazel-contrib/setup-bazel@c5acdfb288317d0b5c0bbd7a396a3dc868bb0f86 # v0.19.0
         with:
           bazelisk-cache: true
+          cache-save: ${{ github.event_name != 'pull_request' }}
           repository-cache: true
 
       - name: Verify committed lockfile
@@ -586,6 +527,7 @@ jobs:
         uses: bazel-contrib/setup-bazel@c5acdfb288317d0b5c0bbd7a396a3dc868bb0f86 # v0.19.0
         with:
           bazelisk-cache: true
+          cache-save: ${{ github.event_name != 'pull_request' }}
           disk-cache: rules-mkosi-module-${{ matrix.bazel }}-${{ matrix.fixture }}
           repository-cache: true
 
@@ -609,6 +551,87 @@ jobs:
           cache: true
           prek-version: "0.5.0"
 
+  bootstrap-determinism:
+    name: Deterministic bootstrap binaries
+    runs-on: ubuntu-22.04
+    env:
+      USE_BAZEL_VERSION: "8.5.1"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up Bazel
+        uses: bazel-contrib/setup-bazel@c5acdfb288317d0b5c0bbd7a396a3dc868bb0f86 # v0.19.0
+        with:
+          bazelisk-cache: true
+          cache-save: ${{ github.event_name != 'pull_request' }}
+          external-cache: true
+          repository-cache: true
+
+      - name: Verify deterministic bootstrap binaries
+        run: |
+          run_bazel() {
+            sudo -n setpriv --reuid="$(id -u)" --regid="$(id -g)" \
+              --clear-groups env HOME="$HOME" PATH="$PATH" "$@"
+          }
+          output_a="$GITHUB_WORKSPACE/.ci-output-a"
+          output_b="$GITHUB_WORKSPACE/.ci-output-b"
+          execution_log="$GITHUB_WORKSPACE/.ci-execution-log.json"
+          rm -rf "$output_a" "$output_b"
+          rm -f "$execution_log"
+          run_bazel bazel --output_base="$output_a" build \
+            --lockfile_mode=error --disk_cache= \
+            --execution_log_json_file="$execution_log" \
+            --noremote_accept_cached --noremote_upload_local_results \
+            @mkosi_debian_tools//:launcher \
+            @mkosi_debian_tools//:namespace_runner
+          first_launcher="$(run_bazel bazel --output_base="$output_a" cquery \
+            --lockfile_mode=error \
+            --output=files @mkosi_debian_tools//:launcher | tail -n 1)"
+          first_runner="$(run_bazel bazel --output_base="$output_a" cquery \
+            --lockfile_mode=error \
+            --output=files @mkosi_debian_tools//:namespace_runner | tail -n 1)"
+          first_launcher_sha="$(sha256sum "$first_launcher" | cut -d' ' -f1)"
+          first_runner_sha="$(sha256sum "$first_runner" | cut -d' ' -f1)"
+          python3 - "$execution_log" <<'PY'
+          import json
+          import sys
+
+          decoder = json.JSONDecoder()
+          text = open(sys.argv[1], encoding="utf-8").read()
+          offset = 0
+          records = 0
+          while offset < len(text):
+              while offset < len(text) and text[offset].isspace():
+                  offset += 1
+              if offset == len(text):
+                  break
+              record, offset = decoder.raw_decode(text, offset)
+              records += 1
+              if "/usr/bin/false" in record.get("commandArgs", []):
+                  raise SystemExit("CcStrip placeholder was executed")
+          if records == 0:
+              raise SystemExit("uncached bootstrap execution log is empty")
+          print("uncached bootstrap execution records:", records)
+          print("CcStrip /usr/bin/false execution records: 0")
+          PY
+          run_bazel bazel --output_base="$output_b" build \
+            --lockfile_mode=error --disk_cache= \
+            --noremote_accept_cached --noremote_upload_local_results \
+            @mkosi_debian_tools//:launcher \
+            @mkosi_debian_tools//:namespace_runner
+          second_launcher="$(run_bazel bazel --output_base="$output_b" cquery \
+            --lockfile_mode=error \
+            --output=files @mkosi_debian_tools//:launcher | tail -n 1)"
+          second_runner="$(run_bazel bazel --output_base="$output_b" cquery \
+            --lockfile_mode=error \
+            --output=files @mkosi_debian_tools//:namespace_runner | tail -n 1)"
+          test "$first_launcher_sha" = "$(sha256sum "$second_launcher" | cut -d' ' -f1)"
+          test "$first_runner_sha" = "$(sha256sum "$second_runner" | cut -d' ' -f1)"
+          echo "clean rebuild launcher SHA: $first_launcher_sha"
+          echo "clean rebuild namespace runner SHA: $first_runner_sha"
+          rm -rf "$output_a" "$output_b" "$execution_log"
+
   conclusion:
     name: CI conclusion
     if: always()
@@ -618,12 +641,25 @@ jobs:
       - test
       - namespace-contract
       - module-resolution
+      - bootstrap-determinism
     runs-on: ubuntu-24.04
     steps:
       - name: Require successful jobs
         env:
           RESULTS: ${{ join(needs.*.result, ' ') }}
         run: |-
-          case " ${RESULTS} " in
-            *" failure "*|*" cancelled "*) exit 1 ;;
-          esac
+          # Keep this count in sync with the six entries in `needs` above.
+          set -- $RESULTS
+          if [ "$#" -ne 6 ]; then
+            echo "expected six required CI results, got $#" >&2
+            exit 1
+          fi
+          for result; do
+            case "$result" in
+              success) ;;
+              *)
+                echo "required CI job did not succeed: $result" >&2
+                exit 1
+                ;;
+            esac
+          done
