@@ -497,7 +497,7 @@ jobs:
                 --cache_test_results=no --config=kernel_preflight \
                 //mkosi/private:kernel_preflight_host_test
               override_graph="$(bazel aquery --lockfile_mode=error --output=text \
-                'mnemonic("MkosiImage", //mkosi/tests:override_subject)')"
+                "mnemonic(\"MkosiImage\", //mkosi/tests:override_subject)")"
               case "$override_graph" in
                 *"redirect.conf"*"override_subject.raw"*) ;;
                 *) echo "redirect config is not the override image dependency" >&2; exit 1 ;;
