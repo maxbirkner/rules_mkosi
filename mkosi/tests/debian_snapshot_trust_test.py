@@ -29,6 +29,7 @@ class DebianSnapshotTrustTest(unittest.TestCase):
                     break
         self.packages = pathlib.Path(sys.argv[5]).resolve()
         self.packages_all = pathlib.Path(sys.argv[6]).resolve()
+        self.invocation = 0
         spec = importlib.util.spec_from_file_location(
             "debian_snapshot", self.root.parent / "private/debian_snapshot.py"
         )
@@ -41,13 +42,20 @@ class DebianSnapshotTrustTest(unittest.TestCase):
         shutil.rmtree(self.work, ignore_errors=True)
 
     def _run(self, arguments):
+        self.invocation += 1
         environment = os.environ.copy()
         environment.update(
-            {"PATH": "", "HOME": "/root", "TEST_TMPDIR": str(self.work / "scratch")}
+            {
+                "PATH": "",
+                "HOME": "/root",
+                "TEST_TMPDIR": str(self.work / ("scratch-%d" % self.invocation)),
+            }
         )
         return subprocess.run(
             [str(self.launcher)] + arguments,
             env=environment,
+            capture_output=True,
+            text=True,
         )
 
     def _cleartext(self, source):
@@ -84,18 +92,25 @@ class DebianSnapshotTrustTest(unittest.TestCase):
     def test_mutated_inrelease_is_rejected(self):
         mutated = self.work / "InRelease"
         data = self.inrelease.read_bytes()
-        mutated.write_bytes(data[:-1] + bytes([data[-1] ^ 1]))
-        self.assertEqual(0, self._cleartext(self.inrelease).returncode)
+        marker = b"Suite: trixie"
+        self.assertIn(marker, data)
+        mutated.write_bytes(data.replace(marker, b"Suite: trixyf", 1))
+        baseline = self._cleartext(self.inrelease)
+        self.assertEqual(0, baseline.returncode, baseline.stderr)
         result = self._cleartext(mutated)
         self.assertNotEqual(0, result.returncode)
+        self.assertNotIn("scratch", result.stderr.lower())
 
     def test_mutated_detached_signature_is_rejected(self):
         mutated = self.work / "Release.gpg"
         data = self.release_gpg.read_bytes()
-        mutated.write_bytes(data[:-1] + bytes([data[-1] ^ 1]))
-        self.assertEqual(0, self._detached(self.release_gpg).returncode)
+        middle = len(data) // 2
+        mutated.write_bytes(data[:middle] + bytes([data[middle] ^ 1]) + data[middle + 1 :])
+        baseline = self._detached(self.release_gpg)
+        self.assertEqual(0, baseline.returncode, baseline.stderr)
         result = self._detached(mutated)
         self.assertNotEqual(0, result.returncode)
+        self.assertNotIn("scratch", result.stderr.lower())
 
     def test_mutated_packages_index_is_rejected_by_signed_release(self):
         mutated = self.work / "Packages.xz"
