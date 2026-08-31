@@ -199,6 +199,38 @@ jobs:
           rm -f e2e/smoke/discovered-e2e-tests.txt \
             e2e/smoke/qualified-e2e-events.json
 
+      - name: Verify nested-directory cache anchoring
+        run: |
+          run_bazel() {
+            sudo -n setpriv --reuid="$(id -u)" --regid="$(id -g)" \
+              --clear-groups env HOME="$HOME" PATH="$PATH" "$@"
+          }
+          cache_mode=error
+          if [ "${{ matrix.bazel }}" = "9.2.0" ]; then
+            cache_mode=off
+          fi
+          (
+            cd mkosi/tests
+            run_bazel bazel query --lockfile_mode="$cache_mode" //... \
+              --output=label >/dev/null
+          )
+          (
+            cd e2e/smoke
+            run_bazel bazel query --lockfile_mode="$cache_mode" //... \
+              --output=label >/dev/null
+          )
+          for cache in \
+            "$GITHUB_WORKSPACE/.cache/bazel-disk" \
+            "$GITHUB_WORKSPACE/e2e/smoke/.cache/bazel-disk"
+          do
+            test -d "$cache"
+            test ! -L "$cache"
+            test "$(realpath "$cache")" = "$cache"
+            git -C "$GITHUB_WORKSPACE" check-ignore -q "$cache"
+          done
+          test ! -e "$GITHUB_WORKSPACE/mkosi/tests/.cache/bazel-disk"
+          test ! -e "$GITHUB_WORKSPACE/e2e/.cache/bazel-disk"
+
       - name: Audit Debian tools action graph
         run: |
           run_bazel() {
