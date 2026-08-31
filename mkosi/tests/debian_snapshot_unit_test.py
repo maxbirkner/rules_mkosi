@@ -1,0 +1,152 @@
+"""Unit tests for Debian snapshot authentication and validation."""
+
+import importlib.util
+import hashlib
+import lzma
+import os
+import pathlib
+import types
+import unittest
+from unittest import mock
+
+
+_HERE = pathlib.Path(__file__).resolve().parent
+_SPEC = importlib.util.spec_from_file_location(
+    "debian_snapshot", _HERE.parent / "private/debian_snapshot.py"
+)
+debian_snapshot = importlib.util.module_from_spec(_SPEC)
+_SPEC.loader.exec_module(debian_snapshot)
+
+
+class DebianSnapshotUnitTest(unittest.TestCase):
+    def setUp(self):
+        self.work = pathlib.Path(os.environ.get("TEST_TMPDIR", ".")) / (
+            "debian-snapshot-%s" % os.getpid()
+        )
+        self.work.mkdir(parents=True, exist_ok=True)
+
+    def tearDown(self):
+        for path in sorted(self.work.rglob("*"), reverse=True):
+            if path.is_dir():
+                path.rmdir()
+            else:
+                path.unlink()
+        self.work.rmdir()
+
+    def test_changed_content_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "digest mismatch"):
+            debian_snapshot._verify_digest(__file__, "0" * 64, "InRelease")
+
+    def test_release_must_list_locked_packages_index(self):
+        with self.assertRaisesRegex(ValueError, "absent"):
+            debian_snapshot._release_hash(
+                b"SHA256:\n deadbeef 1 main/binary-amd64/Other.xz\n",
+                "main/binary-amd64/Packages.xz",
+                1,
+                "deadbeef",
+            )
+
+    def test_invalid_signature_fails_explicitly(self):
+        with mock.patch.object(
+            debian_snapshot.subprocess,
+            "run",
+            return_value=mock.Mock(returncode=1),
+        ):
+            with self.assertRaisesRegex(ValueError, "signature verification failed"):
+                debian_snapshot._verify_signature(
+                    "/declared/launcher",
+                    "/declared/InRelease",
+                    "/declared/Release",
+                    "/declared/Release.gpg",
+                    "/declared/output",
+                    "/declared/scratch",
+                )
+
+    def test_package_metadata_rejects_duplicate_fields(self):
+        with self.assertRaisesRegex(ValueError, "duplicate"):
+            debian_snapshot._paragraphs(b"Package: one\nPackage: two\n")
+
+    def test_package_path_must_be_under_pool(self):
+        self.assertEqual(
+            "pool/main/a/a.deb",
+            str(debian_snapshot._safe_package_path("pool/main/a/a.deb")),
+        )
+        with self.assertRaisesRegex(ValueError, "unsafe package path"):
+            debian_snapshot._safe_package_path("../pool/a.deb")
+
+    def test_stages_exact_layout_with_deterministic_metadata(self):
+        package = self.work / "pkg.deb"
+        package.write_bytes(b"representative package")
+        package_digest = hashlib.sha256(package.read_bytes()).hexdigest()
+        package_index = (
+            "Package: demo\nVersion: 1\nArchitecture: amd64\n"
+            "Filename: pool/main/d/demo_1_amd64.deb\n"
+            "SHA256: %s\n\n" % package_digest
+        ).encode()
+        package_all = b""
+        packages_xz = self.work / "Packages.xz"
+        packages_all_xz = self.work / "Packages-all.xz"
+        with lzma.open(packages_xz, "wb") as output:
+            output.write(package_index)
+        with lzma.open(packages_all_xz, "wb") as output:
+            output.write(package_all)
+        packages_digest = hashlib.sha256(packages_xz.read_bytes()).hexdigest()
+        packages_all_digest = hashlib.sha256(packages_all_xz.read_bytes()).hexdigest()
+        release = (
+            "SHA256:\n %s %d main/binary-amd64/Packages.xz\n"
+            " %s %d main/binary-all/Packages.xz\n"
+            % (
+                packages_digest,
+                packages_xz.stat().st_size,
+                packages_all_digest,
+                packages_all_xz.stat().st_size,
+            )
+        ).encode()
+        inrelease = self.work / "InRelease"
+        release_path = self.work / "Release"
+        release_gpg = self.work / "Release.gpg"
+        inrelease.write_bytes(b"signed")
+        release_path.write_bytes(release)
+        release_gpg.write_bytes(b"signature")
+        output = self.work / "out"
+        scratch = self.work / "scratch"
+        args = types.SimpleNamespace(
+            inrelease=str(inrelease),
+            release=str(release_path),
+            release_gpg=str(release_gpg),
+            packages_xz=str(packages_xz),
+            packages_all_xz=str(packages_all_xz),
+            output=str(output),
+            scratch=str(scratch),
+            launcher="launcher",
+            inrelease_sha256=hashlib.sha256(inrelease.read_bytes()).hexdigest(),
+            release_sha256=hashlib.sha256(release).hexdigest(),
+            release_gpg_sha256=hashlib.sha256(release_gpg.read_bytes()).hexdigest(),
+            packages_xz_sha256=packages_digest,
+            packages_all_xz_sha256=packages_all_digest,
+            packages_path="dists/trixie/main/binary-amd64/Packages.xz",
+            packages_all_path="dists/trixie/main/binary-all/Packages.xz",
+            package_records=[
+                "demo|1|amd64|pool/main/d/demo_1_amd64.deb|%s|pkg_000.deb" % package_digest
+            ],
+            package_names=["pkg_000.deb"],
+            packages=[str(package)],
+        )
+
+        def verify(*_):
+            verified = output / "repository/verified-release"
+            verified.parent.mkdir(parents=True)
+            verified.write_bytes(release)
+
+        with mock.patch.object(debian_snapshot, "_verify_signature", side_effect=verify):
+            debian_snapshot.stage(args)
+        repository = output / "repository"
+        self.assertEqual(
+            b"representative package",
+            (repository / "pool/main/d/demo_1_amd64.deb").read_bytes(),
+        )
+        self.assertEqual(0, (repository / "dists/trixie/Release").stat().st_mtime_ns)
+
+
+if __name__ == "__main__":
+    unittest.main()

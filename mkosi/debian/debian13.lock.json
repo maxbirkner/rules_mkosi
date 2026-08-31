@@ -3446,5 +3446,45 @@
       "version": "4.0.48-1"
     }
   ],
+  "repository": {
+    "architecture": "amd64",
+    "codename": "trixie",
+    "distribution": "debian",
+    "metadata": [
+      {
+        "name": "inrelease",
+        "path": "dists/trixie/InRelease",
+        "sha256": "d83ab3c47e2e6e66b08fc372d01a01020c58ac7957d48da0211b6492cf488aa6",
+        "url": "https://snapshot.debian.org/archive/debian/20250814T000000Z/dists/trixie/InRelease"
+      },
+      {
+        "name": "release",
+        "path": "dists/trixie/Release",
+        "sha256": "48f25c1f582c50b7d43d37481d999c2e5337596d9489f2ae33144e14afe4a1d9",
+        "url": "https://snapshot.debian.org/archive/debian/20250814T000000Z/dists/trixie/Release"
+      },
+      {
+        "name": "release_gpg",
+        "path": "dists/trixie/Release.gpg",
+        "sha256": "eaafe9a8b0605fb54248c7fbc746157edfbf20c9d9081c597ea7cc0bedd3240c",
+        "url": "https://snapshot.debian.org/archive/debian/20250814T000000Z/dists/trixie/Release.gpg"
+      },
+      {
+        "name": "packages_xz",
+        "path": "dists/trixie/main/binary-amd64/Packages.xz",
+        "sha256": "d79703a02713bf79b97e266a3f586a5969d21b50555194ab9b962ccd348a42ce",
+        "url": "https://snapshot.debian.org/archive/debian/20250814T000000Z/dists/trixie/main/binary-amd64/Packages.xz"
+      },
+      {
+        "name": "packages_all_xz",
+        "path": "dists/trixie/main/binary-all/Packages.xz",
+        "sha256": "6d7a23f5eb363523c79fd08b33ddd22395dee369d3d22ea259cf09a86df52bd2",
+        "url": "https://snapshot.debian.org/archive/debian/20250814T000000Z/dists/trixie/main/binary-all/Packages.xz"
+      }
+    ],
+    "release": "13",
+    "snapshot": "20250814T000000Z",
+    "snapshot_url": "https://snapshot.debian.org/archive/debian/20250814T000000Z"
+  },
   "version": 1
 }

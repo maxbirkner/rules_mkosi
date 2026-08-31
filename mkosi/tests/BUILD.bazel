@@ -3,6 +3,7 @@ load("@rules_python//python:defs.bzl", "py_test")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
 load("//mkosi:defs.bzl", "mkosi_image", "qemu_ovmf_smoke_test")
 load("//mkosi/debian:toolchain.bzl", "debian_tools_launcher_probe", "debian_tools_preflight", "debian_tools_preflight_test")
+load(":debian_snapshot_test.bzl", "debian_snapshot_provider_test")
 load(
     ":extension_semantics_test.bzl",
     "conflicting_root_test",
@@ -13,6 +14,29 @@ load(
     "unsupported_version_test",
 )
 load(":mkosi_image_test.bzl", "mkosi_image_test_suite")
+
+debian_snapshot_provider_test(
+    name = "debian_snapshot_provider_test",
+    target_under_test = "@mkosi_debian_snapshot//:repository",
+)
+
+py_test(
+    name = "debian_snapshot_artifact_test",
+    srcs = ["debian_snapshot_artifact_test.py"],
+    args = ["$(rootpath @mkosi_debian_snapshot//:repository)"],
+    data = ["@mkosi_debian_snapshot//:repository"],
+    main = "debian_snapshot_artifact_test.py",
+    tags = ["manual"],
+)
+
+py_test(
+    name = "debian_snapshot_unit_test",
+    srcs = [
+        "debian_snapshot_unit_test.py",
+        "//mkosi/private:debian_snapshot.py",
+    ],
+    main = "debian_snapshot_unit_test.py",
+)
 
 default_version_test(name = "default_version_test")
 

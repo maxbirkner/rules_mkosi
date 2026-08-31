@@ -24,6 +24,7 @@ TOOLS = {
     "bootctl": "/usr/bin/bootctl",
     "objcopy": "/usr/bin/objcopy",
     "openssl": "/usr/bin/openssl",
+    "sqv": "/usr/bin/sqv",
 }
 
 _MOUNT_ROOTS = ("/root", "/tmp", "/proc", "/dev", "/workspace", "/inputs", "/outputs")
