@@ -7,7 +7,7 @@ import unittest
 
 class DebianSnapshotArtifactTest(unittest.TestCase):
     def test_layout(self):
-        root = pathlib.Path(sys.argv[1])
+        root = pathlib.Path(sys.argv[1]).resolve()
         repository = root
         for relative in (
             "dists/trixie/InRelease",

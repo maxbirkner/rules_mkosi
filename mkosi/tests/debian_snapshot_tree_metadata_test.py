@@ -8,7 +8,7 @@ import unittest
 
 class DebianSnapshotTreeMetadataTest(unittest.TestCase):
     def test_tree_metadata(self):
-        root = pathlib.Path(sys.argv[1])
+        root = pathlib.Path(sys.argv[1]).resolve()
         self.assertTrue((root / "dists/trixie/InRelease").is_file())
         self.assertTrue((root / "pool").is_dir())
         paths = [root] + sorted(root.rglob("*"))
