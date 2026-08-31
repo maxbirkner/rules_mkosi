@@ -243,10 +243,14 @@ mkosi_image(
 
 py_test(
     name = "real_image_artifact_test",
-    srcs = ["raw_image_validator.py"],
+    srcs = ["raw_image_artifact_test.py"],
     args = ["$(rootpath :real_image)"],
-    data = [":real_image"],
-    main = "raw_image_validator.py",
+    data = [
+        "raw_image_validator.py",
+        ":real_image",
+    ],
+    main = "raw_image_artifact_test.py",
+    tags = ["requires-network"],
 )
 
 py_test(
@@ -255,15 +259,26 @@ py_test(
     args = ["$(rootpath :real_image)"],
     data = [":real_image"],
     main = "staged_image_semantics_test.py",
+=======
+    data = [
+        "raw_image_validator.py",
+        ":real_image",
+    ],
+    main = "raw_image_artifact_test.py",
+    tags = ["requires-network"],
+>>>>>>> 7827713 (test: allow full suite Python precompilation)
 )
 
 py_test(
     name = "override_image_artifact_test",
-    srcs = ["raw_image_validator.py"],
+    srcs = ["raw_image_override_artifact_test.py"],
     args = ["$(rootpath :override_subject)"],
-    data = [":override_subject"],
-    main = "raw_image_validator.py",
-    tags = ["manual"],
+    data = [
+        "raw_image_validator.py",
+        ":override_subject",
+    ],
+    main = "raw_image_override_artifact_test.py",
+    tags = ["requires-network"],
 )
 
 py_test(
@@ -278,13 +293,16 @@ py_test(
 py_test(
     name = "raw_image_corruption_test",
     srcs = [
-        "raw_image_corruption_test.py",
-        "raw_image_validator.py",
+        "raw_image_corruption_runner.py",
     ],
     args = ["$(rootpath :real_image)"],
-    data = [":real_image"],
-    main = "raw_image_corruption_test.py",
-    tags = ["manual"],
+    data = [
+        "raw_image_corruption_test.py",
+        "raw_image_validator.py",
+        ":real_image",
+    ],
+    main = "raw_image_corruption_runner.py",
+    tags = ["requires-network"],
 )
 
 py_test(
