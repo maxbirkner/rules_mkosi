@@ -1,6 +1,11 @@
+import json
 import os
+
+os.environ["PATH"] = ""
+
 import pathlib
 import shutil
+import socket
 import subprocess
 import sys
 import time
@@ -10,7 +15,87 @@ MARKER = b"systemd[1]: Hostname set to <rules-mkosi-tracer>."
 CLEAN_SHUTDOWN_MARKER = b"systemd-shutdown[1]: Powering off."
 POWER_DOWN_MARKER = b"reboot: Power down"
 BOOT_TIMEOUT_SECONDS = 180
+QEMU_INITIALIZATION_TIMEOUT_SECONDS = 15
 SHUTDOWN_TIMEOUT_SECONDS = 30
+
+
+class QmpHandshakeError(RuntimeError):
+    """QEMU did not complete its management initialization handshake."""
+
+
+def _perform_qmp_handshake(connection):
+    connection.settimeout(QEMU_INITIALIZATION_TIMEOUT_SECONDS)
+    reader = connection.makefile("rb")
+    try:
+        greeting_line = reader.readline()
+        if not greeting_line:
+            raise QmpHandshakeError("QMP greeting was empty")
+        try:
+            greeting = json.loads(greeting_line)
+        except json.JSONDecodeError as error:
+            raise QmpHandshakeError("QMP greeting was not valid JSON") from error
+        if not isinstance(greeting, dict) or "QMP" not in greeting:
+            raise QmpHandshakeError("QMP greeting was missing")
+
+        connection.sendall(b'{"execute":"qmp_capabilities"}\r\n')
+        response_line = reader.readline()
+        if not response_line:
+            raise QmpHandshakeError("QMP capabilities response was empty")
+        try:
+            response = json.loads(response_line)
+        except json.JSONDecodeError as error:
+            raise QmpHandshakeError("QMP capabilities response was not valid JSON") from error
+        if not isinstance(response, dict) or "return" not in response:
+            raise QmpHandshakeError("QMP capabilities command failed")
+        return True
+    except socket.timeout as error:
+        raise QmpHandshakeError("QMP handshake timed out") from error
+    finally:
+        reader.close()
+
+
+def _qmp_handshake(process, socket_path):
+    deadline = time.monotonic() + QEMU_INITIALIZATION_TIMEOUT_SECONDS
+    last_error = "QMP socket was not ready"
+    while time.monotonic() < deadline:
+        if process.poll() is not None:
+            raise QmpHandshakeError(
+                "QEMU exited with status %d before QMP initialization" % process.returncode,
+            )
+        connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            connection.settimeout(max(0.1, deadline - time.monotonic()))
+            connection.connect(socket_path)
+            _perform_qmp_handshake(connection)
+            return
+        except (OSError, QmpHandshakeError) as error:
+            last_error = str(error)
+        finally:
+            connection.close()
+        time.sleep(0.05)
+    raise QmpHandshakeError(last_error)
+
+
+def _guest_started(serial):
+    return b"Linux version" in serial or b"systemd[" in serial
+
+
+def _classify_process_exit(qemu_initialized, serial, returncode):
+    del returncode
+    if not qemu_initialized:
+        return "QEMU_INITIALIZATION_FAILURE"
+    if _guest_started(serial):
+        return "GUEST_FAILURE"
+    return "FIRMWARE_FAILURE"
+
+
+def _qemu_environment(scratch):
+    return {
+        "HOME": str(scratch),
+        "LANG": "C.UTF-8",
+        "PATH": "",
+        "TMPDIR": str(scratch),
+    }
 
 
 def _resolve_runfile(path):
@@ -62,6 +147,7 @@ def _boot(image, qemu, system_data, ovmf_code, ovmf_vars):
     vars_copy = scratch / "OVMF_VARS.fd"
     serial_log = scratch / "guest-serial.log"
     qemu_log = scratch / "qemu.log"
+    qmp_socket = "qmp.sock"
     previous_cwd = os.getcwd()
     os.chdir(scratch)
     try:
@@ -86,6 +172,8 @@ def _boot(image, qemu, system_data, ovmf_code, ovmf_vars):
             "file,id=serial0,path=%s" % serial_log,
             "-device",
             "isa-serial,chardev=serial0",
+            "-qmp",
+            "unix:%s,server=on,wait=off" % qmp_socket,
             "-drive",
             "if=pflash,format=raw,readonly=on,file=%s" % ovmf_code,
             "-drive",
@@ -93,12 +181,7 @@ def _boot(image, qemu, system_data, ovmf_code, ovmf_vars):
             "-drive",
             "if=virtio,format=raw,snapshot=on,file=%s" % image,
         ]
-        environment = {
-            "HOME": str(scratch),
-            "LANG": "C.UTF-8",
-            "PATH": "",
-            "TMPDIR": str(scratch),
-        }
+        environment = _qemu_environment(scratch)
         with open(qemu_log, "wb") as output:
             try:
                 process = subprocess.Popen(
@@ -109,22 +192,40 @@ def _boot(image, qemu, system_data, ovmf_code, ovmf_vars):
                     stderr=subprocess.STDOUT,
                 )
             except OSError as error:
-                _diagnose("QEMU_STARTUP_FAILURE", str(error), serial_log, qemu_log)
+                _diagnose("QEMU_EXEC_FAILURE", str(error), serial_log, qemu_log)
 
             try:
+                try:
+                    _qmp_handshake(process, qmp_socket)
+                except QmpHandshakeError as error:
+                    _diagnose(
+                        "QEMU_INITIALIZATION_FAILURE",
+                        str(error),
+                        serial_log,
+                        qemu_log,
+                    )
+
                 deadline = time.monotonic() + BOOT_TIMEOUT_SECONDS
                 while time.monotonic() < deadline:
                     serial = _read_log(serial_log)
                     if MARKER in serial:
                         break
                     if process.poll() is not None:
-                        if b"Linux version" not in serial and b"systemd[" not in serial:
-                            _diagnose("FIRMWARE_FAILURE", "guest never reached Linux", serial_log, qemu_log)
-                        _diagnose("GUEST_FAILURE", "guest exited before readiness", serial_log, qemu_log)
+                        classification = _classify_process_exit(
+                            True,
+                            serial,
+                            process.returncode,
+                        )
+                        _diagnose(
+                            classification,
+                            "QEMU exited before readiness",
+                            serial_log,
+                            qemu_log,
+                        )
                     time.sleep(0.1)
                 else:
                     _diagnose(
-                        "BOOT_TIMEOUT",
+                        "READINESS_TIMEOUT",
                         "did not observe exact serial marker %r" % MARKER.decode(),
                         serial_log,
                         qemu_log,
@@ -168,6 +269,10 @@ def _boot(image, qemu, system_data, ovmf_code, ovmf_vars):
                     except subprocess.TimeoutExpired:
                         process.kill()
                         process.wait()
+                try:
+                    pathlib.Path(qmp_socket).unlink()
+                except FileNotFoundError:
+                    pass
     finally:
         os.chdir(previous_cwd)
 

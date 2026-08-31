@@ -12,6 +12,10 @@ Linux images with mkosi.
   consumers must not load private files.
 - Resolve tools through registered toolchains. Production rules must not
   discover or invoke undeclared host executables.
+- Inspect generated test launchers, not only their declared toolchains. A
+  `rules_python` toolchain does not prove that the initial test process is
+  hermetic: direct managed-interpreter execution must be verified with an
+  empty child-process `PATH`, no host shebang, and user-site isolation.
 - Do not claim an image action is hermetic when it needs network access,
   privileges, mutable package-manager state, host capabilities, or undeclared
   tools. Model inputs where possible and declare execution requirements where
