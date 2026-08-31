@@ -13,4 +13,6 @@ import raw_image_validator
 
 
 if __name__ == "__main__":
-    raw_image_validator.main()
+    if len(sys.argv) != 2:
+        raise SystemExit("usage: raw_image_override_artifact_test.py IMAGE")
+    raw_image_validator.validate(raw_image_validator.image_path(sys.argv[1]))

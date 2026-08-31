@@ -1,7 +1,6 @@
 """Validate a generated image artifact without precompiling shared sources."""
 
 import os
-import pathlib
 import sys
 
 from python.runfiles import runfiles
@@ -14,4 +13,6 @@ import raw_image_validator
 
 
 if __name__ == "__main__":
-    raw_image_validator.main()
+    if len(sys.argv) != 2:
+        raise SystemExit("usage: raw_image_artifact_test.py IMAGE")
+    raw_image_validator.validate(raw_image_validator.image_path(sys.argv[1]))
