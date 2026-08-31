@@ -519,7 +519,8 @@ jobs:
                 --cache_test_results=no --spawn_strategy=linux-sandbox \
                 --test_output=all \
                 //:demo_artifact_test \
-                //:raw_image_corruption_test
+                //:raw_image_corruption_test \
+                //:demo_boot_test
             '
 
   lockfile:

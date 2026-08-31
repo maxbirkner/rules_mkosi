@@ -106,7 +106,12 @@ the module's test project.
 
 ### Future boot tests
 
-The production test hierarchy will add:
+Issue #8 now provides one UEFI/OVMF TCG boot test for the Debian tracer. It
+consumes the public image through Bazel dependency edges, waits for a
+deterministic systemd hostname marker on guest serial output, and requires the
+guest's clean systemd power-off marker before accepting the QEMU exit.
+
+The production test hierarchy will later add:
 
 1. Content tests against mounted or userspace-inspected filesystems.
 2. Separate OVMF and SeaBIOS QEMU boots.

@@ -26,6 +26,7 @@ _ALLOWED_DANGLING_SYMLINKS = {
     "usr/lib/systemd/system/cryptdisks.service",
     "usr/lib/systemd/system/hwclock.service",
     "usr/lib/systemd/system/x11-common.service",
+    "usr/share/zoneinfo/localtime",
 }
 
 # Debian's systemd package intentionally ships this link to an empty
@@ -151,7 +152,13 @@ def _materialize_runtime_link_targets(root):
     # TreeArtifacts cannot contain dangling links.  These placeholders are
     # hidden by the runtime /dev mount or only serve the package's documented
     # compatibility link; their link names remain preserved.
-    for relative in ("etc/environment", "dev/null", "etc/modules", "usr/sbin/rmt"):
+    for relative in (
+        "etc/environment",
+        "etc/localtime",
+        "dev/null",
+        "etc/modules",
+        "usr/sbin/rmt",
+    ):
         path = os.path.join(root, relative)
         if not os.path.exists(path):
             _parent(root, relative)

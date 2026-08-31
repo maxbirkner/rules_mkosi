@@ -1,5 +1,6 @@
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("@rules_mkosi//mkosi:defs.bzl", "mkosi_image", "qemu_ovmf_smoke_test")
+load("@rules_python//python:defs.bzl", "py_test")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
 load(":public_api_test.bzl", "image_public_api_test", "public_api_test")
 
@@ -23,6 +24,27 @@ public_api_test(
 image_public_api_test(
     name = "image_public_provider_test",
     target_under_test = ":demo",
+)
+
+py_test(
+    name = "demo_boot_test",
+    srcs = ["boot_test.py"],
+    args = [
+        "$(rootpath :demo)",
+        "$(rootpath @mkosi_toolchains//:qemu_system_executable)",
+        "$(rootpath @qemu_system_data_prebuilt_linux_amd64//:qemu-system-data)",
+        "$(rootpath @mkosi_toolchains//:ovmf_code)",
+        "$(rootpath @mkosi_toolchains//:ovmf_vars)",
+    ],
+    data = [
+        ":demo",
+        "@mkosi_toolchains//:ovmf_code",
+        "@mkosi_toolchains//:ovmf_vars",
+        "@mkosi_toolchains//:qemu_system_executable",
+        "@qemu_system_data_prebuilt_linux_amd64//:qemu-system-data",
+    ],
+    main = "boot_test.py",
+    tags = ["manual"],
 )
 
 build_test(

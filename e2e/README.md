@@ -18,6 +18,12 @@ validator are manually selected because they require the network and the
 host-kernel namespace/mount contract; the ordinary smoke suite remains
 portable.
 
+`demo_boot_test` is the dedicated UEFI tracer test. It consumes `demo` through
+the dependency graph, boots it with the registered QEMU/OVMF artifacts and
+TCG, waits for the exact systemd hostname marker on the guest serial stream,
+and verifies the guest's clean `Powering off` shutdown. It is manually
+selected because it requires the qualified Linux kernel contract.
+
 The BCR presubmit has separate Bazel 8 and Bazel 9 tasks. The Bazel 8 task
 uses the committed `e2e/smoke/MODULE.bazel.lock` strictly. The Bazel 9 task
 passes `--lockfile_mode=off` for compatibility because Bazel 9 uses a newer
