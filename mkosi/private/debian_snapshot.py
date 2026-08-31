@@ -27,6 +27,16 @@ def _verify_digest(path, expected, description):
         )
 
 
+def _verify_package(path, expected_digest, expected_size, description):
+    _verify_digest(path, expected_digest, description)
+    actual_size = os.stat(path).st_size
+    if actual_size != expected_size:
+        raise ValueError(
+            "%s size mismatch: expected=%d actual=%d"
+            % (description, expected_size, actual_size)
+        )
+
+
 def _paragraphs(data):
     paragraphs = []
     current = {}
@@ -296,9 +306,7 @@ def stage(args):
         raise ValueError("package inputs do not match lock package names")
     for package, local_name in zip(args.packages, args.package_names):
         _, (remote_filename, expected_size, digest, _) = records_by_name[local_name]
-        _verify_digest(package, digest, "package %s" % local_name)
-        if os.stat(package).st_size != expected_size:
-            raise ValueError("package size mismatch for %s" % local_name)
+        _verify_package(package, digest, expected_size, "package %s" % local_name)
         relative = _safe_package_path(remote_filename)
         _copy(package, destination / relative)
     verified.unlink()

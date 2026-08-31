@@ -37,6 +37,13 @@ class DebianSnapshotUnitTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "digest mismatch"):
             debian_snapshot._verify_digest(__file__, "0" * 64, "InRelease")
 
+    def test_downloaded_package_size_is_rejected(self):
+        package = self.work / "package.deb"
+        package.write_bytes(b"package")
+        digest = hashlib.sha256(package.read_bytes()).hexdigest()
+        with self.assertRaisesRegex(ValueError, "size mismatch"):
+            debian_snapshot._verify_package(package, digest, package.stat().st_size + 1, "package")
+
     def test_release_must_list_locked_packages_index(self):
         with self.assertRaisesRegex(ValueError, "absent|exactly one"):
             debian_snapshot._release_hash(
