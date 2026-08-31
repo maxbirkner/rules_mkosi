@@ -857,16 +857,20 @@ static int empty_path_regression_self_test(void) {
       unshare(CLONE_NEWNS) < 0 ||
       mount(NULL, "/", NULL, MS_REC | MS_PRIVATE, NULL) < 0 ||
       mkdir(base, 0700) < 0 || mkdir(source, 0700) < 0) {
+    fprintf(stderr, "empty-path fixture setup failed: %s\n", strerror(errno));
     goto cleanup;
   }
   source_fd = open(source, O_PATH | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
   if (source_fd < 0) {
+    fprintf(stderr, "empty-path fixture open failed: %s\n", strerror(errno));
     goto cleanup;
   }
   tree_fd = syscall(SYS_open_tree, source_fd, "",
                     OPEN_TREE_CLONE | OPEN_TREE_CLOEXEC | AT_EMPTY_PATH |
                         AT_RECURSIVE);
   if (tree_fd >= 0 || errno != EINVAL) {
+    fprintf(stderr, "empty-path fixture expected EINVAL, got %s\n",
+            tree_fd >= 0 ? "success" : strerror(errno));
     goto cleanup;
   }
   result = 0;
