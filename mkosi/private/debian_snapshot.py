@@ -108,8 +108,10 @@ def _verify_signature(launcher, inrelease, release, release_gpg, output, scratch
     release_gpg = os.path.abspath(release_gpg)
     output = os.path.abspath(output)
     scratch = os.path.abspath(scratch)
-    environment = os.environ.copy()
-    environment["PATH"] = ""
+    environment = {"PATH": ""}
+    for variable in ("RUNFILES_DIR", "RUNFILES_MANIFEST_FILE", "RUNFILES_MANIFEST_ONLY"):
+        if variable in os.environ:
+            environment[variable] = os.environ[variable]
     cleartext_command = [
         launcher,
         "--ro-bind",
