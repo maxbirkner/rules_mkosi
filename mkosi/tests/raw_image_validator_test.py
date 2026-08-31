@@ -1,4 +1,6 @@
+import ctypes
 import io
+import os
 import pathlib
 import struct
 import sys
@@ -67,6 +69,64 @@ def _gpt_image():
     return data
 
 
+def _fake_ext4_root(image, include_data=True):
+    partition_offset = 34 * 512
+    block_size = 4096
+    superblock = bytearray(1024)
+    struct.pack_into("<I", superblock, 4, 400)
+    struct.pack_into("<I", superblock, 24, 2)
+    struct.pack_into("<I", superblock, 32, 400)
+    struct.pack_into("<I", superblock, 40, 16)
+    superblock[56:58] = raw_image_validator.EXT4_MAGIC
+    struct.pack_into("<I", superblock, 76, 1)
+    struct.pack_into("<H", superblock, 88, 256)
+    struct.pack_into(
+        "<I",
+        superblock,
+        96,
+        raw_image_validator.EXT4_INCOMPAT_EXTENTS | 0x80,
+    )
+    struct.pack_into("<H", superblock, 254, 64)
+    image[partition_offset + 1024 : partition_offset + 2048] = superblock
+
+    descriptor = bytearray(64)
+    struct.pack_into("<III", descriptor, 0, 2, 3, 4)
+    descriptor_offset = partition_offset + block_size
+    image[descriptor_offset : descriptor_offset + len(descriptor)] = descriptor
+
+    block_bitmap = bytearray(block_size)
+    for block in (2, 3, 4, 5):
+        block_bitmap[block // 8] |= 1 << (block % 8)
+    inode_bitmap = bytearray(block_size)
+    inode_bitmap[0] = 1 << 1
+    image[
+        partition_offset + 2 * block_size : partition_offset + 3 * block_size
+    ] = block_bitmap
+    image[
+        partition_offset + 3 * block_size : partition_offset + 4 * block_size
+    ] = inode_bitmap
+
+    inode = bytearray(256)
+    struct.pack_into("<H", inode, 0, 0x41ED)
+    struct.pack_into("<I", inode, 4, block_size)
+    struct.pack_into("<I", inode, 32, raw_image_validator.EXT4_EXTENTS)
+    struct.pack_into("<HHHH", inode, 40, 0xF30A, 1, 4, 0)
+    struct.pack_into("<IHHI", inode, 52, 0, 1, 0, 5)
+    inode_offset = partition_offset + 4 * block_size + 256
+    image[inode_offset : inode_offset + len(inode)] = inode
+
+    if include_data:
+        root_data = bytearray(block_size)
+        struct.pack_into("<IHBB", root_data, 0, 2, 12, 1, 2)
+        root_data[8:9] = b"."
+        struct.pack_into("<IHBB", root_data, 12, 2, 12, 2, 2)
+        root_data[20:22] = b".."
+        image[
+            partition_offset + 5 * block_size : partition_offset + 6 * block_size
+        ] = root_data
+    return image
+
+
 class RawImageValidatorTest(unittest.TestCase):
     def test_protective_mbr_is_required(self):
         image = _gpt_image()
@@ -81,9 +141,36 @@ class RawImageValidatorTest(unittest.TestCase):
             raw_image_validator.validate_bytes(image)
 
     def test_fabricated_sparse_pseudo_gpt_has_no_allocated_root(self):
-        image = _gpt_image()
-        with self.assertRaisesRegex(AssertionError, "not materially allocated"):
-            raw_image_validator._validate(io.BytesIO(image), len(image), 0)
+        image = _fake_ext4_root(_gpt_image(), include_data=False)
+        libc = ctypes.CDLL(None, use_errno=True)
+        libc.memfd_create.argtypes = [ctypes.c_char_p, ctypes.c_uint]
+        libc.memfd_create.restype = ctypes.c_int
+        fd = libc.memfd_create(b"rules-mkosi-sparse-gpt", 0)
+        if fd < 0:
+            raise OSError(ctypes.get_errno(), "memfd_create")
+        try:
+            os.ftruncate(fd, len(image))
+            partition_offset = 34 * 512
+            block_size = 4096
+            ranges = [
+                (0, 34 * 512),
+                ((4096 - 33) * 512, len(image)),
+                (partition_offset + 1024, partition_offset + 2048),
+                (partition_offset + block_size, partition_offset + 5 * block_size),
+                (partition_offset + 4 * block_size + 256, partition_offset + 4 * block_size + 512),
+            ]
+            for start, end in ranges:
+                os.pwrite(fd, image[start:end], start)
+            with os.fdopen(fd, "r+b") as sparse:
+                fd = -1
+                with self.assertRaisesRegex(AssertionError, "not physically allocated"):
+                    raw_image_validator._validate(
+                        sparse,
+                        len(image),
+                    )
+        finally:
+            if fd >= 0:
+                os.close(fd)
 
     def test_pseudo_gpt_requires_a_usable_ext4_root(self):
         image = _gpt_image()

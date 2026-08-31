@@ -73,9 +73,11 @@ They are fast and isolate Starlark behavior from external tools.
 
 Real disk images must never be checked in or compared directly. The real-image
 artifact validator checks the GPT signature, a Linux x86-64 root partition,
-and allocated nontrivial partition content without booting the image. Future
-rules will derive reviewable text or JSON projections and compare those
-instead:
+CRC-valid primary and backup metadata, and ext4 allocation metadata. It uses
+the image file descriptor's `SEEK_DATA`/`SEEK_HOLE` ranges to prove that the
+root inode's bitmap-marked directory extent is physically allocated, without
+booting the image. Future rules will derive reviewable text or JSON projections
+and compare those instead:
 
 - mkosi's effective configuration.
 - Partition tables and GPT type UUIDs.

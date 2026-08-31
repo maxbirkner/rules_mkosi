@@ -496,6 +496,12 @@ jobs:
               bazel test --lockfile_mode=error --disk_cache= \
                 --cache_test_results=no --config=kernel_preflight \
                 //mkosi/private:kernel_preflight_host_test
+              override_graph="$(bazel aquery --lockfile_mode=error --output=text \
+                'mnemonic("MkosiImage", //mkosi/tests:override_subject)')"
+              case "$override_graph" in
+                *"redirect.conf"*"override_subject.raw"*) ;;
+                *) echo "redirect config is not the override image dependency" >&2; exit 1 ;;
+              esac
               bazel test --lockfile_mode=error --disk_cache= \
                 --cache_test_results=no --spawn_strategy=linux-sandbox \
                 --test_output=all \
@@ -504,7 +510,8 @@ jobs:
                 //mkosi/tests:debian_tools_recursive_ro_test \
                 //mkosi/tests:debian_tools_manifest_test \
                 //mkosi/tests:debian_tools_fd_swap_test \
-                //mkosi/tests:real_image_artifact_test
+                //mkosi/tests:real_image_artifact_test \
+                //mkosi/tests:override_image_artifact_test
               cd e2e/smoke
               bazel shutdown
               bazel test --lockfile_mode=error --disk_cache= \

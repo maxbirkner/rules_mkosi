@@ -155,6 +155,15 @@ py_test(
 )
 
 py_test(
+    name = "override_image_artifact_test",
+    srcs = ["raw_image_validator.py"],
+    args = ["$(rootpath :override_subject)"],
+    data = [":override_subject"],
+    main = "raw_image_validator.py",
+    tags = ["manual"],
+)
+
+py_test(
     name = "raw_image_validator_test",
     srcs = [
         "raw_image_validator.py",

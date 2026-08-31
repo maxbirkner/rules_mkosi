@@ -1,3 +1,4 @@
+import errno
 import io
 import os
 import pathlib
@@ -31,6 +32,52 @@ def _read(image, offset, size, message):
     if len(value) != size:
         raise AssertionError(message)
     return value
+
+
+def _physical_data_ranges(image, start, end):
+    try:
+        fd = image.fileno()
+    except (AttributeError, io.UnsupportedOperation):
+        raise AssertionError("physical data extents are unavailable for this image")
+    seek_data = getattr(os, "SEEK_DATA", 3)
+    seek_hole = getattr(os, "SEEK_HOLE", 4)
+    ranges = []
+    cursor = start
+    while cursor < end:
+        try:
+            data = os.lseek(fd, cursor, seek_data)
+        except OSError as error:
+            if error.errno == errno.ENXIO:
+                break
+            if error.errno in (errno.EINVAL, errno.ENOTSUP):
+                raise AssertionError("filesystem does not report physical data extents")
+            raise
+        if data >= end:
+            break
+        try:
+            hole = os.lseek(fd, data, seek_hole)
+        except OSError as error:
+            if error.errno in (errno.EINVAL, errno.ENOTSUP):
+                raise AssertionError("filesystem does not report physical data extents")
+            raise
+        if hole <= data:
+            raise AssertionError("filesystem returned an invalid physical data extent")
+        ranges.append((data, min(hole, end)))
+        cursor = hole
+    return ranges
+
+
+def _range_fully_allocated(ranges, start, end):
+    cursor = start
+    for data, hole in sorted(ranges):
+        if hole <= cursor:
+            continue
+        if data > cursor:
+            return False
+        cursor = max(cursor, hole)
+        if cursor >= end:
+            return True
+    return False
 
 
 def _parse_header(image, lba, total_sectors):
@@ -83,14 +130,11 @@ def _parse_header(image, lba, total_sectors):
     }
 
 
-def _validate_ext4_root(image, partition_start, partition_end, allocated_bytes):
+def _validate_ext4_root(image, partition_start, partition_end, physical_ranges=None):
     partition_offset = partition_start * SECTOR_SIZE
     partition_size = (partition_end - partition_start + 1) * SECTOR_SIZE
     if partition_size < 1024 * 1024:
         raise AssertionError("Linux root partition is unexpectedly small")
-    if allocated_bytes < partition_offset + SECTOR_SIZE:
-        raise AssertionError("raw image root partition is not materially allocated")
-
     superblock = _read(
         image,
         partition_offset + 1024,
@@ -126,6 +170,8 @@ def _validate_ext4_root(image, partition_start, partition_end, allocated_bytes):
     if incompat_features & 0x80 and descriptor_size != 64:
         raise AssertionError("Linux root filesystem descriptor geometry is invalid")
 
+    blocks_per_group = struct.unpack_from("<I", superblock, 32)[0]
+    inodes_per_group = struct.unpack_from("<I", superblock, 40)[0]
     descriptor_block = 2 if block_size == 1024 else 1
     descriptor = _read(
         image,
@@ -133,9 +179,62 @@ def _validate_ext4_root(image, partition_start, partition_end, allocated_bytes):
         descriptor_size,
         "Linux root filesystem group descriptor is truncated",
     )
+    block_bitmap = struct.unpack_from("<I", descriptor, 0)[0]
+    inode_bitmap = struct.unpack_from("<I", descriptor, 4)[0]
     inode_table = struct.unpack_from("<I", descriptor, 8)[0]
     if descriptor_size == 64:
+        block_bitmap |= struct.unpack_from("<I", descriptor, 32)[0] << 32
+        inode_bitmap |= struct.unpack_from("<I", descriptor, 36)[0] << 32
         inode_table |= struct.unpack_from("<I", descriptor, 40)[0] << 32
+    group_end = min(blocks, blocks_per_group)
+    inode_table_blocks = (
+        inodes_per_group * inode_size + block_size - 1
+    ) // block_size
+    metadata_blocks = [
+        (block_bitmap, 1),
+        (inode_bitmap, 1),
+        (inode_table, inode_table_blocks),
+    ]
+    for metadata_index, (metadata_start, metadata_length) in enumerate(metadata_blocks):
+        if (
+            metadata_start == 0
+            or metadata_start + metadata_length > group_end
+            or any(
+                metadata_start < other_start + other_length
+                and other_start < metadata_start + metadata_length
+                for other_index, (other_start, other_length) in enumerate(metadata_blocks)
+                if other_index != metadata_index
+            )
+        ):
+            raise AssertionError("Linux root filesystem allocation metadata overlaps")
+
+    data_ranges = physical_ranges or _physical_data_ranges(
+        image,
+        partition_offset,
+        partition_offset + partition_size,
+    )
+    for metadata_start, metadata_length in metadata_blocks:
+        metadata_offset = partition_offset + metadata_start * block_size
+        if not _range_fully_allocated(
+            data_ranges,
+            metadata_offset,
+            metadata_offset + metadata_length * block_size,
+        ):
+            raise AssertionError("Linux root filesystem metadata is not allocated")
+    block_bitmap_data = _read(
+        image,
+        partition_offset + block_bitmap * block_size,
+        block_size,
+        "Linux root filesystem block bitmap is truncated",
+    )
+    inode_bitmap_data = _read(
+        image,
+        partition_offset + inode_bitmap * block_size,
+        block_size,
+        "Linux root filesystem inode bitmap is truncated",
+    )
+    if not (inode_bitmap_data[0] & (1 << 1)):
+        raise AssertionError("Linux root inode is not marked allocated")
     inode_offset = partition_offset + inode_table * block_size + inode_size
     if inode_offset + inode_size > partition_offset + partition_size:
         raise AssertionError("Linux root inode is outside the root partition")
@@ -153,8 +252,25 @@ def _validate_ext4_root(image, partition_start, partition_end, allocated_bytes):
     logical, length, start_high, start_low = struct.unpack_from("<IHHI", extent, 12)
     length &= 0x7FFF
     physical = start_low | (start_high << 32)
-    if logical != 0 or length == 0 or physical + length > blocks:
+    if (
+        logical != 0
+        or length == 0
+        or physical + length > blocks
+        or physical + length > blocks_per_group
+    ):
         raise AssertionError("Linux root inode extent is outside the filesystem")
+    if any(
+        not (block_bitmap_data[(block // 8)] & (1 << (block % 8)))
+        for block in range(physical, physical + length)
+    ):
+        raise AssertionError("Linux root inode extent is not marked allocated")
+    extent_offset = partition_offset + physical * block_size
+    if not _range_fully_allocated(
+        data_ranges,
+        extent_offset,
+        extent_offset + length * block_size,
+    ):
+        raise AssertionError("Linux root inode extent is not physically allocated")
     root_data = _read(
         image,
         partition_offset + physical * block_size,
@@ -186,7 +302,7 @@ def _validate_ext4_root(image, partition_start, partition_end, allocated_bytes):
         raise AssertionError("Linux root directory entries are not usable")
 
 
-def _validate(image, size, allocated_bytes):
+def _validate(image, size, physical_ranges=None):
     if size == 0 or size % SECTOR_SIZE:
         raise AssertionError("raw image size is empty or not sector aligned")
     total_sectors = size // SECTOR_SIZE
@@ -249,17 +365,17 @@ def _validate(image, size, allocated_bytes):
     roots = [(start, end) for start, end, kind in partitions if kind == LINUX_ROOT_X86_64]
     if not roots:
         raise AssertionError("raw image has no Linux x86-64 root partition")
-    _validate_ext4_root(image, roots[0][0], roots[0][1], allocated_bytes)
+    _validate_ext4_root(image, roots[0][0], roots[0][1], physical_ranges)
 
 
-def validate_bytes(data):
-    _validate(io.BytesIO(data), len(data), len(data))
+def validate_bytes(data, physical_ranges=None):
+    _validate(io.BytesIO(data), len(data), physical_ranges)
 
 
 def validate(path):
     stat = path.stat()
     with path.open("rb") as image:
-        _validate(image, stat.st_size, stat.st_blocks * 512)
+        _validate(image, stat.st_size)
     print(
         "validated raw image: protective MBR, CRC-valid GPT, Linux root ext4 "
         "extent, allocated content (%d bytes)" % stat.st_size
