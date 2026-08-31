@@ -1,7 +1,12 @@
 load("@bazel_skylib//rules:diff_test.bzl", "diff_test")
 load("@rules_python//python:defs.bzl", "py_test")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
-load("//mkosi:defs.bzl", "mkosi_image", "qemu_ovmf_smoke_test")
+load(
+    "//mkosi:defs.bzl",
+    "mkosi_image",
+    "qemu_ovmf_boot_test",
+    "qemu_ovmf_smoke_test",
+)
 load("//mkosi/debian:toolchain.bzl", "debian_tools_launcher_probe", "debian_tools_preflight", "debian_tools_preflight_test")
 load(":debian_snapshot_test.bzl", "debian_snapshot_provider_test")
 load(
@@ -13,7 +18,11 @@ load(
     "root_dependency_test",
     "unsupported_version_test",
 )
-load(":mkosi_image_test.bzl", "mkosi_image_test_suite")
+load(
+    ":mkosi_image_test.bzl",
+    "boot_config_test",
+    "mkosi_image_test_suite",
+)
 
 debian_snapshot_provider_test(
     name = "debian_snapshot_provider_test",
@@ -166,6 +175,24 @@ conflicting_root_test(name = "conflicting_root_test")
 root_dependency_test(name = "root_dependency_test")
 
 mkosi_image_test_suite(name = "analysis_tests")
+
+qemu_ovmf_boot_test(
+    name = "analysis_boot_test",
+    image = ":debian_subject",
+    tags = ["manual"],
+)
+
+boot_config_test(
+    name = "boot_config_test",
+    target_under_test = ":analysis_boot_test_config",
+)
+
+py_test(
+    name = "boot_lifecycle_test",
+    srcs = ["boot_test_unit.py"],
+    data = ["//mkosi/private:boot_test.py"],
+    main = "boot_test_unit.py",
+)
 
 qemu_ovmf_smoke_test(
     name = "qemu_ovmf_smoke_test",
