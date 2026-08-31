@@ -648,6 +648,18 @@ jobs:
         env:
           RESULTS: ${{ join(needs.*.result, ' ') }}
         run: |-
-          case " ${RESULTS} " in
-            *" failure "*|*" cancelled "*) exit 1 ;;
-          esac
+          # Keep this count in sync with the six entries in `needs` above.
+          set -- $RESULTS
+          if [ "$#" -ne 6 ]; then
+            echo "expected six required CI results, got $#" >&2
+            exit 1
+          fi
+          for result; do
+            case "$result" in
+              success) ;;
+              *)
+                echo "required CI job did not succeed: $result" >&2
+                exit 1
+                ;;
+            esac
+          done
