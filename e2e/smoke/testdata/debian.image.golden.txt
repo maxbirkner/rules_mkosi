@@ -1,3 +1,0 @@
-rules_mkosi placeholder image
-format=mkosi-v1
-distribution=debian

@@ -12,7 +12,8 @@ The repository must:
 - Test providers and actions during analysis.
 - Test generated artifacts during execution.
 - Include an independent consumer module using `local_path_override`.
-- Avoid requiring mkosi or image tooling for the initial test suite.
+- Keep portable analysis coverage separate from the dedicated-runner real-image
+  test.
 - Evolve toward Bazel-provided toolchains and offline image inputs.
 
 ## Module policy
@@ -35,16 +36,22 @@ Consumers load rules and providers only from `//mkosi:defs.bzl`. Files below
 `//mkosi/private` are implementation details. The toolchain type is public
 because registration and advanced integrations need a stable label.
 
-The initial `mkosi_image` action writes a deterministic fixture without
-executing a host binary. This is deliberate: it proves rule analysis,
-toolchain resolution, providers, outputs, and consumer usage without claiming
-that mkosi or its host utilities are already hermetic.
+`mkosi_image` exposes only its generated raw image through `MkosiImageInfo`.
+The action invokes the pinned mkosi v27 executable and the pinned Debian 13
+tools tree through registered toolchains. Its target package acquisition is
+networked and its Linux namespace/mount requirements are execution-platform
+properties, so it is explicitly non-cacheable and not a remote- or
+offline-hermetic action. The tracer action forces disk/raw/uncompressed output
+and disables split artifacts; configuration files cannot redirect the declared
+artifact or select a custom format. The configuration label is mandatory and
+must resolve to one file; Bazel rejects multi-file config targets during
+analysis.
 
 The toolchain provider carries the pinned mkosi executable and complete
 runfiles, a Bazel-managed Python runtime, the optional `pefile` dependency
 needed by mkosi's bootable PE inspection paths, and source provenance
-(immutable URL and SHA-256 integrity). Package managers, repartitioning tools,
-QEMU, and image assembly remain outside this milestone.
+(immutable URL and SHA-256 integrity). QEMU and firmware remain outside this
+image-building action and are supplied by their separate toolchain.
 
 ## Test layers
 
@@ -62,11 +69,14 @@ the action. It verifies:
 Analysis tests are the preferred Bazel mechanism for testing rule internals.
 They are fast and isolate Starlark behavior from external tools.
 
-### Artifact projection tests
+### Artifact tests
 
-A `diff_test` currently compares the placeholder's text output with a
-checked-in `.golden.txt` file. Real disk images must never be checked in or
-compared directly. Future rules will derive reviewable text or JSON projections
+Real disk images must never be checked in or compared directly. The real-image
+artifact validator checks the GPT signature, a Linux x86-64 root partition,
+CRC-valid primary and backup metadata, and ext4 allocation metadata. It uses
+the image file descriptor's `SEEK_DATA`/`SEEK_HOLE` ranges to prove that the
+root inode's bitmap-marked directory extent is physically allocated, without
+booting the image. Future rules will derive reviewable text or JSON projections
 and compare those instead:
 
 - mkosi's effective configuration.
@@ -78,11 +88,16 @@ and compare those instead:
 Inspection binaries must be supplied through Bazel toolchains rather than
 assumed to exist on the runner.
 
+The checked-in tracer configurations fix `Seed=` and `SourceDateEpoch=` to
+remove two known sources of variation. This does not claim full image
+reproducibility while target packages are acquired over the network.
+
 ### Consumer module
 
 `e2e/smoke` is an independent Bazel module. It depends on `rules_mkosi` through
 `local_path_override`, registers the public module extension and toolchain,
-builds an image, and runs build and content tests.
+consumes a minimal configuration through the public `mkosi_image` rule, and
+has a manually selected artifact test for the real image.
 
 A nested `MODULE.bazel` does not stop root `//...` traversal. `.bazelignore`
 therefore excludes `e2e/`, and CI invokes the consumer from its own working
@@ -140,7 +155,7 @@ LCOV input to provide. Integration is deferred until either:
    can produce LCOV.
 
 Until then, behavioral coverage is enforced through analysis tests for every
-public rule mode, golden tests of reviewable artifact projections, the
+public rule mode, executed tests of reviewable artifact projections, the
 independent consumer module, and later OVMF/SeaBIOS boot tests. Adding an empty
 coverage job or a zero-information visualization would create a misleading
 quality signal.

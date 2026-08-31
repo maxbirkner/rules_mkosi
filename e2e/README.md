@@ -12,6 +12,12 @@ standard Bzlmod pattern for an extension-provided toolchain: a downstream root
 module opts into the maintained default, while its own root registrations can
 override it.
 
+The smoke consumer supplies a minimal Debian 13 mkosi configuration to the
+public `mkosi_image` rule. Its real-image build and GPT/root-content artifact
+validator are manually selected because they require the network and the
+host-kernel namespace/mount contract; the ordinary smoke suite remains
+portable.
+
 The BCR presubmit has separate Bazel 8 and Bazel 9 tasks. The Bazel 8 task
 uses the committed `e2e/smoke/MODULE.bazel.lock` strictly. The Bazel 9 task
 passes `--lockfile_mode=off` for compatibility because Bazel 9 uses a newer

@@ -1,4 +1,5 @@
 load("@bazel_skylib//rules:diff_test.bzl", "diff_test")
+load("@rules_python//python:defs.bzl", "py_test")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
 load("//mkosi:defs.bzl", "mkosi_image", "qemu_ovmf_smoke_test")
 load("//mkosi/debian:toolchain.bzl", "debian_tools_launcher_probe", "debian_tools_preflight", "debian_tools_preflight_test")
@@ -122,33 +123,78 @@ sh_test(
     data = [":qemu_ovmf_smoke_test"],
 )
 
-mkosi_image(
-    name = "golden_image",
-    distribution = "debian",
-)
-
-diff_test(
-    name = "golden_image_test",
-    file1 = "testdata/debian.image.golden.txt",
-    file2 = ":golden_image",
-)
-
 sh_test(
     name = "mkosi_version_test",
     srcs = ["mkosi_version_test.sh"],
+    args = [
+        "$(rootpath @mkosi_toolchains//:mkosi_python)",
+        "$(rootpath @mkosi_toolchains//:mkosi_script)",
+    ],
     data = [
         "sitecustomize.py",
-        "@mkosi_toolchains//:mkosi",
+        "@mkosi_toolchains//:mkosi_python",
+        "@mkosi_toolchains//:mkosi_runfiles",
+        "@mkosi_toolchains//:mkosi_runtime",
+        "@mkosi_toolchains//:mkosi_script",
     ],
 )
 
 mkosi_image(
-    name = "ubuntu_golden_image",
-    distribution = "ubuntu",
+    name = "real_image",
+    config = "testdata/minimal.conf",
+    tags = ["manual"],
 )
 
-diff_test(
-    name = "ubuntu_golden_image_test",
-    file1 = "testdata/ubuntu.image.golden.txt",
-    file2 = ":ubuntu_golden_image",
+py_test(
+    name = "real_image_artifact_test",
+    srcs = ["raw_image_validator.py"],
+    args = ["$(rootpath :real_image)"],
+    data = [":real_image"],
+    main = "raw_image_validator.py",
+    tags = ["manual"],
+)
+
+py_test(
+    name = "override_image_artifact_test",
+    srcs = ["raw_image_validator.py"],
+    args = ["$(rootpath :override_subject)"],
+    data = [":override_subject"],
+    main = "raw_image_validator.py",
+    tags = ["manual"],
+)
+
+py_test(
+    name = "raw_image_validator_test",
+    srcs = [
+        "raw_image_validator.py",
+        "raw_image_validator_test.py",
+    ],
+    main = "raw_image_validator_test.py",
+)
+
+py_test(
+    name = "raw_image_corruption_test",
+    srcs = [
+        "raw_image_corruption_test.py",
+        "raw_image_validator.py",
+    ],
+    args = ["$(rootpath :real_image)"],
+    data = [":real_image"],
+    main = "raw_image_corruption_test.py",
+    tags = ["manual"],
+)
+
+py_test(
+    name = "mkosi_config_test",
+    srcs = ["mkosi_config_test.py"],
+    args = ["$(rootpath testdata/minimal.conf)"],
+    data = ["testdata/minimal.conf"],
+)
+
+filegroup(
+    name = "invalid_mkosi_config",
+    srcs = [
+        "testdata/minimal.conf",
+        "testdata/redirect.conf",
+    ],
 )

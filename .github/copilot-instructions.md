@@ -30,6 +30,8 @@ Linux images with mkosi.
   commit SHAs with a version comment.
 - Use `prek` as the only formatting and linting entry point. Do not duplicate
   individual formatter commands in documentation or CI.
+- Gitleaks configuration must extend the built-in rules unless a full
+  replacement is intentional and documented; keep allowlists path-specific.
 - Follow the canonical validation commands and nested-module rationale in
   `CONTRIBUTING.md`.
 - Keep pull requests small and single-purpose. Do not expand a feature PR with

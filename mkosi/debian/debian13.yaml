@@ -15,8 +15,10 @@ packages:
   - bubblewrap
   - btrfs-progs
   - ca-certificates
+  - coreutils
   - debian-archive-keyring
   - debootstrap
+  - diffutils
   - dpkg
   - dosfstools
   - e2fsprogs
@@ -24,6 +26,7 @@ packages:
   - grub-efi-amd64-bin
   - grub2-common
   - libarchive-tools
+  - libc-bin
   - parted
   - systemd
   - systemd-boot

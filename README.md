@@ -87,11 +87,11 @@ The lockfile's package SHA-256 values are the immutable download trust roots.
 Package-index signature verification is intentionally not advertised because
 the resolver does not currently perform that check.
 The launcher intentionally leaves the network namespace shared: Bazel's
-declared network policy remains the authority for future mkosi/package
-acquisition actions. Issue #6 isolates the packaged filesystem and runtime
-state, rather than silently forcing offline execution; the TLS regression is
-offline in the sense that it verifies the deterministic packaged CA bundle
-without contacting a server.
+declared network policy is the authority for mkosi's target-package
+acquisition. Issue #6 isolates the packaged filesystem and runtime state,
+rather than silently forcing offline execution; the TLS regression is offline
+in the sense that it verifies the deterministic packaged CA bundle without
+contacting a server.
 
 The default `.bazelversion` is Bazel 8.5.1, matching the checked-in Bzlmod
 lockfile format. CI runs the root and independent consumer suites on pinned
@@ -135,7 +135,7 @@ load("@rules_mkosi//mkosi:defs.bzl", "mkosi_image")
 
 mkosi_image(
     name = "demo",
-    distribution = "debian",
+    config = "mkosi.conf",
 )
 ```
 
@@ -143,9 +143,19 @@ Development and test commands are documented once in
 [CONTRIBUTING.md](CONTRIBUTING.md). The independent consumer module is
 described in [`e2e/README.md`](e2e/README.md).
 
-The current `mkosi_image` still produces a deterministic text fixture rather
-than a bootable image. Image assembly and its host-capability contract are
-later milestones.
+`mkosi_image` declares a single `<name>.raw` output and consumes one mkosi
+configuration file. It invokes the pinned mkosi v27 executable and the
+extracted Debian 13 tools tree through their registered toolchains, with an
+empty ambient `PATH`; no host executable lookup or shebang launcher is used.
+The configuration label is mandatory and must resolve to exactly one file;
+invalid file targets fail during Bazel analysis.
+The rule overrides config output settings to `Format=disk`, `OutputExtension=raw`,
+`CompressOutput=none`, and no split artifacts, so custom formats and redirected
+outputs are not part of this tracer contract. The minimal tracer configuration
+may acquire target Debian packages over the network, so the action is
+explicitly non-cacheable, does not use remote execution, and requires a Linux
+x86-64 execution platform with the namespace and mount capabilities in the
+host-kernel contract. It is not an offline or remote-execution-hermetic action.
 
 Before adding an image action, run the explicitly sandboxed
 `//mkosi/private:kernel_preflight_host_test` on the intended Linux execution

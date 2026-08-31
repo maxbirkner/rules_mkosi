@@ -4,6 +4,9 @@ def _toolchains_repo_impl(repository_ctx):
     python_label = "@python_{}//:python3".format(
         repository_ctx.attr.python_version.replace(".", "_"),
     )
+    python_runtime_label = "@python_{}//:files".format(
+        repository_ctx.attr.python_version.replace(".", "_"),
+    )
     repository_ctx.download_and_extract(
         url = repository_ctx.attr.source_url,
         sha256 = repository_ctx.attr.source_sha256,
@@ -16,60 +19,29 @@ def _toolchains_repo_impl(repository_ctx):
     )
 
     mkosi_build = '''load("@rules_mkosi//mkosi:toolchain.bzl", "mkosi_toolchain")
-load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
 
 package(default_visibility = ["//visibility:public"])
 
-genrule(
-    name = "mkosi_launcher_script",
-    outs = ["mkosi_launcher.sh"],
+filegroup(
+    name = "mkosi_runfiles",
     srcs = glob(["mkosi/**/*.py", "mkosi/resources/**"]) + [
         {python_label_repr},
     ] + {python_dependencies},
-    cmd = """cat > "$@" <<'EOF'
-#!/bin/sh
-set -eu
-runfiles_root="$${{RUNFILES_DIR:-$$0.runfiles}}"
-python_path="$(rootpath {python_label})"
-main_path="$(rootpath mkosi/__main__.py)"
-dependency_paths="$(locations {python_import_dependency})"
-for dependency_path in $$dependency_paths
-do
-    case "$$dependency_path" in
-        */pefile.py) break ;;
-    esac
-done
-main_path="$${{main_path#../}}"
-python_path="$${{python_path#external/}}"
-main_path="$${{main_path#external/}}"
-dependency_path="$${{dependency_path#../}}"
-dependency_path="$${{dependency_path#external/}}"
-PYTHONPATH="$$runfiles_root/$${{main_path%/mkosi/__main__.py}}:$$runfiles_root/$${{dependency_path%/pefile.py}}:$${{PYTHONPATH:-}}" \
-export PYTHONPATH
-python_executable="$$runfiles_root/$${{python_path#../}}"
-main_executable="$$runfiles_root/$$main_path"
-if [ "$$#" -ge 2 ] && [ "$$1" = "--write-version" ]; then
-    version_file="$$2"
-    "$$python_executable" "$$main_executable" --version > "$$version_file"
-    exit 0
-fi
-exec "$$python_executable" "$$main_executable" "$$@"
-EOF
-chmod +x "$@"
-""",
 )
 
-sh_binary(
-    name = "mkosi_cli",
-    srcs = [":mkosi_launcher_script"],
-    data = glob(["mkosi/**/*.py", "mkosi/resources/**"]) + [
-        {python_label_repr},
-    ] + {python_dependencies},
+filegroup(
+    name = "mkosi_script",
+    srcs = ["mkosi/__main__.py"],
+)
+
+filegroup(
+    name = "mkosi_runtime",
+    srcs = [{python_runtime_label_repr}],
 )
 
 alias(
-    name = "mkosi",
-    actual = ":mkosi_cli",
+    name = "mkosi_python",
+    actual = {python_label_repr},
 )
 
 mkosi_toolchain(
@@ -80,7 +52,11 @@ mkosi_toolchain(
     source_sha256 = {source_sha256},
     source_integrity = {source_integrity},
     python_version = {python_version},
-    executable = ":mkosi_cli",
+    python = {python_label_repr},
+    python_runtime = {python_runtime_label_repr},
+    script = "mkosi/__main__.py",
+    python_dependency = {python_import_dependency_repr},
+    runfiles = ":mkosi_runfiles",
 )
 
 toolchain(
@@ -101,8 +77,9 @@ toolchain(
         python_version = repr(repository_ctx.attr.python_version),
         python_label = python_label,
         python_label_repr = repr(python_label),
+        python_runtime_label_repr = repr(python_runtime_label),
         python_dependencies = repr(repository_ctx.attr.python_dependencies),
-        python_import_dependency = repository_ctx.attr.python_import_dependencies[0],
+        python_import_dependency_repr = repr(repository_ctx.attr.python_import_dependencies[0]),
     )
 
     qemu_build = '''load("@rules_mkosi//mkosi:defs.bzl", "qemu_executable", "qemu_ovmf_toolchain")

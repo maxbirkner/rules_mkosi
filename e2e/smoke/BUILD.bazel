@@ -1,22 +1,28 @@
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
-load("@bazel_skylib//rules:diff_test.bzl", "diff_test")
 load("@rules_mkosi//mkosi:defs.bzl", "mkosi_image", "qemu_ovmf_smoke_test")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
-load(":public_api_test.bzl", "public_api_test")
+load(":public_api_test.bzl", "image_public_api_test", "public_api_test")
 
 mkosi_image(
     name = "demo",
-    distribution = "debian",
+    config = "testdata/minimal.conf",
+    tags = ["manual"],
 )
 
 build_test(
     name = "demo_build_test",
+    tags = ["manual"],
     targets = [":demo"],
 )
 
 public_api_test(
     name = "debian_tools_public_provider_test",
     target_under_test = "@mkosi_debian_tools//:toolchain",
+)
+
+image_public_api_test(
+    name = "image_public_provider_test",
+    target_under_test = ":demo",
 )
 
 build_test(
@@ -32,18 +38,19 @@ build_test(
     ],
 )
 
-diff_test(
-    name = "demo_content_test",
-    file1 = "testdata/debian.image.golden.txt",
-    file2 = ":demo",
-)
-
 sh_test(
     name = "mkosi_version_test",
     srcs = ["mkosi_version_test.sh"],
+    args = [
+        "$(rootpath @mkosi_toolchains//:mkosi_python)",
+        "$(rootpath @mkosi_toolchains//:mkosi_script)",
+    ],
     data = [
         "sitecustomize.py",
-        "@mkosi_toolchains//:mkosi",
+        "@mkosi_toolchains//:mkosi_python",
+        "@mkosi_toolchains//:mkosi_runfiles",
+        "@mkosi_toolchains//:mkosi_runtime",
+        "@mkosi_toolchains//:mkosi_script",
     ],
 )
 
@@ -51,13 +58,56 @@ qemu_ovmf_smoke_test(
     name = "qemu_ovmf_smoke_test",
 )
 
-mkosi_image(
-    name = "ubuntu_demo",
-    distribution = "ubuntu",
+sh_test(
+    name = "demo_artifact_test",
+    srcs = ["raw_image_validator_test.sh"],
+    args = [
+        "$(rootpath :demo)",
+        "$(rootpath raw_image_validator.py)",
+        "$(rootpath @mkosi_debian_python//:bin/python3.11)",
+    ],
+    data = [
+        "raw_image_validator.py",
+        ":demo",
+        "@mkosi_debian_python//:bin/python3.11",
+    ],
+    tags = ["manual"],
 )
 
-diff_test(
-    name = "ubuntu_demo_content_test",
-    file1 = "testdata/ubuntu.image.golden.txt",
-    file2 = ":ubuntu_demo",
+sh_test(
+    name = "raw_image_validator_test",
+    srcs = ["raw_image_validator_unit_test.sh"],
+    args = [
+        "$(rootpath raw_image_validator_test.py)",
+        "$(rootpath @mkosi_debian_python//:bin/python3.11)",
+    ],
+    data = [
+        "raw_image_validator.py",
+        "raw_image_validator_test.py",
+        "@mkosi_debian_python//:bin/python3.11",
+    ],
+)
+
+sh_test(
+    name = "raw_image_corruption_test",
+    srcs = ["raw_image_corruption_test.sh"],
+    args = [
+        "$(rootpath raw_image_corruption_test.py)",
+        "$(rootpath @mkosi_debian_python//:bin/python3.11)",
+        "$(rootpath :demo)",
+    ],
+    data = [
+        "raw_image_corruption_test.py",
+        "raw_image_validator.py",
+        ":demo",
+        "@mkosi_debian_python//:bin/python3.11",
+    ],
+    tags = ["manual"],
+)
+
+sh_test(
+    name = "mkosi_config_test",
+    srcs = ["mkosi_config_test.sh"],
+    args = ["$(rootpath testdata/minimal.conf)"],
+    data = ["testdata/minimal.conf"],
 )

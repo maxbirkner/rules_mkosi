@@ -10,9 +10,16 @@ cd "$root"
 
 case "$fixture" in
     default|explicit)
-        version="$("$bazel_command" --nosystem_rc --nohome_rc \
-            run --lockfile_mode="$lockfile_mode" @mkosi_toolchains//:mkosi -- --version)"
-        [ "$version" = "mkosi 27" ]
+        definition="$("$bazel_command" --nosystem_rc --nohome_rc \
+            query --lockfile_mode="$lockfile_mode" @mkosi_toolchains//:mkosi_toolchain --output=build)"
+        case "$definition" in
+            *'version = "27"'*) ;;
+            *)
+                echo "mkosi toolchain did not resolve to version 27" >&2
+                echo "$definition" >&2
+                exit 1
+                ;;
+        esac
         ;;
     unsupported)
         expected="Unsupported mkosi version 26. Supported versions: 27."

@@ -353,12 +353,9 @@ def _run(tool, arguments, root, ro_binds, rw_binds, scratch_parent):
 
 def main():
     if len(sys.argv) < 2:
-        print("usage: debian-launcher [--write-version OUTPUT|--write-image ...] /absolute/tool [args...]", file=sys.stderr)
+        print("usage: debian-launcher [--write-version OUTPUT] /absolute/tool [args...]", file=sys.stderr)
         return 2
     output = None
-    image_output = None
-    image_distribution = None
-    image_format = None
     arguments = sys.argv[1:]
     if arguments[0] == "--write-version":
         if len(arguments) < 3:
@@ -366,13 +363,6 @@ def main():
             return 2
         output = arguments[1]
         arguments = arguments[2:]
-    elif arguments[0] == "--write-image":
-        if len(arguments) < 6:
-            print("usage: --write-image IMAGE VERSION DISTRIBUTION FORMAT /absolute/tool [args...]", file=sys.stderr)
-            return 2
-        image_output, output, image_distribution, image_format = arguments[1:5]
-        arguments = arguments[5:]
-
     ro_binds, rw_binds = _validate_binds(arguments)
     if not arguments:
         print("tool path is required", file=sys.stderr)
@@ -397,11 +387,6 @@ def main():
     if output:
         with open(output, "w", encoding="utf-8") as version:
             version.write("Debian tool probe: %s\n" % tool)
-    if image_output:
-        with open(image_output, "w", encoding="utf-8") as image:
-            image.write("rules_mkosi placeholder image\n")
-            image.write("format=%s\n" % image_format)
-            image.write("distribution=%s\n" % image_distribution)
     return status
 
 
