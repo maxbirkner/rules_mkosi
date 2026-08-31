@@ -201,6 +201,12 @@ def _mkosi_image_impl(ctx):
     arguments = ctx.actions.args()
     arguments.add(ctx.file._run_script.path)
     arguments.add(mkosi.script.path)
+    arguments.add("--debian-tools-archive")
+    arguments.add(debian_tools.tree.path)
+    arguments.add("--debian-tools-extractor")
+    arguments.add(debian_tools.extractor.path)
+    arguments.add("--debian-tools-sha256")
+    arguments.add(debian_tools.archive_sha256)
     if config_is_directory:
         for path in ctx.attr.config_tree[MkosiConfigTreeInfo].executable_paths:
             arguments.add("--executable-path")
@@ -216,14 +222,14 @@ def _mkosi_image_impl(ctx):
     if staging:
         arguments.add("-C")
         arguments.add(staging.tree.path)
-        if not config_is_directory:
+        if not config_is_directory and config.basename != "mkosi.conf":
             arguments.add("-I")
-            arguments.add(staging.path + "/" + config.basename)
+            arguments.add(staging.tree.path + "/" + config.basename)
     else:
         arguments.add("-I")
         arguments.add(config.path)
     arguments.add("--tools-tree")
-    arguments.add(debian_tools.tree_root.path)
+    arguments.add(workspace + "/debian-tools")
     arguments.add("--extra-search-path")
     arguments.add(pefile_root)
     arguments.add("--format=disk")
@@ -251,7 +257,7 @@ def _mkosi_image_impl(ctx):
         executable = mkosi.python,
         arguments = [arguments],
         inputs = depset(
-            [config, mkosi.script, ctx.file._run_script, mkosi.pefile, debian_tools.tree_root] +
+            [config, mkosi.script, ctx.file._run_script, mkosi.pefile, debian_tools.tree, debian_tools.extractor] +
             ([staging.tree, staging.manifest] if staging else []),
             transitive = [mkosi.runfiles_files, mkosi.python_runtime_files],
         ),

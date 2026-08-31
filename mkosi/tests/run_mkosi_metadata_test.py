@@ -1,6 +1,7 @@
 """Regression tests for the wrapper's input-root and metadata handling."""
 
 import importlib.util
+import json
 import os
 import pathlib
 import stat
@@ -53,6 +54,26 @@ def main():
     _assert_normalized(root / "out-second")
     assert (root / "out-first/file-target").read_bytes() == (root / "out-second/file-target").read_bytes()
     assert first != second
+
+    restored = root / "restored"
+    restored.mkdir()
+    (restored / "target").write_text("target\n")
+    (restored / "link").write_text("materialized link\n")
+    manifest = root / "manifest.json"
+    manifest.write_text(
+        json.dumps(
+            [
+                {
+                    "kind": "symlink",
+                    "link_target": "target",
+                    "path": "link",
+                },
+            ]
+        )
+    )
+    wrapper._restore_manifest_links(restored, manifest)
+    assert (restored / "link").is_symlink()
+    assert (restored / "link").lstat().st_mtime == 0
     print("materialized metadata and relative links are deterministic")
 
 

@@ -1,8 +1,9 @@
 #!/usr/bin/python3
 """Run mkosi after resolving Bazel paths before mkosi changes directory."""
 
-import os
+import importlib.util
 import json
+import os
 import runpy
 import shutil
 import sys
@@ -122,6 +123,7 @@ def _restore_manifest_links(destination, manifest_path):
         if not link_target or os.path.isabs(link_target):
             raise SystemExit("invalid staging manifest link")
         target.symlink_to(link_target)
+        os.utime(target, _EPOCH, follow_symlinks=False)
     directories = []
     for root, dirnames, _ in os.walk(destination, followlinks=False):
         directories.append(Path(root))
@@ -134,6 +136,22 @@ def _restore_manifest_links(destination, manifest_path):
         os.utime(path, _EPOCH)
 
 
+def _extract_debian_tools(archive, extractor_path, expected_digest, destination):
+    if destination.is_symlink():
+        raise SystemExit("Debian tools destination is a symlink")
+    if destination.exists():
+        shutil.rmtree(destination)
+    extractor_spec = importlib.util.spec_from_file_location(
+        "mkosi_debian_extract_tree",
+        extractor_path,
+    )
+    if extractor_spec is None or extractor_spec.loader is None:
+        raise SystemExit("Debian tools extractor cannot be loaded")
+    extractor = importlib.util.module_from_spec(extractor_spec)
+    extractor_spec.loader.exec_module(extractor)
+    extractor.extract(archive, destination, expected_digest)
+
+
 def main():
     if len(sys.argv) < 3:
         raise SystemExit("usage: run_mkosi.py MKOSI_SCRIPT [--executable-path PATH] -- [mkosi arguments]")
@@ -141,6 +159,9 @@ def main():
     preamble_end = 2
     executable_paths = []
     staging_manifest = None
+    debian_tools_archive = None
+    debian_tools_extractor = None
+    debian_tools_sha256 = None
     while preamble_end < len(sys.argv) and sys.argv[preamble_end] != "--":
         option = sys.argv[preamble_end]
         if option == "--executable-path" and preamble_end + 1 < len(sys.argv):
@@ -148,6 +169,15 @@ def main():
             preamble_end += 2
         elif option == "--staging-manifest" and preamble_end + 1 < len(sys.argv):
             staging_manifest = os.path.abspath(sys.argv[preamble_end + 1])
+            preamble_end += 2
+        elif option == "--debian-tools-archive" and preamble_end + 1 < len(sys.argv):
+            debian_tools_archive = os.path.abspath(sys.argv[preamble_end + 1])
+            preamble_end += 2
+        elif option == "--debian-tools-extractor" and preamble_end + 1 < len(sys.argv):
+            debian_tools_extractor = os.path.abspath(sys.argv[preamble_end + 1])
+            preamble_end += 2
+        elif option == "--debian-tools-sha256" and preamble_end + 1 < len(sys.argv):
+            debian_tools_sha256 = sys.argv[preamble_end + 1]
             preamble_end += 2
         else:
             raise SystemExit("invalid run_mkosi.py preamble")
@@ -164,6 +194,26 @@ def main():
             for path in sys.path
         ]
     arguments = _absolute_paths(sys.argv[preamble_end + 1 :])
+    debian_options = (
+        debian_tools_archive,
+        debian_tools_extractor,
+        debian_tools_sha256,
+    )
+    if any(debian_options) and not all(debian_options):
+        raise SystemExit("incomplete Debian tools archive configuration")
+    if all(debian_options):
+        workspace = Path(arguments[arguments.index("--workspace-directory") + 1])
+        tools_root = Path(arguments[arguments.index("--tools-tree") + 1])
+        expected_tools_root = workspace / "debian-tools"
+        if tools_root != expected_tools_root:
+            raise SystemExit("Debian tools destination must be inside the mkosi workspace")
+        workspace.mkdir(parents=True, exist_ok=True)
+        _extract_debian_tools(
+            debian_tools_archive,
+            debian_tools_extractor,
+            debian_tools_sha256,
+            tools_root,
+        )
     if "-C" in arguments:
         directory = Path(arguments[arguments.index("-C") + 1])
         workspace = Path(arguments[arguments.index("--workspace-directory") + 1])

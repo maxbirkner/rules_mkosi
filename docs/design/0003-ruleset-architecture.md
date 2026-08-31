@@ -38,8 +38,11 @@ because registration and advanced integrations need a stable label.
 
 `mkosi_image` exposes only its generated raw image through `MkosiImageInfo`.
 The action invokes the pinned mkosi v27 executable and the pinned Debian 13
-tools tree through registered toolchains. Its target package acquisition is
-networked and its Linux namespace/mount requirements are execution-platform
+tools tree through registered toolchains. The toolchain crosses Bazel's cache
+boundary as an authenticated regular tar artifact; the image wrapper extracts
+it into action-local workspace storage so merged-`/usr` symlinks never need to
+be replayed as a directory artifact. Target package acquisition is networked
+and the action's Linux namespace/mount requirements are execution-platform
 properties, so it is explicitly non-cacheable and not a remote- or
 offline-hermetic action. The tracer action forces disk/raw/uncompressed output
 and disables split artifacts; configuration files cannot redirect the declared

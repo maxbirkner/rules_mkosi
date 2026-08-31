@@ -29,7 +29,9 @@ def _provider_test_impl(ctx):
     asserts.equals(env, "MkosiImage", actions[0].mnemonic)
     action_inputs = [file.basename for file in actions[0].inputs.to_list()]
     asserts.true(env, ctx.attr.expected_config in action_inputs)
-    asserts.true(env, "tree_root_root" in action_inputs)
+    asserts.true(env, "flat.tar" in action_inputs)
+    asserts.true(env, "extract_tree.py" in action_inputs)
+    asserts.false(env, "tree_root_root" in action_inputs)
     asserts.true(env, "python3" in action_inputs, "managed Python is an action input")
     asserts.true(env, "libpython3.11.so.1.0" in action_inputs, "Python library is an action input")
     asserts.true(env, "os.py" in action_inputs, "Python standard library is an action input")
@@ -37,7 +39,6 @@ def _provider_test_impl(ctx):
     asserts.true(env, "pefile.py" in action_inputs, "pefile is an action input")
     asserts.false(env, "mkosi_cli" in action_inputs)
     asserts.false(env, "mkosi_launcher.sh" in action_inputs)
-    asserts.false(env, "flat.tar" in action_inputs)
     asserts.false(env, "launcher" in action_inputs)
     asserts.equals(env, 1, len(actions[0].outputs.to_list()))
     asserts.equals(env, ctx.attr.expected_output, actions[0].outputs.to_list()[0].basename)
@@ -45,11 +46,21 @@ def _provider_test_impl(ctx):
     asserts.true(env, argv[0].endswith("python3"))
     asserts.true(env, argv[1].endswith("/run_mkosi.py"))
     asserts.true(env, argv[2].endswith("/mkosi/__main__.py"))
-    asserts.equals(env, "--", argv[3])
+    asserts.equals(env, "--debian-tools-archive", argv[3])
+    asserts.true(env, argv[4].endswith("/flat.tar"))
+    asserts.equals(env, "--debian-tools-extractor", argv[5])
+    asserts.true(env, argv[6].endswith("/extract_tree.py"))
+    asserts.equals(env, "--debian-tools-sha256", argv[7])
+    asserts.equals(
+        env,
+        "ebc174414d5291b2f06597dd72b8c210e99442dc316aad6a9e020590040c3fbb",
+        argv[8],
+    )
+    asserts.equals(env, "--", argv[9])
     include = argv.index("-I")
     asserts.true(env, argv[include + 1].endswith(ctx.attr.expected_config))
     tools = argv.index("--tools-tree")
-    asserts.true(env, argv[tools + 1].endswith("tree_root_root"))
+    asserts.true(env, argv[tools + 1].endswith("/debian-tools"))
     search = argv.index("--extra-search-path")
     asserts.true(env, argv[search + 1].endswith("site-packages"))
     asserts.true(env, "--format=disk" in argv)
@@ -229,6 +240,27 @@ def _tree_provider_test_impl(ctx):
     return analysistest.end(env)
 
 _tree_provider_test = analysistest.make(_tree_provider_test_impl)
+
+def _legacy_staged_config_test_impl(ctx):
+    env = analysistest.begin(ctx)
+    actions = analysistest.target_actions(env)
+    image = [action for action in actions if action.mnemonic == "MkosiImage"][0]
+    directory = image.argv.index("-C")
+    asserts.true(env, image.argv[directory + 1].endswith(".mkosi"))
+    if ctx.attr.expect_include:
+        include = image.argv.index("-I")
+        asserts.true(env, image.argv[include + 1].endswith("/" + ctx.attr.expected_basename))
+    else:
+        asserts.false(env, "-I" in image.argv)
+    return analysistest.end(env)
+
+_legacy_staged_config_test = analysistest.make(
+    _legacy_staged_config_test_impl,
+    attrs = {
+        "expect_include": attr.bool(mandatory = True),
+        "expected_basename": attr.string(mandatory = True),
+    },
+)
 
 def _invalid_tree_mapping_test_impl(ctx):
     env = analysistest.begin(ctx)
@@ -410,6 +442,32 @@ def mkosi_image_test_suite(name):
         expected_name = "override_subject",
         expected_output = "override_subject.raw",
         target_under_test = ":override_subject",
+    )
+
+    mkosi_image(
+        name = "legacy_default_name_subject",
+        config = "testdata/config-tree/mkosi.conf",
+        source_trees = {"src": ":source_tree"},
+        tags = ["manual"],
+    )
+    _legacy_staged_config_test(
+        name = "legacy_default_name_test",
+        expect_include = False,
+        expected_basename = "mkosi.conf",
+        target_under_test = ":legacy_default_name_subject",
+    )
+
+    mkosi_image(
+        name = "legacy_alternate_name_subject",
+        config = "testdata/minimal.conf",
+        source_trees = {"src": ":source_tree"},
+        tags = ["manual"],
+    )
+    _legacy_staged_config_test(
+        name = "legacy_alternate_name_test",
+        expect_include = True,
+        expected_basename = "minimal.conf",
+        target_under_test = ":legacy_alternate_name_subject",
     )
 
     mkosi_image(
@@ -710,6 +768,8 @@ def mkosi_image_test_suite(name):
             ":debian_provider_test",
             ":output_override_provider_test",
             ":config_tree_provider_test",
+            ":legacy_default_name_test",
+            ":legacy_alternate_name_test",
             ":traversal_tree_mapping_test",
             ":collision_tree_mapping_test",
             ":duplicate_tree_mapping_test",

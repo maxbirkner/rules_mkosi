@@ -78,6 +78,20 @@ py_test(
     main = "debian_snapshot_unit_test.py",
 )
 
+py_test(
+    name = "debian_tools_archive_boundary_test",
+    srcs = ["debian_tools_archive_boundary_test.py"],
+    args = [
+        "$(rootpath @mkosi_debian_tools//:tree)",
+        "$(rootpath //mkosi/debian:extract_tree.py)",
+    ],
+    data = [
+        "//mkosi/debian:extract_tree.py",
+        "@mkosi_debian_tools//:tree",
+    ],
+    main = "debian_tools_archive_boundary_test.py",
+)
+
 default_version_test(name = "default_version_test")
 
 explicit_version_test(name = "explicit_version_test")

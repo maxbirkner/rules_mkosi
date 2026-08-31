@@ -64,12 +64,13 @@ The Debian build-time userspace is pinned to Debian 13 (trixie), `amd64`,
 and snapshot `20250814T000000Z`. The checked-in lockfile pins every package
 URL, version, dependency edge, and SHA-256 digest. A repository fetches those
 immutable `.deb` inputs, and a static-Python archive action builds the
-deterministic tree without shell, compiler, or host archive tools. The
-`@mkosi_debian_tools//:linux_x86_64` toolchain exposes the extracted
-TreeArtifact, root-isolated launcher, and provenance through
-`DebianToolsInfo`; image actions invoke the pinned mkosi Python entrypoint
-directly with its managed Python runtime, package dependencies, and an empty
-ambient `PATH`. The initial tracer set
+deterministic tree archive without shell, compiler, or host archive tools. The
+`@mkosi_debian_tools//:linux_x86_64` toolchain exposes that archive, a
+compatibility TreeArtifact, the root-isolated launcher, and provenance through
+`DebianToolsInfo`. Image actions transport the regular archive through Bazel's
+cache boundary and extract it into action-local workspace storage before
+invoking the pinned mkosi Python entrypoint with its managed Python runtime,
+package dependencies, and an empty ambient `PATH`. The initial tracer set
 includes APT/dpkg bootstrap tools, `systemd-repart`, filesystem and partition
 utilities, GRUB/systemd-boot UEFI tools, `objcopy`, and their locked runtime
 dependencies. Target image package acquisition remains out of scope.
@@ -214,8 +215,11 @@ described in [`e2e/README.md`](e2e/README.md).
 `mkosi_image` declares a single `<name>.raw` output and consumes either one
 mkosi configuration file through `config` or one explicitly typed configuration
 tree through `config_tree`. It invokes the pinned mkosi v27 executable and the
-extracted Debian 13 tools tree through their registered toolchains, with an
-empty ambient `PATH`; no host executable lookup or shebang launcher is used.
+extracted Debian 13 tools tree through their registered toolchains. The Debian tree crosses Bazel's
+content-addressed cache as an authenticated tar file and is materialized only
+inside the image action, preserving merged-`/usr` symlinks without exposing a
+symlink-rich directory artifact to cache replay. The action uses an empty
+ambient `PATH`; no host executable lookup or shebang launcher is used.
 The configuration label is mandatory and must resolve to exactly one file;
 invalid file targets fail during Bazel analysis.
 
