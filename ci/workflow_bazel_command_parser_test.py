@@ -38,6 +38,18 @@ class WorkflowBazelCommandParserTest(unittest.TestCase):
                 "shell-wrapper",
                 'run: |\n  sh -c "bazel test //pkg:target"\n',
             ),
+            (
+                "scalar-indent",
+                "run: |2-\n    bazel test //pkg:target\n",
+            ),
+            (
+                "scalar-folded",
+                "run: >2-\n    bazel build //pkg:target\n",
+            ),
+            (
+                "github-expression",
+                "run: |\n  ${{ env.BAZEL }} test //pkg:target\n",
+            ),
         ]
         for name, fixture in fixtures:
             with self.subTest(name=name):

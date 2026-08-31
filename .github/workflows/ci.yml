@@ -99,6 +99,11 @@ jobs:
           fi
           run_bazel bazel test "${bazel_configs[@]}" \
             "${qualified_events[@]}" //...
+          manifest_configs=(--config=manifest)
+          if [ "${{ matrix.bazel }}" = "9.2.0" ]; then
+            manifest_configs+=(--config=bazel9)
+          fi
+          run_bazel bazel test "${manifest_configs[@]}" //...
           if [ "$evidence" -eq 1 ]; then
             python3 - discovered-root-tests.txt \
               kernel-preflight-events.json qualified-root-events.json <<'PY'
@@ -150,10 +155,6 @@ jobs:
             fi
             run_bazel bazel test "${bazel_configs[@]}" \
               "${e2e_events[@]}" //...
-            manifest_configs=(--config=manifest)
-            if [ "${{ matrix.bazel }}" = "9.2.0" ]; then
-              manifest_configs+=(--config=bazel9)
-            fi
             run_bazel bazel test "${manifest_configs[@]}" //...
             if [ "$evidence" -eq 1 ]; then
               python3 - discovered-e2e-tests.txt qualified-e2e-events.json <<'PY'

@@ -78,7 +78,10 @@ image_public_api_test(
 qemu_ovmf_boot_test(
     name = "demo_boot_test",
     image = ":demo",
-    tags = ["requires-network"],
+    tags = [
+        "manifest",
+        "requires-network",
+    ],
 )
 
 managed_python_test(

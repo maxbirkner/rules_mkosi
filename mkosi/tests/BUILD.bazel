@@ -142,6 +142,7 @@ diff_test(
     name = "debian_tools_launcher_probe_test",
     file1 = "testdata/debian_tools_launcher_probe.golden.txt",
     file2 = ":debian_tools_launcher_probe",
+    tags = ["manifest"],
 )
 
 sh_test(

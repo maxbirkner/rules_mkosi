@@ -19,7 +19,7 @@ _VARIABLE = re.compile(
     r"[A-Za-z_][A-Za-z0-9_]*)"
 )
 _SHELL_SEPARATOR = re.compile(r"(?:&&|\|\||[;&|\n])")
-_RUN_BLOCK = re.compile(r"^(\s*)run:\s*([|>])([+-]?)\s*$")
+_RUN_BLOCK = re.compile(r"^(\s*)run:\s*([|>])([1-9]?)([+-]?)\s*$")
 _RUN_INLINE = re.compile(r"^\s*run:\s*(?![|>])(.+)$")
 _SHELL_WRAPPERS = {"bash", "command", "env", "exec", "run_bazel", "sh", "sudo"}
 
@@ -52,6 +52,7 @@ def _yaml_shell_bodies(text):
             continue
         base_indent = len(match.group(1))
         style = match.group(2)
+        explicit_indent = int(match.group(3) or 0)
         index += 1
         content = []
         content_indent = None
@@ -62,7 +63,11 @@ def _yaml_shell_bodies(text):
                 if indent <= base_indent:
                     break
                 if content_indent is None:
-                    content_indent = indent
+                    content_indent = (
+                        base_indent + explicit_indent
+                        if explicit_indent
+                        else indent
+                    )
             elif content_indent is None:
                 content.append("")
                 index += 1
@@ -86,6 +91,11 @@ def _yaml_shell_bodies(text):
 
 
 def _command_segments(text):
+    text = re.sub(
+        r"\$\{\{\s*(?:env|vars|inputs)\.[A-Za-z_][A-Za-z0-9_]*\s*\}\}",
+        "$BAZEL",
+        text,
+    )
     text = text.replace("\\\n", " ")
     start = 0
     for match in _SHELL_SEPARATOR.finditer(text):

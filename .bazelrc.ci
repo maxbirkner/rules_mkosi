@@ -10,8 +10,12 @@ test:qualified --test_tag_filters=-requires_kernel_contract
 common:portable --config=qualified_runtime
 build:portable --build_tag_filters=-requires-network
 test:portable --test_tag_filters=-requires-network,-requires_kernel_contract
+common:manifest --config=qualified_runtime
 build:manifest --enable_runfiles=no
-test:manifest --enable_runfiles=no --test_strategy=exclusive --test_tag_filters=manifest
+build:manifest --disk_cache=
+test:manifest --enable_runfiles=no --test_strategy=exclusive
+test:manifest --cache_test_results=no --disk_cache=
+test:manifest --test_tag_filters=manifest
 
 build:deterministic --noremote_accept_cached
 build:deterministic --noremote_upload_local_results
