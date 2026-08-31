@@ -674,7 +674,7 @@ jobs:
           test "$first_runner_sha" = "$(sha256sum "$second_runner" | cut -d' ' -f1)"
           echo "clean rebuild launcher SHA: $first_launcher_sha"
           echo "clean rebuild namespace runner SHA: $first_runner_sha"
-          rm -rf "$output_a" "$output_b" "$execution_log"
+          sudo -n rm -rf "$output_a" "$output_b" "$execution_log"
 
   conclusion:
     name: CI conclusion
