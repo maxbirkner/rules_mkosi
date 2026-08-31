@@ -18,6 +18,10 @@ validator are manually selected because they require the network and the
 host-kernel namespace/mount contract; the ordinary smoke suite remains
 portable.
 
+The `tree_demo` target additionally consumes a complete configuration directory
+and an explicitly mapped source directory through the public API. It is
+manually selected for the same real-image execution contract.
+
 `demo_boot_test` is the dedicated UEFI tracer test. It consumes `demo` through
 the public `qemu_ovmf_boot_test` macro, boots it with the registered QEMU/OVMF
 artifacts and TCG, waits for the exact systemd hostname marker on the guest

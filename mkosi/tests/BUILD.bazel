@@ -279,3 +279,26 @@ filegroup(
         "testdata/redirect.conf",
     ],
 )
+
+sh_test(
+    name = "mkosi_staging_artifact_test",
+    srcs = ["mkosi_staging_artifact_test.sh"],
+    args = [
+        "$(rootpath @mkosi_toolchains//:mkosi_python)",
+        "$(rootpath //mkosi/private:stage_inputs.py)",
+        "$(rootpath testdata/config-tree)",
+        "$(rootpath testdata/source-tree)",
+    ],
+    data = [
+        "testdata/config-tree",
+        "testdata/source-tree",
+        "//mkosi/private:stage_inputs.py",
+        "@mkosi_toolchains//:mkosi_python",
+    ],
+)
+
+exports_files([
+    "testdata/config-tree",
+    "testdata/source-tree",
+    "testdata/source-tree-two",
+])

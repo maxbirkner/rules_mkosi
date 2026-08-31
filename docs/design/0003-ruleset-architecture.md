@@ -44,8 +44,15 @@ properties, so it is explicitly non-cacheable and not a remote- or
 offline-hermetic action. The tracer action forces disk/raw/uncompressed output
 and disables split artifacts; configuration files cannot redirect the declared
 artifact or select a custom format. The configuration label is mandatory and
-must resolve to one file; Bazel rejects multi-file config targets during
-analysis.
+must resolve to one file or one exported source directory; Bazel rejects
+multi-file config targets during analysis. A directory is staged as the mkosi
+configuration root, preserving `mkosi.conf.d/`, `mkosi.profiles/`, and
+`mkosi.extra/`. `source_trees` is an explicit normalized-relative-destination
+map; each declared directory is staged at its map key, preserving paths used
+by `BuildSources`. A single-file config remains compatible with existing
+callers, while adding source trees stages that file at its basename so
+relative references remain stable. Staging actions consume only their declared
+labels and use deterministic map ordering.
 
 The toolchain provider carries the pinned mkosi executable and complete
 runfiles, a Bazel-managed Python runtime, the optional `pefile` dependency

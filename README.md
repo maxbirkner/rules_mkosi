@@ -172,6 +172,31 @@ mkosi_image(
 )
 ```
 
+For a complete mkosi configuration directory, export the directory as a
+source target and pass it as `config`. The directory must contain
+`mkosi.conf`; mkosi's relative `mkosi.conf.d/`, `mkosi.profiles/`, and
+`mkosi.extra/` paths are preserved. Declared build source directories are
+mapped explicitly so their paths match `BuildSources`:
+
+```starlark
+exports_files(["mkosi"])
+exports_files(["src"])
+
+mkosi_image(
+    name = "demo",
+    config = ":mkosi",
+    source_trees = {"src": ":src"},
+)
+```
+
+`source_trees` keys are normalized relative paths and values must each resolve
+to one directory. Absolute paths, `..` traversal, duplicate sources, and
+overlapping destinations are rejected during analysis. This explicit mapping
+also works for labels from external repositories and avoids relying on
+repository-relative runfiles paths. A single-file `config` remains supported
+unchanged; source trees cause that file to be staged at its basename before
+mkosi is invoked.
+
 Development and test commands are documented once in
 [CONTRIBUTING.md](CONTRIBUTING.md). The independent consumer module is
 described in [`e2e/README.md`](e2e/README.md).

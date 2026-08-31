@@ -1,4 +1,5 @@
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
+<<<<<<< HEAD
 load(
     "@rules_mkosi//mkosi:defs.bzl",
     "managed_python_test",
@@ -6,6 +7,7 @@ load(
     "qemu_ovmf_boot_test",
     "qemu_ovmf_smoke_test",
 )
+load("@rules_python//python:defs.bzl", "py_test")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
 load(
     ":public_api_test.bzl",
@@ -20,10 +22,25 @@ mkosi_image(
     tags = ["manual"],
 )
 
+mkosi_image(
+    name = "tree_demo",
+    config = "@rules_mkosi//mkosi/tests:testdata/config-tree",
+    source_trees = {
+        "src": "@rules_mkosi//mkosi/tests:testdata/source-tree",
+    },
+    tags = ["manual"],
+)
+
 build_test(
     name = "demo_build_test",
     tags = ["manual"],
     targets = [":demo"],
+)
+
+build_test(
+    name = "tree_demo_build_test",
+    tags = ["manual"],
+    targets = [":tree_demo"],
 )
 
 public_api_test(
@@ -178,4 +195,13 @@ sh_test(
     srcs = ["mkosi_config_test.sh"],
     args = ["$(rootpath testdata/minimal.conf)"],
     data = ["testdata/minimal.conf"],
+)
+
+py_test(
+    name = "tree_demo_artifact_test",
+    srcs = ["raw_image_validator.py"],
+    args = ["$(rootpath :tree_demo)"],
+    data = [":tree_demo"],
+    main = "raw_image_validator.py",
+    tags = ["manual"],
 )

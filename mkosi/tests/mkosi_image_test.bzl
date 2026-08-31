@@ -190,6 +190,41 @@ _provider_test = analysistest.make(
     },
 )
 
+def _tree_provider_test_impl(ctx):
+    env = analysistest.begin(ctx)
+    target = analysistest.target_under_test(env)
+    asserts.true(env, MkosiImageInfo in target)
+
+    actions = analysistest.target_actions(env)
+    asserts.equals(env, 2, len(actions))
+    stage = [action for action in actions if action.mnemonic == "MkosiStageInputs"][0]
+    image = [action for action in actions if action.mnemonic == "MkosiImage"][0]
+    asserts.equals(env, 1, len(stage.outputs.to_list()))
+    asserts.equals(env, "tree_subject.mkosi", stage.outputs.to_list()[0].basename)
+    asserts.true(env, any([file.basename == "config-tree" for file in stage.inputs.to_list()]))
+    asserts.true(env, any([file.basename == "source-tree" for file in stage.inputs.to_list()]))
+    asserts.true(env, any([arg.endswith("stage_inputs.py") for arg in stage.argv]))
+    asserts.true(env, any([arg.endswith("config-tree") for arg in stage.argv]))
+    asserts.true(env, any([arg.endswith("source-tree") for arg in stage.argv]))
+    asserts.true(env, any([arg == "src" for arg in stage.argv]))
+    asserts.true(env, any([arg.endswith("tree_subject.mkosi") for arg in image.argv]))
+    asserts.true(env, any([file.basename == "tree_subject.mkosi" for file in image.inputs.to_list()]))
+    asserts.false(env, any([file.basename == "hello.txt" for file in image.inputs.to_list()]))
+    return analysistest.end(env)
+
+_tree_provider_test = analysistest.make(_tree_provider_test_impl)
+
+def _invalid_tree_mapping_test_impl(ctx):
+    env = analysistest.begin(ctx)
+    asserts.expect_failure(env, ctx.attr.expected_error)
+    return analysistest.end(env)
+
+_invalid_tree_mapping_test = analysistest.make(
+    _invalid_tree_mapping_test_impl,
+    attrs = {"expected_error": attr.string(mandatory = True)},
+    expect_failure = True,
+)
+
 def _invalid_config_test_impl(ctx):
     env = analysistest.begin(ctx)
     asserts.expect_failure(env, "single file")
@@ -269,6 +304,74 @@ def mkosi_image_test_suite(name):
         name = "override_subject",
         config = "testdata/redirect.conf",
         tags = ["manual"],
+    )
+
+    mkosi_image(
+        name = "tree_subject",
+        config = "testdata/config-tree",
+        source_trees = {
+            "src": "testdata/source-tree",
+        },
+        tags = ["manual"],
+    )
+
+    _tree_provider_test(
+        name = "config_tree_provider_test",
+        target_under_test = ":tree_subject",
+    )
+
+    mkosi_image(
+        name = "traversal_tree_subject",
+        config = "testdata/config-tree",
+        source_trees = {"../src": "testdata/source-tree"},
+        tags = ["manual"],
+    )
+    _invalid_tree_mapping_test(
+        name = "traversal_tree_mapping_test",
+        expected_error = "not a normalized relative path",
+        target_under_test = ":traversal_tree_subject",
+    )
+
+    mkosi_image(
+        name = "collision_tree_subject",
+        config = "testdata/config-tree",
+        source_trees = {
+            "src": "testdata/source-tree",
+            "src/nested": "testdata/source-tree-two",
+        },
+        tags = ["manual"],
+    )
+    _invalid_tree_mapping_test(
+        name = "collision_tree_mapping_test",
+        expected_error = "colliding staged destinations",
+        target_under_test = ":collision_tree_subject",
+    )
+
+    mkosi_image(
+        name = "duplicate_tree_subject",
+        config = "testdata/config-tree",
+        source_trees = {
+            "one": "testdata/source-tree",
+            "two": "testdata/source-tree",
+        },
+        tags = ["manual"],
+    )
+    _invalid_tree_mapping_test(
+        name = "duplicate_tree_mapping_test",
+        expected_error = "duplicate staged source",
+        target_under_test = ":duplicate_tree_subject",
+    )
+
+    mkosi_image(
+        name = "invalid_source_tree_subject",
+        config = "testdata/config-tree",
+        source_trees = {"src": "testdata/minimal.conf"},
+        tags = ["manual"],
+    )
+    _invalid_tree_mapping_test(
+        name = "invalid_source_tree_test",
+        expected_error = "must resolve to a directory",
+        target_under_test = ":invalid_source_tree_subject",
     )
 
     _provider_test(
@@ -576,6 +679,11 @@ def mkosi_image_test_suite(name):
         tests = [
             ":debian_provider_test",
             ":output_override_provider_test",
+            ":config_tree_provider_test",
+            ":traversal_tree_mapping_test",
+            ":collision_tree_mapping_test",
+            ":duplicate_tree_mapping_test",
+            ":invalid_source_tree_test",
             ":invalid_config_test",
             ":invalid_boot_deadline_test",
             ":invalid_public_boot_deadline_test",
