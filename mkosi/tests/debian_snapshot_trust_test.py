@@ -6,14 +6,34 @@ import shutil
 import subprocess
 import sys
 import unittest
+import hashlib
+import importlib.util
 
 
 class DebianSnapshotTrustTest(unittest.TestCase):
     def setUp(self):
-        self.inrelease = pathlib.Path(sys.argv[1])
-        self.release = pathlib.Path(sys.argv[2])
-        self.release_gpg = pathlib.Path(sys.argv[3])
-        self.launcher = pathlib.Path(sys.argv[4])
+        self.root = pathlib.Path(__file__).resolve().parent
+        self.inrelease = pathlib.Path(sys.argv[1]).resolve()
+        self.release = pathlib.Path(sys.argv[2]).resolve()
+        self.release_gpg = pathlib.Path(sys.argv[3]).resolve()
+        self.launcher = pathlib.Path(sys.argv[4]).resolve()
+        runfiles = os.environ.get("RUNFILES_DIR")
+        mapping = pathlib.Path(runfiles or "") / "_repo_mapping"
+        if runfiles and mapping.is_file():
+            for line in mapping.read_text(encoding="utf-8").splitlines():
+                fields = line.split(",", 2)
+                if len(fields) == 3 and fields[1] == "mkosi_debian_tools":
+                    candidate = pathlib.Path(runfiles) / fields[2] / "launcher"
+                    if candidate.is_file():
+                        self.launcher = candidate
+                    break
+        self.packages = pathlib.Path(sys.argv[5]).resolve()
+        self.packages_all = pathlib.Path(sys.argv[6]).resolve()
+        spec = importlib.util.spec_from_file_location(
+            "debian_snapshot", self.root.parent / "private/debian_snapshot.py"
+        )
+        self.snapshot = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.snapshot)
         self.work = pathlib.Path(os.environ["TEST_TMPDIR"]) / self._testMethodName
         self.work.mkdir()
 
@@ -21,9 +41,13 @@ class DebianSnapshotTrustTest(unittest.TestCase):
         shutil.rmtree(self.work, ignore_errors=True)
 
     def _run(self, arguments):
+        environment = os.environ.copy()
+        environment.update(
+            {"PATH": "", "HOME": "/root", "TEST_TMPDIR": str(self.work / "scratch")}
+        )
         return subprocess.run(
             [str(self.launcher)] + arguments,
-            env={"PATH": "", "HOME": "/root", "TEST_TMPDIR": str(self.work / "scratch")},
+            env=environment,
         )
 
     def _cleartext(self, source):
@@ -72,6 +96,35 @@ class DebianSnapshotTrustTest(unittest.TestCase):
         self.assertEqual(0, self._detached(self.release_gpg).returncode)
         result = self._detached(mutated)
         self.assertNotEqual(0, result.returncode)
+
+    def test_mutated_packages_index_is_rejected_by_signed_release(self):
+        mutated = self.work / "Packages.xz"
+        data = self.packages.read_bytes()
+        mutated.write_bytes(data[:-1] + bytes([data[-1] ^ 1]))
+        output = self.work / "stage-output"
+        scratch = self.work / "stage-scratch"
+        args = type("Args", (), {
+            "inrelease": str(self.inrelease),
+            "release": str(self.release),
+            "release_gpg": str(self.release_gpg),
+            "packages_xz": str(mutated),
+            "packages_all_xz": str(self.packages_all),
+            "output": str(output),
+            "scratch": str(scratch),
+            "launcher": str(self.launcher),
+            "inrelease_sha256": hashlib.sha256(self.inrelease.read_bytes()).hexdigest(),
+            "release_sha256": hashlib.sha256(self.release.read_bytes()).hexdigest(),
+            "release_gpg_sha256": hashlib.sha256(self.release_gpg.read_bytes()).hexdigest(),
+            "packages_xz_sha256": hashlib.sha256(data[:-1] + bytes([data[-1] ^ 1])).hexdigest(),
+            "packages_all_xz_sha256": hashlib.sha256(self.packages_all.read_bytes()).hexdigest(),
+            "packages_path": "dists/trixie/main/binary-amd64/Packages.xz",
+            "packages_all_path": "dists/trixie/main/binary-all/Packages.xz",
+            "package_records": [],
+            "package_names": [],
+            "packages": [],
+        })()
+        with self.assertRaisesRegex(ValueError, "Release metadata"):
+            self.snapshot.stage(args)
 
 
 if __name__ == "__main__":
