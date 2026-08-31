@@ -251,6 +251,7 @@ py_test(
     ],
     main = "raw_image_artifact_test.py",
     tags = ["requires-network"],
+    deps = ["@rules_python//python/runfiles"],
 )
 
 py_test(
@@ -279,6 +280,7 @@ py_test(
     ],
     main = "raw_image_override_artifact_test.py",
     tags = ["requires-network"],
+    deps = ["@rules_python//python/runfiles"],
 )
 
 py_test(
@@ -303,6 +305,7 @@ py_test(
     ],
     main = "raw_image_corruption_runner.py",
     tags = ["requires-network"],
+    deps = ["@rules_python//python/runfiles"],
 )
 
 py_test(
