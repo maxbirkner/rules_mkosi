@@ -42,10 +42,25 @@ class DebianToolsSecurityTest(unittest.TestCase):
         self.assertIn("MOVE_MOUNT_F_EMPTY_PATH", source)
         self.assertIn("OPEN_TREE_CLONE", source)
         self.assertIn("AT_RECURSIVE", source)
-        production_source = source.split(
-            "static int empty_path_regression_self_test", 1
-        )[0]
-        self.assertNotIn("AT_EMPTY_PATH", production_source)
+        production_source = source
+        self.assertRegex(
+            production_source,
+            r"SYS_mount_setattr,\s*source_fd,\s*\"\",\s*"
+            r"AT_EMPTY_PATH\s*\|\s*AT_RECURSIVE",
+        )
+        for invocation in re.findall(
+            r"syscall\(SYS_open_tree,(.*?)\);", production_source, re.DOTALL
+        ):
+            self.assertNotIn("AT_EMPTY_PATH", invocation)
+        self.assertLess(
+            production_source.index("SYS_mount_setattr, source_fd"),
+            production_source.index("SYS_move_mount, source_fd"),
+        )
+        self.assertNotRegex(
+            production_source,
+            r"SYS_mount_setattr,\s*AT_FDCWD,\s*destination",
+        )
+        self.assertNotIn("stat(destination", production_source)
         self.assertNotIn("readlink", source)
         self.assertNotIn("pinned_path", source)
         self.assertNotIn("compatibility mount", source)

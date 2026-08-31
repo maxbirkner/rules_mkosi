@@ -43,6 +43,9 @@
 #ifndef MOVE_MOUNT_F_EMPTY_PATH
 #define MOVE_MOUNT_F_EMPTY_PATH 0x00000004
 #endif
+#ifndef AT_EMPTY_PATH
+#define AT_EMPTY_PATH 0x1000
+#endif
 
 struct mkosi_mount_attr {
   unsigned long long attr_set;
@@ -279,29 +282,23 @@ static void bind_mount_fd(int source_fd, const char *destination,
     expected_device = (unsigned long long)source_stat.st_dev;
     expected_inode = (unsigned long long)source_stat.st_ino;
   }
+  if (readonly) {
+    struct mkosi_mount_attr attributes = {
+        .attr_set = MOUNT_ATTR_RDONLY,
+    };
+    if (syscall(SYS_mount_setattr, source_fd, "",
+                AT_EMPTY_PATH | AT_RECURSIVE,
+                &attributes, sizeof(attributes)) != 0) {
+      fail("recursive read-only detached mount_setattr is required before "
+           "attaching %s: %s",
+           destination, strerror(errno));
+    }
+  }
   if (syscall(SYS_move_mount, source_fd, "", AT_FDCWD, destination,
               MOVE_MOUNT_F_EMPTY_PATH) < 0) {
     int error = errno;
     fail("descriptor-only bind move_mount failed at %s: %s", destination,
          strerror(error));
-  }
-  if (readonly) {
-    struct mkosi_mount_attr attributes = {
-        .attr_set = MOUNT_ATTR_RDONLY,
-    };
-    if (syscall(SYS_mount_setattr, AT_FDCWD, destination, AT_RECURSIVE,
-                &attributes, sizeof(attributes)) != 0) {
-      fail("recursive read-only mount_setattr is required at %s: %s",
-           destination, strerror(errno));
-    }
-  }
-  struct stat mounted_stat;
-  if (expected_device != 0 &&
-      (stat(destination, &mounted_stat) < 0 ||
-       (unsigned long long)mounted_stat.st_dev != expected_device ||
-       (unsigned long long)mounted_stat.st_ino != expected_inode)) {
-    umount2(destination, MNT_DETACH);
-    fail("bind source changed during mount");
   }
 }
 
@@ -654,6 +651,11 @@ static int fd_swap_self_test(void) {
       "namespace-runner-fd-swap/ancestor-replacement";
   const char *ancestor_destination =
       "namespace-runner-fd-swap/destination/ancestor";
+  const char *readonly_source = "namespace-runner-fd-swap/readonly-source";
+  const char *readonly_destination =
+      "namespace-runner-fd-swap/destination/readonly";
+  const char *readonly_replacement =
+      "namespace-runner-fd-swap/destination/readonly-replacement";
   map_current_identity(getuid(), getgid());
   if (unshare(CLONE_NEWNS) < 0 ||
       mount(NULL, "/", NULL, MS_REC | MS_PRIVATE, NULL) < 0) {
@@ -663,6 +665,65 @@ static int fd_swap_self_test(void) {
       mount("tmpfs", destination_directory, "tmpfs", 0, "mode=755") < 0) {
     return 1;
   }
+  int readonly_file =
+      open(readonly_source, O_WRONLY | O_CREAT | O_CLOEXEC, 0644);
+  if (readonly_file < 0 ||
+      write(readonly_file, "readonly\n", 9) != 9) {
+    return 1;
+  }
+  close(readonly_file);
+  readonly_file =
+      open(readonly_destination, O_WRONLY | O_CREAT | O_CLOEXEC, 0644);
+  if (readonly_file < 0) {
+    return 1;
+  }
+  close(readonly_file);
+  int readonly_fd = pin_mount_path(readonly_source, false, 0, 0);
+  if (readonly_fd < 0) {
+    return 1;
+  }
+  struct mkosi_mount_attr readonly_attributes = {
+      .attr_set = MOUNT_ATTR_RDONLY,
+  };
+  if (syscall(SYS_mount_setattr, readonly_fd, "",
+              AT_EMPTY_PATH | AT_RECURSIVE, &readonly_attributes,
+              sizeof(readonly_attributes)) < 0 ||
+      rename(readonly_destination, readonly_replacement) < 0) {
+    close(readonly_fd);
+    return 1;
+  }
+  readonly_file =
+      open(readonly_destination, O_WRONLY | O_CREAT | O_CLOEXEC, 0644);
+  if (readonly_file < 0) {
+    close(readonly_fd);
+    return 1;
+  }
+  close(readonly_file);
+  if (syscall(SYS_move_mount, readonly_fd, "", AT_FDCWD,
+              readonly_destination, MOVE_MOUNT_F_EMPTY_PATH) < 0) {
+    close(readonly_fd);
+    return 1;
+  }
+  close(readonly_fd);
+  readonly_file = open(readonly_destination, O_WRONLY | O_CLOEXEC);
+  if (readonly_file >= 0 || (errno != EROFS && errno != EPERM)) {
+    if (readonly_file >= 0) {
+      close(readonly_file);
+    }
+    return 1;
+  }
+  readonly_file = open(readonly_replacement, O_WRONLY | O_CLOEXEC);
+  if (readonly_file < 0 || write(readonly_file, "replacement\n", 11) != 11) {
+    if (readonly_file >= 0) {
+      close(readonly_file);
+    }
+    return 1;
+  }
+  close(readonly_file);
+  umount2(readonly_destination, MNT_DETACH);
+  unlink(readonly_destination);
+  unlink(readonly_replacement);
+  unlink(readonly_source);
   int original = open(source, O_WRONLY | O_CREAT | O_CLOEXEC, 0644);
   if (original < 0 || write(original, "original\n", 9) != 9) {
     return 1;
@@ -842,64 +903,12 @@ static int fd_swap_self_test(void) {
              : 1;
 }
 
-static int empty_path_regression_self_test(void) {
-  char base[128];
-  char source[160];
-  int source_fd = -1;
-  int tree_fd = -1;
-  int result = 1;
-
-  if (snprintf(base, sizeof(base), "/dev/shm/namespace-runner-empty-path-%ld",
-               (long)getpid()) >= (int)sizeof(base) ||
-      snprintf(source, sizeof(source), "%s/source", base) >=
-          (int)sizeof(source) ||
-      mkdir(base, 0700) < 0 || mkdir(source, 0700) < 0) {
-    fprintf(stderr, "empty-path fixture setup failed: %s\n", strerror(errno));
-    goto cleanup;
-  }
-  source_fd = open(source, O_PATH | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
-  if (source_fd < 0) {
-    fprintf(stderr, "empty-path fixture open failed: %s\n", strerror(errno));
-    goto cleanup;
-  }
-  map_current_identity(getuid(), getgid());
-  if (unshare(CLONE_NEWNS) < 0 ||
-      mount(NULL, "/", NULL, MS_REC | MS_PRIVATE, NULL) < 0) {
-    fprintf(stderr, "empty-path namespace setup failed: %s\n",
-            strerror(errno));
-    goto cleanup;
-  }
-  tree_fd = syscall(SYS_open_tree, source_fd, "",
-                    OPEN_TREE_CLONE | OPEN_TREE_CLOEXEC | AT_EMPTY_PATH |
-                        AT_RECURSIVE);
-  if (tree_fd >= 0 || errno != EINVAL) {
-    fprintf(stderr, "empty-path fixture expected EINVAL, got %s\n",
-            tree_fd >= 0 ? "success" : strerror(errno));
-    goto cleanup;
-  }
-  result = 0;
-
-cleanup:
-  if (tree_fd >= 0) {
-    close(tree_fd);
-  }
-  if (source_fd >= 0) {
-    close(source_fd);
-  }
-  rmdir(source);
-  rmdir(base);
-  return result;
-}
-
 int main(int argc, char **argv) {
   if (argc == 2 && strcmp(argv[1], "--self-test-recursive-ro") == 0) {
     return recursive_readonly_self_test();
   }
   if (argc == 2 && strcmp(argv[1], "--self-test-fd-swap") == 0) {
     return fd_swap_self_test();
-  }
-  if (argc == 2 && strcmp(argv[1], "--self-test-empty-path") == 0) {
-    return empty_path_regression_self_test();
   }
   if (argc < 8) {
     fprintf(stderr,

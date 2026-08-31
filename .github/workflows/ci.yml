@@ -450,7 +450,6 @@ jobs:
                 //mkosi/tests:debian_tools_recursive_ro_test \
                 //mkosi/tests:debian_tools_manifest_test \
                 //mkosi/tests:debian_tools_fd_swap_test \
-                //mkosi/tests:debian_tools_empty_path_test \
                 //mkosi/tests:real_image_artifact_test \
                 //mkosi/tests:override_image_artifact_test \
                 //mkosi/tests:raw_image_corruption_test

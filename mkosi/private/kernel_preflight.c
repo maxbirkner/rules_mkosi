@@ -50,6 +50,9 @@ extern char **environ;
 #ifndef MOVE_MOUNT_F_EMPTY_PATH
 #define MOVE_MOUNT_F_EMPTY_PATH 0x00000004
 #endif
+#ifndef AT_EMPTY_PATH
+#define AT_EMPTY_PATH 0x1000
+#endif
 
 struct rules_mkosi_mount_attr {
   unsigned long long attr_set;
@@ -57,6 +60,16 @@ struct rules_mkosi_mount_attr {
   unsigned long long propagation;
   unsigned long long userns_fd;
 };
+
+typedef struct {
+  rules_mkosi_fd_mount_operation operation;
+  int error;
+} fd_mount_probe_result;
+
+typedef struct {
+  unsigned int checks;
+  fd_mount_probe_result fd_mount;
+} namespace_setup_result;
 
 enum {
   CHECK_USER_NAMESPACE = 1u << 0,
@@ -495,7 +508,14 @@ static int open_tree_path(const char *path, bool recursive) {
   return tree < 0 ? -error : tree;
 }
 
-static int check_fd_mount_api(void) {
+static void record_fd_mount_failure(fd_mount_probe_result *probe,
+                                    rules_mkosi_fd_mount_operation operation,
+                                    int error) {
+  probe->operation = operation;
+  probe->error = error > 0 ? error : EIO;
+}
+
+static int check_fd_mount_api(fd_mount_probe_result *probe) {
   const char *source_directory = "fd-mount-api-source";
   const char *source_nested = "fd-mount-api-source/nested";
   const char *source_file = "fd-mount-api-source/file";
@@ -503,49 +523,103 @@ static int check_fd_mount_api(void) {
   const char *destination_file = "fd-mount-api-destination/file";
   int source_tree = -1;
   int file_tree = -1;
+  struct stat expected_directory;
+  struct stat expected_file;
+  struct stat actual;
   struct rules_mkosi_mount_attr attributes = {
       .attr_set = MOUNT_ATTR_RDONLY,
   };
   int result = -1;
 
+  probe->operation = RULES_MKOSI_FD_MOUNT_OP_NONE;
+  probe->error = 0;
   if (mkdir(source_directory, 0700) < 0 ||
       mkdir(source_nested, 0700) < 0 ||
       mkdir(destination_directory, 0700) < 0) {
+    record_fd_mount_failure(probe, RULES_MKOSI_FD_MOUNT_OP_SETUP, errno);
     goto cleanup;
   }
   if (mount("tmpfs", source_nested, "tmpfs", 0, "mode=755") < 0) {
+    record_fd_mount_failure(probe, RULES_MKOSI_FD_MOUNT_OP_SETUP, errno);
     goto cleanup;
   }
   int file = open(source_file, O_CREAT | O_WRONLY | O_CLOEXEC, 0600);
   if (file < 0 || close(file) < 0) {
+    record_fd_mount_failure(probe, RULES_MKOSI_FD_MOUNT_OP_SETUP, errno);
     goto cleanup;
   }
   file = open(destination_file, O_CREAT | O_WRONLY | O_CLOEXEC, 0600);
   if (file < 0 || close(file) < 0) {
+    record_fd_mount_failure(probe, RULES_MKOSI_FD_MOUNT_OP_SETUP, errno);
     goto cleanup;
   }
 
+  if (stat(source_directory, &expected_directory) < 0 ||
+      stat(source_file, &expected_file) < 0) {
+    record_fd_mount_failure(probe, RULES_MKOSI_FD_MOUNT_OP_SETUP, errno);
+    goto cleanup;
+  }
   source_tree = open_tree_path(source_directory, true);
-  if (source_tree < 0 ||
-      syscall(SYS_move_mount, source_tree, "", AT_FDCWD,
+  if (source_tree < 0) {
+    record_fd_mount_failure(probe, RULES_MKOSI_FD_MOUNT_OP_OPEN_TREE_DIRECTORY,
+                            -source_tree);
+    goto cleanup;
+  }
+  if (fstat(source_tree, &actual) < 0) {
+    record_fd_mount_failure(probe, RULES_MKOSI_FD_MOUNT_OP_FSTAT_DIRECTORY,
+                            errno);
+    goto cleanup;
+  }
+  if (actual.st_dev != expected_directory.st_dev ||
+      actual.st_ino != expected_directory.st_ino || !S_ISDIR(actual.st_mode)) {
+    record_fd_mount_failure(probe, RULES_MKOSI_FD_MOUNT_OP_FSTAT_DIRECTORY,
+                            EAGAIN);
+    goto cleanup;
+  }
+  if (syscall(SYS_mount_setattr, source_tree, "",
+              AT_EMPTY_PATH | AT_RECURSIVE, &attributes,
+              sizeof(attributes)) < 0) {
+    record_fd_mount_failure(probe, RULES_MKOSI_FD_MOUNT_OP_MOUNT_SETATTR,
+                            errno);
+    goto cleanup;
+  }
+  if (syscall(SYS_move_mount, source_tree, "", AT_FDCWD,
               destination_directory, MOVE_MOUNT_F_EMPTY_PATH) < 0) {
+    record_fd_mount_failure(probe,
+                            RULES_MKOSI_FD_MOUNT_OP_MOVE_MOUNT_DIRECTORY,
+                            errno);
     goto cleanup;
   }
   close(source_tree);
   source_tree = -1;
-  if (syscall(SYS_mount_setattr, AT_FDCWD, destination_directory, AT_RECURSIVE,
-              &attributes, sizeof(attributes)) < 0) {
-    goto cleanup;
-  }
 
   file_tree = open_tree_path(source_file, false);
-  if (file_tree < 0 ||
-      syscall(SYS_move_mount, file_tree, "", AT_FDCWD, destination_file,
+  if (file_tree < 0) {
+    record_fd_mount_failure(probe, RULES_MKOSI_FD_MOUNT_OP_OPEN_TREE_FILE,
+                            -file_tree);
+    goto cleanup;
+  }
+  if (fstat(file_tree, &actual) < 0) {
+    record_fd_mount_failure(probe, RULES_MKOSI_FD_MOUNT_OP_FSTAT_FILE,
+                            errno);
+    goto cleanup;
+  }
+  if (actual.st_dev != expected_file.st_dev ||
+      actual.st_ino != expected_file.st_ino || S_ISDIR(actual.st_mode)) {
+    record_fd_mount_failure(probe, RULES_MKOSI_FD_MOUNT_OP_FSTAT_FILE,
+                            EAGAIN);
+    goto cleanup;
+  }
+  if (syscall(SYS_move_mount, file_tree, "", AT_FDCWD, destination_file,
               MOVE_MOUNT_F_EMPTY_PATH) < 0) {
+    record_fd_mount_failure(probe, RULES_MKOSI_FD_MOUNT_OP_MOVE_MOUNT_FILE,
+                            errno);
     goto cleanup;
   }
   close(file_tree);
   file_tree = -1;
+  probe->operation = RULES_MKOSI_FD_MOUNT_OP_NONE;
+  probe->error = 0;
   result = 0;
 
 cleanup:
@@ -566,78 +640,93 @@ cleanup:
   return result;
 }
 
-static int child_namespace_setup(int ready, int acknowledgement) {
+static int child_namespace_setup(int ready, int acknowledgement,
+                                 namespace_setup_result *setup_result) {
   unsigned int result = 0;
   char signal = 'R';
+  fd_mount_probe_result fd_mount = {
+      .operation = RULES_MKOSI_FD_MOUNT_OP_NONE,
+      .error = 0,
+  };
+
+#define RETURN_SETUP_RESULT()            \
+  do {                                   \
+    setup_result->checks = result;       \
+    return (int)result;                  \
+  } while (0)
 
   if (syscall(SYS_unshare, CLONE_NEWUSER) < 0) {
-    return result;
+    RETURN_SETUP_RESULT();
   }
   result |= CHECK_USER_NAMESPACE;
   if (write_all(ready, &signal, 1) < 0) {
-    return (int)result;
+    RETURN_SETUP_RESULT();
   }
   if (read(acknowledgement, &signal, 1) != 1 || signal != 'A') {
-    return (int)result;
+    RETURN_SETUP_RESULT();
   }
   result |= CHECK_ID_MAPPING;
   if (setresgid(0, 0, 0) < 0 || setresuid(0, 0, 0) < 0 ||
       geteuid() != 0 || getegid() != 0) {
-    return (int)result;
+    RETURN_SETUP_RESULT();
   }
   result |= CHECK_ROOT_TRANSITION;
   if (configure_namespace_capabilities() < 0) {
-    return (int)result;
+    RETURN_SETUP_RESULT();
   }
   result |= CHECK_NAMESPACE_CAPABILITIES;
   if (check_capability_exec() < 0) {
-    return (int)result;
+    RETURN_SETUP_RESULT();
   }
   result |= CHECK_CAPABILITY_EXEC;
   if (syscall(SYS_unshare, CLONE_NEWNS) < 0) {
-    return (int)result;
+    RETURN_SETUP_RESULT();
   }
   result |= CHECK_MOUNT_NAMESPACE;
   if (mount("tmpfs", "/tmp", "tmpfs", 0, NULL) < 0) {
-    return (int)result;
+    RETURN_SETUP_RESULT();
   }
-  if (check_fd_mount_api() < 0) {
-    return (int)result;
+  if (check_fd_mount_api(&fd_mount) < 0) {
+    setup_result->fd_mount = fd_mount;
+    RETURN_SETUP_RESULT();
   }
   result |= CHECK_FD_MOUNT_API;
+  setup_result->fd_mount = fd_mount;
   if (chdir("/tmp") < 0) {
-    return (int)result;
+    RETURN_SETUP_RESULT();
   }
   if (mkdir("newroot", 0700) < 0 || mkdir("oldroot", 0700) < 0) {
-    return (int)result;
+    RETURN_SETUP_RESULT();
   }
   if (mount("newroot", "newroot", NULL, MS_BIND | MS_REC, NULL) < 0) {
-    return (int)result;
+    RETURN_SETUP_RESULT();
   }
   if (syscall(SYS_pivot_root, ".", "oldroot") < 0) {
-    return (int)result;
+    RETURN_SETUP_RESULT();
   }
   result |= CHECK_TMPFS_WORKSPACE;
   result |= CHECK_PIVOT_ROOT_WORKSPACE;
   if (mkdir("newroot/etc", 0755) < 0) {
-    return (int)result;
+    RETURN_SETUP_RESULT();
   }
   if (mount("/oldroot/etc", "newroot/etc", NULL, MS_BIND | MS_REC, NULL) <
       0) {
-    return (int)result;
+    RETURN_SETUP_RESULT();
   }
   result |= CHECK_BIND_MOUNT;
   if (chdir("newroot") < 0) {
-    return (int)result;
+    RETURN_SETUP_RESULT();
   }
   if (syscall(SYS_pivot_root, ".", ".") < 0) {
-    return (int)result;
+    RETURN_SETUP_RESULT();
   }
   result |= CHECK_PIVOT_ROOT;
   if (umount2(".", MNT_DETACH) < 0) {
-    return (int)result;
+    RETURN_SETUP_RESULT();
   }
   result |= CHECK_OLD_ROOT_DETACH;
+  setup_result->checks = result;
+#undef RETURN_SETUP_RESULT
   return (int)result;
 }
 
@@ -646,13 +735,12 @@ static int actual_namespace_setup(rules_mkosi_namespace_checks *checks,
   int acknowledgement[2];
   int ready[2];
   int result_pipe[2];
-  int child_result = 0;
+  namespace_setup_result child_result = {};
   pid_t child;
   char signal;
   unsigned long uid;
   unsigned long gid;
   (void)context;
-
   if (prctl(PR_SET_DUMPABLE, 1) < 0) {
     return 0;
   }
@@ -685,10 +773,10 @@ static int actual_namespace_setup(rules_mkosi_namespace_checks *checks,
     close(ready[0]);
     close(acknowledgement[1]);
     close(result_pipe[0]);
-    child_result = child_namespace_setup(ready[1], acknowledgement[0]);
+    (void)child_namespace_setup(ready[1], acknowledgement[0], &child_result);
     (void)write_all(result_pipe[1], (const char *)&child_result,
                     sizeof(child_result));
-    _exit(child_result == (int)((1u << 12) - 1) ? 0 : 1);
+    _exit(child_result.checks == (unsigned int)((1u << 12) - 1) ? 0 : 1);
   }
   close(ready[1]);
   close(acknowledgement[0]);
@@ -710,24 +798,32 @@ static int actual_namespace_setup(rules_mkosi_namespace_checks *checks,
   close(acknowledgement[1]);
   if (read(result_pipe[0], &child_result, sizeof(child_result)) !=
       (ssize_t)sizeof(child_result)) {
-    child_result = 0;
+    memset(&child_result, 0, sizeof(child_result));
   }
   close(result_pipe[0]);
   (void)wait_for_child(child, NULL);
-  checks->user_namespace = (child_result & CHECK_USER_NAMESPACE) != 0;
-  checks->id_mapping = (child_result & CHECK_ID_MAPPING) != 0;
-  checks->root_transition = (child_result & CHECK_ROOT_TRANSITION) != 0;
+  checks->user_namespace =
+      (child_result.checks & CHECK_USER_NAMESPACE) != 0;
+  checks->id_mapping = (child_result.checks & CHECK_ID_MAPPING) != 0;
+  checks->root_transition =
+      (child_result.checks & CHECK_ROOT_TRANSITION) != 0;
   checks->namespace_capabilities =
-      (child_result & CHECK_NAMESPACE_CAPABILITIES) != 0;
-  checks->capability_exec = (child_result & CHECK_CAPABILITY_EXEC) != 0;
-  checks->mount_namespace = (child_result & CHECK_MOUNT_NAMESPACE) != 0;
-  checks->tmpfs_workspace = (child_result & CHECK_TMPFS_WORKSPACE) != 0;
+      (child_result.checks & CHECK_NAMESPACE_CAPABILITIES) != 0;
+  checks->capability_exec =
+      (child_result.checks & CHECK_CAPABILITY_EXEC) != 0;
+  checks->mount_namespace =
+      (child_result.checks & CHECK_MOUNT_NAMESPACE) != 0;
+  checks->tmpfs_workspace =
+      (child_result.checks & CHECK_TMPFS_WORKSPACE) != 0;
   checks->pivot_root_workspace =
-      (child_result & CHECK_PIVOT_ROOT_WORKSPACE) != 0;
-  checks->bind_mount = (child_result & CHECK_BIND_MOUNT) != 0;
-  checks->fd_mount_api = (child_result & CHECK_FD_MOUNT_API) != 0;
-  checks->pivot_root = (child_result & CHECK_PIVOT_ROOT) != 0;
-  checks->old_root_detach = (child_result & CHECK_OLD_ROOT_DETACH) != 0;
+      (child_result.checks & CHECK_PIVOT_ROOT_WORKSPACE) != 0;
+  checks->bind_mount = (child_result.checks & CHECK_BIND_MOUNT) != 0;
+  checks->fd_mount_api = (child_result.checks & CHECK_FD_MOUNT_API) != 0;
+  checks->fd_mount_operation = child_result.fd_mount.operation;
+  checks->fd_mount_errno = child_result.fd_mount.error;
+  checks->pivot_root = (child_result.checks & CHECK_PIVOT_ROOT) != 0;
+  checks->old_root_detach =
+      (child_result.checks & CHECK_OLD_ROOT_DETACH) != 0;
   return 1;
 }
 
@@ -783,6 +879,64 @@ static int check_sysctl(FILE *output, const char *proc_root) {
     }
   }
   return result;
+}
+
+static const char *fd_mount_operation_name(
+    rules_mkosi_fd_mount_operation operation) {
+  switch (operation) {
+    case RULES_MKOSI_FD_MOUNT_OP_SETUP:
+      return "fixture/setup";
+    case RULES_MKOSI_FD_MOUNT_OP_OPEN_TREE_DIRECTORY:
+      return "open_tree(directory)";
+    case RULES_MKOSI_FD_MOUNT_OP_FSTAT_DIRECTORY:
+      return "fstat(directory)";
+    case RULES_MKOSI_FD_MOUNT_OP_MOUNT_SETATTR:
+      return "mount_setattr(detached_fd)";
+    case RULES_MKOSI_FD_MOUNT_OP_MOVE_MOUNT_DIRECTORY:
+      return "move_mount(directory)";
+    case RULES_MKOSI_FD_MOUNT_OP_OPEN_TREE_FILE:
+      return "open_tree(file)";
+    case RULES_MKOSI_FD_MOUNT_OP_FSTAT_FILE:
+      return "fstat(file)";
+    case RULES_MKOSI_FD_MOUNT_OP_MOVE_MOUNT_FILE:
+      return "move_mount(file)";
+    case RULES_MKOSI_FD_MOUNT_OP_NONE:
+    default:
+      return "unknown";
+  }
+}
+
+static void report_fd_mount_failure(FILE *output,
+                                    const rules_mkosi_namespace_checks *checks) {
+  const char *operation =
+      fd_mount_operation_name(checks->fd_mount_operation);
+  int error = checks->fd_mount_errno;
+
+  if (checks->fd_mount_operation == RULES_MKOSI_FD_MOUNT_OP_NONE ||
+      error <= 0) {
+    report(output, "FAIL", "fd_mount_api",
+           "unexpected probe/setup failure did not preserve an operation and "
+           "errno from the detached-fd sequence");
+  } else if (checks->fd_mount_operation == RULES_MKOSI_FD_MOUNT_OP_SETUP) {
+    report(output, "FAIL", "fd_mount_api",
+           "fixture/setup error: %s failed with errno %d (%s)", operation,
+           error, strerror(error));
+  } else if (error == ENOSYS || error == EINVAL) {
+    report(output, "FAIL", "fd_mount_api",
+           "kernel compatibility: %s failed with errno %d (%s); required "
+           "API or flags are unavailable; upgrade the kernel or select a "
+           "supported Linux runner",
+           operation, error, strerror(error));
+  } else if (error == EPERM || error == EACCES) {
+    report(output, "FAIL", "fd_mount_api",
+           "seccomp/LSM/policy restriction: %s failed with errno %d (%s); "
+           "permit the detached-fd mount API in the action environment",
+           operation, error, strerror(error));
+  } else {
+    report(output, "FAIL", "fd_mount_api",
+           "unexpected fd-mount probe error: %s failed with errno %d (%s)",
+           operation, error, strerror(error));
+  }
 }
 
 int rules_mkosi_kernel_preflight_with_ops(
@@ -931,14 +1085,11 @@ int rules_mkosi_kernel_preflight_with_ops(
   }
   if (namespace_checks.fd_mount_api) {
     report(output, "PASS", "fd_mount_api",
-           "open_tree(parent_fd, name), move_mount(MOVE_MOUNT_F_EMPTY_PATH), "
-           "and recursive mount_setattr succeeded");
+           "open_tree(parent_fd, name, OPEN_TREE_CLONE), fstat validation, "
+           "detached-fd recursive mount_setattr(AT_EMPTY_PATH), and "
+           "move_mount(MOVE_MOUNT_F_EMPTY_PATH) succeeded");
   } else {
-    report(output, "FAIL", "fd_mount_api",
-           "descriptor-only typed binds require Linux open_tree(parent_fd, "
-           "name, OPEN_TREE_CLONE), move_mount(MOVE_MOUNT_F_EMPTY_PATH), and "
-           "mount_setattr; upgrade the kernel or select a supported Linux "
-           "runner");
+    report_fd_mount_failure(output, &namespace_checks);
     ++failures;
   }
   if (namespace_checks.pivot_root) {
