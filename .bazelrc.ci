@@ -1,0 +1,27 @@
+# CI target selection is tag based so workflow commands can use //... without
+# enumerating labels. This file is repository-only and optional for consumers.
+build:ordinary --build_tag_filters=-manual,-ci_manifest,-ci_qualified,-ci_deterministic,-requires_kernel_contract
+test:ordinary --test_tag_filters=-manual,-ci_manifest,-ci_qualified,-ci_deterministic,-requires_kernel_contract
+
+build:manifest --build_manual_tests --build_tag_filters=ci_manifest
+test:manifest --build_manual_tests --enable_runfiles=no --test_tag_filters=ci_manifest
+
+build:qualified --build_manual_tests --build_tag_filters=ci_qualified
+test:qualified --build_manual_tests --test_tag_filters=ci_qualified
+build:qualified_manifest --build_manual_tests --build_tag_filters=ci_manifest_boot
+test:qualified_manifest --build_manual_tests --enable_runfiles=no --test_strategy=exclusive --test_tag_filters=ci_manifest_boot
+
+build:deterministic --build_manual_tests --build_tag_filters=ci_deterministic
+build:deterministic --disk_cache=
+build:deterministic --noremote_accept_cached
+build:deterministic --noremote_upload_local_results
+
+build:kernel_preflight --build_tag_filters=requires_kernel_contract --compilation_mode=opt
+build:kernel_preflight --noexperimental_use_hermetic_linux_sandbox
+build:kernel_preflight --spawn_strategy=linux-sandbox
+test:kernel_preflight --test_tag_filters=requires_kernel_contract
+test:kernel_preflight --test_strategy=exclusive
+test:kernel_preflight --test_output=all
+test:kernel_preflight --cache_test_results=no
+
+common:bazel9 --lockfile_mode=off

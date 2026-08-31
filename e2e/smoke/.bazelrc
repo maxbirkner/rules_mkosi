@@ -1,3 +1,8 @@
 common --enable_bzlmod
 common --lockfile_mode=error
+build --disk_cache=.cache/bazel-disk
+build --build_tag_filters=-ci_manifest,-ci_qualified,-ci_deterministic,-requires_kernel_contract
 test --test_output=errors
+test --test_tag_filters=-ci_manifest,-ci_qualified,-ci_deterministic,-requires_kernel_contract
+
+try-import %workspace%/../../.bazelrc.ci

@@ -164,6 +164,13 @@ external dependency changes. Both committed lockfiles are generated and
 validated with Bazel 8.5.1. Bazel 9 compatibility commands use lockfile mode
 off without rewriting them.
 
+The checked-in Bazel rc files keep local action results in ignored,
+worktree-local disk caches, while setup-bazel continues to inject its
+workflow-scoped cache paths in CI. CI uses tag-based named configs with
+`//...` expansion for ordinary, manifest, qualified image/boot, deterministic,
+and kernel-preflight lanes; this keeps target selection reviewable without
+making consumers depend on repository-only configuration.
+
 Real mkosi image tests will use a dedicated Linux job. Unsupported or
 privileged tests must not be mixed with portable analysis tests or the BCR
 smoke module.

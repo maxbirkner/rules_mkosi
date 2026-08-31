@@ -1,0 +1,9 @@
+load("@rules_python//python:defs.bzl", "py_test")
+
+py_test(
+    name = "workflow_bazel_command_test",
+    srcs = ["workflow_bazel_command_test.py"],
+    args = ["$(rootpath //:.github/workflows/ci.yml)"],
+    data = ["//:.github/workflows/ci.yml"],
+    main = "workflow_bazel_command_test.py",
+)

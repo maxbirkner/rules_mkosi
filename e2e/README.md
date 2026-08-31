@@ -61,6 +61,14 @@ for plain local commands, matching its checked-in Bazel 8 lockfile; CI
 explicitly exercises pinned Bazel 8.5.1 strictly and Bazel 9.2.0 with
 lockfile mode off.
 
+The consumer `.bazelrc` imports the repository's optional `.bazelrc.ci` and
+uses its own ignored `.cache/bazel-disk` directory. Ordinary `//...` tests
+exclude `ci_qualified` and `manual` targets, while the qualified image and
+boot pass selects those tests with `--config=qualified //...`. The second
+boot pass selects only the `ci_manifest_boot` tests with
+`--config=qualified_manifest //...`, preserving the runfiles-disabled,
+exclusive launcher check without enumerating labels.
+
 `module_resolution` contains Bazelmod fixtures for extension selection and
 failure diagnostics. These fixtures deliberately have no lockfiles and run
 with `--lockfile_mode=off` on both supported versions, so dependency state

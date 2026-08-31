@@ -32,6 +32,27 @@ Run the independent consumer test module:
 )
 ```
 
+The checked-in `.bazelrc` enables a worktree-local disk cache at
+`.cache/bazel-disk`; the root and `e2e/smoke` modules have separate cache
+directories. These paths are ignored by Git and Bazel, so they cannot become
+source inputs or committed artifacts. The repository-only `.bazelrc.ci`
+defines the `ordinary`, `manifest`, `qualified`, `qualified_manifest`,
+`deterministic`, `kernel_preflight`, and `bazel9` configs used by CI. For
+example, the ordinary compatibility commands are:
+
+```console
+bazel test --config=ordinary //...
+USE_BAZEL_VERSION=9.2.0 bazel test --config=ordinary --config=bazel9 //...
+```
+
+Qualified image and boot coverage is intentionally opt-in:
+`bazel test --config=qualified //...` from the root and
+`bazel test --config=qualified //...` from `e2e/smoke`; the manifest-mode boot
+pass uses `--config=qualified_manifest`. These configs select explicit
+`ci_qualified`, `ci_manifest`, `ci_manifest_boot`, and
+`requires_kernel_contract` tags rather than relying on `manual` expansion.
+Networked image actions remain non-cacheable.
+
 These commands use Bazel 8.5.1 and the two committed lockfiles by default:
 the root `MODULE.bazel.lock` and `e2e/smoke/MODULE.bazel.lock`. CI also tests
 pinned Bazel 9.2.0 with `--lockfile_mode=off` only for compatibility commands,

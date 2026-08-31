@@ -46,7 +46,6 @@ cc_test(
     srcs = ["kernel_preflight_host_test.c"],
     linkstatic = True,
     tags = [
-        "manual",
         "requires_kernel_contract",
     ],
     deps = [":kernel_preflight_lib"],

@@ -70,13 +70,13 @@ jobs:
             esac
             echo "CI bootstrap identity has empty supplementary groups"
           '
-          if [ "${{ matrix.bazel }}" = "8.5.1" ]; then
-            run_bazel bazel test --lockfile_mode=error //...
-          else
+          bazel_configs=(--config=ordinary)
+          if [ "${{ matrix.bazel }}" = "9.2.0" ]; then
             # Bazel 9 uses a newer lockfile format; compatibility is tested
             # without rewriting the committed Bazel 8 lockfile.
-            run_bazel bazel test --lockfile_mode=off //...
+            bazel_configs+=(--config=bazel9)
           fi
+          run_bazel bazel test "${bazel_configs[@]}" //...
 
       - name: Verify Debian tools cache boundary
         if: matrix.module == '.'
@@ -144,13 +144,11 @@ jobs:
             sudo -n setpriv --reuid="$(id -u)" --regid="$(id -g)" \
               --clear-groups env HOME="$HOME" PATH="$PATH" "$@"
           }
-          if [ "${{ matrix.bazel }}" = "8.5.1" ]; then
-            run_bazel bazel test --enable_runfiles=no --lockfile_mode=error \
-              //mkosi/tests:debian_tools_launcher_probe_test
-          else
-            run_bazel bazel test --enable_runfiles=no --lockfile_mode=off \
-              //mkosi/tests:debian_tools_launcher_probe_test
+          bazel_configs=(--config=manifest)
+          if [ "${{ matrix.bazel }}" = "9.2.0" ]; then
+            bazel_configs+=(--config=bazel9)
           fi
+          run_bazel bazel test "${bazel_configs[@]}" //...
 
       - name: Audit Debian tools action graph
         if: matrix.module == '.'
@@ -447,14 +445,13 @@ jobs:
             sudo -n setpriv --reuid="$(id -u)" --regid="$(id -g)" \
               --clear-groups env HOME="$HOME" PATH="$PATH" "$@"
           }
-          mode=error
-          if [ "${{ matrix.bazel }}" = "9.2.0" ]; then
-            mode=off
-          fi
           run_bazel bazel shutdown
           set -o pipefail
-          run_bazel bazel test --lockfile_mode="$mode" --config=kernel_preflight \
-            //mkosi/private:kernel_preflight_host_test 2>&1 |
+          bazel_configs=(--config=kernel_preflight)
+          if [ "${{ matrix.bazel }}" = "9.2.0" ]; then
+            bazel_configs+=(--config=bazel9)
+          fi
+          run_bazel bazel test "${bazel_configs[@]}" //... 2>&1 |
             tee kernel-preflight.log
           grep -F "Executed 1 out of 1 test" kernel-preflight.log
           ! grep -F "(cached)" kernel-preflight.log
@@ -492,41 +489,18 @@ jobs:
               esac
               echo "CI namespace lane: Groups: (empty)"
               bazel shutdown
-              bazel test --lockfile_mode=error --disk_cache= \
-                --cache_test_results=no --config=kernel_preflight \
-                //mkosi/private:kernel_preflight_host_test
+              bazel test --config=kernel_preflight //...
               override_graph="$(bazel aquery --lockfile_mode=error --output=text \
                 "mnemonic(\"MkosiImage\", //mkosi/tests:override_subject)")"
               case "$override_graph" in
                 *"redirect.conf"*"override_subject.raw"*) ;;
                 *) echo "redirect config is not the override image dependency" >&2; exit 1 ;;
               esac
-              bazel test --lockfile_mode=error --disk_cache= \
-                --cache_test_results=no --spawn_strategy=linux-sandbox \
-                --test_output=all \
-                //mkosi/tests:debian_tools_launcher_probe_test \
-                //mkosi/tests:debian_tools_runtime_test \
-                //mkosi/tests:debian_tools_recursive_ro_test \
-                //mkosi/tests:debian_tools_manifest_test \
-                //mkosi/tests:debian_tools_fd_swap_test \
-                //mkosi/tests:real_image_artifact_test \
-                //mkosi/tests:override_image_artifact_test \
-                //mkosi/tests:raw_image_corruption_test
+              bazel test --config=qualified //...
               cd e2e/smoke
               bazel shutdown
-              bazel test --lockfile_mode=error --disk_cache= \
-                --cache_test_results=no --spawn_strategy=linux-sandbox \
-                --test_output=all \
-                //:demo_artifact_test \
-                //:raw_image_corruption_test \
-                //:boot_launcher_contract_test \
-                //:demo_boot_test
-              bazel test --lockfile_mode=error --disk_cache= \
-                --cache_test_results=no --spawn_strategy=linux-sandbox \
-                --test_strategy=exclusive --enable_runfiles=no \
-                --test_output=all \
-                //:boot_launcher_contract_test \
-                //:demo_boot_test
+              bazel test --config=qualified //...
+              bazel test --config=qualified_manifest //...
             '
 
   lockfile:
@@ -639,16 +613,12 @@ jobs:
           rm -rf "$output_a" "$output_b"
           rm -f "$execution_log"
           run_bazel bazel --output_base="$output_a" build \
-            --lockfile_mode=error --disk_cache= \
+            --config=deterministic \
             --execution_log_json_file="$execution_log" \
-            --noremote_accept_cached --noremote_upload_local_results \
-            @mkosi_debian_tools//:launcher \
-            @mkosi_debian_tools//:namespace_runner
+            //...
           first_launcher="$(run_bazel bazel --output_base="$output_a" cquery \
-            --lockfile_mode=error \
             --output=files @mkosi_debian_tools//:launcher | tail -n 1)"
           first_runner="$(run_bazel bazel --output_base="$output_a" cquery \
-            --lockfile_mode=error \
             --output=files @mkosi_debian_tools//:namespace_runner | tail -n 1)"
           first_launcher_sha="$(sha256sum "$first_launcher" | cut -d' ' -f1)"
           first_runner_sha="$(sha256sum "$first_runner" | cut -d' ' -f1)"
@@ -675,15 +645,11 @@ jobs:
           print("CcStrip /usr/bin/false execution records: 0")
           PY
           run_bazel bazel --output_base="$output_b" build \
-            --lockfile_mode=error --disk_cache= \
-            --noremote_accept_cached --noremote_upload_local_results \
-            @mkosi_debian_tools//:launcher \
-            @mkosi_debian_tools//:namespace_runner
+            --config=deterministic \
+            //...
           second_launcher="$(run_bazel bazel --output_base="$output_b" cquery \
-            --lockfile_mode=error \
             --output=files @mkosi_debian_tools//:launcher | tail -n 1)"
           second_runner="$(run_bazel bazel --output_base="$output_b" cquery \
-            --lockfile_mode=error \
             --output=files @mkosi_debian_tools//:namespace_runner | tail -n 1)"
           test "$first_launcher_sha" = "$(sha256sum "$second_launcher" | cut -d' ' -f1)"
           test "$first_runner_sha" = "$(sha256sum "$second_runner" | cut -d' ' -f1)"
