@@ -75,37 +75,55 @@ candidate must be a registered direct sibling under that root with the
 worktree, a missing or unexpected path, and any entry marked `locked` or
 `detached`. From the candidate, verify `git status --porcelain=v2
 --untracked-files=all` is empty, there is no unmerged index, and the merged or
-explicitly abandoned/closed PR/task state is current. For a merged pull
-request, also verify the candidate head is an ancestor of the merged base. If
-ownership or state is uncertain, report the blocked cleanup and stop. Do not
-use broad recursive deletion, globs, `bazel clean`, or `bazel clean
---expunge`; do not force removal.
+explicitly abandoned/closed PR/task state is current. For a merged pull request, run `git fetch origin main` and query the fresh
+authoritative PR record, not a cached handoff. Require state `MERGED`, the
+candidate branch ref and worktree `HEAD` to match the reviewed PR head SHA, and
+the PR-recorded merge commit to be reachable from the fetched `origin/main`.
+Check head ancestry only for merge methods that preserve head identity; do not
+require it after a squash merge. For an abandoned/closed task, require
+separate explicit lifecycle evidence, preserve and report the exact head and
+needed patches/logs/review state, and prove that no unmerged work remains to
+preserve. If ownership or state is uncertain, report the blocked cleanup and
+stop. Do not use broad recursive deletion, globs, `bazel clean`, or `bazel
+clean --expunge`; do not force removal.
 
 Remove only Bazel state proven exclusive to that exact worktree, and do so
-before unregistering the worktree:
+before unregistering it. Account for every Bazel workspace the task actually
+exercised, at minimum the root and independent `e2e/smoke` workspaces, plus
+each module-resolution fixture or other workspace named in the worker's
+commands and handoff. If complete workspace accounting cannot be established,
+report blocked cleanup.
 
-1. Run `bazel info workspace`, `bazel info output_base`, and `bazel info
-   output_user_root` separately from the candidate worktree and canonicalize
-   every returned path. Require `workspace` to be the candidate's canonical
-   path and `output_base` to be an existing directory beneath the reported
-   Bazel `output_user_root`, with the expected Bazel-owned structure (for
-   example, `execroot/` plus `action_cache/`, `command.log`, or `server/`).
-   Reject an output base that is the filesystem root, home directory,
-   candidate/primary checkout, an ancestor of either, a configured shared
-   cache, or a path also used by another worktree. Treat missing, ambiguous,
-   or non-canonical output-base results as unsafe.
-2. Inspect any `bazel-*` convenience symlinks in the candidate and validate
-   their canonical targets; never trust or delete a symlink as proof of
-   ownership. Shut down the Bazel server for this output base with
-   `bazel --output_base=<validated-output-base> shutdown`.
-3. Delete only that exact validated `output_base`. This is the
-   per-worktree Bazel output state, not a license to delete every Bazel cache.
-   This repository's `.bazelrc` does not configure a cache; CI enables a
-   shared setup-bazel action/disk cache and repository cache. Those shared
-   dependency/action caches, including any `repository_cache` or
-   `disk_cache`, must never be deleted during worktree cleanup.
-4. Only after the exact output base is gone, run `git worktree remove
-   <canonical-candidate>` (without force) and then `git worktree prune`.
+1. For each workspace, run `bazel info workspace`, `bazel info output_base`,
+   and `bazel info output_user_root` separately and canonicalize every result.
+   Require `workspace` to match that workspace's canonical path and each
+   `output_base` to be an existing directory beneath its reported
+   `output_user_root`, with expected Bazel-owned structure (for example,
+   `execroot/` plus `action_cache/`, `command.log`, or `server/`). Reject an
+   output base that is root/home, either checkout, an ancestor of either, a
+   configured shared cache, or another workspace's output base. Validate any
+   `bazel-*` convenience-symlink targets; never trust a symlink as ownership
+   proof.
+2. Using the worker's exact commands and environment, account for startup,
+   command-line, `.bazelrc.user`, home, and system RC configuration. Use
+   Bazel's effective-configuration reporting (`--announce_rc` and
+   `canonicalize-flags` where supported) to resolve canonical
+   `repository_cache` and enabled `disk_cache` paths for every workspace.
+   Record an explicitly disabled cache as such. Do not heuristically parse RC
+   files or guess defaults. If an enabled cache path is unknown, unresolved,
+   or overlaps a worktree/output base, report blocked cleanup. These shared
+   dependency/action caches must never be deleted.
+3. Shut down each corresponding Bazel server, using its validated output base,
+   then delete every exact validated per-workspace `output_base` and no other
+   path. This repository's `.bazelrc` has no cache setting, while CI's
+   setup-bazel enables shared disk and repository caches; neither those caches
+   nor any other shared cache is part of worktree cleanup.
+4. Only after all validated output bases are gone, run `git worktree remove
+   <canonical-candidate>` without force. This already unregisters that exact
+   worktree. Before any repository-wide prune, run `git worktree prune
+   --dry-run --verbose`; run the real prune only when the dry run reports no
+   unrelated entry (at most the just-removed candidate). Otherwise skip/block
+   prune so cleanup cannot unregister another missing worktree.
 
 If the exclusive output base cannot be proven, do not bypass the checks or
 remove the worktree: report the candidate, the failed safety condition, and
