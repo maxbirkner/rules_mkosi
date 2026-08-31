@@ -94,25 +94,34 @@ each module-resolution fixture or other workspace named in the worker's
 commands and handoff. If complete workspace accounting cannot be established,
 report blocked cleanup.
 
-1. For each workspace, run `bazel info workspace`, `bazel info output_base`,
-   and `bazel info output_user_root` separately and canonicalize every result.
-   Require `workspace` to match that workspace's canonical path and each
-   `output_base` to be an existing directory beneath its reported
-   `output_user_root`, with expected Bazel-owned structure (for example,
-   `execroot/` plus `action_cache/`, `command.log`, or `server/`). Reject an
-   output base that is root/home, either checkout, an ancestor of either, a
-   configured shared cache, or another workspace's output base. Validate any
-   `bazel-*` convenience-symlink targets; never trust a symlink as ownership
-   proof.
+1. For each workspace, run `bazel info workspace` and `bazel info output_base`
+   separately and canonicalize every result. Do not query
+   `bazel info output_user_root`: it is not a supported Bazel info key. Require
+   `workspace` to match that workspace's canonical path and `output_base` to
+   be an existing directory with expected, non-symlink Bazel-owned markers
+   such as `DO_NOT_BUILD_HERE`, `execroot/`, and `command.log`. If the
+   effective startup configuration explicitly supplies `--output_user_root`,
+   establish that exact value from the worker's recorded command and startup
+   RC options, canonicalize it, and require `output_base` beneath it. Without
+   that proof, use only the conservative marker relationship: require a
+   dedicated Bazel output-root parent that is not root, home, either checkout,
+   or a shared-cache root, and a 32-hex-digit output-base leaf. Reject an
+   output base that is an ancestor of either checkout, another workspace's
+   output base, or a configured shared cache. Validate any `bazel-*`
+   convenience-symlink targets; never trust a symlink as ownership proof. If
+   neither relationship is proven, report blocked cleanup.
 2. Using the worker's exact commands and environment, account for startup,
-   command-line, `.bazelrc.user`, home, and system RC configuration. Use
-   Bazel's effective-configuration reporting (`--announce_rc` and
-   `canonicalize-flags` where supported) to resolve canonical
-   `repository_cache` and enabled `disk_cache` paths for every workspace.
-   Record an explicitly disabled cache as such. Do not heuristically parse RC
-   files or guess defaults. If an enabled cache path is unknown, unresolved,
-   or overlaps a worktree/output base, report blocked cleanup. These shared
-   dependency/action caches must never be deleted.
+   command-line, `.bazelrc.user`, home, and system RC configuration. Use the
+   supported `bazel info --announce_rc output_base` report to identify applied
+   RC sources/options, and `bazel canonicalize-flags -- <effective-command
+   flags>` where supported, to resolve canonical `repository_cache` and
+   enabled `disk_cache` paths for every workspace. `canonicalize-flags` does
+   not establish startup options; resolve `--output_user_root` only from the
+   recorded effective startup configuration above. Record an explicitly
+   disabled cache as such. Do not heuristically parse RC files or guess
+   defaults. If an enabled cache path is unknown, unresolved, or overlaps a
+   worktree/output base, report blocked cleanup. These shared dependency/action
+   caches must never be deleted.
 3. Shut down each corresponding Bazel server, using its validated output base,
    then delete every exact validated per-workspace `output_base` and no other
    path. This repository's `.bazelrc` has no cache setting, while CI's
