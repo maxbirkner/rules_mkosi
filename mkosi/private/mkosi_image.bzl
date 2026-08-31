@@ -70,16 +70,16 @@ def _stage_inputs(ctx, config, config_is_directory, source_trees):
     mappings = []
 
     if config_is_directory:
-        mappings.append((config.path, "."))
+        mappings.append((config.path, ".", "tree"))
     else:
-        mappings.append((config.path, config.basename))
+        mappings.append((config.path, config.basename, "file"))
 
     for destination in sorted(source_trees):
-        mappings.append((source_trees[destination].path, destination))
+        mappings.append((source_trees[destination].path, destination, "tree"))
 
     destinations = {}
     sources = {}
-    for source, destination in mappings:
+    for source, destination, role in mappings:
         if destination == ".":
             destination = ""
         elif destination:
@@ -112,10 +112,11 @@ def _stage_inputs(ctx, config, config_is_directory, source_trees):
     stage_args.add(ctx.file._stage_script.path)
     stage_args.add("--output")
     stage_args.add(staging.path)
-    for source, destination in mappings:
+    for source, destination, role in mappings:
         stage_args.add("--mapping")
         stage_args.add(source)
         stage_args.add(destination)
+        stage_args.add(role)
 
     mkosi = ctx.toolchains["//mkosi/toolchain:toolchain_type"].mkosi
     ctx.actions.run(

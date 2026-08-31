@@ -1,9 +1,11 @@
 load("@bazel_skylib//rules:diff_test.bzl", "diff_test")
 load("@rules_python//python:defs.bzl", "py_test")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
+<<<<<<< HEAD
 load(
     "//mkosi:defs.bzl",
     "mkosi_image",
+    "mkosi_source_tree",
     "qemu_ovmf_boot_test",
     "qemu_ovmf_smoke_test",
 )
@@ -315,6 +317,60 @@ sh_test(
         "//mkosi/private:stage_inputs.py",
         "@mkosi_toolchains//:mkosi_python",
     ],
+)
+
+genrule(
+    name = "generated_source_file",
+    outs = ["generated-source.txt"],
+    cmd = "printf generated > $@",
+)
+
+mkosi_source_tree(
+    name = "generated_source_tree",
+    src = ":generated_source_file",
+)
+
+mkosi_source_tree(
+    name = "regular_source_file_tree",
+    src = "testdata/minimal.conf",
+)
+
+sh_test(
+    name = "mkosi_staging_role_test",
+    srcs = ["mkosi_staging_role_test.sh"],
+    args = [
+        "$(rootpath @mkosi_toolchains//:mkosi_python)",
+        "$(rootpath //mkosi/private:stage_inputs.py)",
+        "$(rootpath :regular_source_file_tree)",
+        "$(rootpath :generated_source_tree)",
+    ],
+    data = [
+        ":generated_source_tree",
+        ":regular_source_file_tree",
+        "//mkosi/private:stage_inputs.py",
+        "@mkosi_toolchains//:mkosi_python",
+    ],
+)
+
+sh_test(
+    name = "mkosi_staging_metadata_test",
+    srcs = ["mkosi_staging_metadata_test.sh"],
+    args = [
+        "$(rootpath @mkosi_toolchains//:mkosi_python)",
+        "$(rootpath //mkosi/private:stage_inputs.py)",
+    ],
+    data = [
+        "//mkosi/private:stage_inputs.py",
+        "@mkosi_toolchains//:mkosi_python",
+    ],
+)
+
+py_test(
+    name = "run_mkosi_metadata_test",
+    srcs = ["run_mkosi_metadata_test.py"],
+    args = ["$(rootpath //mkosi/private:run_mkosi.py)"],
+    data = ["//mkosi/private:run_mkosi.py"],
+    main = "run_mkosi_metadata_test.py",
 )
 
 exports_files([

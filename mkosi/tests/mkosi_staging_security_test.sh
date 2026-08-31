@@ -22,27 +22,27 @@ expect_failure() {
 
 # A source destination may not replace or sit below any config-tree entry.
 expect_failure "$root/exact" \
-    --mapping "$root/config" . \
-    --mapping "$root/source" sub
+    --mapping "$root/config" . tree \
+    --mapping "$root/source" sub tree
 
 ln -s "$root/outside/file" "$root/source/absolute"
 expect_failure "$root/absolute" \
-    --mapping "$root/config" . \
-    --mapping "$root/source" src
+    --mapping "$root/config" . tree \
+    --mapping "$root/source" src tree
 rm "$root/source/absolute"
 
 ln -s ../outside/file "$root/source/escape"
 expect_failure "$root/escape" \
-    --mapping "$root/config" . \
-    --mapping "$root/source" src
+    --mapping "$root/config" . tree \
+    --mapping "$root/source" src tree
 rm "$root/source/escape"
 
 ln -s sub/file "$root/config/alias"
 expect_failure "$root/alias-prefix" \
-    --mapping "$root/config" . \
-    --mapping "$root/source" alias/child
+    --mapping "$root/config" . tree \
+    --mapping "$root/source" alias/child tree
 
 ln -s "$root/config" "$root/config-alias"
 expect_failure "$root/source-alias" \
-    --mapping "$root/config" . \
-    --mapping "$root/config-alias" src
+    --mapping "$root/config" . tree \
+    --mapping "$root/config-alias" src tree

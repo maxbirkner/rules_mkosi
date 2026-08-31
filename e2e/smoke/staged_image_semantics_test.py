@@ -6,7 +6,13 @@ import sys
 
 def main():
     content = pathlib.Path(sys.argv[1]).read_bytes()
-    for marker in (b"declared extra", b"declared source", b"rules-mkosi-staged"):
+    for marker in (
+        b"declared extra",
+        b"declared source",
+        b"rules-mkosi-staged",
+        b"relative file marker",
+        b"linked directory marker",
+    ):
         if marker not in content:
             raise AssertionError("image is missing staged marker {!r}".format(marker))
     print("image contains config-tree and BuildSources markers")

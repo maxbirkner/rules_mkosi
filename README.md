@@ -193,11 +193,14 @@ mkosi_image(
 `source_trees` keys are normalized relative paths and values must be
 `mkosi_source_tree` targets. Absolute paths, `..` traversal, duplicate
 sources, overlapping destinations, and manifest collisions with configuration
-content are rejected before staging writes. This explicit mapping also works
-for labels from external repositories and avoids relying on repository-relative
-runfiles paths. A single-file `config` remains supported unchanged; when source
-trees are supplied, that file is staged at its basename and selected with
-`-I`.
+content are rejected before staging writes. Source-tree roles are checked again
+at execution, including generated artifacts whose Bazel metadata is ambiguous.
+Staging and materialization normalize files and directories to deterministic
+timestamps and permissions, retaining only executable semantics; valid relative
+symlinks are preserved. This explicit mapping also works for labels from
+external repositories and avoids relying on repository-relative runfiles paths.
+A single-file `config` remains supported unchanged; when source trees are
+supplied, that file is staged at its basename and selected with `-I`.
 
 Development and test commands are documented once in
 [CONTRIBUTING.md](CONTRIBUTING.md). The independent consumer module is

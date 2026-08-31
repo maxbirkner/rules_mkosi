@@ -9,8 +9,8 @@ output="$TEST_TMPDIR/staged"
 
 "$python" "$stage_script" \
     --output "$output" \
-    --mapping "$config_tree" . \
-    --mapping "$source_tree" src
+    --mapping "$config_tree" . tree \
+    --mapping "$source_tree" src tree
 
 test -f "$output/mkosi.conf"
 test -f "$output/mkosi.conf.d/20-extra.conf"

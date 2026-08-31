@@ -4,7 +4,10 @@
 import argparse
 import os
 import pathlib
+import stat
 import shutil
+
+_EPOCH = (0, 0)
 
 
 def _normalise_relative(path):
@@ -60,7 +63,7 @@ def _manifest(mappings):
     """Build and validate the complete staged manifest without writing."""
     entries = {}
     canonical_sources = {}
-    for source_string, destination_string in mappings:
+    for source_string, destination_string, role in mappings:
         source = pathlib.Path(source_string)
         if not source.exists():
             raise ValueError("declared source does not exist: {}".format(source))
@@ -79,13 +82,19 @@ def _manifest(mappings):
         canonical_sources[canonical] = source
         destination = "" if destination_string == "." else _normalise_relative(destination_string)
         owner = "{} -> {}".format(source, destination or ".")
-        if source.is_dir():
+        if role == "tree" and not source.is_dir():
+            raise ValueError("source-tree mapping must be a directory: {}".format(source))
+        if role == "file" and not source.is_file():
+            raise ValueError("file mapping must be a regular file: {}".format(source))
+        if role == "tree":
             current = _tree_entries(source, destination, owner)
-        elif source.exists():
+        elif role == "file":
             path = destination
             if not path:
                 raise ValueError("a file mapping requires a destination")
             current = {path: (owner, "file", source, None)}
+        else:
+            raise ValueError("unknown mapping role: {}".format(role))
 
         for path, entry in current.items():
             prior = entries.get(path)
@@ -135,17 +144,33 @@ def _copy_manifest(output, entries):
         target = output.joinpath(*path.split("/"))
         if kind == "directory":
             target.mkdir(parents=True, exist_ok=True)
-        elif kind == "symlink":
+    for path, (_, kind, source, link_target) in sorted(entries.items()):
+        target = output.joinpath(*path.split("/"))
+        if kind == "symlink":
             target.parent.mkdir(parents=True, exist_ok=True)
             target.symlink_to(link_target)
-        else:
+            os.utime(target, _EPOCH, follow_symlinks=False)
+        elif kind == "file":
             target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(source, target)
+            shutil.copyfile(source, target)
+            os.chmod(target, 0o755 if source.stat().st_mode & stat.S_IXUSR else 0o644)
+            os.utime(target, _EPOCH)
+    for path, (_, kind, _, _) in sorted(entries.items(), reverse=True):
+        if kind == "directory":
+            target = output.joinpath(*path.split("/"))
+            os.chmod(target, 0o755)
+            os.utime(target, _EPOCH, follow_symlinks=False)
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", required=True, type=pathlib.Path)
-    parser.add_argument("--mapping", action="append", nargs=2, metavar=("SOURCE", "DESTINATION"), required=True)
+    parser.add_argument(
+        "--mapping",
+        action="append",
+        nargs=3,
+        metavar=("SOURCE", "DESTINATION", "ROLE"),
+        required=True,
+    )
     args = parser.parse_args()
 
     if args.output.is_symlink():
