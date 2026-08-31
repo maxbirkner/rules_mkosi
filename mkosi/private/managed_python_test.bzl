@@ -37,10 +37,7 @@ def _managed_python_test_impl(ctx):
             timeout = getattr(ctx.attr, "timeout", "moderate"),
         ),
         RunEnvironmentInfo(
-            environment = {
-                "PATH": "",
-                "PYTHONNOUSERSITE": "1",
-            },
+            environment = {"PYTHONNOUSERSITE": "1"},
         ),
     ]
 
