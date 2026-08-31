@@ -77,7 +77,8 @@ jobs:
           evidence=0
           if [ "${{ matrix.bazel }}" = "8.5.1" ]; then
             evidence=1
-            run_bazel bazel query 'kind(".*_test rule", //...)' \
+            run_bazel bazel query \
+              'kind(".*_test rule", //...) except attr("tags", "manual", //...)' \
               --output=label > discovered-root-tests.txt
           fi
           run_bazel bazel shutdown
@@ -142,7 +143,8 @@ jobs:
             run_bazel bazel shutdown
             e2e_events=()
             if [ "$evidence" -eq 1 ]; then
-              run_bazel bazel query 'kind(".*_test rule", //...)' \
+              run_bazel bazel query \
+                'kind(".*_test rule", //...) except attr("tags", "manual", //...)' \
                 --output=label > discovered-e2e-tests.txt
               e2e_events=(--build_event_json_file=qualified-e2e-events.json)
             fi
