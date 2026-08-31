@@ -2,9 +2,10 @@
 set -eu
 
 runner="$1"
-config="$2"
+src="$2"
+config="$3"
 set +e
-output="$("$runner" "$config" 2>&1)"
+output="$("$runner" "$src" "$config" 2>&1)"
 status="$?"
 set -e
 

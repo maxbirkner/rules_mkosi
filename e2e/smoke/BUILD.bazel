@@ -59,7 +59,6 @@ qemu_ovmf_boot_test(
 managed_python_test(
     name = "boot_launcher_contract_test",
     src = "launcher_contract.py",
-    args = ["$(rootpath :launcher_contract.py)"],
     data = ["launcher_contract.py"],
 )
 
@@ -78,11 +77,13 @@ sh_test(
     srcs = ["boot_entry_regression.sh"],
     args = [
         "$(rootpath :boot_entry_regression_runner)",
+        "$(rootpath @rules_mkosi//mkosi/private:boot_test.py)",
         "$(rootpath testdata/invalid_boot_config.json)",
     ],
     data = [
         "testdata/invalid_boot_config.json",
         ":boot_entry_regression_runner",
+        "@rules_mkosi//mkosi/private:boot_test.py",
     ],
 )
 
