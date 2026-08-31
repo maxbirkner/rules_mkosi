@@ -59,14 +59,17 @@ _managed_python_test = rule(
 )
 
 def _src_arg(src):
-    return ["$(rootpath %s)" % src]
+    return [
+        "$(rootpath @rules_mkosi//mkosi/private:managed_python_bootstrap.py)",
+        "$(rootpath %s)" % src,
+    ]
 
 def managed_python_test(name, src, args = [], data = [], timeout = "moderate", tags = []):
     _managed_python_test(
         name = name,
         src = src,
         args = _src_arg(src) + args,
-        data = data,
+        data = data + ["@rules_mkosi//mkosi/private:managed_python_bootstrap.py"],
         timeout = timeout,
         tags = tags,
     )

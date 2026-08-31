@@ -81,6 +81,7 @@ sh_test(
     srcs = ["boot_entry_regression.sh"],
     args = [
         "$(rootpath :boot_entry_regression_runner)",
+        "$(rootpath @rules_mkosi//mkosi/private:managed_python_bootstrap.py)",
         "$(rootpath @rules_mkosi//mkosi/private:boot_test.py)",
         "$(rootpath testdata/invalid_boot_config.json)",
     ],
@@ -88,6 +89,7 @@ sh_test(
         "testdata/invalid_boot_config.json",
         ":boot_entry_regression_runner",
         "@rules_mkosi//mkosi/private:boot_test.py",
+        "@rules_mkosi//mkosi/private:managed_python_bootstrap.py",
     ],
 )
 

@@ -2,7 +2,6 @@ import os
 import pathlib
 import sys
 
-os.environ["PATH"] = ""
 assert os.environ["PYTHONNOUSERSITE"] == "1"
 assert os.environ["PATH"] == ""
 assert "rules_python" in str(pathlib.Path(sys.executable).resolve())
