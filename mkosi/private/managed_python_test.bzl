@@ -1,5 +1,10 @@
 """Native test launcher for a Bazel-managed Python interpreter."""
 
+ManagedPythonTestInfo = provider(
+    "Managed interpreter test launcher contract.",
+    fields = ["source", "timeout"],
+)
+
 def _managed_python_test_impl(ctx):
     runtime = ctx.toolchains["@rules_python//python:toolchain_type"].py3_runtime
     if runtime.interpreter == None:
@@ -27,7 +32,16 @@ def _managed_python_test_impl(ctx):
             executable = executable,
             runfiles = runfiles,
         ),
-        RunEnvironmentInfo(environment = {"PYTHONNOUSERSITE": "1"}),
+        ManagedPythonTestInfo(
+            source = ctx.file.src,
+            timeout = ctx.attr.timeout,
+        ),
+        RunEnvironmentInfo(
+            environment = {
+                "PATH": "",
+                "PYTHONNOUSERSITE": "1",
+            },
+        ),
     ]
 
 _managed_python_attrs = {

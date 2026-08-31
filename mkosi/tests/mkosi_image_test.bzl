@@ -3,17 +3,17 @@
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts")
 load(
     "//mkosi:defs.bzl",
+    "ManagedPythonTestInfo",
     "MkosiImageInfo",
     "MkosiQemuToolchainInfo",
+    "QemuOvmfBootConfigInfo",
     "mkosi_image",
+    "qemu_ovmf_boot_config",
     "qemu_ovmf_boot_test",
 )
 load("//mkosi/debian:toolchain.bzl", "DebianToolsInfo")
-load(
-    "//mkosi/private:qemu_ovmf_boot_test.bzl",
-    "QemuOvmfBootConfigInfo",
-    _qemu_ovmf_boot_config = "qemu_ovmf_boot_config",
-)
+
+_qemu_ovmf_boot_config = qemu_ovmf_boot_config
 
 def _provider_test_impl(ctx):
     env = analysistest.begin(ctx)
@@ -233,6 +233,18 @@ _boot_deadline_provider_test = analysistest.make(
     },
 )
 
+def _public_boot_timeout_test_impl(ctx):
+    env = analysistest.begin(ctx)
+    info = analysistest.target_under_test(env)[ManagedPythonTestInfo]
+    asserts.equals(env, ctx.attr.expected_timeout, info.timeout)
+    asserts.equals(env, "boot_test.py", info.source.basename)
+    return analysistest.end(env)
+
+_public_boot_timeout_test = analysistest.make(
+    _public_boot_timeout_test_impl,
+    attrs = {"expected_timeout": attr.string(mandatory = True)},
+)
+
 def mkosi_image_test_suite(name):
     """Defines analysis tests for the config-driven image action.
 
@@ -402,6 +414,39 @@ def mkosi_image_test_suite(name):
         target_under_test = ":analysis_boot_test_config",
     )
 
+    qemu_ovmf_boot_test(
+        name = "public_long_timeout_boot_test",
+        image = ":debian_subject",
+        boot_timeout_seconds = 600,
+        timeout = "long",
+        tags = ["manual"],
+    )
+    _public_boot_timeout_test(
+        name = "public_boot_timeout_test",
+        expected_timeout = "long",
+        target_under_test = ":public_long_timeout_boot_test",
+    )
+    _public_boot_timeout_test(
+        name = "public_moderate_timeout_test",
+        expected_timeout = "moderate",
+        target_under_test = ":analysis_boot_test",
+    )
+
+    qemu_ovmf_boot_test(
+        name = "public_short_timeout_boot_test",
+        image = ":debian_subject",
+        boot_timeout_seconds = 10,
+        qmp_initialization_timeout_seconds = 5,
+        shutdown_timeout_seconds = 5,
+        timeout = "short",
+        tags = ["manual"],
+    )
+    _public_boot_timeout_test(
+        name = "public_short_timeout_test",
+        expected_timeout = "short",
+        target_under_test = ":public_short_timeout_boot_test",
+    )
+
     _qemu_ovmf_boot_config(
         name = "invalid_qmp_deadline_subject",
         image = ":debian_subject",
@@ -475,6 +520,42 @@ def mkosi_image_test_suite(name):
         target_under_test = ":invalid_boot_eternal_subject",
     )
 
+    _qemu_ovmf_boot_config(
+        name = "invalid_boot_diagnostic_subject",
+        image = ":debian_subject",
+        readiness_marker = "READY",
+        shutdown_markers = ["SHUTDOWN"],
+        machine_args = ["-machine", "q35"],
+        boot_timeout_seconds = 180,
+        qmp_initialization_timeout_seconds = 15,
+        shutdown_timeout_seconds = 30,
+        diagnostic_bytes = 0,
+        tags = ["manual"],
+    )
+    _invalid_qemu_config_test(
+        name = "invalid_boot_diagnostic_test",
+        expected_failure = "diagnostic_bytes",
+        target_under_test = ":invalid_boot_diagnostic_subject",
+    )
+
+    _qemu_ovmf_boot_config(
+        name = "invalid_boot_shutdown_marker_subject",
+        image = ":debian_subject",
+        readiness_marker = "READY",
+        shutdown_markers = [],
+        machine_args = ["-machine", "q35"],
+        boot_timeout_seconds = 180,
+        qmp_initialization_timeout_seconds = 15,
+        shutdown_timeout_seconds = 30,
+        diagnostic_bytes = 4096,
+        tags = ["manual"],
+    )
+    _invalid_qemu_config_test(
+        name = "invalid_boot_shutdown_marker_test",
+        expected_failure = "shutdown_markers",
+        target_under_test = ":invalid_boot_shutdown_marker_subject",
+    )
+
     _toolchain_provider_test(
         name = "mkosi_toolchain_provider_test",
         target_under_test = "@mkosi_toolchains//:mkosi_toolchain",
@@ -502,8 +583,13 @@ def mkosi_image_test_suite(name):
             ":invalid_boot_marker_test",
             ":invalid_boot_positive_test",
             ":invalid_boot_eternal_test",
+            ":invalid_boot_diagnostic_test",
+            ":invalid_boot_shutdown_marker_test",
             ":boundary_boot_deadline_test",
             ":default_boot_deadline_test",
+            ":public_boot_timeout_test",
+            ":public_moderate_timeout_test",
+            ":public_short_timeout_test",
             ":invalid_qmp_deadline_test",
             ":invalid_shutdown_deadline_test",
             ":invalid_sum_deadline_test",
