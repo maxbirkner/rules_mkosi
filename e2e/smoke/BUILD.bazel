@@ -89,6 +89,7 @@ managed_python_test(
         "launcher_contract.py",
         "@mkosi_toolchains//:mkosi_python",
     ],
+    tags = ["manifest"],
 )
 
 sh_test(
