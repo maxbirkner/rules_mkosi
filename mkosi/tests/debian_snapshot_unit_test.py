@@ -44,6 +44,21 @@ class DebianSnapshotUnitTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "size mismatch"):
             debian_snapshot._verify_package(package, digest, package.stat().st_size + 1, "package")
 
+    def test_metadata_normalization_ignores_umask(self):
+        for value in (0o022, 0o077):
+            root = self.work / ("mode-%03o" % value)
+            previous = os.umask(value)
+            try:
+                (root / "nested").mkdir(parents=True)
+                (root / "nested/file").write_bytes(b"x")
+            finally:
+                os.umask(previous)
+            debian_snapshot._set_deterministic_metadata(root)
+            self.assertEqual(0o755, root.stat().st_mode & 0o777)
+            self.assertEqual(0o755, (root / "nested").stat().st_mode & 0o777)
+            self.assertEqual(0o644, (root / "nested/file").stat().st_mode & 0o777)
+            self.assertEqual(0, (root / "nested/file").stat().st_mtime_ns)
+
     def test_release_must_list_locked_packages_index(self):
         with self.assertRaisesRegex(ValueError, "absent|exactly one"):
             debian_snapshot._release_hash(

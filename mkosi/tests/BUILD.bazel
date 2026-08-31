@@ -29,6 +29,14 @@ py_test(
 )
 
 py_test(
+    name = "debian_snapshot_tree_metadata_test",
+    srcs = ["debian_snapshot_tree_metadata_test.py"],
+    args = ["$(rootpath @mkosi_debian_snapshot//:repository)"],
+    data = ["@mkosi_debian_snapshot//:repository"],
+    main = "debian_snapshot_tree_metadata_test.py",
+)
+
+py_test(
     name = "debian_snapshot_unit_test",
     srcs = [
         "debian_snapshot_unit_test.py",
