@@ -117,6 +117,7 @@ class DebianSnapshotTrustTest(unittest.TestCase):
         data = self.packages.read_bytes()
         mutated.write_bytes(data[:-1] + bytes([data[-1] ^ 1]))
         output = self.work / "stage-output"
+        output.mkdir()
         scratch = self.work / "stage-scratch"
         args = type("Args", (), {
             "inrelease": str(self.inrelease),
