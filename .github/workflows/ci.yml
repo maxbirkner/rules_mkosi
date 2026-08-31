@@ -178,7 +178,7 @@ jobs:
             *"mkosi_debian_python/lib/"*) ;;
             *) echo "declared static Python library tree is missing" >&2; exit 1 ;;
           esac
-          image_graph="$(run_bazel bazel aquery --lockfile_mode="${mode}" --output=text \
+          image_graph="$(run_bazel bazel aquery --lockfile_mode="${mode}" --config=qualified --output=text \
             'mnemonic("MkosiImage", //mkosi/tests:real_image)')"
           case "$image_graph" in
             *"python3"*"/mkosi/__main__.py"*) ;;
