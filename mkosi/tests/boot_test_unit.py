@@ -210,6 +210,7 @@ class BootLifecycleTest(unittest.TestCase):
             self.assertTrue(observed["command"][0].startswith("/"))
             self.assertIn("file=/", observed["command"][-1])
             self.assertEqual(str(root), observed["env"]["TMPDIR"])
+            self.assertEqual("", observed["env"]["PATH"])
             self.assertFalse((root / "qmp.sock").exists())
 
     def test_qmp_malformed_and_eof_are_bounded_errors(self):

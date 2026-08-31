@@ -59,7 +59,11 @@ qemu_ovmf_boot_test(
 managed_python_test(
     name = "boot_launcher_contract_test",
     src = "launcher_contract.py",
-    data = ["launcher_contract.py"],
+    args = ["$(rootpath :boot_entry_regression_runner)"],
+    data = [
+        "launcher_contract.py",
+        ":boot_entry_regression_runner",
+    ],
 )
 
 managed_python_binary(
