@@ -43,9 +43,6 @@
 #ifndef MOVE_MOUNT_F_EMPTY_PATH
 #define MOVE_MOUNT_F_EMPTY_PATH 0x00000004
 #endif
-#ifndef AT_EMPTY_PATH
-#define AT_EMPTY_PATH 0x1000
-#endif
 
 struct mkosi_mount_attr {
   unsigned long long attr_set;
@@ -202,6 +199,69 @@ static void map_current_identity(uid_t uid, gid_t gid) {
   close(acknowledgement[0]);
 }
 
+static int open_tree_path(const char *path, bool recursive) {
+  char parent[4096];
+  const char *name;
+  const char *slash = strrchr(path, '/');
+  if (slash == NULL) {
+    errno = EINVAL;
+    return -1;
+  }
+  if (slash == path) {
+    memcpy(parent, "/", 2);
+  } else {
+    size_t length = (size_t)(slash - path);
+    if (length >= sizeof(parent)) {
+      errno = ENAMETOOLONG;
+      return -1;
+    }
+    memcpy(parent, path, length);
+    parent[length] = '\0';
+  }
+  name = slash[1] == '\0' ? "." : slash + 1;
+  int parent_fd = open(parent, O_PATH | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
+  if (parent_fd < 0) {
+    return -1;
+  }
+  unsigned int flags = OPEN_TREE_CLONE | OPEN_TREE_CLOEXEC;
+  if (recursive) {
+    flags |= AT_RECURSIVE;
+  }
+  int tree = syscall(SYS_open_tree, parent_fd, name, flags);
+  int error = errno;
+  close(parent_fd);
+  errno = error;
+  return tree;
+}
+
+static int pin_mount_path(const char *path, bool directory,
+                          unsigned long long expected_device,
+                          unsigned long long expected_inode) {
+  struct stat expected;
+  if (expected_device == 0) {
+    if (stat(path, &expected) < 0) {
+      return -1;
+    }
+    expected_device = (unsigned long long)expected.st_dev;
+    expected_inode = (unsigned long long)expected.st_ino;
+  }
+  int mount_tree = open_tree_path(path, directory);
+  if (mount_tree < 0) {
+    return -1;
+  }
+  struct stat actual;
+  if (fstat(mount_tree, &actual) < 0 ||
+      (unsigned long long)actual.st_dev != expected_device ||
+      (unsigned long long)actual.st_ino != expected_inode ||
+      S_ISDIR(actual.st_mode) != directory) {
+    int error = errno == 0 ? EAGAIN : errno;
+    close(mount_tree);
+    errno = error;
+    return -1;
+  }
+  return mount_tree;
+}
+
 static void bind_mount_fd(int source_fd, const char *destination,
                           bool readonly, unsigned long long expected_device,
                           unsigned long long expected_inode, bool directory) {
@@ -219,33 +279,12 @@ static void bind_mount_fd(int source_fd, const char *destination,
     expected_device = (unsigned long long)source_stat.st_dev;
     expected_inode = (unsigned long long)source_stat.st_ino;
   }
-  unsigned int open_tree_flags =
-      OPEN_TREE_CLONE | OPEN_TREE_CLOEXEC | AT_EMPTY_PATH;
-  if (directory) {
-    open_tree_flags |= AT_RECURSIVE;
-  }
-  int mount_tree = syscall(SYS_open_tree, source_fd, "", open_tree_flags);
-  if (mount_tree < 0 && directory && errno == EINVAL) {
-    /*
-     * Some kernels reject an empty-path recursive clone for a directory that
-     * is not itself a mount root. Keep the pinned dirfd authoritative while
-     * resolving "." relative to it; this is not a source pathname fallback.
-     */
-    mount_tree = syscall(SYS_open_tree, source_fd, ".",
-                         open_tree_flags & ~AT_EMPTY_PATH);
-  }
-  if (mount_tree < 0) {
-    fail("descriptor-only %s bind requires open_tree(AT_EMPTY_PATH): %s",
-         directory ? "directory" : "file", strerror(errno));
-  }
-  if (syscall(SYS_move_mount, mount_tree, "", AT_FDCWD, destination,
+  if (syscall(SYS_move_mount, source_fd, "", AT_FDCWD, destination,
               MOVE_MOUNT_F_EMPTY_PATH) < 0) {
     int error = errno;
-    close(mount_tree);
     fail("descriptor-only bind move_mount failed at %s: %s", destination,
          strerror(error));
   }
-  close(mount_tree);
   if (readonly) {
     struct mkosi_mount_attr attributes = {
         .attr_set = MOUNT_ATTR_RDONLY,
@@ -268,17 +307,19 @@ static void bind_mount_fd(int source_fd, const char *destination,
 
 static void bind_mount_path(const char *source, const char *destination,
                             bool readonly) {
-  int source_fd = open(source, O_PATH | O_NOFOLLOW | O_CLOEXEC);
-  if (source_fd < 0) {
-    fail("cannot open bind source %s: %s", source, strerror(errno));
-  }
   struct stat source_stat;
-  if (fstat(source_fd, &source_stat) < 0) {
-    close(source_fd);
+  if (stat(source, &source_stat) < 0) {
     fail("cannot inspect bind source %s: %s", source, strerror(errno));
   }
+  bool directory = S_ISDIR(source_stat.st_mode);
+  int source_fd = pin_mount_path(source, directory, 0, 0);
+  if (source_fd < 0) {
+    fail("cannot pin bind source %s with open_tree(parent_fd, name, "
+         "OPEN_TREE_CLONE): %s",
+         source, strerror(errno));
+  }
   bind_mount_fd(source_fd, destination, readonly, 0, 0,
-                S_ISDIR(source_stat.st_mode));
+                directory);
   close(source_fd);
 }
 
@@ -302,26 +343,18 @@ static void mount_runtime(const char *root) {
   if (mount(NULL, "/", NULL, MS_REC | MS_PRIVATE, NULL) < 0) {
     fail("cannot make mount propagation private: %s", strerror(errno));
   }
-  int root_fd = open(root, O_PATH | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
-  if (root_fd < 0) {
-    fail("cannot open extracted root: %s", strerror(errno));
-  }
-  int root_tree = syscall(SYS_open_tree, root_fd, "",
-                          OPEN_TREE_CLONE | OPEN_TREE_CLOEXEC | AT_EMPTY_PATH);
+  int root_tree = pin_mount_path(root, true, 0, 0);
   if (root_tree < 0) {
     int error = errno;
-    close(root_fd);
     fail("cannot clone extracted root mount: %s", strerror(error));
   }
   if (syscall(SYS_move_mount, root_tree, "", AT_FDCWD, root,
               MOVE_MOUNT_F_EMPTY_PATH) < 0) {
     int error = errno;
     close(root_tree);
-    close(root_fd);
     fail("cannot mount extracted root: %s", strerror(error));
   }
   close(root_tree);
-  close(root_fd);
   char oldroot[4096];
   if (snprintf(oldroot, sizeof(oldroot), "%s/.namespace-oldroot", root) >=
       (int)sizeof(oldroot)) {
@@ -475,14 +508,15 @@ static int run_child(int argc, char **argv, uid_t uid, gid_t gid) {
 
   while (index < argc && strcmp(argv[index], "--") != 0) {
     bool readonly;
-    if (strcmp(argv[index], "--ro-bind-fd") == 0) {
+    if (strcmp(argv[index], "--ro-bind") == 0) {
       readonly = true;
-    } else if (strcmp(argv[index], "--rw-bind-fd") == 0) {
+    } else if (strcmp(argv[index], "--rw-bind") == 0) {
       readonly = false;
     } else {
       fail("unknown namespace mount option: %s", argv[index]);
     }
-    if (index + 5 >= argc || argv[index + 2][0] != '/' ||
+    if (index + 5 >= argc || argv[index + 1][0] != '/' ||
+        argv[index + 2][0] != '/' ||
         (strcmp(argv[index + 5], "dir") != 0 &&
          strcmp(argv[index + 5], "file") != 0)) {
       fail("namespace mount options require fd, destination, identity, and type");
@@ -500,13 +534,16 @@ static int run_child(int argc, char **argv, uid_t uid, gid_t gid) {
     if (*device_end != '\0' || *inode_end != '\0') {
       fail("namespace mount identity is invalid");
     }
-    char *fd_end;
-    int source_fd = (int)strtol(argv[index + 1], &fd_end, 10);
-    if (*fd_end != '\0' || source_fd < 0) {
-      fail("namespace bind fd is invalid");
+    bool directory = strcmp(argv[index + 5], "dir") == 0;
+    int source_fd = pin_mount_path(argv[index + 1], directory,
+                                   expected_device, expected_inode);
+    if (source_fd < 0) {
+      fail("cannot pin bind source %s with open_tree(parent_fd, name, "
+           "OPEN_TREE_CLONE): %s",
+           argv[index + 1], strerror(errno));
     }
     bind_mount_fd(source_fd, destination, readonly, expected_device,
-                  expected_inode, strcmp(argv[index + 5], "dir") == 0);
+                  expected_inode, directory);
     close(source_fd);
     index += 6;
   }
@@ -631,12 +668,13 @@ static int fd_swap_self_test(void) {
     return 1;
   }
   close(original);
-  int source_fd = open(source, O_PATH | O_NOFOLLOW | O_CLOEXEC);
+  int source_fd = pin_mount_path(source, false, 0, 0);
   if (source_fd < 0) {
     return 1;
   }
   struct stat source_stat;
   if (fstat(source_fd, &source_stat) < 0) {
+    close(source_fd);
     return 1;
   }
   int destination_file = open(destination, O_WRONLY | O_CREAT | O_CLOEXEC, 0644);
@@ -690,7 +728,7 @@ static int fd_swap_self_test(void) {
     return 1;
   }
   close(directory_file);
-  int directory_fd = open(directory_source, O_PATH | O_NOFOLLOW | O_CLOEXEC);
+  int directory_fd = pin_mount_path(directory_source, true, 0, 0);
   if (directory_fd < 0) {
     return 1;
   }
@@ -753,7 +791,7 @@ static int fd_swap_self_test(void) {
     return 1;
   }
   close(ancestor_file);
-  int ancestor_fd = open(ancestor_source, O_PATH | O_NOFOLLOW | O_CLOEXEC);
+  int ancestor_fd = pin_mount_path(ancestor_source, false, 0, 0);
   if (ancestor_fd < 0) {
     return 1;
   }
@@ -804,12 +842,52 @@ static int fd_swap_self_test(void) {
              : 1;
 }
 
+static int empty_path_regression_self_test(void) {
+  const char *base = "namespace-runner-empty-path";
+  const char *source = "namespace-runner-empty-path/source";
+  int source_fd = -1;
+  int tree_fd = -1;
+  int result = 1;
+
+  map_current_identity(getuid(), getgid());
+  if (unshare(CLONE_NEWNS) < 0 ||
+      mount(NULL, "/", NULL, MS_REC | MS_PRIVATE, NULL) < 0 ||
+      mkdir(base, 0700) < 0 || mkdir(source, 0700) < 0) {
+    goto cleanup;
+  }
+  source_fd = open(source, O_PATH | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
+  if (source_fd < 0) {
+    goto cleanup;
+  }
+  tree_fd = syscall(SYS_open_tree, source_fd, "",
+                    OPEN_TREE_CLONE | OPEN_TREE_CLOEXEC | AT_EMPTY_PATH |
+                        AT_RECURSIVE);
+  if (tree_fd >= 0 || errno != EINVAL) {
+    goto cleanup;
+  }
+  result = 0;
+
+cleanup:
+  if (tree_fd >= 0) {
+    close(tree_fd);
+  }
+  if (source_fd >= 0) {
+    close(source_fd);
+  }
+  rmdir(source);
+  rmdir(base);
+  return result;
+}
+
 int main(int argc, char **argv) {
   if (argc == 2 && strcmp(argv[1], "--self-test-recursive-ro") == 0) {
     return recursive_readonly_self_test();
   }
   if (argc == 2 && strcmp(argv[1], "--self-test-fd-swap") == 0) {
     return fd_swap_self_test();
+  }
+  if (argc == 2 && strcmp(argv[1], "--self-test-empty-path") == 0) {
+    return empty_path_regression_self_test();
   }
   if (argc < 8) {
     fprintf(stderr,

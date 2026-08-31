@@ -266,8 +266,8 @@ static void test_unsupported_fd_mount_api_diagnostic(void) {
   read_diagnostics(output, diagnostics, sizeof(diagnostics));
   must(strstr(diagnostics, "FAIL fd_mount_api") != NULL,
        "report unsupported descriptor mount API");
-  must(strstr(diagnostics, "open_tree(AT_EMPTY_PATH)") != NULL,
-       "name the unsupported syscall contract");
+  must(strstr(diagnostics, "open_tree(parent_fd") != NULL,
+       "name the production syscall contract");
   must(strstr(diagnostics, "upgrade the kernel") != NULL,
        "provide kernel remediation");
   must(fclose(output) == 0, "close unsupported API diagnostics");

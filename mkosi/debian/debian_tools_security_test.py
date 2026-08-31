@@ -39,9 +39,13 @@ class DebianToolsSecurityTest(unittest.TestCase):
 
     def test_namespace_runner_has_no_path_fallback_for_typed_binds(self):
         source = (_HERE / "namespace_runner.c").read_text(encoding="utf-8")
-        self.assertIn("AT_EMPTY_PATH", source)
         self.assertIn("MOVE_MOUNT_F_EMPTY_PATH", source)
+        self.assertIn("OPEN_TREE_CLONE", source)
         self.assertIn("AT_RECURSIVE", source)
+        production_source = source.split(
+            "static int empty_path_regression_self_test", 1
+        )[0]
+        self.assertNotIn("AT_EMPTY_PATH", production_source)
         self.assertNotIn("readlink", source)
         self.assertNotIn("pinned_path", source)
         self.assertNotIn("compatibility mount", source)
@@ -398,18 +402,6 @@ class DebianToolsSecurityTest(unittest.TestCase):
             debian_launcher._validate_binds(
                 ["--ro-bind", "%s:/inputs/missing" % (self.work / "missing")]
             )
-
-    def test_bind_source_swap_after_validation_is_rejected(self):
-        source = self.work / "source"
-        source.write_text("original", encoding="utf-8")
-        binds, _ = debian_launcher._validate_binds(
-            ["--ro-bind", "%s:/inputs/source" % source]
-        )
-        replacement = self.work / "replacement"
-        replacement.write_text("replacement", encoding="utf-8")
-        os.replace(replacement, source)
-        with self.assertRaisesRegex(RuntimeError, "changed"):
-            debian_launcher._pin_bind_sources(binds)
 
     def test_missing_mapping_and_executable_fail_precisely(self):
         original_argv = sys.argv

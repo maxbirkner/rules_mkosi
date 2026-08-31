@@ -50,9 +50,6 @@ extern char **environ;
 #ifndef MOVE_MOUNT_F_EMPTY_PATH
 #define MOVE_MOUNT_F_EMPTY_PATH 0x00000004
 #endif
-#ifndef AT_EMPTY_PATH
-#define AT_EMPTY_PATH 0x1000
-#endif
 
 struct rules_mkosi_mount_attr {
   unsigned long long attr_set;
@@ -465,15 +462,45 @@ static int check_capability_exec(void) {
   return WIFEXITED(status) && WEXITSTATUS(status) == 0 ? 0 : -EPERM;
 }
 
+static int open_tree_path(const char *path, bool recursive) {
+  char parent[256];
+  const char *name;
+  const char *slash = strrchr(path, '/');
+  if (slash == NULL) {
+    return -EINVAL;
+  }
+  if (slash == path) {
+    memcpy(parent, "/", 2);
+  } else {
+    size_t length = (size_t)(slash - path);
+    if (length >= sizeof(parent)) {
+      return -ENAMETOOLONG;
+    }
+    memcpy(parent, path, length);
+    parent[length] = '\0';
+  }
+  name = slash[1] == '\0' ? "." : slash + 1;
+  int parent_fd = open(parent, O_PATH | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
+  if (parent_fd < 0) {
+    return -errno;
+  }
+  unsigned int flags = OPEN_TREE_CLONE | OPEN_TREE_CLOEXEC;
+  if (recursive) {
+    flags |= AT_RECURSIVE;
+  }
+  int tree = syscall(SYS_open_tree, parent_fd, name, flags);
+  int error = errno;
+  close(parent_fd);
+  return tree < 0 ? -error : tree;
+}
+
 static int check_fd_mount_api(void) {
   const char *source_directory = "fd-mount-api-source";
   const char *source_nested = "fd-mount-api-source/nested";
   const char *source_file = "fd-mount-api-source/file";
   const char *destination_directory = "fd-mount-api-destination";
   const char *destination_file = "fd-mount-api-destination/file";
-  int source_fd = -1;
   int source_tree = -1;
-  int file_fd = -1;
   int file_tree = -1;
   struct rules_mkosi_mount_attr attributes = {
       .attr_set = MOUNT_ATTR_RDONLY,
@@ -488,27 +515,16 @@ static int check_fd_mount_api(void) {
   if (mount("tmpfs", source_nested, "tmpfs", 0, "mode=755") < 0) {
     goto cleanup;
   }
-  file_fd = open(source_file, O_CREAT | O_WRONLY | O_CLOEXEC, 0600);
-  if (file_fd < 0 || close(file_fd) < 0) {
-    file_fd = -1;
+  int file = open(source_file, O_CREAT | O_WRONLY | O_CLOEXEC, 0600);
+  if (file < 0 || close(file) < 0) {
     goto cleanup;
   }
-  file_fd = -1;
-  file_fd = open(destination_file, O_CREAT | O_WRONLY | O_CLOEXEC, 0600);
-  if (file_fd < 0 || close(file_fd) < 0) {
-    file_fd = -1;
+  file = open(destination_file, O_CREAT | O_WRONLY | O_CLOEXEC, 0600);
+  if (file < 0 || close(file) < 0) {
     goto cleanup;
   }
-  file_fd = -1;
 
-  source_fd = open(source_directory, O_PATH | O_DIRECTORY | O_CLOEXEC |
-                                      O_NOFOLLOW);
-  if (source_fd < 0) {
-    goto cleanup;
-  }
-  source_tree = syscall(SYS_open_tree, source_fd, "",
-                        OPEN_TREE_CLONE | OPEN_TREE_CLOEXEC | AT_EMPTY_PATH |
-                            AT_RECURSIVE);
+  source_tree = open_tree_path(source_directory, true);
   if (source_tree < 0 ||
       syscall(SYS_move_mount, source_tree, "", AT_FDCWD,
               destination_directory, MOVE_MOUNT_F_EMPTY_PATH) < 0) {
@@ -521,12 +537,7 @@ static int check_fd_mount_api(void) {
     goto cleanup;
   }
 
-  file_fd = open(source_file, O_PATH | O_CLOEXEC | O_NOFOLLOW);
-  if (file_fd < 0) {
-    goto cleanup;
-  }
-  file_tree = syscall(SYS_open_tree, file_fd, "",
-                      OPEN_TREE_CLONE | OPEN_TREE_CLOEXEC | AT_EMPTY_PATH);
+  file_tree = open_tree_path(source_file, false);
   if (file_tree < 0 ||
       syscall(SYS_move_mount, file_tree, "", AT_FDCWD, destination_file,
               MOVE_MOUNT_F_EMPTY_PATH) < 0) {
@@ -542,12 +553,6 @@ cleanup:
   }
   if (source_tree >= 0) {
     close(source_tree);
-  }
-  if (file_fd >= 0) {
-    close(file_fd);
-  }
-  if (source_fd >= 0) {
-    close(source_fd);
   }
   umount2(destination_file, MNT_DETACH);
   umount2(destination_directory, MNT_DETACH);
@@ -925,13 +930,14 @@ int rules_mkosi_kernel_preflight_with_ops(
   }
   if (namespace_checks.fd_mount_api) {
     report(output, "PASS", "fd_mount_api",
-           "open_tree(AT_EMPTY_PATH), move_mount(MOVE_MOUNT_F_EMPTY_PATH), "
+           "open_tree(parent_fd, name), move_mount(MOVE_MOUNT_F_EMPTY_PATH), "
            "and recursive mount_setattr succeeded");
   } else {
     report(output, "FAIL", "fd_mount_api",
-           "descriptor-only typed binds require Linux open_tree(AT_EMPTY_PATH), "
-           "move_mount(MOVE_MOUNT_F_EMPTY_PATH), and mount_setattr; upgrade "
-           "the kernel or select a supported Linux runner");
+           "descriptor-only typed binds require Linux open_tree(parent_fd, "
+           "name, OPEN_TREE_CLONE), move_mount(MOVE_MOUNT_F_EMPTY_PATH), and "
+           "mount_setattr; upgrade the kernel or select a supported Linux "
+           "runner");
     ++failures;
   }
   if (namespace_checks.pivot_root) {
