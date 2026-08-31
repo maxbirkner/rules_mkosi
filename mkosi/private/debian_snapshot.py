@@ -229,6 +229,10 @@ def _read_package_metadata(indexes, expected):
     return actual
 
 
+def _authenticated_release_matches(payload, release):
+    return payload == release or payload + b"\n" == release
+
+
 def stage(args):
     _verify_digest(args.inrelease, args.inrelease_sha256, "InRelease")
     _verify_digest(args.release, args.release_sha256, "Release")
@@ -247,7 +251,7 @@ def stage(args):
     verified = pathlib.Path(args.output) / "verified-release"
     authenticated_release = verified.read_bytes()
     release = pathlib.Path(args.release).read_bytes()
-    if authenticated_release != release:
+    if not _authenticated_release_matches(authenticated_release, release):
         raise ValueError("authenticated InRelease does not match locked Release")
     package_bytes = pathlib.Path(args.packages_xz).read_bytes()
     _release_hash(authenticated_release, args.packages_path, len(package_bytes), args.packages_xz_sha256)

@@ -82,6 +82,18 @@ class DebianSnapshotUnitTest(unittest.TestCase):
             "a" * 64,
         )
 
+    def test_sqv_release_payload_may_omit_final_newline(self):
+        self.assertTrue(
+            debian_snapshot._authenticated_release_matches(
+                b"Release payload", b"Release payload\n"
+            )
+        )
+        self.assertFalse(
+            debian_snapshot._authenticated_release_matches(
+                b"Release payload\nX", b"Release payload\n"
+            )
+        )
+
     def test_release_rejects_duplicate_sha256_path(self):
         release = (
             b"SHA256:\n"
