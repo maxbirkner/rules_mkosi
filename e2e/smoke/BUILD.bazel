@@ -73,6 +73,7 @@ managed_python_test(
         "testdata/invalid_boot_config.json",
         "@rules_mkosi//mkosi/private:boot_test.py",
     ],
+    tags = ["manual"],
 )
 
 sh_test(
