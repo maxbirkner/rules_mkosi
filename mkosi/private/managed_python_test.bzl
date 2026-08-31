@@ -34,7 +34,7 @@ def _managed_python_test_impl(ctx):
         ),
         ManagedPythonTestInfo(
             source = ctx.file.src,
-            timeout = ctx.attr.timeout,
+            timeout = getattr(ctx.attr, "timeout", "moderate"),
         ),
         RunEnvironmentInfo(
             environment = {
