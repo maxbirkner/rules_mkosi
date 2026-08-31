@@ -1,7 +1,6 @@
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load(
     "@rules_mkosi//mkosi:defs.bzl",
-    "managed_python_binary",
     "managed_python_test",
     "mkosi_image",
     "qemu_ovmf_boot_test",
@@ -66,7 +65,7 @@ managed_python_test(
     ],
 )
 
-managed_python_binary(
+managed_python_test(
     name = "boot_entry_regression_runner",
     src = "@rules_mkosi//mkosi/private:boot_test.py",
     data = [

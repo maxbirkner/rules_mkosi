@@ -16,7 +16,6 @@ load(
 load(
     "//mkosi/private:managed_python_test.bzl",
     _ManagedPythonTestInfo = "ManagedPythonTestInfo",
-    _managed_python_binary = "managed_python_binary",
     _managed_python_test = "managed_python_test",
 )
 load(
@@ -48,6 +47,5 @@ qemu_ovmf_smoke_test = _qemu_ovmf_smoke_test
 qemu_ovmf_boot_test = _qemu_ovmf_boot_test
 qemu_ovmf_boot_config = _qemu_ovmf_boot_config
 managed_python_test = _managed_python_test
-managed_python_binary = _managed_python_binary
 qemu_executable = _qemu_executable
 qemu_ovmf_toolchain = _qemu_ovmf_toolchain

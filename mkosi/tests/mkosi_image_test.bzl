@@ -520,7 +520,7 @@ def mkosi_image_test_suite(name):
         target_under_test = ":invalid_boot_eternal_subject",
     )
 
-    _qemu_ovmf_boot_config(
+    qemu_ovmf_boot_test(
         name = "invalid_boot_diagnostic_subject",
         image = ":debian_subject",
         readiness_marker = "READY",
@@ -535,10 +535,10 @@ def mkosi_image_test_suite(name):
     _invalid_qemu_config_test(
         name = "invalid_boot_diagnostic_test",
         expected_failure = "diagnostic_bytes",
-        target_under_test = ":invalid_boot_diagnostic_subject",
+        target_under_test = ":invalid_boot_diagnostic_subject_config",
     )
 
-    _qemu_ovmf_boot_config(
+    qemu_ovmf_boot_test(
         name = "invalid_boot_shutdown_marker_subject",
         image = ":debian_subject",
         readiness_marker = "READY",
@@ -553,7 +553,7 @@ def mkosi_image_test_suite(name):
     _invalid_qemu_config_test(
         name = "invalid_boot_shutdown_marker_test",
         expected_failure = "shutdown_markers",
-        target_under_test = ":invalid_boot_shutdown_marker_subject",
+        target_under_test = ":invalid_boot_shutdown_marker_subject_config",
     )
 
     _toolchain_provider_test(
