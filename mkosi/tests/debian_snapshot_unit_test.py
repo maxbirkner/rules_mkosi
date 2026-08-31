@@ -96,22 +96,6 @@ class DebianSnapshotUnitTest(unittest.TestCase):
                 "a" * 64,
             )
 
-    def test_invalid_signature_fails_explicitly(self):
-        with mock.patch.object(
-            debian_snapshot.subprocess,
-            "run",
-            return_value=mock.Mock(returncode=1),
-        ):
-            with self.assertRaisesRegex(ValueError, "signature verification failed"):
-                debian_snapshot._verify_signature(
-                    "/declared/launcher",
-                    "/declared/InRelease",
-                    "/declared/Release",
-                    "/declared/Release.gpg",
-                    "/declared/output",
-                    "/declared/scratch",
-                )
-
     def test_package_metadata_rejects_duplicate_fields(self):
         with self.assertRaisesRegex(ValueError, "duplicate"):
             debian_snapshot._paragraphs(b"Package: one\nPackage: two\n")

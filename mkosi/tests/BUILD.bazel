@@ -37,6 +37,24 @@ py_test(
 )
 
 py_test(
+    name = "debian_snapshot_trust_test",
+    srcs = ["debian_snapshot_trust_test.py"],
+    args = [
+        "$(rootpath @mkosi_debian_snapshot//:inrelease)",
+        "$(rootpath @mkosi_debian_snapshot//:release)",
+        "$(rootpath @mkosi_debian_snapshot//:release_gpg)",
+        "$(rootpath @mkosi_debian_tools//:launcher)",
+    ],
+    data = [
+        "@mkosi_debian_snapshot//:inrelease",
+        "@mkosi_debian_snapshot//:release",
+        "@mkosi_debian_snapshot//:release_gpg",
+        "@mkosi_debian_tools//:launcher",
+    ],
+    main = "debian_snapshot_trust_test.py",
+)
+
+py_test(
     name = "debian_snapshot_unit_test",
     srcs = [
         "debian_snapshot_unit_test.py",
