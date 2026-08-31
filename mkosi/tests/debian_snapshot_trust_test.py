@@ -92,9 +92,9 @@ class DebianSnapshotTrustTest(unittest.TestCase):
     def test_mutated_inrelease_is_rejected(self):
         mutated = self.work / "InRelease"
         data = self.inrelease.read_bytes()
-        marker = b"Suite: trixie"
+        marker = b"Suite: stable"
         self.assertIn(marker, data)
-        mutated.write_bytes(data.replace(marker, b"Suite: trixyf", 1))
+        mutated.write_bytes(data.replace(marker, b"Suite: stablx", 1))
         baseline = self._cleartext(self.inrelease)
         self.assertEqual(0, baseline.returncode, baseline.stderr)
         result = self._cleartext(mutated)
