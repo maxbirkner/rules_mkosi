@@ -162,10 +162,18 @@ def _boot(
 ):
     scratch = pathlib.Path(os.environ.get("TEST_TMPDIR", "boot-test-state"))
     scratch.mkdir(parents=True, exist_ok=True)
+    image = os.path.abspath(image)
+    qemu = os.path.abspath(qemu)
+    system_data = os.path.abspath(system_data)
+    if firmware_code:
+        firmware_code = os.path.abspath(firmware_code)
+    if firmware_vars:
+        firmware_vars = os.path.abspath(firmware_vars)
     vars_copy = scratch / "firmware-vars.fd"
     serial_log = scratch / "guest-serial.log"
     qemu_log = scratch / "qemu.log"
-    qmp_socket = scratch / "qmp.sock"
+    qmp_socket = "qmp.sock"
+    qmp_socket_file = scratch / qmp_socket
     process = None
     try:
         if firmware_vars:
@@ -219,22 +227,28 @@ def _boot(
                 )
 
             try:
+                original_cwd = os.open(".", os.O_RDONLY)
                 try:
-                    qmp_handshake(
-                        process,
-                        str(qmp_socket),
-                        qmp_initialization_timeout_seconds,
-                        monotonic,
-                        sleep,
-                    )
-                except QmpHandshakeError as error:
-                    _diagnose(
-                        "QEMU_INITIALIZATION_FAILURE",
-                        str(error),
-                        serial_log,
-                        qemu_log,
-                        diagnostic_bytes,
-                    )
+                    os.chdir(scratch)
+                    try:
+                        qmp_handshake(
+                            process,
+                            qmp_socket,
+                            qmp_initialization_timeout_seconds,
+                            monotonic,
+                            sleep,
+                        )
+                    except QmpHandshakeError as error:
+                        _diagnose(
+                            "QEMU_INITIALIZATION_FAILURE",
+                            str(error),
+                            serial_log,
+                            qemu_log,
+                            diagnostic_bytes,
+                        )
+                finally:
+                    os.fchdir(original_cwd)
+                    os.close(original_cwd)
 
                 deadline = monotonic() + boot_timeout_seconds
                 while monotonic() < deadline:
@@ -302,7 +316,7 @@ def _boot(
                         process.wait()
     finally:
         try:
-            qmp_socket.unlink()
+            qmp_socket_file.unlink()
         except FileNotFoundError:
             pass
 

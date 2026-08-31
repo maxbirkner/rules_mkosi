@@ -152,6 +152,52 @@ class BootLifecycleTest(unittest.TestCase):
         )
         self.assertTrue(process.terminated)
 
+    def test_qmp_socket_stays_short_with_long_test_tmpdir(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory) / ("long-" * 30)
+            root.mkdir()
+            vars_file = root / "vars.fd"
+            vars_file.write_bytes(b"vars")
+            (root / "guest-serial.log").write_bytes(b"READY\n")
+            process = _Process()
+            observed = {}
+
+            def factory(command, stdout, cwd, env, **_kwargs):
+                observed["command"] = command
+                observed["cwd"] = cwd
+                observed["env"] = env
+                stdout.flush()
+                return process
+
+            def handshake(_process, socket_path, *_args):
+                observed["socket_path"] = socket_path
+
+            with mock.patch.dict(
+                "os.environ",
+                {"TEST_TMPDIR": str(root)},
+                clear=False,
+            ):
+                boot_test._boot(
+                    "image.raw",
+                    "qemu",
+                    "qemu-data",
+                    firmware_code="code.fd",
+                    firmware_vars=str(vars_file),
+                    readiness_marker="READY",
+                    shutdown_markers=(),
+                    process_factory=factory,
+                    qmp_handshake=handshake,
+                    sleep=lambda _seconds: None,
+                )
+
+            self.assertEqual("qmp.sock", observed["socket_path"])
+            self.assertEqual(root, observed["cwd"])
+            self.assertIn("unix:qmp.sock,server=on,wait=off", observed["command"])
+            self.assertTrue(observed["command"][0].startswith("/"))
+            self.assertIn("file=/", observed["command"][-1])
+            self.assertEqual(str(root), observed["env"]["TMPDIR"])
+            self.assertFalse((root / "qmp.sock").exists())
+
     def test_qmp_malformed_and_eof_are_bounded_errors(self):
         for payload in (b"not-json\n", b""):
             left, right = socket.socketpair()

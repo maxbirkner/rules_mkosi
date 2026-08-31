@@ -22,14 +22,17 @@ portable.
 the public `qemu_ovmf_boot_test` macro, boots it with the registered QEMU/OVMF
 artifacts and TCG, waits for the exact systemd hostname marker on the guest
 serial stream, and verifies the guest's clean `Powering off` shutdown. It is
-manually selected because it requires the qualified Linux kernel contract. The
-macro creates a native `managed_python_test`: its TestRunner executable is a
-symlink to the registered managed interpreter, not a `rules_python` shell
-bootstrap or a `/usr/bin/env` shebang. The runner performs a bounded QMP
-greeting/capabilities handshake before classifying QEMU initialization,
-firmware, guest, readiness-timeout, and shutdown failures. Root lifecycle
-tests drive the same state machine through launch, QMP, marker, exit, timeout,
-shutdown, diagnostic, and cleanup transitions.
+tagged for the qualified and manifest-qualified CI suites because it requires
+the qualified Linux kernel contract. The macro creates a native
+`managed_python_test` launcher: the registered managed interpreter receives the
+lifecycle script as its first argument and the generated JSON configuration as
+its second argument. The runner performs a bounded QMP greeting/capabilities
+handshake before classifying QEMU initialization, firmware, guest,
+readiness-timeout, and shutdown failures. QMP uses a relative socket name while
+QEMU and the handshake run from the scratch directory, avoiding Linux's
+AF_UNIX path limit even when `TEST_TMPDIR` is long. Root lifecycle tests drive
+the same state machine through launch, QMP, marker, exit, timeout, shutdown,
+diagnostic, and cleanup transitions.
 
 The BCR presubmit has separate Bazel 8 and Bazel 9 tasks. The Bazel 8 task
 uses the committed `e2e/smoke/MODULE.bazel.lock` strictly. The Bazel 9 task

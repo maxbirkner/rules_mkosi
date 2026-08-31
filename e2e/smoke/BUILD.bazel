@@ -1,6 +1,7 @@
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load(
     "@rules_mkosi//mkosi:defs.bzl",
+    "managed_python_binary",
     "managed_python_test",
     "mkosi_image",
     "qemu_ovmf_boot_test",
@@ -49,7 +50,10 @@ image_public_api_test(
 qemu_ovmf_boot_test(
     name = "demo_boot_test",
     image = ":demo",
-    tags = ["manual"],
+    tags = [
+        "ci_manifest_boot",
+        "ci_qualified",
+    ],
 )
 
 managed_python_test(
@@ -57,6 +61,29 @@ managed_python_test(
     src = "launcher_contract.py",
     args = ["$(rootpath :launcher_contract.py)"],
     data = ["launcher_contract.py"],
+)
+
+managed_python_binary(
+    name = "boot_entry_regression_runner",
+    src = "@rules_mkosi//mkosi/private:boot_test.py",
+    data = [
+        "launcher_contract.py",
+        "testdata/invalid_boot_config.json",
+        "@rules_mkosi//mkosi/private:boot_test.py",
+    ],
+)
+
+sh_test(
+    name = "boot_entry_regression_test",
+    srcs = ["boot_entry_regression.sh"],
+    args = [
+        "$(rootpath :boot_entry_regression_runner)",
+        "$(rootpath testdata/invalid_boot_config.json)",
+    ],
+    data = [
+        "testdata/invalid_boot_config.json",
+        ":boot_entry_regression_runner",
+    ],
 )
 
 build_test(

@@ -1,0 +1,14 @@
+{
+  "boot_timeout_seconds": 1,
+  "diagnostic_bytes": 4096,
+  "firmware_code": "launcher_contract.py",
+  "firmware_vars": "launcher_contract.py",
+  "image": "launcher_contract.py",
+  "qemu": "launcher_contract.py",
+  "qemu_args": [],
+  "qmp_initialization_timeout_seconds": 1,
+  "readiness_marker": "NEVER",
+  "shutdown_markers": [],
+  "shutdown_timeout_seconds": 1,
+  "system_data": "launcher_contract.py"
+}
