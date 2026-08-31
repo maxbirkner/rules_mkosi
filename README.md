@@ -64,12 +64,13 @@ The Debian build-time userspace is pinned to Debian 13 (trixie), `amd64`,
 and snapshot `20250814T000000Z`. The checked-in lockfile pins every package
 URL, version, dependency edge, and SHA-256 digest. A repository fetches those
 immutable `.deb` inputs, and a static-Python archive action builds the
-deterministic tree without shell, compiler, or host archive tools. The
-`@mkosi_debian_tools//:linux_x86_64` toolchain exposes the extracted
-TreeArtifact, root-isolated launcher, and provenance through
-`DebianToolsInfo`; image actions invoke the pinned mkosi Python entrypoint
-directly with its managed Python runtime, package dependencies, and an empty
-ambient `PATH`. The initial tracer set
+deterministic tree archive without shell, compiler, or host archive tools. The
+`@mkosi_debian_tools//:linux_x86_64` toolchain exposes that archive, a
+compatibility TreeArtifact, the root-isolated launcher, and provenance through
+`DebianToolsInfo`. Image actions transport the regular archive through Bazel's
+cache boundary and extract it into action-local workspace storage before
+invoking the pinned mkosi Python entrypoint with its managed Python runtime,
+package dependencies, and an empty ambient `PATH`. The initial tracer set
 includes APT/dpkg bootstrap tools, `systemd-repart`, filesystem and partition
 utilities, GRUB/systemd-boot UEFI tools, `objcopy`, and their locked runtime
 dependencies. Target image package acquisition remains out of scope.
@@ -172,14 +173,53 @@ mkosi_image(
 )
 ```
 
+For a complete mkosi configuration directory, mark the exported directory
+with `mkosi_config_tree`. The directory must contain `mkosi.conf`; mkosi's
+relative `mkosi.conf.d/`, `mkosi.profiles/`, and `mkosi.extra/` paths are
+preserved. Declared build source directories are marked with
+`mkosi_source_tree` and mapped explicitly so their paths match `BuildSources`:
+
+```starlark
+load("@rules_mkosi//mkosi:defs.bzl", "mkosi_config_tree", "mkosi_image", "mkosi_source_tree")
+
+mkosi_config_tree(name = "mkosi_config", src = "mkosi")
+mkosi_source_tree(
+    name = "project_sources",
+    src = "src",
+    executable_paths = ["mkosi.build"],
+)
+mkosi_image(
+    name = "demo",
+    config_tree = ":mkosi_config",
+    source_trees = {"src": ":project_sources"},
+)
+```
+
+`source_trees` keys are normalized relative paths and values must be
+`mkosi_source_tree` targets. Absolute paths, `..` traversal, duplicate
+sources, overlapping destinations, and manifest collisions with configuration
+content are rejected before staging writes. Source-tree roles are checked again
+at execution, including generated artifacts whose Bazel metadata is ambiguous.
+Staging and materialization normalize files and directories to deterministic
+timestamps and permissions, retaining only executable semantics; valid relative
+symlinks are preserved. `executable_paths` explicitly identifies scripts that
+must retain executable mode. This explicit mapping also works for labels from
+external repositories and avoids relying on repository-relative runfiles paths.
+A single-file `config` remains supported unchanged; when source trees are
+supplied, that file is staged at its basename and selected with `-I`.
+
 Development and test commands are documented once in
 [CONTRIBUTING.md](CONTRIBUTING.md). The independent consumer module is
 described in [`e2e/README.md`](e2e/README.md).
 
-`mkosi_image` declares a single `<name>.raw` output and consumes one mkosi
-configuration file. It invokes the pinned mkosi v27 executable and the
-extracted Debian 13 tools tree through their registered toolchains, with an
-empty ambient `PATH`; no host executable lookup or shebang launcher is used.
+`mkosi_image` declares a single `<name>.raw` output and consumes either one
+mkosi configuration file through `config` or one explicitly typed configuration
+tree through `config_tree`. It invokes the pinned mkosi v27 executable and the
+extracted Debian 13 tools tree through their registered toolchains. The Debian tree crosses Bazel's
+content-addressed cache as an authenticated tar file and is materialized only
+inside the image action, preserving merged-`/usr` symlinks without exposing a
+symlink-rich directory artifact to cache replay. The action uses an empty
+ambient `PATH`; no host executable lookup or shebang launcher is used.
 The configuration label is mandatory and must resolve to exactly one file;
 invalid file targets fail during Bazel analysis.
 
@@ -210,6 +250,9 @@ boot, and shutdown deadlines must be positive and, together with a reserved
 (`60`, `300`, or `900` seconds). Invalid categories or deadline combinations
 fail during analysis, so a lifecycle timeout reports its own diagnostic before
 Bazel's test deadline can terminate the process.
+The `config` label remains compatible with existing consumers and must resolve
+to exactly one file; typed tree targets are validated at analysis and again by
+the staging preflight.
 The rule overrides config output settings to `Format=disk`, `OutputExtension=raw`,
 `CompressOutput=none`, and no split artifacts, so custom formats and redirected
 outputs are not part of this tracer contract. The minimal tracer configuration

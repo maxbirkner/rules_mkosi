@@ -8,6 +8,8 @@ exports_files([
     "mkosi_image.bzl",
     "managed_python_test.bzl",
     "qemu_ovmf_boot_test.bzl",
+    "run_mkosi.py",
+    "stage_inputs.py",
     "qemu_ovmf_validate.sh",
     "qemu_ovmf_smoke_test.bzl",
     "toolchains_repo.bzl",

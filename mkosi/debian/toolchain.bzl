@@ -142,7 +142,6 @@ def _preflight_impl(ctx):
     output = ctx.actions.declare_file(ctx.label.name + ".sh")
     required = " ".join(ctx.attr.required_components)
     components = ctx.file.components.short_path
-    tree = ctx.attr.tree[DefaultInfo].files.to_list()[0].short_path
     launcher = ctx.attr.launcher[DefaultInfo].files_to_run.executable.short_path
     provenance = ctx.file.provenance.short_path
     ctx.actions.write(
@@ -161,11 +160,9 @@ runfile() {{
     elif [ -e "$runfiles_root/_main/$path" ]; then printf '%s/_main/%s' "$runfiles_root" "$path"
     else printf '%s/%s' "$runfiles_root" "$path"; fi
 }}
-tree="$(runfile {tree})"
 launcher="$(runfile {launcher})"
 provenance="$(runfile {provenance})"
 components="$(runfile {components})"
-[ -d "$tree" ] || {{ echo "Debian tools extracted root is missing: $tree" >&2; exit 1; }}
 [ -x "$launcher" ] || {{ echo "Debian root-isolated launcher is missing: $launcher" >&2; exit 1; }}
 [ -s "$provenance" ] || {{ echo "Debian tools provenance is missing: $provenance" >&2; exit 1; }}
 [ -s "$components" ] || {{ echo "Debian tools component manifest is missing: $components" >&2; exit 1; }}
@@ -175,10 +172,6 @@ do
     while IFS='|' read -r declared_name declared_path declared_package
     do
         if [ "$declared_name" = "$component" ]; then
-            if [ ! -x "$tree$declared_path" ]; then
-                echo "Debian tools executable is missing or not executable: $declared_name ($declared_path)" >&2
-                exit 1
-            fi
             found=1
             break
         fi
@@ -189,23 +182,17 @@ do
     fi
     echo "validated Debian tools component: $component"
 done
+"$launcher" --validate-only /bin/sh
 """.format(
-            tree = repr(tree),
             launcher = repr(launcher),
             provenance = repr(provenance),
             components = repr(components),
             required = required,
         ),
     )
-    return [
-        DefaultInfo(
-            executable = output,
-            runfiles = ctx.runfiles(files = [output, ctx.file.provenance, ctx.file.components], transitive_files = depset([
-                ctx.attr.tree[DefaultInfo].files.to_list()[0],
-                ctx.attr.launcher[DefaultInfo].files_to_run.executable,
-            ])),
-        ),
-    ]
+    runfiles = ctx.runfiles(files = [output, ctx.file.provenance, ctx.file.components])
+    runfiles = runfiles.merge(ctx.attr.launcher[DefaultInfo].default_runfiles)
+    return [DefaultInfo(executable = output, runfiles = runfiles)]
 
 _PREFLIGHT_ATTRS = {
     "tree": attr.label(mandatory = True),

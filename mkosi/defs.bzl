@@ -20,8 +20,12 @@ load(
 )
 load(
     "//mkosi/private:mkosi_image.bzl",
+    _MkosiConfigTreeInfo = "MkosiConfigTreeInfo",
     _MkosiImageInfo = "MkosiImageInfo",
+    _MkosiSourceTreeInfo = "MkosiSourceTreeInfo",
+    _mkosi_config_tree = "mkosi_config_tree",
     _mkosi_image = "mkosi_image",
+    _mkosi_source_tree = "mkosi_source_tree",
 )
 load(
     "//mkosi/private:qemu_ovmf_boot_test.bzl",
@@ -35,6 +39,8 @@ load(
 )
 
 MkosiImageInfo = _MkosiImageInfo
+MkosiConfigTreeInfo = _MkosiConfigTreeInfo
+MkosiSourceTreeInfo = _MkosiSourceTreeInfo
 MkosiQemuToolchainInfo = _MkosiQemuToolchainInfo
 MkosiToolchainInfo = _MkosiToolchainInfo
 DebianToolsInfo = _DebianToolsInfo
@@ -43,6 +49,8 @@ ManagedPythonTestInfo = _ManagedPythonTestInfo
 QemuOvmfBootConfigInfo = _QemuOvmfBootConfigInfo
 mkosi_image = _mkosi_image
 debian_snapshot = _debian_snapshot
+mkosi_config_tree = _mkosi_config_tree
+mkosi_source_tree = _mkosi_source_tree
 qemu_ovmf_smoke_test = _qemu_ovmf_smoke_test
 qemu_ovmf_boot_test = _qemu_ovmf_boot_test
 qemu_ovmf_boot_config = _qemu_ovmf_boot_config

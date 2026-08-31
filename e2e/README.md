@@ -13,10 +13,13 @@ module opts into the maintained default, while its own root registrations can
 override it.
 
 The smoke consumer supplies a minimal Debian 13 mkosi configuration to the
-public `mkosi_image` rule. Its real-image build and GPT/root-content artifact
-validator are manually selected because they require the network and the
-host-kernel namespace/mount contract; the ordinary smoke suite remains
-portable.
+public `mkosi_image` rule. Its real-image build and root-content artifact
+validator run as part of the default suite, exercising the network and
+host-kernel namespace/mount contract.
+
+The `tree_demo` target additionally consumes a complete configuration directory
+and an explicitly typed configuration/source tree through the public API. Its
+build and semantic artifact tests also run by default.
 
 `demo_boot_test` is the dedicated UEFI tracer test. It consumes `demo` through
 the public `qemu_ovmf_boot_test` macro, boots it with the registered QEMU/OVMF

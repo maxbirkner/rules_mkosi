@@ -1,0 +1,12 @@
+#!/bin/sh
+set -eu
+test -L "$SRCDIR/linked-file"
+test "$(readlink "$SRCDIR/linked-file")" = "file-link-target"
+test -L "$SRCDIR/linked-directory"
+test "$(readlink "$SRCDIR/linked-directory")" = "linked-dir"
+test "$(stat -c '%a %Y' "$SRCDIR/file-link-target")" = "644 0"
+test "$(stat -c '%a %Y' "$SRCDIR/linked-dir")" = "755 0"
+test "$(stat -c '%a %Y' "$SRCDIR/mkosi.build")" = "755 0"
+install -D -m 0644 "$SRCDIR/hello.txt" "$DESTDIR/usr/share/rules-mkosi/staged-source-marker"
+install -D -m 0644 "$SRCDIR/linked-file" "$DESTDIR/usr/share/rules-mkosi/relative-file-marker"
+install -D -m 0644 "$SRCDIR/linked-directory/marker" "$DESTDIR/usr/share/rules-mkosi/relative-directory-marker"

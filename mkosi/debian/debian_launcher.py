@@ -28,6 +28,7 @@ TOOLS = {
 }
 
 _MOUNT_ROOTS = ("/root", "/tmp", "/proc", "/dev", "/workspace", "/inputs", "/outputs")
+sys.dont_write_bytecode = True
 
 
 def _inside_root(root, path):
@@ -328,10 +329,20 @@ def _run(tool, arguments, root, ro_binds, rw_binds, scratch_parent):
 
 def main():
     if len(sys.argv) < 2:
-        print("usage: debian-launcher [--write-version OUTPUT] /absolute/tool [args...]", file=sys.stderr)
+        print(
+            "usage: debian-launcher [--validate-only] [--write-version OUTPUT] /absolute/tool [args...]",
+            file=sys.stderr,
+        )
         return 2
     output = None
     arguments = sys.argv[1:]
+    validate_only = False
+    if arguments[0] == "--validate-only":
+        validate_only = True
+        arguments = arguments[1:]
+        if not arguments:
+            print("usage: --validate-only /absolute/tool", file=sys.stderr)
+            return 2
     if arguments[0] == "--write-version":
         if len(arguments) < 3:
             print("usage: --write-version OUTPUT /absolute/tool [args...]", file=sys.stderr)
@@ -357,6 +368,8 @@ def main():
         return 1
 
     root = _extract_root(archive, expected_digest, tool, (ro_binds, rw_binds))
+    if validate_only:
+        return 0
     scratch_parent = os.path.dirname(root)
     status = _run(tool, arguments, root, ro_binds, rw_binds, scratch_parent)
     if output:

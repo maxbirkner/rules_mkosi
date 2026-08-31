@@ -78,6 +78,65 @@ jobs:
             run_bazel bazel test --lockfile_mode=off //...
           fi
 
+      - name: Verify Debian tools cache boundary
+        if: matrix.module == '.'
+        run: |
+          run_bazel() {
+            sudo -n setpriv --reuid="$(id -u)" --regid="$(id -g)" \
+              --clear-groups env HOME="$HOME" PATH="$PATH" "$@"
+          }
+          mode=off
+          if [ "${{ matrix.bazel }}" = "8.5.1" ]; then
+            mode=error
+          fi
+          parent="$GITHUB_WORKSPACE/.."
+          first="$parent/.rules-mkosi-cache-${{ matrix.bazel }}-a"
+          second="$parent/.rules-mkosi-cache-${{ matrix.bazel }}-b"
+          cache="$parent/.rules-mkosi-disk-${{ matrix.bazel }}"
+          execution_log="$GITHUB_WORKSPACE/cache-boundary.json"
+          cleanup() {
+            run_bazel bazel --output_base="$first" shutdown >/dev/null 2>&1 || true
+            run_bazel bazel --output_base="$second" shutdown >/dev/null 2>&1 || true
+            chmod -R u+w "$first" "$second" "$cache" 2>/dev/null || true
+            rm -rf -- "$first" "$second" "$cache"
+            rm -f -- "$execution_log"
+          }
+          trap cleanup EXIT
+          cleanup
+          run_bazel bazel --output_base="$first" test \
+            --lockfile_mode="$mode" --disk_cache="$cache" \
+            --cache_test_results=no \
+            //mkosi/tests:debian_tools_archive_boundary_test
+          run_bazel bazel --output_base="$second" test \
+            --lockfile_mode="$mode" --disk_cache="$cache" \
+            --cache_test_results=no \
+            --execution_log_json_file="$execution_log" \
+            //mkosi/tests:debian_tools_archive_boundary_test
+          python3 - "$execution_log" <<'PY'
+          import json
+          import sys
+
+          decoder = json.JSONDecoder()
+          text = open(sys.argv[1], encoding="utf-8").read()
+          offset = 0
+          cache_hits = []
+          while offset < len(text):
+              while offset < len(text) and text[offset].isspace():
+                  offset += 1
+              if offset == len(text):
+                  break
+              record, offset = decoder.raw_decode(text, offset)
+              if record.get("cacheHit"):
+                  cache_hits.append(
+                      record.get("type", record.get("mnemonic", "unknown"))
+                  )
+          if "BuildDebianToolsArchive" not in cache_hits:
+              raise SystemExit(
+                  "Debian tools archive was not replayed from the disk cache"
+              )
+          print("disk-cache replayed actions:", ", ".join(cache_hits))
+          PY
+
       - name: Validate manifest-only public launcher
         if: matrix.module == '.'
         run: |

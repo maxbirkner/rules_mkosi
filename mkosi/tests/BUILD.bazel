@@ -4,6 +4,7 @@ load("@rules_shell//shell:sh_test.bzl", "sh_test")
 load(
     "//mkosi:defs.bzl",
     "mkosi_image",
+    "mkosi_source_tree",
     "qemu_ovmf_boot_test",
     "qemu_ovmf_smoke_test",
 )
@@ -75,6 +76,20 @@ py_test(
         "//mkosi/private:debian_snapshot.py",
     ],
     main = "debian_snapshot_unit_test.py",
+)
+
+py_test(
+    name = "debian_tools_archive_boundary_test",
+    srcs = ["debian_tools_archive_boundary_test.py"],
+    args = [
+        "$(rootpath @mkosi_debian_tools//:tree)",
+        "$(rootpath //mkosi/debian:extract_tree.py)",
+    ],
+    data = [
+        "//mkosi/debian:extract_tree.py",
+        "@mkosi_debian_tools//:tree",
+    ],
+    main = "debian_tools_archive_boundary_test.py",
 )
 
 default_version_test(name = "default_version_test")
@@ -222,8 +237,8 @@ sh_test(
 
 mkosi_image(
     name = "real_image",
-    config = "testdata/minimal.conf",
-    tags = ["manual"],
+    config_tree = ":config_tree",
+    source_trees = {"src": ":source_tree"},
 )
 
 py_test(
@@ -232,7 +247,14 @@ py_test(
     args = ["$(rootpath :real_image)"],
     data = [":real_image"],
     main = "raw_image_validator.py",
-    tags = ["manual"],
+)
+
+py_test(
+    name = "real_image_semantics_test",
+    srcs = ["staged_image_semantics_test.py"],
+    args = ["$(rootpath :real_image)"],
+    data = [":real_image"],
+    main = "staged_image_semantics_test.py",
 )
 
 py_test(
@@ -279,3 +301,94 @@ filegroup(
         "testdata/redirect.conf",
     ],
 )
+
+sh_test(
+    name = "mkosi_staging_artifact_test",
+    srcs = ["mkosi_staging_artifact_test.sh"],
+    args = [
+        "$(rootpath @mkosi_toolchains//:mkosi_python)",
+        "$(rootpath //mkosi/private:stage_inputs.py)",
+        "$(rootpath testdata/config-tree)",
+        "$(rootpath testdata/source-tree)",
+    ],
+    data = [
+        "testdata/config-tree",
+        "testdata/source-tree",
+        "//mkosi/private:stage_inputs.py",
+        "@mkosi_toolchains//:mkosi_python",
+    ],
+)
+
+sh_test(
+    name = "mkosi_staging_security_test",
+    srcs = ["mkosi_staging_security_test.sh"],
+    args = [
+        "$(rootpath @mkosi_toolchains//:mkosi_python)",
+        "$(rootpath //mkosi/private:stage_inputs.py)",
+    ],
+    data = [
+        "//mkosi/private:stage_inputs.py",
+        "@mkosi_toolchains//:mkosi_python",
+    ],
+)
+
+genrule(
+    name = "generated_source_file",
+    outs = ["generated-source.txt"],
+    cmd = "printf generated > $@",
+)
+
+mkosi_source_tree(
+    name = "generated_source_tree",
+    src = ":generated_source_file",
+)
+
+mkosi_source_tree(
+    name = "regular_source_file_tree",
+    src = "testdata/minimal.conf",
+)
+
+sh_test(
+    name = "mkosi_staging_role_test",
+    srcs = ["mkosi_staging_role_test.sh"],
+    args = [
+        "$(rootpath @mkosi_toolchains//:mkosi_python)",
+        "$(rootpath //mkosi/private:stage_inputs.py)",
+        "$(rootpath :regular_source_file_tree)",
+        "$(rootpath :generated_source_tree)",
+    ],
+    data = [
+        ":generated_source_tree",
+        ":regular_source_file_tree",
+        "//mkosi/private:stage_inputs.py",
+        "@mkosi_toolchains//:mkosi_python",
+    ],
+)
+
+sh_test(
+    name = "mkosi_staging_metadata_test",
+    srcs = ["mkosi_staging_metadata_test.sh"],
+    args = [
+        "$(rootpath @mkosi_toolchains//:mkosi_python)",
+        "$(rootpath //mkosi/private:stage_inputs.py)",
+    ],
+    data = [
+        "//mkosi/private:stage_inputs.py",
+        "@mkosi_toolchains//:mkosi_python",
+    ],
+)
+
+py_test(
+    name = "run_mkosi_metadata_test",
+    srcs = ["run_mkosi_metadata_test.py"],
+    args = ["$(rootpath //mkosi/private:run_mkosi.py)"],
+    data = ["//mkosi/private:run_mkosi.py"],
+    main = "run_mkosi_metadata_test.py",
+)
+
+exports_files([
+    "staged_image_semantics_test.py",
+    "testdata/config-tree",
+    "testdata/source-tree",
+    "testdata/source-tree-two",
+])
