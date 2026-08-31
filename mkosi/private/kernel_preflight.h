@@ -4,6 +4,18 @@
 #include <stddef.h>
 #include <stdio.h>
 
+typedef enum {
+  RULES_MKOSI_FD_MOUNT_OP_NONE = 0,
+  RULES_MKOSI_FD_MOUNT_OP_SETUP = 1,
+  RULES_MKOSI_FD_MOUNT_OP_OPEN_TREE_DIRECTORY = 2,
+  RULES_MKOSI_FD_MOUNT_OP_FSTAT_DIRECTORY = 3,
+  RULES_MKOSI_FD_MOUNT_OP_MOUNT_SETATTR = 4,
+  RULES_MKOSI_FD_MOUNT_OP_MOVE_MOUNT_DIRECTORY = 5,
+  RULES_MKOSI_FD_MOUNT_OP_OPEN_TREE_FILE = 6,
+  RULES_MKOSI_FD_MOUNT_OP_FSTAT_FILE = 7,
+  RULES_MKOSI_FD_MOUNT_OP_MOVE_MOUNT_FILE = 8,
+} rules_mkosi_fd_mount_operation;
+
 typedef struct {
   int user_namespace;
   int id_mapping;
@@ -14,6 +26,9 @@ typedef struct {
   int tmpfs_workspace;
   int pivot_root_workspace;
   int bind_mount;
+  int fd_mount_api;
+  rules_mkosi_fd_mount_operation fd_mount_operation;
+  int fd_mount_errno;
   int pivot_root;
   int old_root_detach;
 } rules_mkosi_namespace_checks;

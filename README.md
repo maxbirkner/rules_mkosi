@@ -83,6 +83,12 @@ not used as a pre-isolation bootstrap.
 The runner requires an empty supplementary-group list: it clears groups while
 still permitted to do so and fails closed before entering the namespace when
 the caller's groups cannot be cleared.
+Typed input, workspace, and output binds require Linux 5.12 or newer and use
+`open_tree(parent_fd, name, OPEN_TREE_CLONE)`, `fstat` validation,
+`mount_setattr(detached_fd, "", AT_EMPTY_PATH | AT_RECURSIVE)` for read-only
+binds, and `move_mount(detached_fd, "", ..., MOVE_MOUNT_F_EMPTY_PATH)`; after
+that initial pin, the runner never re-resolves a source or destination pathname
+for security-critical validation and uses no compatibility fallback.
 The lockfile's package SHA-256 values are the immutable download trust roots.
 Package-index signature verification is intentionally not advertised because
 the resolver does not currently perform that check.

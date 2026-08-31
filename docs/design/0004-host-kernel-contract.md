@@ -11,6 +11,15 @@ namespace mount, but the same probe passed as a Bazel test under the default
 Linux sandbox. Therefore the decision is **go for sandboxed Bazel actions** and
 **no-go for an unsandboxed image action** on this environment.
 
+The minimum supported kernel is Linux **5.12**. Typed bind mounts use the
+descriptor-only mount API: `open_tree(parent_fd, name, OPEN_TREE_CLONE)`,
+`fstat` validation, detached-fd recursive `mount_setattr` with
+`AT_EMPTY_PATH`, and `move_mount(MOVE_MOUNT_F_EMPTY_PATH)`. Read-only
+attributes are applied before the detached mount is attached, so no
+post-attach destination lookup can redirect the protection. The first two
+APIs were introduced in Linux 5.2; `mount_setattr` was introduced in Linux
+5.12, so there is no pathname-based compatibility path on older kernels.
+
 The Bazel Linux sandbox must remain enabled. The preflight itself runs as an
 ordinary Bazel test action and checks the exact operations needed by an
 unprivileged action. A runner is qualified only when the preflight passes
@@ -73,6 +82,7 @@ environment is an image runner.
 | Mount namespace and tmpfs workspace | After the user transition, `CLONE_NEWNS` succeeds and a tmpfs workspace can be mounted and entered. | Allow namespace-scoped `CAP_SYS_ADMIN` and tmpfs mounts; do not grant host `CAP_SYS_ADMIN`. |
 | Initial root transition | The workspace is bind-mounted and entered with `pivot_root(".", "oldroot")`. | Permit bind mounts and `pivot_root` in the private namespace. |
 | Recursive bind | A representative recursive bind from the old root into the new root succeeds. | Permit recursive namespace-local bind mounts. |
+| Descriptor-only typed binds | `open_tree(parent_fd, name, OPEN_TREE_CLONE)`, `fstat`, detached-fd recursive `mount_setattr(AT_EMPTY_PATH)` for read-only mounts, and `move_mount(MOVE_MOUNT_F_EMPTY_PATH)` succeed for file and directory mounts. | Use Linux 5.12 or newer and permit the descriptor-based mount API in the action namespace. |
 | Final root transition and detach | `pivot_root(".", ".")` succeeds and the old root is detached with `MNT_DETACH`. | Permit the final `pivot_root` and old-root detach in the private namespace. |
 
 No host userspace executable, package cache, network, writable host mount,

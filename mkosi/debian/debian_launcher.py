@@ -157,7 +157,7 @@ def _validate_binds(arguments):
     return ro_binds, rw_binds
 
 
-def _prepare_mountpoint(base, destination, source):
+def _prepare_mountpoint(base, destination, source_is_directory):
     relative = destination.lstrip("/").split("/")
     current = base
     for part in relative[:-1]:
@@ -169,7 +169,6 @@ def _prepare_mountpoint(base, destination, source):
             os.mkdir(current)
         os.chmod(current, 0o755)
     path = os.path.join(base, *relative)
-    source_is_directory = os.path.isdir(source)
     if os.path.lexists(path):
         if source_is_directory and os.path.isdir(path) and not os.path.islink(path):
             return
@@ -181,26 +180,6 @@ def _prepare_mountpoint(base, destination, source):
         pathlib.Path(path).touch()
         os.chmod(path, 0o644)
 
-
-def _pin_bind_sources(binds):
-    descriptors = []
-    try:
-        for bind in binds:
-            source, _, device, inode, _ = bind
-            flags = getattr(os, "O_PATH", 0o10000000)
-            flags |= os.O_NOFOLLOW | os.O_CLOEXEC
-            if bind[4]:
-                flags |= getattr(os, "O_DIRECTORY", 0o200000)
-            descriptor = os.open(source, flags)
-            descriptors.append(descriptor)
-            current = os.fstat(descriptor)
-            if current.st_dev != device or current.st_ino != inode:
-                raise RuntimeError("namespace bind source changed after validation: %s" % source)
-    except Exception:
-        for descriptor in descriptors:
-            os.close(descriptor)
-        raise
-    return descriptors
 
 
 def _private_scratch():
@@ -262,8 +241,8 @@ def _extract_root(archive, expected_digest, tool, binds):
             spec.loader.exec_module(extractor)
             extractor.extract(archive, partial, expected_digest)
             _validate_root(partial, tool)
-            for source, destination, _, _, _ in binds[0] + binds[1]:
-                _prepare_mountpoint(partial, destination, source)
+            for _, destination, _, _, source_is_directory in binds[0] + binds[1]:
+                _prepare_mountpoint(partial, destination, source_is_directory)
             extractor.set_deterministic_metadata(partial)
             marker = os.path.join(partial, ".complete")
             with open(marker, "w", encoding="utf-8") as complete:
@@ -301,27 +280,27 @@ def _run(tool, arguments, root, ro_binds, rw_binds, scratch_parent):
         workspace = _runtime_directory(runtime, "workspace")
         outputs = _runtime_directory(runtime, "outputs")
         home = _runtime_directory(runtime, "home")
-        for source, destination, _, _, _ in rw_binds:
+        for _, destination, _, _, source_is_directory in rw_binds:
             base = workspace if _under(destination, "/workspace") else outputs
             prefix = "/workspace" if base == workspace else "/outputs"
-            _prepare_mountpoint(base, destination[len(prefix):] or "/", source)
+            _prepare_mountpoint(
+                base,
+                destination[len(prefix):] or "/",
+                source_is_directory,
+            )
 
         runner = os.environ.get("DEBIAN_TOOLS_NAMESPACE_RUNNER")
         if not runner or not os.path.isfile(runner) or not os.access(runner, os.X_OK):
             raise RuntimeError("static Debian namespace runner is missing")
         loader, _ = _validate_root(root, tool)
         loader_relative = "/" + os.path.relpath(loader, root)
-        # Hold O_PATH descriptors while the runner revalidates and pins each
-        # source with open_tree; the dev/inode tuple rejects ancestor swaps.
-        descriptors = _pin_bind_sources(ro_binds + rw_binds)
         mount_arguments = []
         all_binds = ro_binds + rw_binds
-        for index, (bind, source_descriptor) in enumerate(zip(all_binds, descriptors)):
-            option = "--ro-bind-fd" if index < len(ro_binds) else "--rw-bind-fd"
+        for index, bind in enumerate(all_binds):
+            option = "--ro-bind" if index < len(ro_binds) else "--rw-bind"
             mount_arguments.extend(
                 [
                     option,
-                    str(source_descriptor),
                     bind[0],
                     bind[1],
                     str(bind[2]),
@@ -338,15 +317,10 @@ def _run(tool, arguments, root, ro_binds, rw_binds, scratch_parent):
             loader_relative,
             tool,
         ] + mount_arguments + ["--"] + arguments
-        try:
-            return subprocess.run(
-                command,
-                env={"PATH": "", "HOME": "/root"},
-                pass_fds=tuple(descriptors),
-            ).returncode
-        finally:
-            for descriptor in descriptors:
-                os.close(descriptor)
+        return subprocess.run(
+            command,
+            env={"PATH": "", "HOME": "/root"},
+        ).returncode
     finally:
         shutil.rmtree(runtime, ignore_errors=True)
 

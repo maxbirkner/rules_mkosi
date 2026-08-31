@@ -37,6 +37,34 @@ class DebianToolsSecurityTest(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.work, ignore_errors=True)
 
+    def test_namespace_runner_has_no_path_fallback_for_typed_binds(self):
+        source = (_HERE / "namespace_runner.c").read_text(encoding="utf-8")
+        self.assertIn("MOVE_MOUNT_F_EMPTY_PATH", source)
+        self.assertIn("OPEN_TREE_CLONE", source)
+        self.assertIn("AT_RECURSIVE", source)
+        production_source = source
+        self.assertRegex(
+            production_source,
+            r"SYS_mount_setattr,\s*source_fd,\s*\"\",\s*"
+            r"AT_EMPTY_PATH\s*\|\s*AT_RECURSIVE",
+        )
+        for invocation in re.findall(
+            r"syscall\(SYS_open_tree,(.*?)\);", production_source, re.DOTALL
+        ):
+            self.assertNotIn("AT_EMPTY_PATH", invocation)
+        self.assertLess(
+            production_source.index("SYS_mount_setattr, source_fd"),
+            production_source.index("SYS_move_mount, source_fd"),
+        )
+        self.assertNotRegex(
+            production_source,
+            r"SYS_mount_setattr,\s*AT_FDCWD,\s*destination",
+        )
+        self.assertNotIn("stat(destination", production_source)
+        self.assertNotIn("readlink", source)
+        self.assertNotIn("pinned_path", source)
+        self.assertNotIn("compatibility mount", source)
+
     def _archive(self, members):
         archive = self.work / "tree.tar"
         with tarfile.open(archive, "w") as output:
@@ -389,18 +417,6 @@ class DebianToolsSecurityTest(unittest.TestCase):
             debian_launcher._validate_binds(
                 ["--ro-bind", "%s:/inputs/missing" % (self.work / "missing")]
             )
-
-    def test_bind_source_swap_after_validation_is_rejected(self):
-        source = self.work / "source"
-        source.write_text("original", encoding="utf-8")
-        binds, _ = debian_launcher._validate_binds(
-            ["--ro-bind", "%s:/inputs/source" % source]
-        )
-        replacement = self.work / "replacement"
-        replacement.write_text("replacement", encoding="utf-8")
-        os.replace(replacement, source)
-        with self.assertRaisesRegex(RuntimeError, "changed"):
-            debian_launcher._pin_bind_sources(binds)
 
     def test_missing_mapping_and_executable_fail_precisely(self):
         original_argv = sys.argv
