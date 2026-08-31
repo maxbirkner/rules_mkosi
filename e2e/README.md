@@ -32,7 +32,10 @@ readiness-timeout, and shutdown failures. QMP uses a relative socket name while
 QEMU and the handshake run from the scratch directory, avoiding Linux's
 AF_UNIX path limit even when `TEST_TMPDIR` is long. Root lifecycle tests drive
 the same state machine through launch, QMP, marker, exit, timeout, shutdown,
-diagnostic, and cleanup transitions.
+diagnostic, and cleanup transitions. The macro forwards Bazel's finite
+`short`, `moderate`, or `long` timeout category and rejects deadlines that do
+not fit inside that category's lifecycle and cleanup budget; `eternal` is not
+supported.
 
 The BCR presubmit has separate Bazel 8 and Bazel 9 tasks. The Bazel 8 task
 uses the committed `e2e/smoke/MODULE.bazel.lock` strictly. The Bazel 9 task

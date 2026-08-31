@@ -3,8 +3,43 @@
 load(":managed_python_test.bzl", "managed_python_test")
 
 _QEMU_TOOLCHAIN_TYPE = "//mkosi/toolchain:qemu_toolchain_type"
+_TEST_TIMEOUT_SECONDS = {
+    "short": 60,
+    "moderate": 300,
+    "long": 900,
+}
+_CLEANUP_MARGIN_SECONDS = 10
 
 def _qemu_ovmf_boot_config_impl(ctx):
+    if ctx.attr.boot_timeout_seconds <= 0:
+        fail("boot_timeout_seconds must be positive")
+    if ctx.attr.qmp_initialization_timeout_seconds <= 0:
+        fail("qmp_initialization_timeout_seconds must be positive")
+    if ctx.attr.shutdown_timeout_seconds <= 0:
+        fail("shutdown_timeout_seconds must be positive")
+    if ctx.attr.diagnostic_bytes <= 0:
+        fail("diagnostic_bytes must be positive")
+    if not ctx.attr.readiness_marker:
+        fail("readiness_marker must not be empty")
+    if not ctx.attr.shutdown_markers or any([not marker for marker in ctx.attr.shutdown_markers]):
+        fail("shutdown_markers must contain nonempty markers")
+    if ctx.attr.test_timeout not in _TEST_TIMEOUT_SECONDS:
+        fail("timeout must be short, moderate, or long; eternal is not supported")
+    lifecycle_seconds = (
+        ctx.attr.qmp_initialization_timeout_seconds +
+        ctx.attr.boot_timeout_seconds +
+        ctx.attr.shutdown_timeout_seconds +
+        _CLEANUP_MARGIN_SECONDS
+    )
+    if lifecycle_seconds > _TEST_TIMEOUT_SECONDS[ctx.attr.test_timeout]:
+        fail(
+            ("boot lifecycle deadlines (%d seconds including cleanup margin) " +
+             "exceed the %s test timeout category (%d seconds)") % (
+                lifecycle_seconds,
+                ctx.attr.test_timeout,
+                _TEST_TIMEOUT_SECONDS[ctx.attr.test_timeout],
+            ),
+        )
     qemu = ctx.toolchains[_QEMU_TOOLCHAIN_TYPE].qemu
     output = ctx.actions.declare_file(ctx.label.name + ".json")
     config = {
@@ -45,7 +80,7 @@ def _qemu_ovmf_boot_config_impl(ctx):
     )
     return [DefaultInfo(files = depset([output]), runfiles = runfiles)]
 
-_qemu_ovmf_boot_config = rule(
+qemu_ovmf_boot_config = rule(
     implementation = _qemu_ovmf_boot_config_impl,
     attrs = {
         "image": attr.label(
@@ -69,6 +104,7 @@ _qemu_ovmf_boot_config = rule(
         "qmp_initialization_timeout_seconds": attr.int(mandatory = True),
         "shutdown_timeout_seconds": attr.int(mandatory = True),
         "diagnostic_bytes": attr.int(mandatory = True),
+        "test_timeout": attr.string(default = "moderate"),
     },
     toolchains = [_QEMU_TOOLCHAIN_TYPE],
 )
@@ -86,6 +122,7 @@ def qemu_ovmf_boot_test(
         qmp_initialization_timeout_seconds = 15,
         shutdown_timeout_seconds = 30,
         diagnostic_bytes = 65536,
+        timeout = "moderate",
         tags = []):
     """Boots an image with OVMF and verifies exact serial lifecycle markers.
 
@@ -94,7 +131,7 @@ def qemu_ovmf_boot_test(
     adapter to reuse the same lifecycle and diagnostics.
     """
     config_name = name + "_config"
-    _qemu_ovmf_boot_config(
+    qemu_ovmf_boot_config(
         name = config_name,
         image = image,
         readiness_marker = readiness_marker,
@@ -104,6 +141,7 @@ def qemu_ovmf_boot_test(
         qmp_initialization_timeout_seconds = qmp_initialization_timeout_seconds,
         shutdown_timeout_seconds = shutdown_timeout_seconds,
         diagnostic_bytes = diagnostic_bytes,
+        test_timeout = timeout,
         tags = ["manual"],
     )
     managed_python_test(
@@ -114,5 +152,6 @@ def qemu_ovmf_boot_test(
             "@rules_mkosi//mkosi/private:boot_test.py",
             ":{}".format(config_name),
         ],
+        timeout = timeout,
         tags = tags,
     )

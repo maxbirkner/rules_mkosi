@@ -3,6 +3,10 @@
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts")
 load("//mkosi:defs.bzl", "MkosiImageInfo", "MkosiQemuToolchainInfo", "mkosi_image")
 load("//mkosi/debian:toolchain.bzl", "DebianToolsInfo")
+load(
+    "//mkosi/private:qemu_ovmf_boot_test.bzl",
+    _qemu_ovmf_boot_config = "qemu_ovmf_boot_config",
+)
 
 def _provider_test_impl(ctx):
     env = analysistest.begin(ctx)
@@ -189,6 +193,19 @@ _invalid_config_test = analysistest.make(
     expect_failure = True,
 )
 
+def _invalid_qemu_config_test_impl(ctx):
+    env = analysistest.begin(ctx)
+    asserts.expect_failure(env, ctx.attr.expected_failure)
+    return analysistest.end(env)
+
+_invalid_qemu_config_test = analysistest.make(
+    _invalid_qemu_config_test_impl,
+    expect_failure = True,
+    attrs = {
+        "expected_failure": attr.string(mandatory = True),
+    },
+)
+
 def mkosi_image_test_suite(name):
     """Defines analysis tests for the config-driven image action.
 
@@ -234,6 +251,75 @@ def mkosi_image_test_suite(name):
         target_under_test = ":invalid_config_subject",
     )
 
+    _qemu_ovmf_boot_config(
+        name = "invalid_boot_deadline_subject",
+        image = ":debian_subject",
+        readiness_marker = "READY",
+        shutdown_markers = ["SHUTDOWN"],
+        machine_args = ["-machine", "q35"],
+        boot_timeout_seconds = 600,
+        qmp_initialization_timeout_seconds = 15,
+        shutdown_timeout_seconds = 30,
+        diagnostic_bytes = 4096,
+    )
+    _invalid_qemu_config_test(
+        name = "invalid_boot_deadline_test",
+        expected_failure = "exceed",
+        target_under_test = ":invalid_boot_deadline_subject",
+    )
+
+    _qemu_ovmf_boot_config(
+        name = "invalid_boot_marker_subject",
+        image = ":debian_subject",
+        readiness_marker = "",
+        shutdown_markers = ["SHUTDOWN"],
+        machine_args = ["-machine", "q35"],
+        boot_timeout_seconds = 180,
+        qmp_initialization_timeout_seconds = 15,
+        shutdown_timeout_seconds = 30,
+        diagnostic_bytes = 4096,
+    )
+    _invalid_qemu_config_test(
+        name = "invalid_boot_marker_test",
+        expected_failure = "readiness_marker",
+        target_under_test = ":invalid_boot_marker_subject",
+    )
+
+    _qemu_ovmf_boot_config(
+        name = "invalid_boot_positive_subject",
+        image = ":debian_subject",
+        readiness_marker = "READY",
+        shutdown_markers = ["SHUTDOWN"],
+        machine_args = ["-machine", "q35"],
+        boot_timeout_seconds = 0,
+        qmp_initialization_timeout_seconds = 15,
+        shutdown_timeout_seconds = 30,
+        diagnostic_bytes = 4096,
+    )
+    _invalid_qemu_config_test(
+        name = "invalid_boot_positive_test",
+        expected_failure = "must be positive",
+        target_under_test = ":invalid_boot_positive_subject",
+    )
+
+    _qemu_ovmf_boot_config(
+        name = "invalid_boot_eternal_subject",
+        image = ":debian_subject",
+        readiness_marker = "READY",
+        shutdown_markers = ["SHUTDOWN"],
+        machine_args = ["-machine", "q35"],
+        boot_timeout_seconds = 180,
+        qmp_initialization_timeout_seconds = 15,
+        shutdown_timeout_seconds = 30,
+        diagnostic_bytes = 4096,
+        test_timeout = "eternal",
+    )
+    _invalid_qemu_config_test(
+        name = "invalid_boot_eternal_test",
+        expected_failure = "eternal",
+        target_under_test = ":invalid_boot_eternal_subject",
+    )
+
     _toolchain_provider_test(
         name = "mkosi_toolchain_provider_test",
         target_under_test = "@mkosi_toolchains//:mkosi_toolchain",
@@ -255,6 +341,10 @@ def mkosi_image_test_suite(name):
             ":debian_provider_test",
             ":output_override_provider_test",
             ":invalid_config_test",
+            ":invalid_boot_deadline_test",
+            ":invalid_boot_marker_test",
+            ":invalid_boot_positive_test",
+            ":invalid_boot_eternal_test",
             ":mkosi_toolchain_provider_test",
             ":qemu_toolchain_provider_test",
             ":debian_tools_provider_test",

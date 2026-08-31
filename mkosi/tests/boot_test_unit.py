@@ -46,6 +46,11 @@ class _Process:
         self.returncode = -9
 
 
+class _StubbornProcess(_Process):
+    def wait(self, timeout=None):
+        raise subprocess.TimeoutExpired("qemu", timeout)
+
+
 class BootLifecycleTest(unittest.TestCase):
     def _run(
         self,
@@ -151,6 +156,15 @@ class BootLifecycleTest(unittest.TestCase):
             process=process,
         )
         self.assertTrue(process.terminated)
+
+    def test_post_kill_cleanup_is_bounded(self):
+        process = _StubbornProcess()
+        self._run(
+            "SHUTDOWN_FAILURE",
+            serial=b"READY\nSHUTDOWN\nPOWERDOWN\n",
+            process=process,
+        )
+        self.assertTrue(process.killed)
 
     def test_qmp_socket_stays_short_with_long_test_tmpdir(self):
         with tempfile.TemporaryDirectory() as directory:

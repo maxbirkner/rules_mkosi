@@ -140,6 +140,22 @@ def _has_clean_shutdown(serial_log, markers):
     return all(marker.encode() in serial for marker in markers)
 
 
+def _stop_process(process, timeout=5):
+    if process.poll() is not None:
+        return True
+    process.terminate()
+    try:
+        process.wait(timeout=timeout)
+        return True
+    except subprocess.TimeoutExpired:
+        process.kill()
+        try:
+            process.wait(timeout=timeout)
+            return True
+        except subprocess.TimeoutExpired:
+            return False
+
+
 def _boot(
     image,
     qemu,
@@ -276,12 +292,7 @@ def _boot(
                 try:
                     process.wait(timeout=shutdown_timeout_seconds)
                 except subprocess.TimeoutExpired:
-                    process.terminate()
-                    try:
-                        process.wait(timeout=5)
-                    except subprocess.TimeoutExpired:
-                        process.kill()
-                        process.wait()
+                    _stop_process(process)
                     _diagnose(
                         "SHUTDOWN_FAILURE",
                         "guest did not terminate before the shutdown deadline",
@@ -308,12 +319,14 @@ def _boot(
                 print("guest readiness and clean shutdown verified")
             finally:
                 if process.poll() is None:
-                    process.terminate()
-                    try:
-                        process.wait(timeout=5)
-                    except subprocess.TimeoutExpired:
-                        process.kill()
-                        process.wait()
+                    if not _stop_process(process):
+                        _diagnose(
+                            "SHUTDOWN_FAILURE",
+                            "QEMU did not exit after the kill deadline",
+                            serial_log,
+                            qemu_log,
+                            diagnostic_bytes,
+                        )
     finally:
         try:
             qmp_socket_file.unlink()
