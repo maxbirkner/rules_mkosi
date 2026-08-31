@@ -104,8 +104,13 @@ class DebianSnapshotTrustTest(unittest.TestCase):
     def test_mutated_detached_signature_is_rejected(self):
         mutated = self.work / "Release.gpg"
         data = self.release_gpg.read_bytes()
-        middle = len(data) // 2
-        mutated.write_bytes(data[:middle] + bytes([data[middle] ^ 1]) + data[middle + 1 :])
+        header_end = data.index(b"\n", data.index(b"BEGIN PGP SIGNATURE")) + 1
+        while data[header_end] in b"\r\n":
+            header_end += 1
+        replacement = {ord("A"): ord("B"), ord("B"): ord("C")}.get(
+            data[header_end], ord("A")
+        )
+        mutated.write_bytes(data[:header_end] + bytes([replacement]) + data[header_end + 1 :])
         baseline = self._detached(self.release_gpg)
         self.assertEqual(0, baseline.returncode, baseline.stderr)
         result = self._detached(mutated)
