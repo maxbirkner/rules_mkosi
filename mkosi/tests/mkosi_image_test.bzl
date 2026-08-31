@@ -448,7 +448,7 @@ def mkosi_image_test_suite(name):
         name = "legacy_default_name_subject",
         config = "testdata/config-tree/mkosi.conf",
         source_trees = {"src": ":source_tree"},
-        tags = ["requires-network"],
+        tags = ["manual"],
     )
     _legacy_staged_config_test(
         name = "legacy_default_name_test",
@@ -461,7 +461,7 @@ def mkosi_image_test_suite(name):
         name = "legacy_alternate_name_subject",
         config = "testdata/minimal.conf",
         source_trees = {"src": ":source_tree"},
-        tags = ["requires-network"],
+        tags = ["manual"],
     )
     _legacy_staged_config_test(
         name = "legacy_alternate_name_test",
