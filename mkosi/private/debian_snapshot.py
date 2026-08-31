@@ -108,6 +108,8 @@ def _verify_signature(launcher, inrelease, release, release_gpg, output, scratch
     release_gpg = os.path.abspath(release_gpg)
     output = os.path.abspath(output)
     scratch = os.path.abspath(scratch)
+    environment = os.environ.copy()
+    environment["PATH"] = ""
     cleartext_command = [
         launcher,
         "--ro-bind",
@@ -122,10 +124,7 @@ def _verify_signature(launcher, inrelease, release, release_gpg, output, scratch
     ]
     result = subprocess.run(
         cleartext_command,
-        env={
-            "PATH": "",
-            "MKOSI_DEBIAN_TOOLS_SCRATCH": scratch + "/inrelease",
-        },
+        env=dict(environment, MKOSI_DEBIAN_TOOLS_SCRATCH=scratch + "/inrelease"),
         capture_output=True,
     )
     if result.returncode:
@@ -146,10 +145,7 @@ def _verify_signature(launcher, inrelease, release, release_gpg, output, scratch
     ]
     result = subprocess.run(
         detached_command,
-        env={
-            "PATH": "",
-            "MKOSI_DEBIAN_TOOLS_SCRATCH": scratch + "/release",
-        },
+        env=dict(environment, MKOSI_DEBIAN_TOOLS_SCRATCH=scratch + "/release"),
         capture_output=True,
     )
     if result.returncode:
