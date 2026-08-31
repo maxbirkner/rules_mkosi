@@ -194,7 +194,9 @@ mkosi_image_test_suite(name = "analysis_tests")
 qemu_ovmf_boot_test(
     name = "analysis_boot_test",
     image = ":debian_subject",
-    tags = ["requires-network"],
+    # This is an analysis subject; boot_config_test checks its generated
+    # configuration, while real boot coverage is provided by e2e/smoke.
+    tags = ["manual"],
 )
 
 boot_config_test(

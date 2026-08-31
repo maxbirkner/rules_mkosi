@@ -530,7 +530,10 @@ def mkosi_image_test_suite(name):
         shutdown_timeout_seconds = 30,
         diagnostic_bytes = 4096,
         timeout = "long",
-        tags = ["requires-network"],
+        # Analysis-only macro subject; the provider test below validates the
+        # generated configuration without booting this deliberately synthetic
+        # guest.
+        tags = ["manual"],
     )
     _boot_deadline_provider_test(
         name = "long_public_boot_deadline_test",
@@ -612,7 +615,8 @@ def mkosi_image_test_suite(name):
         image = ":debian_subject",
         boot_timeout_seconds = 600,
         timeout = "long",
-        tags = ["requires-network"],
+        # Analysis-only timeout propagation subject.
+        tags = ["manual"],
     )
     _public_boot_timeout_test(
         name = "public_boot_timeout_test",
@@ -632,7 +636,8 @@ def mkosi_image_test_suite(name):
         qmp_initialization_timeout_seconds = 5,
         shutdown_timeout_seconds = 5,
         timeout = "short",
-        tags = ["requires-network"],
+        # Analysis-only timeout propagation subject.
+        tags = ["manual"],
     )
     _public_boot_timeout_test(
         name = "public_short_timeout_test",
