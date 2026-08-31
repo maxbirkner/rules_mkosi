@@ -8,6 +8,7 @@ import sys
 
 
 _EXPECTED_SHA256 = "ebc174414d5291b2f06597dd72b8c210e99442dc316aad6a9e020590040c3fbb"
+sys.dont_write_bytecode = True
 
 
 def main():

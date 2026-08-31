@@ -10,6 +10,7 @@ import sys
 from pathlib import Path
 
 _EPOCH = (0, 0)
+sys.dont_write_bytecode = True
 
 
 _PATH_OPTIONS = {
