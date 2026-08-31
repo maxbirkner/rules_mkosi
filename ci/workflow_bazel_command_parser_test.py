@@ -1,0 +1,43 @@
+"""Table-driven tests for the workflow Bazel command policy."""
+
+import pathlib
+import sys
+import unittest
+
+sys.path.insert(0, str(pathlib.Path(__file__).parent))
+from workflow_bazel_command_test import validate_shell_sources
+
+
+class WorkflowBazelCommandParserTest(unittest.TestCase):
+    def test_invalid_commands(self):
+        fixtures = [
+            ("literal", "run: |\n  bazel test //pkg:target\n"),
+            ("wrapper", "run: |\n  run_bazel bazel test //pkg:target\n"),
+            ("variable", "run: |\n  $bazel test //pkg:target\n"),
+            ("absolute", "run: |\n  /usr/bin/bazel build //pkg:target\n"),
+            ("multiline", "run: |\n  bazel test --config=ordinary \\\n    //pkg:target\n"),
+            ("folded", "run: >-\n  bazel build --config=ordinary\n  //pkg:target\n"),
+        ]
+        for name, fixture in fixtures:
+            with self.subTest(name=name):
+                self.assertTrue(
+                    validate_shell_sources([("fixture", fixture, True)]),
+                    name,
+                )
+
+    def test_valid_wildcard_and_queries(self):
+        fixture = """run: |
+  run_bazel bazel test --config=ordinary //...
+  bazel --output_base="$out" build --config=deterministic //...
+  bazel query //pkg:target
+  $bazel cquery //pkg:target
+  /usr/bin/bazel info output_base
+"""
+        self.assertEqual(
+            validate_shell_sources([("fixture", fixture, True)]),
+            [],
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()

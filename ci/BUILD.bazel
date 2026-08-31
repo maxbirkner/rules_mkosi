@@ -7,3 +7,12 @@ py_test(
     data = ["//:.github/workflows/ci.yml"],
     main = "workflow_bazel_command_test.py",
 )
+
+py_test(
+    name = "workflow_bazel_command_parser_test",
+    srcs = [
+        "workflow_bazel_command_parser_test.py",
+        "workflow_bazel_command_test.py",
+    ],
+    main = "workflow_bazel_command_parser_test.py",
+)

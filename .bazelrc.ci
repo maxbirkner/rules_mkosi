@@ -6,8 +6,17 @@ test:ordinary --test_tag_filters=-manual,-ci_manifest,-ci_qualified,-ci_determin
 build:manifest --build_manual_tests --build_tag_filters=ci_manifest
 test:manifest --build_manual_tests --enable_runfiles=no --test_tag_filters=ci_manifest
 
+build:qualified_runtime --disk_cache=
+build:qualified_runtime --spawn_strategy=linux-sandbox
+test:qualified_runtime --cache_test_results=no
+test:qualified_runtime --disk_cache=
+test:qualified_runtime --spawn_strategy=linux-sandbox
+test:qualified_runtime --test_output=all
+
+common:qualified --config=qualified_runtime
 build:qualified --build_manual_tests --build_tag_filters=ci_qualified
 test:qualified --build_manual_tests --test_tag_filters=ci_qualified
+common:qualified_manifest --config=qualified_runtime
 build:qualified_manifest --build_manual_tests --build_tag_filters=ci_manifest_boot
 test:qualified_manifest --build_manual_tests --enable_runfiles=no --test_strategy=exclusive --test_tag_filters=ci_manifest_boot
 
@@ -17,6 +26,7 @@ build:deterministic --noremote_accept_cached
 build:deterministic --noremote_upload_local_results
 
 build:kernel_preflight --build_tag_filters=requires_kernel_contract --compilation_mode=opt
+build:kernel_preflight --disk_cache=
 build:kernel_preflight --noexperimental_use_hermetic_linux_sandbox
 build:kernel_preflight --spawn_strategy=linux-sandbox
 test:kernel_preflight --test_tag_filters=requires_kernel_contract
