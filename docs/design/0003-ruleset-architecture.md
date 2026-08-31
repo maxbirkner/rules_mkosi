@@ -51,8 +51,10 @@ which preserves `mkosi.conf.d/`, `mkosi.profiles/`, and `mkosi.extra/`.
 each declared directory is staged at its map key, preserving paths used by
 `BuildSources`. A single-file config remains compatible with existing
 callers, while adding source trees stages that file at its basename so
-relative references remain stable. Staging actions consume only their declared
-labels and use deterministic map ordering. Their manifest preflight rejects
+relative references remain stable. Tree providers explicitly list executable
+paths because Bazel input roots do not preserve source mode bits. Staging
+actions consume only their declared labels and use deterministic map ordering.
+Their manifest preflight rejects
 path collisions, source aliases, and escaping links before writes; staging and
 the Bazel input-root materialization normalize timestamps and permissions while
 preserving valid relative links and executable bits.

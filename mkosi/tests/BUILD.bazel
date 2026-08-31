@@ -1,7 +1,6 @@
 load("@bazel_skylib//rules:diff_test.bzl", "diff_test")
 load("@rules_python//python:defs.bzl", "py_test")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
-<<<<<<< HEAD
 load(
     "//mkosi:defs.bzl",
     "mkosi_image",

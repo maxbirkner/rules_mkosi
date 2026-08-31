@@ -17,16 +17,22 @@ touch -d '2030-01-01 00:00:00' "$root/config-b/mkosi.conf" "$root/source-b/dir/m
 
 "$python" "$stage_script" --output "$root/out-a" \
     --mapping "$root/config-a/mkosi.conf" mkosi.conf file \
-    --mapping "$root/source-a" src tree
+    --mapping "$root/source-a" vendor/src tree
 "$python" "$stage_script" --output "$root/out-b" \
     --mapping "$root/config-b/mkosi.conf" mkosi.conf file \
-    --mapping "$root/source-b" src tree
+    --mapping "$root/source-b" vendor/src tree
 
 test "$(stat -c '%a %Y' "$root/out-a/mkosi.conf")" = "644 0"
-test "$(stat -c '%a %Y' "$root/out-a/src/dir/marker")" = "644 0"
-test "$(stat -c '%a %Y' "$root/out-a/src")" = "755 0"
+test "$(stat -c '%a %Y' "$root/out-a")" = "755 0"
+test "$(stat -c '%a %Y' "$root/out-a/vendor")" = "755 0"
+test "$(stat -c '%a %Y' "$root/out-a/vendor/src")" = "755 0"
+test "$(stat -c '%a %Y' "$root/out-a/vendor/src/dir")" = "755 0"
+test "$(stat -c '%a %Y' "$root/out-a/vendor/src/dir/marker")" = "644 0"
 test "$(stat -c '%a %Y' "$root/out-b/mkosi.conf")" = "644 0"
-test "$(stat -c '%a %Y' "$root/out-b/src/dir/marker")" = "644 0"
-test "$(stat -c '%a %Y' "$root/out-b/src")" = "755 0"
+test "$(stat -c '%a %Y' "$root/out-b")" = "755 0"
+test "$(stat -c '%a %Y' "$root/out-b/vendor")" = "755 0"
+test "$(stat -c '%a %Y' "$root/out-b/vendor/src")" = "755 0"
+test "$(stat -c '%a %Y' "$root/out-b/vendor/src/dir")" = "755 0"
+test "$(stat -c '%a %Y' "$root/out-b/vendor/src/dir/marker")" = "644 0"
 cmp "$root/out-a/mkosi.conf" "$root/out-b/mkosi.conf"
-cmp "$root/out-a/src/dir/marker" "$root/out-b/src/dir/marker"
+cmp "$root/out-a/vendor/src/dir/marker" "$root/out-b/vendor/src/dir/marker"

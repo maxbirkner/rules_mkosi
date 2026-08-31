@@ -1,8 +1,8 @@
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load(
     "@rules_mkosi//mkosi:defs.bzl",
-    "mkosi_config_tree",
     "managed_python_test",
+    "mkosi_config_tree",
     "mkosi_image",
     "mkosi_source_tree",
     "qemu_ovmf_boot_test",
@@ -38,6 +38,7 @@ mkosi_config_tree(
 mkosi_source_tree(
     name = "source_tree",
     src = "@rules_mkosi//mkosi/tests:testdata/source-tree",
+    executable_paths = ["mkosi.build"],
 )
 
 build_test(

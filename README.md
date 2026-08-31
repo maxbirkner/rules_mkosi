@@ -182,7 +182,11 @@ preserved. Declared build source directories are marked with
 load("@rules_mkosi//mkosi:defs.bzl", "mkosi_config_tree", "mkosi_image", "mkosi_source_tree")
 
 mkosi_config_tree(name = "mkosi_config", src = "mkosi")
-mkosi_source_tree(name = "project_sources", src = "src")
+mkosi_source_tree(
+    name = "project_sources",
+    src = "src",
+    executable_paths = ["mkosi.build"],
+)
 mkosi_image(
     name = "demo",
     config_tree = ":mkosi_config",
@@ -197,7 +201,8 @@ content are rejected before staging writes. Source-tree roles are checked again
 at execution, including generated artifacts whose Bazel metadata is ambiguous.
 Staging and materialization normalize files and directories to deterministic
 timestamps and permissions, retaining only executable semantics; valid relative
-symlinks are preserved. This explicit mapping also works for labels from
+symlinks are preserved. `executable_paths` explicitly identifies scripts that
+must retain executable mode. This explicit mapping also works for labels from
 external repositories and avoids relying on repository-relative runfiles paths.
 A single-file `config` remains supported unchanged; when source trees are
 supplied, that file is staged at its basename and selected with `-I`.

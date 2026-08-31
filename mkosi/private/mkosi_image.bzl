@@ -9,19 +9,28 @@ MkosiImageInfo = provider(
 
 MkosiConfigTreeInfo = provider(
     doc = "Explicitly typed mkosi configuration tree.",
-    fields = {"tree": "The declared configuration directory artifact."},
+    fields = {
+        "tree": "The declared configuration directory artifact.",
+        "executable_paths": "Relative paths that must retain executable mode.",
+    },
 )
 
 MkosiSourceTreeInfo = provider(
     doc = "Explicitly typed mkosi BuildSources tree.",
-    fields = {"tree": "The declared source directory artifact."},
+    fields = {
+        "tree": "The declared source directory artifact.",
+        "executable_paths": "Relative paths that must retain executable mode.",
+    },
 )
 
 def _tree_target_impl(ctx, info):
     files = ctx.files.src
     if len(files) != 1:
         fail("{} must resolve to exactly one directory artifact".format(ctx.label))
-    return [DefaultInfo(files = depset(files)), info(tree = files[0])]
+    return [
+        DefaultInfo(files = depset(files)),
+        info(tree = files[0], executable_paths = ctx.attr.executable_paths),
+    ]
 
 mkosi_config_tree = rule(
     implementation = lambda ctx: _tree_target_impl(ctx, MkosiConfigTreeInfo),
@@ -30,6 +39,9 @@ mkosi_config_tree = rule(
             mandatory = True,
             allow_files = True,
             doc = "A declared configuration directory, including mkosi.conf.",
+        ),
+        "executable_paths": attr.string_list(
+            doc = "Relative configuration-tree paths that must be executable.",
         ),
     },
     doc = "Marks a label as an mkosi configuration tree.",
@@ -42,6 +54,9 @@ mkosi_source_tree = rule(
             mandatory = True,
             allow_files = True,
             doc = "A declared directory mounted for mkosi BuildSources.",
+        ),
+        "executable_paths": attr.string_list(
+            doc = "Relative source-tree paths that must be executable.",
         ),
     },
     doc = "Marks a label as an mkosi BuildSources tree.",
@@ -67,6 +82,7 @@ def _single_input(target, attribute):
 
 def _stage_inputs(ctx, config, config_is_directory, source_trees):
     staging = ctx.actions.declare_directory(ctx.label.name + ".mkosi")
+    manifest = ctx.actions.declare_file(ctx.label.name + ".mkosi.manifest")
     mappings = []
 
     if config_is_directory:
@@ -75,7 +91,20 @@ def _stage_inputs(ctx, config, config_is_directory, source_trees):
         mappings.append((config.path, config.basename, "file"))
 
     for destination in sorted(source_trees):
-        mappings.append((source_trees[destination].path, destination, "tree"))
+        mappings.append((source_trees[destination].tree.path, destination, "tree"))
+
+    executable_paths = []
+    if config_is_directory:
+        executable_paths += ctx.attr.config_tree[MkosiConfigTreeInfo].executable_paths
+    for destination in sorted(source_trees):
+        executable_paths += [
+            destination + "/" + path
+            for path in source_trees[destination].executable_paths
+        ]
+    executable_paths = [
+        _normalise_destination(path, "executable_paths")
+        for path in executable_paths
+    ]
 
     destinations = {}
     sources = {}
@@ -112,11 +141,16 @@ def _stage_inputs(ctx, config, config_is_directory, source_trees):
     stage_args.add(ctx.file._stage_script.path)
     stage_args.add("--output")
     stage_args.add(staging.path)
+    stage_args.add("--manifest")
+    stage_args.add(manifest.path)
     for source, destination, role in mappings:
         stage_args.add("--mapping")
         stage_args.add(source)
         stage_args.add(destination)
         stage_args.add(role)
+    for path in executable_paths:
+        stage_args.add("--executable")
+        stage_args.add(path)
 
     mkosi = ctx.toolchains["//mkosi/toolchain:toolchain_type"].mkosi
     ctx.actions.run(
@@ -124,11 +158,11 @@ def _stage_inputs(ctx, config, config_is_directory, source_trees):
         arguments = [stage_args],
         inputs = depset(
             [config, ctx.file._stage_script] +
-            [source_trees[destination] for destination in sorted(source_trees)],
+            [source_trees[destination].tree for destination in sorted(source_trees)],
             transitive = [mkosi.python_runtime_files],
         ),
         tools = [mkosi.python_files_to_run],
-        outputs = [staging],
+        outputs = [staging, manifest],
         mnemonic = "MkosiStageInputs",
         progress_message = "Staging mkosi inputs for %{label}",
         env = {
@@ -136,7 +170,7 @@ def _stage_inputs(ctx, config, config_is_directory, source_trees):
             "PYTHONNOUSERSITE": "1",
         },
     )
-    return staging
+    return struct(tree = staging, manifest = manifest)
 
 def _mkosi_image_impl(ctx):
     mkosi = ctx.toolchains["//mkosi/toolchain:toolchain_type"].mkosi
@@ -152,7 +186,7 @@ def _mkosi_image_impl(ctx):
     )
     source_trees = {}
     for destination, target in ctx.attr.source_trees.items():
-        source_trees[destination] = target[MkosiSourceTreeInfo].tree
+        source_trees[destination] = target[MkosiSourceTreeInfo]
 
     staging = None
     if config_is_directory or source_trees:
@@ -167,10 +201,21 @@ def _mkosi_image_impl(ctx):
     arguments = ctx.actions.args()
     arguments.add(ctx.file._run_script.path)
     arguments.add(mkosi.script.path)
+    if config_is_directory:
+        for path in ctx.attr.config_tree[MkosiConfigTreeInfo].executable_paths:
+            arguments.add("--executable-path")
+            arguments.add(path)
+    for destination in sorted(source_trees):
+        for path in source_trees[destination].executable_paths:
+            arguments.add("--executable-path")
+            arguments.add(destination + "/" + path)
+    if staging:
+        arguments.add("--staging-manifest")
+        arguments.add(staging.manifest.path)
     arguments.add("--")
     if staging:
         arguments.add("-C")
-        arguments.add(staging.path)
+        arguments.add(staging.tree.path)
         if not config_is_directory:
             arguments.add("-I")
             arguments.add(staging.path + "/" + config.basename)
@@ -207,7 +252,7 @@ def _mkosi_image_impl(ctx):
         arguments = [arguments],
         inputs = depset(
             [config, mkosi.script, ctx.file._run_script, mkosi.pefile, debian_tools.tree_root] +
-            ([staging] if staging else []),
+            ([staging.tree, staging.manifest] if staging else []),
             transitive = [mkosi.runfiles_files, mkosi.python_runtime_files],
         ),
         tools = [mkosi.python_files_to_run],

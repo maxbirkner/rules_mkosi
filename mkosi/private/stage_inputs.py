@@ -2,9 +2,9 @@
 """Stage declared mkosi configuration and source trees."""
 
 import argparse
+import json
 import os
 import pathlib
-import stat
 import shutil
 
 _EPOCH = (0, 0)
@@ -139,7 +139,15 @@ def _manifest(mappings):
     return entries
 
 
-def _copy_manifest(output, entries):
+def _copy_manifest(output, entries, executable_paths):
+    directories = {output}
+    for path, (_, kind, _, _) in entries.items():
+        parts = path.split("/")
+        directories.update(
+            output.joinpath(*parts[:index])
+            for index in range(1, len(parts) + 1)
+            if index < len(parts) or kind == "directory"
+        )
     for path, (_, kind, source, link_target) in sorted(entries.items()):
         target = output.joinpath(*path.split("/"))
         if kind == "directory":
@@ -153,13 +161,23 @@ def _copy_manifest(output, entries):
         elif kind == "file":
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(source, target)
-            os.chmod(target, 0o755 if source.stat().st_mode & stat.S_IXUSR else 0o644)
+            os.chmod(target, 0o755 if path in executable_paths else 0o644)
             os.utime(target, _EPOCH)
-    for path, (_, kind, _, _) in sorted(entries.items(), reverse=True):
-        if kind == "directory":
-            target = output.joinpath(*path.split("/"))
-            os.chmod(target, 0o755)
-            os.utime(target, _EPOCH, follow_symlinks=False)
+    for target in sorted(directories, reverse=True):
+        os.chmod(target, 0o755)
+        os.utime(target, _EPOCH, follow_symlinks=False)
+
+
+def _write_manifest(path, entries, executable_paths):
+    manifest = []
+    for staged_path, (_, kind, _, link_target) in sorted(entries.items()):
+        manifest.append({
+            "path": staged_path,
+            "kind": kind,
+            "link_target": link_target,
+            "mode": 0o755 if staged_path in executable_paths else 0o644,
+        })
+    path.write_text(json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n")
 
 def main():
     parser = argparse.ArgumentParser()
@@ -171,17 +189,27 @@ def main():
         metavar=("SOURCE", "DESTINATION", "ROLE"),
         required=True,
     )
+    parser.add_argument("--executable", action="append", default=[])
+    parser.add_argument("--manifest", type=pathlib.Path)
     args = parser.parse_args()
 
     if args.output.is_symlink():
         raise ValueError("staging output already exists: {}".format(args.output))
     entries = _manifest(args.mapping)
+    executable_paths = {
+        _normalise_relative(path) for path in args.executable
+    }
+    for path in executable_paths:
+        if path not in entries or entries[path][1] != "file":
+            raise ValueError("executable path is not a staged file: {}".format(path))
     if args.output.exists():
         if not args.output.is_dir():
             raise ValueError("staging output is not a directory: {}".format(args.output))
         shutil.rmtree(args.output)
     args.output.mkdir(parents=True, exist_ok=True)
-    _copy_manifest(args.output, entries)
+    _copy_manifest(args.output, entries, executable_paths)
+    if args.manifest:
+        _write_manifest(args.manifest, entries, executable_paths)
 
 
 if __name__ == "__main__":

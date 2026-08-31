@@ -9,9 +9,9 @@ load(
     "QemuOvmfBootConfigInfo",
     "mkosi_config_tree",
     "mkosi_image",
+    "mkosi_source_tree",
     "qemu_ovmf_boot_config",
     "qemu_ovmf_boot_test",
-    "mkosi_source_tree",
 )
 load("//mkosi/debian:toolchain.bzl", "DebianToolsInfo")
 
@@ -206,8 +206,9 @@ def _tree_provider_test_impl(ctx):
     asserts.equals(env, 2, len(actions))
     stage = [action for action in actions if action.mnemonic == "MkosiStageInputs"][0]
     image = [action for action in actions if action.mnemonic == "MkosiImage"][0]
-    asserts.equals(env, 1, len(stage.outputs.to_list()))
-    asserts.equals(env, "tree_subject.mkosi", stage.outputs.to_list()[0].basename)
+    asserts.equals(env, 2, len(stage.outputs.to_list()))
+    asserts.true(env, any([file.basename == "tree_subject.mkosi" for file in stage.outputs.to_list()]))
+    asserts.true(env, any([file.basename == "tree_subject.mkosi.manifest" for file in stage.outputs.to_list()]))
     asserts.true(env, any([file.basename == "config-tree" for file in stage.inputs.to_list()]))
     asserts.true(env, any([file.basename == "source-tree" for file in stage.inputs.to_list()]))
     asserts.true(env, any([arg.endswith("stage_inputs.py") for arg in stage.argv]))
@@ -223,6 +224,7 @@ def _tree_provider_test_impl(ctx):
     asserts.false(env, "--build-sources=" in image.argv)
     asserts.false(env, "-I" in image.argv)
     asserts.true(env, any([file.basename == "tree_subject.mkosi" for file in image.inputs.to_list()]))
+    asserts.true(env, any([file.basename == "tree_subject.mkosi.manifest" for file in image.inputs.to_list()]))
     asserts.false(env, any([file.basename == "hello.txt" for file in image.inputs.to_list()]))
     return analysistest.end(env)
 
@@ -335,6 +337,7 @@ def mkosi_image_test_suite(name):
     )
     mkosi_source_tree(
         name = "source_tree",
+        executable_paths = ["mkosi.build"],
         src = "testdata/source-tree",
     )
     mkosi_source_tree(
