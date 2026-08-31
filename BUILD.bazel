@@ -12,5 +12,4 @@ filegroup(
         "@mkosi_debian_tools//:launcher",
         "@mkosi_debian_tools//:namespace_runner",
     ],
-    tags = ["ci_deterministic"],
 )

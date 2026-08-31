@@ -36,22 +36,32 @@ The checked-in `.bazelrc` enables a worktree-local disk cache at
 `.cache/bazel-disk`; the root and `e2e/smoke` modules have separate cache
 directories. These paths are ignored by Git and Bazel, so they cannot become
 source inputs or committed artifacts. The repository-only `.bazelrc.ci`
-defines the `ordinary`, `manifest`, `qualified`, `qualified_manifest`,
-`deterministic`, `kernel_preflight`, and `bazel9` configs used by CI. For
-example, the ordinary compatibility commands are:
+defines only execution-policy configs: `manifest`, `qualified`, `portable`,
+`deterministic`, `kernel_preflight`, and `bazel9`. A plain `bazel test //...`
+therefore runs the complete suite on a capable host; CI's Bazel 8 qualified
+lane runs every root and consumer test that needs the host kernel contract
+after its explicit preflight. Bazel 9 uses `portable` for compatibility and
+omits only tests tagged `requires-network`, which the Bazel 8 lane covers:
 
 ```console
-bazel test --config=ordinary //...
-USE_BAZEL_VERSION=9.2.0 bazel test --config=ordinary --config=bazel9 //...
+bazel test //...
+USE_BAZEL_VERSION=9.2.0 bazel test --config=portable --config=bazel9 //...
 ```
 
-Qualified image and boot coverage is intentionally opt-in:
-`bazel test --config=qualified //...` from the root and
-`bazel test --config=qualified //...` from `e2e/smoke`; the manifest-mode boot
-pass uses `--config=qualified_manifest`. These configs select explicit
-`ci_qualified`, `ci_manifest`, `ci_manifest_boot`, and
-`requires_kernel_contract` tags rather than relying on `manual` expansion.
-Networked image actions remain non-cacheable.
+The qualified config forces Linux sandbox execution, disables test-result
+caching, and excludes only `requires_kernel_contract`, a semantic tag for the
+host-only preflight that runs immediately before it. Networked image actions
+remain non-cacheable. The `portable` compatibility config excludes only the
+semantic `requires-network` mode to avoid rebuilding networked images twice.
+The deterministic bootstrap config uses the same semantic exclusion because
+its clean-build proof is about offline bootstrap binaries, not mutable image
+package downloads.
+The independent consumer's manifest config is the one remaining selector: it
+uses `--enable_runfiles=no` and the `manifest` tag to exercise the launcher
+contract that cannot run in the ordinary runfiles mode.
+The only `manual` target is an intentionally invalid image subject used by an
+analysis test; it is excluded from wildcard analysis so that test can assert
+the expected failure and is not a CI lane.
 
 These commands use Bazel 8.5.1 and the two committed lockfiles by default:
 the root `MODULE.bazel.lock` and `e2e/smoke/MODULE.bazel.lock`. CI also tests

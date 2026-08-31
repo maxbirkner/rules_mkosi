@@ -1,5 +1,6 @@
 """Checks workflow shell sources for unscoped Bazel build/test commands."""
 
+import pathlib
 import re
 import shlex
 import sys
@@ -7,11 +8,33 @@ import sys
 
 _LAUNCHER = re.compile(
     r"(?<![\w$])(?:run_bazel|\b(?:bazel|bazelisk)\b|"
-    r"\$\{?(?:BAZEL|bazel|BAZELISK|bazelisk)\}?|"
+    r"\$(?:\{(?:BAZEL|bazel|BAZELISK|bazelisk|"
+    r"[A-Za-z_][A-Za-z0-9_]*bazel[A-Za-z0-9_]*)(?::-[^}]*)?\}|"
+    r"(?:BAZEL|bazel|BAZELISK|bazelisk|"
+    r"[A-Za-z_][A-Za-z0-9_]*bazel[A-Za-z0-9_]*))|"
     r"/(?:[\w.-]+/)*bazel(?:isk)?)(?![\w.-])"
+)
+_VARIABLE = re.compile(
+    r"\$(?:\{[A-Za-z_][A-Za-z0-9_]*(?::-[^}]*)?\}|"
+    r"[A-Za-z_][A-Za-z0-9_]*)"
 )
 _SHELL_SEPARATOR = re.compile(r"(?:&&|\|\||[;&|\n])")
 _RUN_BLOCK = re.compile(r"^(\s*)run:\s*([|>])([+-]?)\s*$")
+_RUN_INLINE = re.compile(r"^\s*run:\s*(?![|>])(.+)$")
+_SHELL_WRAPPERS = {"bash", "command", "env", "exec", "run_bazel", "sh", "sudo"}
+
+
+def _variable_is_command(tokens, index):
+    """Recognize a variable in command position without flagging arguments."""
+    if index == 0:
+        return True
+    prefix = tokens[:index]
+    return all(
+        value in _SHELL_WRAPPERS
+        or value.startswith("-")
+        or "=" in value
+        for value in prefix
+    )
 
 
 def _yaml_shell_bodies(text):
@@ -22,6 +45,9 @@ def _yaml_shell_bodies(text):
     while index < len(lines):
         match = _RUN_BLOCK.match(lines[index])
         if not match:
+            inline = _RUN_INLINE.match(lines[index])
+            if inline:
+                bodies.append(inline.group(1))
             index += 1
             continue
         base_indent = len(match.group(1))
@@ -88,21 +114,51 @@ def validate_shell_sources(sources):
         bodies = _yaml_shell_bodies(text) if workflow else [text]
         for body in bodies:
             for segment in _command_segments(body):
-                if not _LAUNCHER.search(segment):
+                if not _LAUNCHER.search(segment) and not _VARIABLE.search(segment):
                     continue
                 try:
                     tokens = shlex.split(segment)
                 except ValueError as error:
-                    if re.search(r"\b(?:test|build)\b", segment):
+                    if _LAUNCHER.search(segment) and re.search(
+                        r"\b(?:test|build)\b", segment
+                    ):
                         violations.append(
                             f"{source_name}: cannot parse build/test command: {error}"
                         )
                     continue
+                for token in tokens:
+                    if (
+                        any(character.isspace() for character in token)
+                        and _LAUNCHER.search(token)
+                        and re.search(r"\b(?:test|build)\b", token)
+                        and not _LAUNCHER.fullmatch(token)
+                    ):
+                        # Shell wrappers such as `sh -c "bazel test ..."`
+                        # leave the nested command as one shlex token.
+                        violations.extend(
+                            validate_shell_sources(
+                                [(source_name, token, False)]
+                            )
+                        )
                 for index, token in enumerate(tokens):
-                    if not _LAUNCHER.fullmatch(token):
+                    if _LAUNCHER.fullmatch(token):
+                        pass
+                    elif _VARIABLE.fullmatch(token) and _variable_is_command(
+                        tokens, index
+                    ):
+                        pass
+                    else:
                         continue
                     command_index = _launcher_command(tokens, index)
                     if command_index is None:
+                        if any(
+                            value in ("test", "build")
+                            or value.startswith(("$", "${"))
+                            for value in tokens[index + 1 :]
+                        ):
+                            violations.append(
+                                f"{source_name}: ambiguous build/test command"
+                            )
                         continue
                     target_tokens = [
                         value
@@ -119,11 +175,22 @@ def validate_shell_sources(sources):
 
 def main():
     workflow = sys.argv[1]
-    sources = [
-        (workflow, open(workflow, encoding="utf-8").read(), True),
-    ]
+    workflow_text = open(workflow, encoding="utf-8").read()
+    sources = [(workflow, workflow_text, True)]
     for helper in sys.argv[2:]:
         sources.append((helper, open(helper, encoding="utf-8").read(), False))
+    # Workflow helpers are part of the policy surface even when they are
+    # invoked indirectly from a shell step. Keep this discovery narrow and
+    # deterministic rather than scanning the whole repository.
+    workflow_path = pathlib.Path(workflow)
+    for helper in re.findall(r"(?<![\w./-])([\w./-]+\.sh)\b", workflow_text):
+        helper_path = workflow_path.parent.parent.parent / helper
+        if helper_path.is_file() and str(helper_path) not in {
+            item[0] for item in sources
+        }:
+            sources.append(
+                (str(helper_path), helper_path.read_text(encoding="utf-8"), False)
+            )
     failures = validate_shell_sources(sources)
     if failures:
         print("\n".join(failures), file=sys.stderr)

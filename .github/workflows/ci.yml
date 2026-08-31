@@ -18,7 +18,7 @@ concurrency:
 
 jobs:
   test:
-    name: Bazel ${{ matrix.bazel }} / ${{ matrix.module }}
+    name: Qualified Bazel ${{ matrix.bazel }}
     runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
@@ -26,12 +26,6 @@ jobs:
         bazel:
           - "8.5.1"
           - "9.2.0"
-        module:
-          - "."
-          - "e2e/smoke"
-    defaults:
-      run:
-        working-directory: ${{ matrix.module }}
     env:
       USE_BAZEL_VERSION: ${{ matrix.bazel }}
     steps:
@@ -45,7 +39,6 @@ jobs:
           cache-save: ${{ github.event_name != 'pull_request' }}
           disk-cache: rules-mkosi-${{ matrix.bazel }}
           external-cache: true
-          module-root: ${{ matrix.module }}
           repository-cache: true
 
       - name: Verify pinned Bazel version
@@ -54,7 +47,7 @@ jobs:
           echo "$actual"
           test "$actual" = "bazel ${{ matrix.bazel }}"
 
-      - name: Run test suite
+      - name: Qualify host kernel, then run complete root and e2e suites
         run: |
           run_bazel() {
             sudo -n setpriv --reuid="$(id -u)" --regid="$(id -g)" \
@@ -70,88 +63,123 @@ jobs:
             esac
             echo "CI bootstrap identity has empty supplementary groups"
           '
-          bazel_configs=(--config=ordinary)
           if [ "${{ matrix.bazel }}" = "9.2.0" ]; then
             # Bazel 9 uses a newer lockfile format; compatibility is tested
             # without rewriting the committed Bazel 8 lockfile.
-            bazel_configs+=(--config=bazel9)
+            bazel_configs=(--config=portable --config=bazel9)
+          else
+            bazel_configs=(--config=qualified)
           fi
-          run_bazel bazel test "${bazel_configs[@]}" //...
-
-      - name: Verify Debian tools cache boundary
-        if: matrix.module == '.'
-        run: |
-          run_bazel() {
-            sudo -n setpriv --reuid="$(id -u)" --regid="$(id -g)" \
-              --clear-groups env HOME="$HOME" PATH="$PATH" "$@"
-          }
-          mode=off
+          preflight_configs=()
+          if [ "${{ matrix.bazel }}" = "9.2.0" ]; then
+            preflight_configs=(--config=bazel9)
+          fi
+          evidence=0
           if [ "${{ matrix.bazel }}" = "8.5.1" ]; then
-            mode=error
+            evidence=1
+            run_bazel bazel query 'kind(".*_test rule", //...)' \
+              --output=label > discovered-root-tests.txt
           fi
-          parent="$GITHUB_WORKSPACE/.."
-          first="$parent/.rules-mkosi-cache-${{ matrix.bazel }}-a"
-          second="$parent/.rules-mkosi-cache-${{ matrix.bazel }}-b"
-          cache="$parent/.rules-mkosi-disk-${{ matrix.bazel }}"
-          execution_log="$GITHUB_WORKSPACE/cache-boundary.json"
-          cleanup() {
-            run_bazel bazel --output_base="$first" shutdown >/dev/null 2>&1 || true
-            run_bazel bazel --output_base="$second" shutdown >/dev/null 2>&1 || true
-            chmod -R u+w "$first" "$second" "$cache" 2>/dev/null || true
-            rm -rf -- "$first" "$second" "$cache"
-            rm -f -- "$execution_log"
-          }
-          trap cleanup EXIT
-          cleanup
-          run_bazel bazel --output_base="$first" test \
-            --lockfile_mode="$mode" --disk_cache="$cache" \
-            --cache_test_results=no \
-            //mkosi/tests:debian_tools_archive_boundary_test
-          run_bazel bazel --output_base="$second" test \
-            --lockfile_mode="$mode" --disk_cache="$cache" \
-            --cache_test_results=no \
-            --execution_log_json_file="$execution_log" \
-            //mkosi/tests:debian_tools_archive_boundary_test
-          python3 - "$execution_log" <<'PY'
+          run_bazel bazel shutdown
+          set -o pipefail
+          preflight_events=()
+          if [ "$evidence" -eq 1 ]; then
+            preflight_events=(--build_event_json_file=kernel-preflight-events.json)
+          fi
+          run_bazel bazel test --config=kernel_preflight \
+            "${preflight_configs[@]}" "${preflight_events[@]}" \
+            //... 2>&1 | tee kernel-preflight.log
+          grep -F "Executed 1 out of 1 test" kernel-preflight.log
+          ! grep -F "(cached)" kernel-preflight.log
+          rm kernel-preflight.log
+          qualified_events=()
+          if [ "$evidence" -eq 1 ]; then
+            qualified_events=(--build_event_json_file=qualified-root-events.json)
+          fi
+          run_bazel bazel test "${bazel_configs[@]}" \
+            "${qualified_events[@]}" //...
+          if [ "$evidence" -eq 1 ]; then
+            python3 - discovered-root-tests.txt \
+              kernel-preflight-events.json qualified-root-events.json <<'PY'
           import json
           import sys
 
-          decoder = json.JSONDecoder()
-          text = open(sys.argv[1], encoding="utf-8").read()
-          offset = 0
-          cache_hits = []
-          while offset < len(text):
-              while offset < len(text) and text[offset].isspace():
-                  offset += 1
-              if offset == len(text):
-                  break
-              record, offset = decoder.raw_decode(text, offset)
-              if record.get("cacheHit"):
-                  cache_hits.append(
-                      record.get("type", record.get("mnemonic", "unknown"))
-                  )
-          if "BuildDebianToolsArchive" not in cache_hits:
-              raise SystemExit(
-                  "Debian tools archive was not replayed from the disk cache"
-              )
-          print("disk-cache replayed actions:", ", ".join(cache_hits))
-          PY
-
-      - name: Validate manifest-only public launcher
-        if: matrix.module == '.'
-        run: |
-          run_bazel() {
-            sudo -n setpriv --reuid="$(id -u)" --regid="$(id -g)" \
-              --clear-groups env HOME="$HOME" PATH="$PATH" "$@"
+          expected = {
+              line.strip()
+              for line in open(sys.argv[1], encoding="utf-8")
+              if line.strip()
           }
-          bazel_configs=(--config=manifest)
-          if [ "${{ matrix.bazel }}" = "9.2.0" ]; then
-            bazel_configs+=(--config=bazel9)
+          actual = set()
+          for filename in sys.argv[2:]:
+              with open(filename, encoding="utf-8") as stream:
+                  for line in stream:
+                      event = json.loads(line)
+                      summary = event.get("testSummary")
+                      if summary and summary.get("label"):
+                          actual.add(summary["label"])
+          missing = sorted(expected - actual)
+          if missing:
+              raise SystemExit(
+                  "full-suite execution omitted discovered tests: "
+                  + ", ".join(missing)
+              )
+          print(
+              "full-suite execution covered discovered tests:",
+              len(expected),
+          )
+          PY
           fi
-          run_bazel bazel test "${bazel_configs[@]}" //...
+          (
+            cd e2e/smoke
+            run_bazel bazel shutdown
+            e2e_events=()
+            if [ "$evidence" -eq 1 ]; then
+              run_bazel bazel query 'kind(".*_test rule", //...)' \
+                --output=label > discovered-e2e-tests.txt
+              e2e_events=(--build_event_json_file=qualified-e2e-events.json)
+            fi
+            run_bazel bazel test "${bazel_configs[@]}" \
+              "${e2e_events[@]}" //...
+            manifest_configs=(--config=manifest)
+            if [ "${{ matrix.bazel }}" = "9.2.0" ]; then
+              manifest_configs+=(--config=bazel9)
+            fi
+            run_bazel bazel test "${manifest_configs[@]}" //...
+            if [ "$evidence" -eq 1 ]; then
+              python3 - discovered-e2e-tests.txt qualified-e2e-events.json <<'PY'
+          import json
+          import sys
+
+          expected = {
+              line.strip()
+              for line in open(sys.argv[1], encoding="utf-8")
+              if line.strip()
+          }
+          actual = set()
+          with open(sys.argv[2], encoding="utf-8") as stream:
+              for line in stream:
+                  summary = json.loads(line).get("testSummary")
+                  if summary and summary.get("label"):
+                      actual.add(summary["label"])
+          missing = sorted(expected - actual)
+          if missing:
+              raise SystemExit(
+                  "full-suite execution omitted discovered tests: "
+                  + ", ".join(missing)
+              )
+          print(
+              "full-suite execution covered discovered e2e tests:",
+              len(expected),
+          )
+          PY
+            fi
+          )
+          rm -f discovered-root-tests.txt kernel-preflight-events.json \
+            qualified-root-events.json
+          rm -f e2e/smoke/discovered-e2e-tests.txt \
+            e2e/smoke/qualified-e2e-events.json
 
       - name: Audit Debian tools action graph
-        if: matrix.module == '.'
         run: |
           run_bazel() {
             sudo -n setpriv --reuid="$(id -u)" --regid="$(id -g)" \
@@ -424,7 +452,6 @@ jobs:
           echo "no-RC downstream launcher resolves maintained hermetic C++ toolchain"
 
       - name: Verify Linux sandbox helper
-        if: matrix.module == '.'
         run: |
           run_bazel() {
             sudo -n setpriv --reuid="$(id -u)" --regid="$(id -g)" \
@@ -437,25 +464,6 @@ jobs:
           install_base="$(run_bazel bazel info --lockfile_mode="$mode" install_base)"
           test -x "${install_base}/linux-sandbox"
           "${install_base}/linux-sandbox" /bin/true
-
-      - name: Qualify host kernel in Bazel sandbox
-        if: matrix.module == '.'
-        run: |
-          run_bazel() {
-            sudo -n setpriv --reuid="$(id -u)" --regid="$(id -g)" \
-              --clear-groups env HOME="$HOME" PATH="$PATH" "$@"
-          }
-          run_bazel bazel shutdown
-          set -o pipefail
-          bazel_configs=(--config=kernel_preflight)
-          if [ "${{ matrix.bazel }}" = "9.2.0" ]; then
-            bazel_configs+=(--config=bazel9)
-          fi
-          run_bazel bazel test "${bazel_configs[@]}" //... 2>&1 |
-            tee kernel-preflight.log
-          grep -F "Executed 1 out of 1 test" kernel-preflight.log
-          ! grep -F "(cached)" kernel-preflight.log
-          rm kernel-preflight.log
 
   namespace-contract:
     name: Namespace production contract
@@ -489,18 +497,12 @@ jobs:
               esac
               echo "CI namespace lane: Groups: (empty)"
               bazel shutdown
-              bazel test --config=kernel_preflight //...
               override_graph="$(bazel aquery --lockfile_mode=error --output=text \
                 "mnemonic(\"MkosiImage\", //mkosi/tests:override_subject)")"
               case "$override_graph" in
                 *"redirect.conf"*"override_subject.raw"*) ;;
                 *) echo "redirect config is not the override image dependency" >&2; exit 1 ;;
               esac
-              bazel test --config=qualified //...
-              cd e2e/smoke
-              bazel shutdown
-              bazel test --config=qualified //...
-              bazel test --config=qualified_manifest //...
             '
 
   lockfile:

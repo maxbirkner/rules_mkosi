@@ -17,6 +17,27 @@ class WorkflowBazelCommandParserTest(unittest.TestCase):
             ("absolute", "run: |\n  /usr/bin/bazel build //pkg:target\n"),
             ("multiline", "run: |\n  bazel test --config=ordinary \\\n    //pkg:target\n"),
             ("folded", "run: >-\n  bazel build --config=ordinary\n  //pkg:target\n"),
+            (
+                "sudo-wrapper",
+                "run: |\n  sudo -n env BAZEL=bazel bazel test //pkg:target\n",
+            ),
+            (
+                "variable-wrapper",
+                "run: |\n  BAZEL=bazel; \"$BAZEL\" test //pkg:target\n",
+            ),
+            (
+                "default-variable",
+                "run: |\n  \"${BAZEL:-bazel}\" build //pkg:target\n",
+            ),
+            (
+                "ambiguous-variable",
+                "run: |\n  \"$BAZEL\" \"$ACTION\" //pkg:target\n",
+            ),
+            ("generic-variable", 'run: "$cmd" test //pkg:target\n'),
+            (
+                "shell-wrapper",
+                'run: |\n  sh -c "bazel test //pkg:target"\n',
+            ),
         ]
         for name, fixture in fixtures:
             with self.subTest(name=name):

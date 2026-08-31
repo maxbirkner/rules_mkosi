@@ -1,32 +1,26 @@
-# CI target selection is tag based so workflow commands can use //... without
-# enumerating labels. This file is repository-only and optional for consumers.
-build:ordinary --build_tag_filters=-manual,-ci_manifest,-ci_qualified,-ci_deterministic,-requires_kernel_contract
-test:ordinary --test_tag_filters=-manual,-ci_manifest,-ci_qualified,-ci_deterministic,-requires_kernel_contract
-
-build:manifest --build_manual_tests --build_tag_filters=ci_manifest
-test:manifest --build_manual_tests --enable_runfiles=no --test_tag_filters=ci_manifest
-
-build:qualified_runtime --disk_cache=
+# CI invokes //... directly. Configurations change execution semantics, not
+# membership in a hand-maintained test inventory.
 build:qualified_runtime --spawn_strategy=linux-sandbox
 test:qualified_runtime --cache_test_results=no
-test:qualified_runtime --disk_cache=
 test:qualified_runtime --spawn_strategy=linux-sandbox
 test:qualified_runtime --test_output=all
 
 common:qualified --config=qualified_runtime
-build:qualified --build_manual_tests --build_tag_filters=ci_qualified
-test:qualified --build_manual_tests --test_tag_filters=ci_qualified
-common:qualified_manifest --config=qualified_runtime
-build:qualified_manifest --build_manual_tests --build_tag_filters=ci_manifest_boot
-test:qualified_manifest --build_manual_tests --enable_runfiles=no --test_strategy=exclusive --test_tag_filters=ci_manifest_boot
+test:qualified --test_tag_filters=-requires_kernel_contract
+common:portable --config=qualified_runtime
+build:portable --build_tag_filters=-requires-network
+test:portable --test_tag_filters=-requires-network,-requires_kernel_contract
+build:manifest --enable_runfiles=no
+test:manifest --enable_runfiles=no --test_strategy=exclusive --test_tag_filters=manifest
 
-build:deterministic --build_manual_tests --build_tag_filters=ci_deterministic
-build:deterministic --disk_cache=
 build:deterministic --noremote_accept_cached
 build:deterministic --noremote_upload_local_results
+build:deterministic --disk_cache=
+build:deterministic --build_tag_filters=-requires-network
 
-build:kernel_preflight --build_tag_filters=requires_kernel_contract --compilation_mode=opt
+build:kernel_preflight --compilation_mode=opt
 build:kernel_preflight --disk_cache=
+build:kernel_preflight --build_tag_filters=requires_kernel_contract
 build:kernel_preflight --noexperimental_use_hermetic_linux_sandbox
 build:kernel_preflight --spawn_strategy=linux-sandbox
 test:kernel_preflight --test_tag_filters=requires_kernel_contract

@@ -337,7 +337,7 @@ def mkosi_image_test_suite(name):
     mkosi_image(
         name = "debian_subject",
         config = "testdata/minimal.conf",
-        tags = ["manual"],
+        tags = ["requires-network"],
     )
 
     _provider_test(
@@ -351,7 +351,7 @@ def mkosi_image_test_suite(name):
     mkosi_image(
         name = "override_subject",
         config = "testdata/redirect.conf",
-        tags = ["manual"],
+        tags = ["requires-network"],
     )
 
     mkosi_image(
@@ -473,6 +473,8 @@ def mkosi_image_test_suite(name):
     mkosi_image(
         name = "invalid_config_subject",
         config = ":invalid_mkosi_config",
+        # This deliberately invalid analysis subject cannot be part of a
+        # wildcard build; the companion analysistest expects its failure.
         tags = ["manual"],
     )
 
