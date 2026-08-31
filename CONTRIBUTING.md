@@ -59,9 +59,11 @@ package downloads.
 The independent consumer's manifest config is the one remaining selector: it
 uses `--enable_runfiles=no` and the `manifest` tag to exercise the launcher
 contract that cannot run in the ordinary runfiles mode.
-The only `manual` target is an intentionally invalid image subject used by an
-analysis test; it is excluded from wildcard analysis so that test can assert
-the expected failure and is not a CI lane.
+`manual` is reserved for synthetic analysis subjects (invalid configurations
+and deliberately non-booted provider fixtures); these are excluded from
+wildcard execution while their companion analysis tests assert the contract.
+Executable tests use only the semantic `requires-network`,
+`requires_kernel_contract`, and `manifest` tags described above.
 
 These commands use Bazel 8.5.1 and the two committed lockfiles by default:
 the root `MODULE.bazel.lock` and `e2e/smoke/MODULE.bazel.lock`. CI also tests
