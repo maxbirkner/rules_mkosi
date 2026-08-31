@@ -110,11 +110,12 @@ Issue 8 now provides one UEFI/OVMF TCG boot test for the Debian tracer. Issue
 19 extracts it as the public `qemu_ovmf_boot_test` adapter. It consumes the
 public image through Bazel dependency edges, waits for a deterministic systemd
 hostname marker on guest serial output, and requires the guest's clean
-systemd power-off markers before accepting the QEMU exit. The adapter creates a
-native managed-Python TestRunner executable rather than a rules_python shell
-bootstrap; its runfiles include the complete registered Python runtime and its
-child QEMU receives an empty `PATH`. Before guest classification, the runner
-completes a bounded QMP greeting and capabilities handshake, so QEMU
+systemd power-off markers before accepting the QEMU exit. The adapter creates a native direct-ELF managed-Python launcher with a private
+bootstrap rather than a shell wrapper; the bootstrap clears `PATH` before
+executing the lifecycle source, and its runfiles include the complete
+registered Python runtime. Its child QEMU therefore receives an empty `PATH`.
+Before guest classification, the runner completes a bounded QMP greeting and
+capabilities handshake, so QEMU
 initialization/argument failures are distinct from firmware and guest
 failures. The lifecycle accepts machine arguments, exact markers, deadlines,
 and diagnostic retention as attributes and contains no UEFI logic; OVMF flash

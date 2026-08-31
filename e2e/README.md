@@ -24,9 +24,13 @@ artifacts and TCG, waits for the exact systemd hostname marker on the guest
 serial stream, and verifies the guest's clean `Powering off` shutdown. It is
 tagged for the qualified and manifest-qualified CI suites because it requires
 the qualified Linux kernel contract. The macro creates a native
-`managed_python_test` launcher: the registered managed interpreter receives the
-lifecycle script as its first argument and the generated JSON configuration as
-its second argument. The runner performs a bounded QMP greeting/capabilities
+`managed_python_test` launcher: the direct managed interpreter receives a
+private bootstrap first. The bootstrap clears `PATH` and executes the
+lifecycle script with `runpy`, followed by the generated JSON configuration.
+This preserves a direct ELF launcher while preventing ambient executable
+lookup. Consumers that invoke the interpreter as a tool must pass the
+bootstrap and lifecycle script explicitly; no public managed-Python binary
+wrapper is provided. The runner performs a bounded QMP greeting/capabilities
 handshake before classifying QEMU initialization, firmware, guest,
 readiness-timeout, and shutdown failures. QMP uses a relative socket name while
 QEMU and the handshake run from the scratch directory, avoiding Linux's
