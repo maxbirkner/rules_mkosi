@@ -8,6 +8,7 @@ import pathlib
 import shutil
 import subprocess
 import sys
+import re
 
 
 def _digest(path):
@@ -54,17 +55,41 @@ def _paragraphs(data):
 
 
 def _release_hash(release, relative_path, expected_size, expected_digest):
-    if relative_path.startswith("dists/"):
-        relative_path = relative_path.split("/", 2)[2]
-    for line in release.decode("utf-8").splitlines():
+    path = relative_path
+    if path.startswith("dists/"):
+        path = path.split("/", 2)[2]
+    lines = release.decode("utf-8").splitlines()
+    in_sha256 = False
+    seen = set()
+    matches = []
+    for line in lines:
+        if not line:
+            continue
+        if not line[0].isspace() and line.endswith(":"):
+            in_sha256 = line == "SHA256:"
+            continue
+        if not in_sha256:
+            continue
         fields = line.split()
-        if len(fields) == 3 and fields[1] == str(expected_size) and (
-            fields[2] == relative_path or fields[2].endswith("/" + relative_path)
-        ):
-            if fields[0].lower() != expected_digest.lower():
-                raise ValueError("Release metadata digest disagrees with the lock")
-            return
-    raise ValueError("Packages metadata is absent from the authenticated Release")
+        if len(fields) != 3:
+            raise ValueError("malformed SHA256 checksum entry")
+        digest, size, entry_path = fields
+        if not re.fullmatch(r"[0-9a-fA-F]{64}", digest):
+            raise ValueError("malformed SHA256 checksum digest")
+        if not size.isdigit():
+            raise ValueError("malformed SHA256 checksum size")
+        if entry_path in seen:
+            raise ValueError("duplicate SHA256 checksum entry")
+        seen.add(entry_path)
+        if entry_path == path:
+            matches.append((digest, int(size)))
+    if len(matches) != 1:
+        raise ValueError("Packages metadata must have exactly one SHA256 entry")
+    digest, size = matches[0]
+    if size != expected_size:
+        raise ValueError("Release metadata size disagrees with the lock")
+    if digest.lower() != expected_digest.lower():
+        raise ValueError("Release metadata digest disagrees with the lock")
 
 
 def _verify_signature(launcher, inrelease, release, release_gpg, output, scratch):
@@ -91,9 +116,13 @@ def _verify_signature(launcher, inrelease, release, release_gpg, output, scratch
             "PATH": "",
             "MKOSI_DEBIAN_TOOLS_SCRATCH": scratch + "/inrelease",
         },
+        capture_output=True,
     )
     if result.returncode:
-        raise ValueError("Debian InRelease signature verification failed")
+        raise ValueError(
+            "Debian InRelease signature verification failed: %s"
+            % result.stderr.decode("utf-8", "replace").strip()
+        )
     detached_command = [
         launcher,
         "--ro-bind",
@@ -111,9 +140,13 @@ def _verify_signature(launcher, inrelease, release, release_gpg, output, scratch
             "PATH": "",
             "MKOSI_DEBIAN_TOOLS_SCRATCH": scratch + "/release",
         },
+        capture_output=True,
     )
     if result.returncode:
-        raise ValueError("Debian Release signature verification failed")
+        raise ValueError(
+            "Debian Release signature verification failed: %s"
+            % result.stderr.decode("utf-8", "replace").strip()
+        )
 
 
 def _copy(source, destination):
@@ -133,14 +166,54 @@ def _decompress(source, destination):
     destination.parent.mkdir(parents=True, exist_ok=True)
     with lzma.open(source, "rb") as compressed, open(destination, "wb") as output:
         shutil.copyfileobj(compressed, output)
+    os.chmod(destination, 0o644)
 
 
 def _set_deterministic_metadata(root):
     for directory, dirnames, names in os.walk(root, topdown=False):
-        for name in names + dirnames:
-            os.utime(os.path.join(directory, name), (0, 0), follow_symlinks=False)
+        for name in names:
+            path = os.path.join(directory, name)
+            if not os.path.islink(path):
+                os.chmod(path, 0o644)
+            os.utime(path, (0, 0), follow_symlinks=False)
+        for name in dirnames:
+            path = os.path.join(directory, name)
+            if not os.path.islink(path):
+                os.chmod(path, 0o755)
+            os.utime(path, (0, 0), follow_symlinks=False)
+        os.chmod(directory, 0o755)
         os.utime(directory, (0, 0), follow_symlinks=False)
     os.utime(root, (0, 0), follow_symlinks=False)
+
+
+def _read_package_metadata(indexes, expected):
+    actual = {}
+    for package_index, index_architecture in indexes:
+        with open(package_index, "rb") as source:
+            for paragraph in _paragraphs(source.read()):
+                architecture = paragraph.get("Architecture")
+                if architecture not in ("amd64", "all"):
+                    raise ValueError("unsupported package architecture")
+                if index_architecture == "all" and architecture != "all":
+                    raise ValueError("binary-all index contains non-all package")
+                key = (
+                    paragraph.get("Package"),
+                    paragraph.get("Version"),
+                    architecture,
+                )
+                fields = (
+                    paragraph.get("Filename"),
+                    paragraph.get("Size"),
+                    paragraph.get("SHA256"),
+                )
+                if not fields[0] or not fields[1] or not fields[2] or not fields[1].isdigit():
+                    raise ValueError("incomplete package metadata")
+                record = (fields[0], int(fields[1]), fields[2])
+                if key in actual and actual[key] != record:
+                    raise ValueError("conflicting duplicate package metadata: %s" % paragraph.get("Package"))
+                if key in expected:
+                    actual[key] = record
+    return actual
 
 
 def stage(args):
@@ -158,7 +231,7 @@ def stage(args):
         args.scratch,
     )
 
-    verified = pathlib.Path(args.output) / "repository/verified-release"
+    verified = pathlib.Path(args.output) / "verified-release"
     authenticated_release = verified.read_bytes()
     release = pathlib.Path(args.release).read_bytes()
     if authenticated_release != release:
@@ -173,8 +246,9 @@ def stage(args):
         args.packages_all_xz_sha256,
     )
 
-    destination = pathlib.Path(args.output) / "repository"
-    (destination / "dists/trixie/main/binary-amd64").mkdir(parents=True, exist_ok=True)
+    destination = pathlib.Path(args.output)
+    (destination / args.packages_path[:-3]).parent.mkdir(parents=True, exist_ok=True)
+    (destination / args.packages_all_path[:-3]).parent.mkdir(parents=True, exist_ok=True)
     _copy(args.inrelease, destination / "dists/trixie/InRelease")
     _copy(args.release, destination / "dists/trixie/Release")
     _copy(args.release_gpg, destination / "dists/trixie/Release.gpg")
@@ -187,7 +261,12 @@ def stage(args):
     filenames = set()
     local_names = set()
     for package in args.package_records:
-        name, version, architecture, filename, digest, local_name = package.split("|", 5)
+        fields = package.split("|")
+        if len(fields) != 7:
+            raise ValueError("locked package record must have seven fields")
+        name, version, architecture, filename, size, digest, local_name = fields
+        if not size.isdigit():
+            raise ValueError("locked package size is invalid")
         key = (name, version, architecture)
         if key in expected:
             raise ValueError("duplicate locked package: %s" % "|".join(key))
@@ -198,35 +277,30 @@ def stage(args):
         _safe_package_path(filename)
         filenames.add(filename)
         local_names.add(local_name)
-        expected[key] = (filename, digest, local_name)
-    actual = {}
-    for package_index in (amd64_packages, all_packages):
-        with open(package_index, "rb") as source:
-            for paragraph in _paragraphs(source.read()):
-                key = (
-                    paragraph.get("Package"),
-                    paragraph.get("Version"),
-                    paragraph.get("Architecture"),
-                )
-                if key in actual:
-                    raise ValueError("duplicate package metadata: %s" % paragraph.get("Package"))
-                if key in expected:
-                    actual[key] = (paragraph.get("Filename"), paragraph.get("SHA256"))
+        expected[key] = (filename, int(size), digest, local_name)
+    actual = _read_package_metadata(
+        (
+        (amd64_packages, "amd64"),
+        (all_packages, "all"),
+        ),
+        expected,
+    )
     if actual.keys() != expected.keys():
         raise ValueError("locked packages do not match Packages metadata")
     for key in sorted(expected):
-        if actual[key] != expected[key][:2]:
+        if actual[key] != expected[key][:3]:
             raise ValueError("package metadata disagrees with lock: %s" % key[0])
 
-    records_by_name = {value[2]: (key, value) for key, value in expected.items()}
+    records_by_name = {value[3]: (key, value) for key, value in expected.items()}
     if set(records_by_name) != set(args.package_names):
         raise ValueError("package inputs do not match lock package names")
     for package, local_name in zip(args.packages, args.package_names):
-        _, (remote_filename, digest, _) = records_by_name[local_name]
+        _, (remote_filename, expected_size, digest, _) = records_by_name[local_name]
         _verify_digest(package, digest, "package %s" % local_name)
+        if os.stat(package).st_size != expected_size:
+            raise ValueError("package size mismatch for %s" % local_name)
         relative = _safe_package_path(remote_filename)
         _copy(package, destination / relative)
-    (destination / "dists/trixie/Release").chmod(0o644)
     verified.unlink()
     _set_deterministic_metadata(destination)
 

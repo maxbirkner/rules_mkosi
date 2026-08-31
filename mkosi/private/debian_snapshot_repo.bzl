@@ -31,6 +31,28 @@ def _validate_lock(lock):
             fail("Debian repository metadata digest is not SHA-256: %s" % path)
     if names != set(["inrelease", "release", "release_gpg", "packages_xz", "packages_all_xz"]):
         fail("Debian repository metadata must pin all required indexes and signatures")
+    package_keys = set()
+    for package in lock.get("packages", []):
+        name = package.get("name", "")
+        version = package.get("version", "")
+        architecture = package.get("arch", "")
+        filename = package.get("filename", "")
+        if not name or not version or architecture not in ["amd64", "all"]:
+            fail("Debian package lock has incomplete identity")
+        if not filename.startswith("pool/") or ".." in filename.split("/"):
+            fail("unsafe Debian package filename: %s" % filename)
+        if not filename.endswith(".deb"):
+            fail("Debian package filename is not a .deb: %s" % filename)
+        if package.get("urls", []) != [snapshot_url + "/" + filename]:
+            fail("Debian package URL does not match filename: %s" % filename)
+        size = package.get("size")
+        digest = package.get("sha256", "")
+        if type(size) != type(0) or size < 0 or len(digest) != 64 or digest.strip("0123456789abcdef") != "":
+            fail("Debian package lock has invalid size or digest: %s" % filename)
+        key = (name, version, architecture)
+        if key in package_keys:
+            fail("duplicate Debian package lock identity: %s" % name)
+        package_keys.add(key)
     return repository
 
 def _impl(ctx):
@@ -51,7 +73,14 @@ def _impl(ctx):
     package_records = []
     package_names = []
     for index, package in enumerate(packages):
-        filename = package["urls"][0].split(repository["snapshot_url"] + "/", 1)[-1]
+        filename = package.get("filename", "")
+        if not filename:
+            fail("Debian package lock is missing filename: %s" % package["key"])
+        if package["urls"][0] != repository["snapshot_url"] + "/" + filename:
+            fail("Debian package URL does not match locked filename: %s" % package["key"])
+        size = package.get("size")
+        if type(size) != type(0) or size < 0:
+            fail("Debian package lock has invalid size: %s" % package["key"])
         index_string = str(index)
         if index < 10:
             index_string = "00" + index_string
@@ -59,11 +88,12 @@ def _impl(ctx):
             index_string = "0" + index_string
         local_name = "pkg_" + index_string + ".deb"
         package_names.append(local_name)
-        package_records.append("%s|%s|%s|%s|%s|%s" % (
+        package_records.append("%s|%s|%s|%s|%s|%s|%s" % (
             package["name"],
             package["version"],
-            "all" if filename.endswith("_all.deb") else package["arch"],
+            package["arch"],
             filename,
+            size,
             package["sha256"],
             local_name,
         ))
@@ -71,6 +101,13 @@ def _impl(ctx):
         entry["name"]: entry["sha256"]
         for entry in repository["metadata"]
     }
+    packages_path = ""
+    packages_all_path = ""
+    for entry in repository["metadata"]:
+        if entry["name"] == "packages_xz":
+            packages_path = entry["path"]
+        elif entry["name"] == "packages_all_xz":
+            packages_all_path = entry["path"]
     ctx.file(
         "BUILD.bazel",
         """load("@rules_mkosi//mkosi:defs.bzl", "debian_snapshot")
@@ -89,6 +126,8 @@ debian_snapshot(
     release_gpg = ":release_gpg",
     packages_xz = ":packages_xz",
     packages_all_xz = ":packages_all_xz",
+    packages_path = {packages_path},
+    packages_all_path = {packages_all_path},
     package_files = ["{package_repo}//:all"],
     package_names = {package_names},
     package_records = {package_records},
@@ -103,6 +142,8 @@ debian_snapshot(
             package_records = repr(package_records),
             package_names = repr(package_names),
             digests = repr(digests),
+            packages_path = repr(packages_path),
+            packages_all_path = repr(packages_all_path),
         ),
     )
     if hasattr(ctx, "repo_metadata"):

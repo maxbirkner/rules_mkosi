@@ -43,6 +43,7 @@ def _impl(ctx):
     ]:
         arguments.add("--%s-sha256" % option, ctx.attr.metadata_digests[name])
     arguments.add("--packages-path", ctx.attr.packages_path)
+    arguments.add("--packages-all-path", ctx.attr.packages_all_path)
     for package in ctx.attr.package_records:
         arguments.add("--package", package)
     for package, name in zip(ctx.files.package_files, ctx.attr.package_names):
@@ -108,6 +109,7 @@ debian_snapshot = rule(
         "package_names": attr.string_list(mandatory = True),
         "package_records": attr.string_list(mandatory = True),
         "packages_path": attr.string(default = "dists/trixie/main/binary-amd64/Packages.xz"),
+        "packages_all_path": attr.string(default = "dists/trixie/main/binary-all/Packages.xz"),
         "metadata_digests": attr.string_dict(mandatory = True),
         "_stager": attr.label(
             allow_single_file = True,

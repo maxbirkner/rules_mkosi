@@ -38,12 +38,40 @@ class DebianSnapshotUnitTest(unittest.TestCase):
             debian_snapshot._verify_digest(__file__, "0" * 64, "InRelease")
 
     def test_release_must_list_locked_packages_index(self):
-        with self.assertRaisesRegex(ValueError, "absent"):
+        with self.assertRaisesRegex(ValueError, "absent|exactly one"):
             debian_snapshot._release_hash(
-                b"SHA256:\n deadbeef 1 main/binary-amd64/Other.xz\n",
+                b"SHA256:\n " + b"d" * 64 + b" 1 main/binary-amd64/Other.xz\n",
                 "main/binary-amd64/Packages.xz",
                 1,
-                "deadbeef",
+                "d" * 64,
+            )
+
+    def test_release_uses_named_sha256_section(self):
+        release = (
+            b"MD5Sum:\n"
+            b" deadbeef 1 main/binary-amd64/Packages.xz\n"
+            b"SHA256:\n"
+            b" " + b"a" * 64 + b" 1 main/binary-amd64/Packages.xz\n"
+        )
+        debian_snapshot._release_hash(
+            release,
+            "dists/trixie/main/binary-amd64/Packages.xz",
+            1,
+            "a" * 64,
+        )
+
+    def test_release_rejects_duplicate_sha256_path(self):
+        release = (
+            b"SHA256:\n"
+            b" " + b"a" * 64 + b" 1 main/binary-amd64/Packages.xz\n"
+            b" " + b"a" * 64 + b" 1 main/binary-amd64/Packages.xz\n"
+        )
+        with self.assertRaisesRegex(ValueError, "duplicate"):
+            debian_snapshot._release_hash(
+                release,
+                "dists/trixie/main/binary-amd64/Packages.xz",
+                1,
+                "a" * 64,
             )
 
     def test_invalid_signature_fails_explicitly(self):
@@ -74,6 +102,41 @@ class DebianSnapshotUnitTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "unsafe package path"):
             debian_snapshot._safe_package_path("../pool/a.deb")
 
+    def test_identical_all_architecture_duplicates_are_accepted(self):
+        first = self.work / "amd64"
+        second = self.work / "all"
+        paragraph = (
+            b"Package: demo\nVersion: 1\nArchitecture: all\n"
+            b"Filename: pool/main/d/demo.deb\nSize: 3\n"
+            b"SHA256: abc\n\n"
+        )
+        first.write_bytes(paragraph)
+        second.write_bytes(paragraph)
+        expected = {("demo", "1", "all"): ("pool/main/d/demo.deb", 3, "abc")}
+        self.assertEqual(
+            expected,
+            debian_snapshot._read_package_metadata(
+                ((str(first), "amd64"), (str(second), "all")), expected
+            ),
+        )
+
+    def test_conflicting_all_architecture_duplicates_are_rejected(self):
+        first = self.work / "amd64"
+        second = self.work / "all"
+        first.write_text(
+            "Package: demo\nVersion: 1\nArchitecture: all\n"
+            "Filename: pool/main/d/demo.deb\nSize: 3\nSHA256: abc\n\n"
+        )
+        second.write_text(
+            "Package: demo\nVersion: 1\nArchitecture: all\n"
+            "Filename: pool/main/d/other.deb\nSize: 3\nSHA256: abc\n\n"
+        )
+        expected = {("demo", "1", "all"): ("pool/main/d/demo.deb", 3, "abc")}
+        with self.assertRaisesRegex(ValueError, "conflicting"):
+            debian_snapshot._read_package_metadata(
+                ((str(first), "amd64"), (str(second), "all")), expected
+            )
+
     def test_stages_exact_layout_with_deterministic_metadata(self):
         package = self.work / "pkg.deb"
         package.write_bytes(b"representative package")
@@ -81,7 +144,8 @@ class DebianSnapshotUnitTest(unittest.TestCase):
         package_index = (
             "Package: demo\nVersion: 1\nArchitecture: amd64\n"
             "Filename: pool/main/d/demo_1_amd64.deb\n"
-            "SHA256: %s\n\n" % package_digest
+            "Size: %d\n"
+            "SHA256: %s\n\n" % (package.stat().st_size, package_digest)
         ).encode()
         package_all = b""
         packages_xz = self.work / "Packages.xz"
@@ -127,20 +191,21 @@ class DebianSnapshotUnitTest(unittest.TestCase):
             packages_path="dists/trixie/main/binary-amd64/Packages.xz",
             packages_all_path="dists/trixie/main/binary-all/Packages.xz",
             package_records=[
-                "demo|1|amd64|pool/main/d/demo_1_amd64.deb|%s|pkg_000.deb" % package_digest
+                "demo|1|amd64|pool/main/d/demo_1_amd64.deb|%d|%s|pkg_000.deb"
+                % (package.stat().st_size, package_digest)
             ],
             package_names=["pkg_000.deb"],
             packages=[str(package)],
         )
 
         def verify(*_):
-            verified = output / "repository/verified-release"
+            verified = output / "verified-release"
             verified.parent.mkdir(parents=True)
             verified.write_bytes(release)
 
         with mock.patch.object(debian_snapshot, "_verify_signature", side_effect=verify):
             debian_snapshot.stage(args)
-        repository = output / "repository"
+        repository = output
         self.assertEqual(
             b"representative package",
             (repository / "pool/main/d/demo_1_amd64.deb").read_bytes(),

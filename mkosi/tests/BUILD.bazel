@@ -26,7 +26,6 @@ py_test(
     args = ["$(rootpath @mkosi_debian_snapshot//:repository)"],
     data = ["@mkosi_debian_snapshot//:repository"],
     main = "debian_snapshot_artifact_test.py",
-    tags = ["manual"],
 )
 
 py_test(

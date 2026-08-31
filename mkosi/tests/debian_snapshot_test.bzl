@@ -21,7 +21,7 @@ def _provider_test_impl(ctx):
     )
     asserts.equals(
         env,
-        "6bcfc391a7e418b6e618706400e26301e48e4909f24f48772be14538c6b85315",
+        "f68b7731ba8c3f02cc4f52e68ec2ddfa225a3c796afc64af8cd8b6fe4d4faca7",
         info.lock_sha256,
     )
     asserts.equals(env, "repository_repository", info.repository.basename)
