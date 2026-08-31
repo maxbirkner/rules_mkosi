@@ -467,10 +467,11 @@ static int open_tree_path(const char *path, bool recursive) {
   const char *name;
   const char *slash = strrchr(path, '/');
   if (slash == NULL) {
-    return -EINVAL;
-  }
-  if (slash == path) {
+    memcpy(parent, ".", 2);
+    name = path;
+  } else if (slash == path) {
     memcpy(parent, "/", 2);
+    name = slash[1] == '\0' ? "." : slash + 1;
   } else {
     size_t length = (size_t)(slash - path);
     if (length >= sizeof(parent)) {
@@ -478,8 +479,8 @@ static int open_tree_path(const char *path, bool recursive) {
     }
     memcpy(parent, path, length);
     parent[length] = '\0';
+    name = slash[1] == '\0' ? "." : slash + 1;
   }
-  name = slash[1] == '\0' ? "." : slash + 1;
   int parent_fd = open(parent, O_PATH | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
   if (parent_fd < 0) {
     return -errno;

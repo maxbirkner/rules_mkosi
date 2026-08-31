@@ -849,13 +849,10 @@ static int empty_path_regression_self_test(void) {
   int tree_fd = -1;
   int result = 1;
 
-  map_current_identity(getuid(), getgid());
   if (snprintf(base, sizeof(base), "/dev/shm/namespace-runner-empty-path-%ld",
                (long)getpid()) >= (int)sizeof(base) ||
       snprintf(source, sizeof(source), "%s/source", base) >=
           (int)sizeof(source) ||
-      unshare(CLONE_NEWNS) < 0 ||
-      mount(NULL, "/", NULL, MS_REC | MS_PRIVATE, NULL) < 0 ||
       mkdir(base, 0700) < 0 || mkdir(source, 0700) < 0) {
     fprintf(stderr, "empty-path fixture setup failed: %s\n", strerror(errno));
     goto cleanup;
@@ -863,6 +860,13 @@ static int empty_path_regression_self_test(void) {
   source_fd = open(source, O_PATH | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
   if (source_fd < 0) {
     fprintf(stderr, "empty-path fixture open failed: %s\n", strerror(errno));
+    goto cleanup;
+  }
+  map_current_identity(getuid(), getgid());
+  if (unshare(CLONE_NEWNS) < 0 ||
+      mount(NULL, "/", NULL, MS_REC | MS_PRIVATE, NULL) < 0) {
+    fprintf(stderr, "empty-path namespace setup failed: %s\n",
+            strerror(errno));
     goto cleanup;
   }
   tree_fd = syscall(SYS_open_tree, source_fd, "",
