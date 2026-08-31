@@ -114,7 +114,9 @@ jobs:
               with open(filename, encoding="utf-8") as stream:
                   for line in stream:
                       event = json.loads(line)
-                      summary = event.get("testSummary")
+                      summary = event.get("testSummary") or event.get(
+                          "id", {}
+                      ).get("testSummary")
                       if summary and summary.get("label"):
                           actual.add(summary["label"])
           missing = sorted(expected - actual)
@@ -158,7 +160,10 @@ jobs:
           actual = set()
           with open(sys.argv[2], encoding="utf-8") as stream:
               for line in stream:
-                  summary = json.loads(line).get("testSummary")
+                  event = json.loads(line)
+                  summary = event.get("testSummary") or event.get(
+                      "id", {}
+                  ).get("testSummary")
                   if summary and summary.get("label"):
                       actual.add(summary["label"])
           missing = sorted(expected - actual)
