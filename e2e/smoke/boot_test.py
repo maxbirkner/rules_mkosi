@@ -54,10 +54,15 @@ def _perform_qmp_handshake(connection):
         reader.close()
 
 
-def _qmp_handshake(process, socket_path):
-    deadline = time.monotonic() + QEMU_INITIALIZATION_TIMEOUT_SECONDS
+def _qmp_handshake(
+    process,
+    socket_path,
+    monotonic=time.monotonic,
+    sleep=time.sleep,
+):
+    deadline = monotonic() + QEMU_INITIALIZATION_TIMEOUT_SECONDS
     last_error = "QMP socket was not ready"
-    while time.monotonic() < deadline:
+    while monotonic() < deadline:
         if process.poll() is not None:
             raise QmpHandshakeError(
                 "QEMU exited with status %d before QMP initialization" % process.returncode,
@@ -72,7 +77,7 @@ def _qmp_handshake(process, socket_path):
             last_error = str(error)
         finally:
             connection.close()
-        time.sleep(0.05)
+        sleep(0.05)
     raise QmpHandshakeError(last_error)
 
 
@@ -141,7 +146,17 @@ def _has_clean_shutdown(serial_log):
     return CLEAN_SHUTDOWN_MARKER in serial and POWER_DOWN_MARKER in serial
 
 
-def _boot(image, qemu, system_data, ovmf_code, ovmf_vars):
+def _boot(
+    image,
+    qemu,
+    system_data,
+    ovmf_code,
+    ovmf_vars,
+    process_factory=subprocess.Popen,
+    qmp_handshake=_qmp_handshake,
+    monotonic=time.monotonic,
+    sleep=time.sleep,
+):
     scratch = pathlib.Path(os.environ.get("TEST_TMPDIR", "boot-test-state"))
     scratch.mkdir(parents=True, exist_ok=True)
     vars_copy = scratch / "OVMF_VARS.fd"
@@ -184,7 +199,7 @@ def _boot(image, qemu, system_data, ovmf_code, ovmf_vars):
         environment = _qemu_environment(scratch)
         with open(qemu_log, "wb") as output:
             try:
-                process = subprocess.Popen(
+                process = process_factory(
                     command,
                     cwd=scratch,
                     env=environment,
@@ -196,7 +211,7 @@ def _boot(image, qemu, system_data, ovmf_code, ovmf_vars):
 
             try:
                 try:
-                    _qmp_handshake(process, qmp_socket)
+                    qmp_handshake(process, qmp_socket, monotonic, sleep)
                 except QmpHandshakeError as error:
                     _diagnose(
                         "QEMU_INITIALIZATION_FAILURE",
@@ -205,8 +220,8 @@ def _boot(image, qemu, system_data, ovmf_code, ovmf_vars):
                         qemu_log,
                     )
 
-                deadline = time.monotonic() + BOOT_TIMEOUT_SECONDS
-                while time.monotonic() < deadline:
+                deadline = monotonic() + BOOT_TIMEOUT_SECONDS
+                while monotonic() < deadline:
                     serial = _read_log(serial_log)
                     if MARKER in serial:
                         break
@@ -222,7 +237,7 @@ def _boot(image, qemu, system_data, ovmf_code, ovmf_vars):
                             serial_log,
                             qemu_log,
                         )
-                    time.sleep(0.1)
+                    sleep(0.1)
                 else:
                     _diagnose(
                         "READINESS_TIMEOUT",

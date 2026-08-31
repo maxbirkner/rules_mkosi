@@ -29,7 +29,9 @@ registered managed interpreter, not a `rules_python` shell bootstrap or a
 launcher contract and checks the managed interpreter and user-site isolation.
 The runner performs a bounded QMP greeting/capabilities handshake before
 classifying QEMU initialization, firmware, guest, readiness-timeout, and
-shutdown failures.
+shutdown failures. Its negative cases drive the same `_boot` lifecycle with
+real Unix-domain QMP sockets, controlled process exits, deadlines, diagnostic
+logs, and cleanup checks rather than testing classification strings alone.
 
 The BCR presubmit has separate Bazel 8 and Bazel 9 tasks. The Bazel 8 task
 uses the committed `e2e/smoke/MODULE.bazel.lock` strictly. The Bazel 9 task
