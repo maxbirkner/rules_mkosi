@@ -89,6 +89,23 @@ sh_test(
 )
 
 sh_test(
+    name = "raw_image_corruption_test",
+    srcs = ["raw_image_corruption_test.sh"],
+    args = [
+        "$(rootpath raw_image_corruption_test.py)",
+        "$(rootpath @mkosi_debian_python//:bin/python3.11)",
+        "$(rootpath :demo)",
+    ],
+    data = [
+        "raw_image_corruption_test.py",
+        "raw_image_validator.py",
+        ":demo",
+        "@mkosi_debian_python//:bin/python3.11",
+    ],
+    tags = ["manual"],
+)
+
+sh_test(
     name = "mkosi_config_test",
     srcs = ["mkosi_config_test.sh"],
     args = ["$(rootpath testdata/minimal.conf)"],

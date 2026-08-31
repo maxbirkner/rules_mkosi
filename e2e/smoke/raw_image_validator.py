@@ -17,6 +17,10 @@ LINUX_ROOT_X86_64 = uuid.UUID("4f68bce3-e8cd-4db1-96e7-fbcaf984b709").bytes_le
 EXT4_MAGIC = b"\x53\xef"
 EXT4_EXTENTS = 0x00080000
 EXT4_INCOMPAT_EXTENTS = 0x00000040
+EXT4_INCOMPAT_64BIT = 0x00000080
+EXT4_INCOMPAT_CSUM_SEED = 0x00002000
+EXT4_RO_COMPAT_METADATA_CSUM = 0x00000400
+EXT4_DIR_CSUM = 0xDE
 
 
 def image_path(argument):
@@ -78,6 +82,20 @@ def _range_fully_allocated(ranges, start, end):
         if cursor >= end:
             return True
     return False
+
+
+def _crc32c(crc, data):
+    for byte in data:
+        for _ in range(8):
+            crc = (crc >> 1) ^ 0x82F63B78 if (crc ^ byte) & 1 else crc >> 1
+            byte >>= 1
+    return crc & 0xFFFFFFFF
+
+
+def _directory_checksum(seed, inode_number, generation, block):
+    checksum = _crc32c(seed, struct.pack("<I", inode_number))
+    checksum = _crc32c(checksum, struct.pack("<I", generation))
+    return _crc32c(checksum, block[:-12])
 
 
 def _parse_header(image, lba, total_sectors):
@@ -155,10 +173,10 @@ def _validate_ext4_root(image, partition_start, partition_end, physical_ranges=N
     blocks |= struct.unpack_from("<I", superblock, 336)[0] << 32
     if blocks == 0 or blocks * block_size > partition_size:
         raise AssertionError("Linux root filesystem geometry exceeds its partition")
-    if struct.unpack_from("<I", superblock, 32)[0] == 0:
-        raise AssertionError("Linux root filesystem has no block groups")
-    if struct.unpack_from("<I", superblock, 40)[0] == 0:
-        raise AssertionError("Linux root filesystem has no inodes")
+    blocks_per_group = struct.unpack_from("<I", superblock, 32)[0]
+    inodes_per_group = struct.unpack_from("<I", superblock, 40)[0]
+    if blocks_per_group == 0 or inodes_per_group == 0:
+        raise AssertionError("Linux root filesystem has no block groups or inodes")
     incompat_features = struct.unpack_from("<I", superblock, 96)[0]
     if incompat_features & EXT4_INCOMPAT_EXTENTS == 0:
         raise AssertionError("Linux root filesystem does not advertise extents")
@@ -167,15 +185,14 @@ def _validate_ext4_root(image, partition_start, partition_end, physical_ranges=N
     descriptor_size = struct.unpack_from("<H", superblock, 254)[0] or 32
     if inode_size < 128 or inode_size > block_size or descriptor_size not in (32, 64):
         raise AssertionError("Linux root filesystem inode geometry is invalid")
-    if incompat_features & 0x80 and descriptor_size != 64:
+    if incompat_features & EXT4_INCOMPAT_64BIT and descriptor_size != 64:
         raise AssertionError("Linux root filesystem descriptor geometry is invalid")
 
-    blocks_per_group = struct.unpack_from("<I", superblock, 32)[0]
-    inodes_per_group = struct.unpack_from("<I", superblock, 40)[0]
     descriptor_block = 2 if block_size == 1024 else 1
+    descriptor_offset = partition_offset + descriptor_block * block_size
     descriptor = _read(
         image,
-        partition_offset + descriptor_block * block_size,
+        descriptor_offset,
         descriptor_size,
         "Linux root filesystem group descriptor is truncated",
     )
@@ -240,66 +257,128 @@ def _validate_ext4_root(image, partition_start, partition_end, physical_ranges=N
         raise AssertionError("Linux root inode is outside the root partition")
     inode = _read(image, inode_offset, inode_size, "Linux root inode is truncated")
     mode = struct.unpack_from("<H", inode, 0)[0]
-    if mode & 0xF000 != 0x4000 or struct.unpack_from("<I", inode, 4)[0] == 0:
+    directory_size = struct.unpack_from("<I", inode, 4)[0]
+    if mode & 0xF000 != 0x4000 or directory_size == 0:
         raise AssertionError("Linux root inode is not a usable directory")
     if struct.unpack_from("<I", inode, 32)[0] & EXT4_EXTENTS == 0:
         raise AssertionError("Linux root inode does not contain extents")
+    directory_blocks = (directory_size + block_size - 1) // block_size
 
     extent = inode[40:100]
     magic, entries, maximum, depth = struct.unpack_from("<HHHH", extent, 0)
     if magic != 0xF30A or entries == 0 or entries > maximum or depth != 0:
         raise AssertionError("Linux root inode extent tree is invalid")
-    logical, length, start_high, start_low = struct.unpack_from("<IHHI", extent, 12)
-    length &= 0x7FFF
-    physical = start_low | (start_high << 32)
-    if (
-        logical != 0
-        or length == 0
-        or physical + length > blocks
-        or physical + length > blocks_per_group
-    ):
-        raise AssertionError("Linux root inode extent is outside the filesystem")
-    if any(
-        not (block_bitmap_data[(block // 8)] & (1 << (block % 8)))
-        for block in range(physical, physical + length)
-    ):
-        raise AssertionError("Linux root inode extent is not marked allocated")
-    extent_offset = partition_offset + physical * block_size
-    if not _range_fully_allocated(
-        data_ranges,
-        extent_offset,
-        extent_offset + length * block_size,
-    ):
-        raise AssertionError("Linux root inode extent is not physically allocated")
-    root_data = _read(
-        image,
-        partition_offset + physical * block_size,
-        min(block_size, 4 * 1024 * 1024),
-        "Linux root inode extent is truncated",
+    extents = []
+    for index in range(entries):
+        offset = 12 + index * 12
+        logical, length, start_high, start_low = struct.unpack_from(
+            "<IHHI", extent, offset
+        )
+        length &= 0x7FFF
+        physical = start_low | (start_high << 32)
+        if length == 0 or physical + length > blocks:
+            raise AssertionError("Linux root inode extent is outside the filesystem")
+        if extents and logical < extents[-1][0] + extents[-1][1]:
+            raise AssertionError("Linux root inode extents overlap")
+        extents.append((logical, length, physical))
+    if extents[0][0] != 0 or extents[-1][0] + extents[-1][1] < directory_blocks:
+        raise AssertionError("Linux root inode extents do not cover its directory")
+
+    checksum_required = (
+        struct.unpack_from("<I", superblock, 100)[0] & EXT4_RO_COMPAT_METADATA_CSUM
     )
-    if sum(byte != 0 for byte in root_data) < 64:
-        raise AssertionError("Linux root inode extent has no allocated content")
-    first_inode, first_length, first_name_length, first_type = struct.unpack_from(
-        "<IHBB", root_data, 0
-    )
-    first_name = root_data[8 : 8 + first_name_length]
-    second_inode, second_length, second_name_length, second_type = struct.unpack_from(
-        "<IHBB", root_data, first_length
-    )
-    second_name = root_data[first_length + 8 : first_length + 8 + second_name_length]
-    if (
-        first_inode != 2
-        or first_length != 12
-        or first_name_length != 1
-        or first_type != 2
-        or first_name != b"."
-        or second_inode != 2
-        or second_length < 12
-        or second_name_length != 2
-        or second_type != 2
-        or second_name != b".."
-    ):
-        raise AssertionError("Linux root directory entries are not usable")
+    inode_generation = struct.unpack_from("<I", inode, 100)[0]
+    if incompat_features & EXT4_INCOMPAT_CSUM_SEED:
+        checksum_seed = struct.unpack_from("<I", superblock, 624)[0]
+    else:
+        checksum_seed = _crc32c(0xFFFFFFFF, superblock[104:120])
+    inode_bitmap_data = bytes(inode_bitmap_data)
+    seen_names = set()
+    logical_block = 0
+    for logical, length, physical in extents:
+        if logical != logical_block:
+            raise AssertionError("Linux root directory extents contain a gap")
+        if physical + length > blocks_per_group:
+            raise AssertionError("Linux root directory extent leaves its allocation group")
+        if any(
+            not (block_bitmap_data[block // 8] & (1 << (block % 8)))
+            for block in range(physical, physical + length)
+        ):
+            raise AssertionError("Linux root inode extent is not marked allocated")
+        extent_offset = partition_offset + physical * block_size
+        if not _range_fully_allocated(
+            data_ranges,
+            extent_offset,
+            extent_offset + length * block_size,
+        ):
+            raise AssertionError("Linux root inode extent is not physically allocated")
+        for block_index in range(length):
+            directory_block = _read(
+                image,
+                extent_offset + block_index * block_size,
+                block_size,
+                "Linux root directory extent is truncated",
+            )
+            data_limit = block_size
+            if checksum_required:
+                tail = directory_block[-12:]
+                tail_inode, tail_length, tail_name_length, tail_type = struct.unpack(
+                    "<IHBB", tail[:8]
+                )
+                if (
+                    tail_inode != 0
+                    or tail_length != 12
+                    or tail_name_length != 0
+                    or tail_type != EXT4_DIR_CSUM
+                    or struct.unpack_from("<I", tail, 8)[0] == 0
+                    or struct.unpack_from("<I", tail, 8)[0]
+                    != _directory_checksum(
+                        checksum_seed,
+                        2,
+                        inode_generation,
+                        directory_block,
+                    )
+                ):
+                    raise AssertionError("Linux root directory checksum tail is invalid")
+                data_limit -= 12
+            cursor = 0
+            while cursor < data_limit:
+                if cursor + 8 > data_limit:
+                    raise AssertionError("Linux root directory record is truncated")
+                entry_inode, record_length, name_length, file_type = struct.unpack_from(
+                    "<IHBB", directory_block, cursor
+                )
+                minimum_length = (8 + name_length + 3) & ~3
+                if (
+                    record_length < 8
+                    or record_length % 4
+                    or record_length < minimum_length
+                    or cursor + record_length > data_limit
+                ):
+                    raise AssertionError("Linux root directory record length is invalid")
+                name = directory_block[cursor + 8 : cursor + 8 + name_length]
+                if entry_inode == 0:
+                    if name_length != 0 or file_type != 0:
+                        raise AssertionError("Linux root directory unused record is invalid")
+                else:
+                    if (
+                        entry_inode > struct.unpack_from("<I", superblock, 0)[0]
+                        or name_length == 0
+                        or b"\0" in name
+                        or b"/" in name
+                        or file_type > 7
+                        or name in seen_names
+                    ):
+                        raise AssertionError("Linux root directory entry is invalid")
+                    seen_names.add(name)
+                    if logical_block == 0 and cursor == 0 and (entry_inode, name) != (2, b"."):
+                        raise AssertionError("Linux root directory lacks '.'")
+                    if logical_block == 0 and cursor == 12 and (entry_inode, name) != (2, b".."):
+                        raise AssertionError("Linux root directory lacks '..'")
+                cursor += record_length
+            if cursor != data_limit:
+                raise AssertionError("Linux root directory records leave a gap")
+            logical_block += 1
 
 
 def _validate(image, size, physical_ranges=None):

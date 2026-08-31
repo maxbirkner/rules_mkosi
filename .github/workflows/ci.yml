@@ -511,12 +511,15 @@ jobs:
                 //mkosi/tests:debian_tools_manifest_test \
                 //mkosi/tests:debian_tools_fd_swap_test \
                 //mkosi/tests:real_image_artifact_test \
-                //mkosi/tests:override_image_artifact_test
+                //mkosi/tests:override_image_artifact_test \
+                //mkosi/tests:raw_image_corruption_test
               cd e2e/smoke
               bazel shutdown
               bazel test --lockfile_mode=error --disk_cache= \
                 --cache_test_results=no --spawn_strategy=linux-sandbox \
-                --test_output=all //:demo_artifact_test
+                --test_output=all \
+                //:demo_artifact_test \
+                //:raw_image_corruption_test
             '
 
   lockfile:

@@ -69,10 +69,11 @@ def _gpt_image():
     return data
 
 
-def _fake_ext4_root(image, include_data=True):
+def _fake_ext4_root(image, include_data=True, junk=False):
     partition_offset = 34 * 512
     block_size = 4096
     superblock = bytearray(1024)
+    struct.pack_into("<I", superblock, 0, 16)
     struct.pack_into("<I", superblock, 4, 400)
     struct.pack_into("<I", superblock, 24, 2)
     struct.pack_into("<I", superblock, 32, 400)
@@ -121,6 +122,9 @@ def _fake_ext4_root(image, include_data=True):
         root_data[8:9] = b"."
         struct.pack_into("<IHBB", root_data, 12, 2, 12, 2, 2)
         root_data[20:22] = b".."
+        if junk:
+            struct.pack_into("<IHBB", root_data, 24, 3, block_size - 24, 4, 8)
+            root_data[32:36] = b"junk"
         image[
             partition_offset + 5 * block_size : partition_offset + 6 * block_size
         ] = root_data
@@ -171,6 +175,11 @@ class RawImageValidatorTest(unittest.TestCase):
         finally:
             if fd >= 0:
                 os.close(fd)
+
+    def test_fully_allocated_fabricated_root_directory_junk_is_rejected(self):
+        image = _fake_ext4_root(_gpt_image(), junk=True)
+        with self.assertRaisesRegex(AssertionError, "directory entry is invalid"):
+            raw_image_validator.validate_bytes(image, physical_ranges=[(0, len(image))])
 
     def test_pseudo_gpt_requires_a_usable_ext4_root(self):
         image = _gpt_image()

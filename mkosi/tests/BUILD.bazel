@@ -173,6 +173,18 @@ py_test(
 )
 
 py_test(
+    name = "raw_image_corruption_test",
+    srcs = [
+        "raw_image_corruption_test.py",
+        "raw_image_validator.py",
+    ],
+    args = ["$(rootpath :real_image)"],
+    data = [":real_image"],
+    main = "raw_image_corruption_test.py",
+    tags = ["manual"],
+)
+
+py_test(
     name = "mkosi_config_test",
     srcs = ["mkosi_config_test.py"],
     args = ["$(rootpath testdata/minimal.conf)"],
