@@ -55,7 +55,7 @@ _managed_python_binary_rule = rule(
     executable = True,
     attrs = _managed_python_attrs,
     toolchains = ["@rules_python//python:toolchain_type"],
-    doc = "Runs src with the registered managed interpreter, followed by arguments.",
+    doc = "Exposes the registered managed interpreter as a direct executable.",
 )
 
 _managed_python_test = rule(
@@ -70,6 +70,13 @@ def _src_arg(src):
     return ["$(rootpath %s)" % src]
 
 def managed_python_binary(name, src, args = [], data = [], tags = []):
+    """Exposes a direct managed-Python ELF executable.
+
+    The generated executable is the interpreter symlink, not a shell
+    launcher. Bazel test execution supplies the configured arguments, but
+    callers invoking the binary directly must pass the source script path
+    before any additional arguments.
+    """
     _managed_python_binary_rule(
         name = name,
         src = src,
