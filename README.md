@@ -202,7 +202,14 @@ readiness-timeout, and shutdown failures are reported separately with bounded
 deadlines and retained serial/QEMU diagnostics. The state machine is
 firmware-neutral; only this adapter supplies OVMF flash arguments. Machine
 arguments and all deadlines/diagnostic retention are attributes so a future
-SeaBIOS adapter can reuse the lifecycle.
+SeaBIOS adapter can reuse the lifecycle. The `timeout` argument is a finite
+Bazel test-timeout category (`"short"`, `"moderate"`, or `"long"`), defaulting
+to `"moderate"` (300 seconds); `"eternal"` is deliberately rejected. The QMP,
+boot, and shutdown deadlines must be positive and, together with a reserved
+30-second cleanup/diagnostic margin, fit within the selected category
+(`60`, `300`, or `900` seconds). Invalid categories or deadline combinations
+fail during analysis, so a lifecycle timeout reports its own diagnostic before
+Bazel's test deadline can terminate the process.
 The rule overrides config output settings to `Format=disk`, `OutputExtension=raw`,
 `CompressOutput=none`, and no split artifacts, so custom formats and redirected
 outputs are not part of this tracer contract. The minimal tracer configuration

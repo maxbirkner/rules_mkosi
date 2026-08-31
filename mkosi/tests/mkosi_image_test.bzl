@@ -5,6 +5,7 @@ load("//mkosi:defs.bzl", "MkosiImageInfo", "MkosiQemuToolchainInfo", "mkosi_imag
 load("//mkosi/debian:toolchain.bzl", "DebianToolsInfo")
 load(
     "//mkosi/private:qemu_ovmf_boot_test.bzl",
+    "QemuOvmfBootConfigInfo",
     _qemu_ovmf_boot_config = "qemu_ovmf_boot_config",
 )
 
@@ -206,6 +207,26 @@ _invalid_qemu_config_test = analysistest.make(
     },
 )
 
+def _boot_deadline_provider_test_impl(ctx):
+    env = analysistest.begin(ctx)
+    info = analysistest.target_under_test(env)[QemuOvmfBootConfigInfo]
+    asserts.equals(env, ctx.attr.expected_timeout, info.test_timeout)
+    asserts.equals(env, ctx.attr.expected_qmp, info.qmp_initialization_timeout_seconds)
+    asserts.equals(env, ctx.attr.expected_boot, info.boot_timeout_seconds)
+    asserts.equals(env, ctx.attr.expected_shutdown, info.shutdown_timeout_seconds)
+    asserts.equals(env, 30, info.cleanup_margin_seconds)
+    return analysistest.end(env)
+
+_boot_deadline_provider_test = analysistest.make(
+    _boot_deadline_provider_test_impl,
+    attrs = {
+        "expected_timeout": attr.string(mandatory = True),
+        "expected_qmp": attr.int(mandatory = True),
+        "expected_boot": attr.int(mandatory = True),
+        "expected_shutdown": attr.int(mandatory = True),
+    },
+)
+
 def mkosi_image_test_suite(name):
     """Defines analysis tests for the config-driven image action.
 
@@ -261,6 +282,7 @@ def mkosi_image_test_suite(name):
         qmp_initialization_timeout_seconds = 15,
         shutdown_timeout_seconds = 30,
         diagnostic_bytes = 4096,
+        tags = ["manual"],
     )
     _invalid_qemu_config_test(
         name = "invalid_boot_deadline_test",
@@ -278,6 +300,7 @@ def mkosi_image_test_suite(name):
         qmp_initialization_timeout_seconds = 15,
         shutdown_timeout_seconds = 30,
         diagnostic_bytes = 4096,
+        tags = ["manual"],
     )
     _invalid_qemu_config_test(
         name = "invalid_boot_marker_test",
@@ -295,11 +318,96 @@ def mkosi_image_test_suite(name):
         qmp_initialization_timeout_seconds = 15,
         shutdown_timeout_seconds = 30,
         diagnostic_bytes = 4096,
+        tags = ["manual"],
     )
     _invalid_qemu_config_test(
         name = "invalid_boot_positive_test",
         expected_failure = "must be positive",
         target_under_test = ":invalid_boot_positive_subject",
+    )
+
+    _qemu_ovmf_boot_config(
+        name = "boundary_boot_deadline_subject",
+        image = ":debian_subject",
+        readiness_marker = "READY",
+        shutdown_markers = ["SHUTDOWN"],
+        machine_args = ["-machine", "q35"],
+        boot_timeout_seconds = 220,
+        qmp_initialization_timeout_seconds = 20,
+        shutdown_timeout_seconds = 30,
+        diagnostic_bytes = 4096,
+        test_timeout = "moderate",
+    )
+    _boot_deadline_provider_test(
+        name = "boundary_boot_deadline_test",
+        expected_timeout = "moderate",
+        expected_qmp = 20,
+        expected_boot = 220,
+        expected_shutdown = 30,
+        target_under_test = ":boundary_boot_deadline_subject",
+    )
+
+    _boot_deadline_provider_test(
+        name = "default_boot_deadline_test",
+        expected_timeout = "moderate",
+        expected_qmp = 15,
+        expected_boot = 180,
+        expected_shutdown = 30,
+        target_under_test = ":analysis_boot_test_config",
+    )
+
+    _qemu_ovmf_boot_config(
+        name = "invalid_qmp_deadline_subject",
+        image = ":debian_subject",
+        readiness_marker = "READY",
+        shutdown_markers = ["SHUTDOWN"],
+        machine_args = ["-machine", "q35"],
+        boot_timeout_seconds = 180,
+        qmp_initialization_timeout_seconds = 0,
+        shutdown_timeout_seconds = 30,
+        diagnostic_bytes = 4096,
+        tags = ["manual"],
+    )
+    _invalid_qemu_config_test(
+        name = "invalid_qmp_deadline_test",
+        expected_failure = "qmp_initialization_timeout_seconds",
+        target_under_test = ":invalid_qmp_deadline_subject",
+    )
+
+    _qemu_ovmf_boot_config(
+        name = "invalid_shutdown_deadline_subject",
+        image = ":debian_subject",
+        readiness_marker = "READY",
+        shutdown_markers = ["SHUTDOWN"],
+        machine_args = ["-machine", "q35"],
+        boot_timeout_seconds = 180,
+        qmp_initialization_timeout_seconds = 15,
+        shutdown_timeout_seconds = 0,
+        diagnostic_bytes = 4096,
+        tags = ["manual"],
+    )
+    _invalid_qemu_config_test(
+        name = "invalid_shutdown_deadline_test",
+        expected_failure = "shutdown_timeout_seconds",
+        target_under_test = ":invalid_shutdown_deadline_subject",
+    )
+
+    _qemu_ovmf_boot_config(
+        name = "invalid_sum_deadline_subject",
+        image = ":debian_subject",
+        readiness_marker = "READY",
+        shutdown_markers = ["SHUTDOWN"],
+        machine_args = ["-machine", "q35"],
+        boot_timeout_seconds = 260,
+        qmp_initialization_timeout_seconds = 15,
+        shutdown_timeout_seconds = 30,
+        diagnostic_bytes = 4096,
+        tags = ["manual"],
+    )
+    _invalid_qemu_config_test(
+        name = "invalid_sum_deadline_test",
+        expected_failure = "exceed",
+        target_under_test = ":invalid_sum_deadline_subject",
     )
 
     _qemu_ovmf_boot_config(
@@ -313,6 +421,7 @@ def mkosi_image_test_suite(name):
         shutdown_timeout_seconds = 30,
         diagnostic_bytes = 4096,
         test_timeout = "eternal",
+        tags = ["manual"],
     )
     _invalid_qemu_config_test(
         name = "invalid_boot_eternal_test",
@@ -345,6 +454,11 @@ def mkosi_image_test_suite(name):
             ":invalid_boot_marker_test",
             ":invalid_boot_positive_test",
             ":invalid_boot_eternal_test",
+            ":boundary_boot_deadline_test",
+            ":default_boot_deadline_test",
+            ":invalid_qmp_deadline_test",
+            ":invalid_shutdown_deadline_test",
+            ":invalid_sum_deadline_test",
             ":mkosi_toolchain_provider_test",
             ":qemu_toolchain_provider_test",
             ":debian_tools_provider_test",

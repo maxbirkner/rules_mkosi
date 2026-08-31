@@ -8,7 +8,18 @@ _TEST_TIMEOUT_SECONDS = {
     "moderate": 300,
     "long": 900,
 }
-_CLEANUP_MARGIN_SECONDS = 10
+_CLEANUP_MARGIN_SECONDS = 30
+
+QemuOvmfBootConfigInfo = provider(
+    "Validated lifecycle deadlines and Bazel timeout category.",
+    fields = [
+        "test_timeout",
+        "qmp_initialization_timeout_seconds",
+        "boot_timeout_seconds",
+        "shutdown_timeout_seconds",
+        "cleanup_margin_seconds",
+    ],
+)
 
 def _qemu_ovmf_boot_config_impl(ctx):
     if ctx.attr.boot_timeout_seconds <= 0:
@@ -60,6 +71,7 @@ def _qemu_ovmf_boot_config_impl(ctx):
         "shutdown_markers": ctx.attr.shutdown_markers,
         "shutdown_timeout_seconds": ctx.attr.shutdown_timeout_seconds,
         "system_data": qemu.system_data_anchor.short_path,
+        "test_timeout": ctx.attr.test_timeout,
     }
     ctx.actions.write(
         output = output,
@@ -78,7 +90,16 @@ def _qemu_ovmf_boot_config_impl(ctx):
             qemu.system_data_files,
         ]),
     )
-    return [DefaultInfo(files = depset([output]), runfiles = runfiles)]
+    return [
+        DefaultInfo(files = depset([output]), runfiles = runfiles),
+        QemuOvmfBootConfigInfo(
+            test_timeout = ctx.attr.test_timeout,
+            qmp_initialization_timeout_seconds = ctx.attr.qmp_initialization_timeout_seconds,
+            boot_timeout_seconds = ctx.attr.boot_timeout_seconds,
+            shutdown_timeout_seconds = ctx.attr.shutdown_timeout_seconds,
+            cleanup_margin_seconds = _CLEANUP_MARGIN_SECONDS,
+        ),
+    ]
 
 qemu_ovmf_boot_config = rule(
     implementation = _qemu_ovmf_boot_config_impl,
