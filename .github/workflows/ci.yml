@@ -110,15 +110,21 @@ jobs:
               if line.strip()
           }
           actual = set()
+          def collect(value):
+              if isinstance(value, dict):
+                  summary = value.get("testSummary")
+                  if summary and summary.get("label"):
+                      actual.add(summary["label"])
+                  for child in value.values():
+                      collect(child)
+              elif isinstance(value, list):
+                  for child in value:
+                      collect(child)
+
           for filename in sys.argv[2:]:
               with open(filename, encoding="utf-8") as stream:
                   for line in stream:
-                      event = json.loads(line)
-                      summary = event.get("testSummary") or event.get(
-                          "id", {}
-                      ).get("testSummary")
-                      if summary and summary.get("label"):
-                          actual.add(summary["label"])
+                      collect(json.loads(line))
           missing = sorted(expected - actual)
           if missing:
               raise SystemExit(
@@ -158,14 +164,20 @@ jobs:
               if line.strip()
           }
           actual = set()
-          with open(sys.argv[2], encoding="utf-8") as stream:
-              for line in stream:
-                  event = json.loads(line)
-                  summary = event.get("testSummary") or event.get(
-                      "id", {}
-                  ).get("testSummary")
+          def collect(value):
+              if isinstance(value, dict):
+                  summary = value.get("testSummary")
                   if summary and summary.get("label"):
                       actual.add(summary["label"])
+                  for child in value.values():
+                      collect(child)
+              elif isinstance(value, list):
+                  for child in value:
+                      collect(child)
+
+          with open(sys.argv[2], encoding="utf-8") as stream:
+              for line in stream:
+                  collect(json.loads(line))
           missing = sorted(expected - actual)
           if missing:
               raise SystemExit(
