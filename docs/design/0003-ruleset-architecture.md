@@ -166,14 +166,15 @@ off without rewriting them.
 
 The checked-in Bazel rc files keep local action results in ignored,
 worktree-local disk caches, while setup-bazel continues to inject its
-workflow-scoped cache paths in CI. CI uses tag-based named configs with
-`//...` expansion for ordinary, manifest, qualified image/boot, deterministic,
-and kernel-preflight lanes; this keeps target selection reviewable without
-making consumers depend on repository-only configuration.
+workflow-scoped cache paths in CI. CI's required qualified lane runs complete
+root and consumer suites with `bazel test //...`; the only selectors are
+semantic network, kernel-contract, and runfiles-manifest requirements. Bazel 9
+uses the portable config to omit only networked tests already covered by Bazel
+8. Tags do not encode a parallel CI test inventory.
 
-Real mkosi image tests will use a dedicated Linux job. Unsupported or
-privileged tests must not be mixed with portable analysis tests or the BCR
-smoke module.
+Real mkosi image tests run in the qualified Linux lane. Unsupported or
+privileged tests are either covered by the explicit kernel preflight or
+modeled as execution requirements; they are not silently omitted.
 
 ## Coverage
 

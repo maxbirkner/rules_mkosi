@@ -360,7 +360,7 @@ def mkosi_image_test_suite(name):
         source_trees = {
             "src": ":source_tree",
         },
-        tags = ["manual"],
+        tags = ["requires-network"],
     )
 
     mkosi_config_tree(
@@ -448,7 +448,7 @@ def mkosi_image_test_suite(name):
         name = "legacy_default_name_subject",
         config = "testdata/config-tree/mkosi.conf",
         source_trees = {"src": ":source_tree"},
-        tags = ["manual"],
+        tags = ["requires-network"],
     )
     _legacy_staged_config_test(
         name = "legacy_default_name_test",
@@ -461,7 +461,7 @@ def mkosi_image_test_suite(name):
         name = "legacy_alternate_name_subject",
         config = "testdata/minimal.conf",
         source_trees = {"src": ":source_tree"},
-        tags = ["manual"],
+        tags = ["requires-network"],
     )
     _legacy_staged_config_test(
         name = "legacy_alternate_name_test",
@@ -530,7 +530,7 @@ def mkosi_image_test_suite(name):
         shutdown_timeout_seconds = 30,
         diagnostic_bytes = 4096,
         timeout = "long",
-        tags = ["manual"],
+        tags = ["requires-network"],
     )
     _boot_deadline_provider_test(
         name = "long_public_boot_deadline_test",
@@ -612,7 +612,7 @@ def mkosi_image_test_suite(name):
         image = ":debian_subject",
         boot_timeout_seconds = 600,
         timeout = "long",
-        tags = ["manual"],
+        tags = ["requires-network"],
     )
     _public_boot_timeout_test(
         name = "public_boot_timeout_test",
@@ -632,7 +632,7 @@ def mkosi_image_test_suite(name):
         qmp_initialization_timeout_seconds = 5,
         shutdown_timeout_seconds = 5,
         timeout = "short",
-        tags = ["manual"],
+        tags = ["requires-network"],
     )
     _public_boot_timeout_test(
         name = "public_short_timeout_test",

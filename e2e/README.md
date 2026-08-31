@@ -24,9 +24,9 @@ build and semantic artifact tests also run by default.
 `demo_boot_test` is the dedicated UEFI tracer test. It consumes `demo` through
 the public `qemu_ovmf_boot_test` macro, boots it with the registered QEMU/OVMF
 artifacts and TCG, waits for the exact systemd hostname marker on the guest
-serial stream, and verifies the guest's clean `Powering off` shutdown. It is
-tagged for the qualified and manifest-qualified CI suites because it requires
-the qualified Linux kernel contract. The macro creates a native
+serial stream, and verifies the guest's clean `Powering off` shutdown. It runs
+in the qualified lane because its image requires the network and host-kernel
+contract. The macro creates a native
 `managed_python_test` launcher: the direct managed interpreter receives a
 private bootstrap first. The bootstrap clears `PATH` and executes the
 lifecycle script with `runpy`, followed by the generated JSON configuration.
@@ -62,12 +62,12 @@ explicitly exercises pinned Bazel 8.5.1 strictly and Bazel 9.2.0 with
 lockfile mode off.
 
 The consumer `.bazelrc` imports the repository's optional `.bazelrc.ci` and
-uses its own ignored `.cache/bazel-disk` directory. Ordinary `//...` tests
-exclude `ci_qualified` and `manual` targets, while the qualified image and
-boot pass selects those tests with `--config=qualified //...`. The second
-boot pass selects only the `ci_manifest_boot` tests with
-`--config=qualified_manifest //...`, preserving the runfiles-disabled,
-exclusive launcher check without enumerating labels.
+uses its own ignored `.cache/bazel-disk` directory. Both normal and qualified
+commands use `bazel test //...`; configurations change execution policy rather
+than maintaining a CI test inventory. Bazel 9's `portable` compatibility config
+excludes only the semantic `requires-network` image mode, which Bazel 8 covers.
+The separate `manifest` pass uses the one `manifest` selector with
+`--enable_runfiles=no` for the launcher contract.
 
 `module_resolution` contains Bazelmod fixtures for extension selection and
 failure diagnostics. These fixtures deliberately have no lockfiles and run

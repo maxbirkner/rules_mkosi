@@ -194,7 +194,7 @@ mkosi_image_test_suite(name = "analysis_tests")
 qemu_ovmf_boot_test(
     name = "analysis_boot_test",
     image = ":debian_subject",
-    tags = ["manual"],
+    tags = ["requires-network"],
 )
 
 boot_config_test(
@@ -239,6 +239,7 @@ mkosi_image(
     name = "real_image",
     config_tree = ":config_tree",
     source_trees = {"src": ":source_tree"},
+    tags = ["requires-network"],
 )
 
 py_test(
@@ -260,14 +261,7 @@ py_test(
     args = ["$(rootpath :real_image)"],
     data = [":real_image"],
     main = "staged_image_semantics_test.py",
-=======
-    data = [
-        "raw_image_validator.py",
-        ":real_image",
-    ],
-    main = "raw_image_artifact_test.py",
     tags = ["requires-network"],
->>>>>>> 7827713 (test: allow full suite Python precompilation)
 )
 
 py_test(
