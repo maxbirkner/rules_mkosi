@@ -109,6 +109,30 @@ their immutable provenance.
 `QemuOvmfBootConfigInfo` exposes validated timeout category, QMP/boot/shutdown
 deadlines, and the fixed cleanup margin.
 
+<!-- behavior:BHV-PARTITION-METADATA -->
+Release `MkosiImageInfo.partition_metadata` is a provider-composed normalized
+projection. It validates both GPT copies and their CRCs, requires identical
+partition arrays, preserves stable sparse slot numbers, and omits variable GPT
+disk and partition identities. Tracer mode continues to expose `None`.
+
+<!-- behavior:BHV-REPRODUCIBILITY-PROJECTION -->
+`mkosi_reproducibility_manifest` selects raw image, build metadata, and
+partition metadata through `MkosiImageInfo`. Its stable normalized projection
+content-addresses immutable artifacts and embeds both normalized metadata
+documents without inferring provider roles from filenames.
+
+<!-- behavior:BHV-CANONICAL-DIGEST -->
+The reproducibility manifest's canonical whole-image digest covers every image
+byte while narrowly normalizing GPT disk/partition identity and the checksums
+that necessarily depend on those identities. Partition geometry, type, label,
+attributes, and payload changes remain observable.
+
+<!-- behavior:BHV-REPRODUCIBILITY-INDEPENDENCE -->
+Release reproducibility executes two real image and manifest action graphs in
+distinct clean Bazel output roots with cache reuse disabled, proves both
+actions executed, and compares their projections. A mismatch reports that
+immutable hashes or normalized manifests differ.
+
 ## Actions, toolchains, validation, and expected failures
 
 <!-- behavior:BHV-IMAGE-ACTIONS -->

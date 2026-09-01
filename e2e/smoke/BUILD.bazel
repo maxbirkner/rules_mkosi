@@ -47,6 +47,8 @@ behavior_targets(
         ":release_demo_artifact_test",
         ":release_demo_build_metadata_test",
         ":release_demo_build_test",
+        ":release_demo_partition_metadata_test",
+        ":release_demo_reproducibility_test",
         ":tree_demo_build_test",
         ":tree_demo_semantics_test",
     ],
