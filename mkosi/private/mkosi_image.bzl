@@ -379,8 +379,6 @@ def _mkosi_image_impl(ctx):
     if release_mode:
         partition_arguments = ctx.actions.args()
         partition_arguments.add(ctx.file._partition_metadata.path)
-        partition_arguments.add("--launcher")
-        partition_arguments.add(debian_tools.launcher.executable.path)
         partition_arguments.add("--image")
         partition_arguments.add(image.path)
         partition_arguments.add("--output")
@@ -393,12 +391,10 @@ def _mkosi_image_impl(ctx):
                 transitive = [mkosi.python_runtime_files],
             ),
             tools = [
-                debian_tools.launcher,
                 mkosi.python_files_to_run,
             ],
             outputs = [partition_metadata],
             env = {
-                "MKOSI_DEBIAN_TOOLS_SCRATCH": partition_metadata.path + ".scratch",
                 "PATH": "",
                 "PYTHONNOUSERSITE": "1",
             },

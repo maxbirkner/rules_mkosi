@@ -44,6 +44,10 @@ The current disk/raw mode provides `raw_image` and the normalized JSON
 `build_metadata` projection. Release images also provide a normalized GPT
 `partition_metadata` projection; tracer images set it to `None`. Manifest and
 UKI fields remain `None`. Its legacy `image` field remains an exact
+The projection parser performs bounded reads of the raw artifact and validates
+the CRC-protected primary and backup GPT headers and entry arrays before
+emitting semantic geometry, type GUIDs, labels, and original entry-slot
+numbers. Random disk and partition unique GUIDs are intentionally omitted. Its legacy `image` field remains an exact
 compatibility alias for `raw_image`. `DefaultInfo.files` contains each
 non-`None` provider artifact once, with no ordering guarantee; existing
 consumers must not assume it is a singleton. The action invokes the pinned mkosi v27 executable and the pinned Debian 13
