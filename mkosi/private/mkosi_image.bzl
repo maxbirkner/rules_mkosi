@@ -398,6 +398,7 @@ def _mkosi_image_impl(ctx):
             ],
             outputs = [partition_metadata],
             env = {
+                "MKOSI_DEBIAN_TOOLS_SCRATCH": partition_metadata.path + ".scratch",
                 "PATH": "",
                 "PYTHONNOUSERSITE": "1",
             },
