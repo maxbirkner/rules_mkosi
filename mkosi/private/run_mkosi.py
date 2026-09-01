@@ -257,6 +257,15 @@ def _configuration_paths(value):
             yield from _configuration_paths(item)
 
 
+def _validate_release_ini_entry(section):
+    if section in ("Match", "TriggerMatch"):
+        raise SystemExit(
+            "release configuration cannot use [{}] host-dependent matching".format(
+                section
+            )
+        )
+
+
 def _validate_release_configuration(
     images,
     release_seed,
@@ -372,6 +381,7 @@ def _activate_release_mode(
     original_mounts = PackageManager.mounts.__func__
     original_repositories = Installer.repositories.__func__
     original_parse_config = mkosi.config.parse_config
+    original_parse_ini = mkosi.config.parse_ini
     validate_initial_configuration = [True]
 
     def repositories(cls, context, for_image=False):
@@ -439,6 +449,11 @@ def _activate_release_mode(
             return (parsed[0], parsed[1], images)
         return parsed
 
+    def parse_ini(*args, **kwargs):
+        for section, setting, value in original_parse_ini(*args, **kwargs):
+            _validate_release_ini_entry(section)
+            yield section, setting, value
+
     def install_sandbox_trees(config, dst):
         (dst / "etc").mkdir(exist_ok=True)
 
@@ -491,6 +506,7 @@ def _activate_release_mode(
     PackageManager.mounts = classmethod(mounts)
     Context.repository = property(repository)
     mkosi.config.parse_config = parse_config
+    mkosi.config.parse_ini = parse_ini
     mkosi.distribution.debian.install_apt_sources = install_apt_sources
     mkosi.install_sandbox_trees = install_sandbox_trees
 

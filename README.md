@@ -252,6 +252,8 @@ To retain that cache guarantee, release mode rejects proxies, lifecycle scripts,
 otherwise import host state or restore an APT source after the offline package
 installation. Use a new immutable
 configuration/source-tree input and a new release image for such changes.
+Release configurations also reject `[Match]` and `[TriggerMatch]` sections,
+because mkosi evaluates their host probes before configuration resolution.
 
 For a complete mkosi configuration directory, mark the exported directory
 with `mkosi_config_tree`. The directory must contain `mkosi.conf`; mkosi's

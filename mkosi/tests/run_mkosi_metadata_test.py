@@ -103,6 +103,14 @@ def main():
     release_setup = inspect.getsource(wrapper._activate_release_mode)
     for host_file in ("/etc/passwd", "/etc/group", "/etc/hosts"):
         assert host_file not in release_setup
+    for section in ("Match", "TriggerMatch"):
+        try:
+            wrapper._validate_release_ini_entry(section)
+        except SystemExit as error:
+            assert "host-dependent matching" in str(error)
+        else:
+            raise AssertionError("host-dependent match was accepted")
+    wrapper._validate_release_ini_entry("Content")
 
     seed = "00000000-0000-4000-8000-000000000015"
     wrapper._validate_release_configuration(

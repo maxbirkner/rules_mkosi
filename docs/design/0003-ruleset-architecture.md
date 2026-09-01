@@ -69,6 +69,8 @@ persistent package-source files rather than embedding a mutable network mirror.
 It also rejects proxies, lifecycle scripts, and extra trees so they cannot
 import an undeclared host input or restore an APT source after that cleanup,
 and rejects host microcode and every host kernel-module selection form.
+Release mode rejects mkosi `[Match]` and `[TriggerMatch]` sections before
+their host-probe expressions are evaluated.
 The tracer action forces disk/raw/uncompressed output
 and disables split artifacts; configuration files cannot redirect the declared
 artifact or select a custom format. The legacy `config` attribute accepts
