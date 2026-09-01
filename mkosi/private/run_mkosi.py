@@ -4,6 +4,7 @@
 import importlib.util
 import json
 import os
+import runpy
 import shutil
 import subprocess
 import sys
@@ -186,15 +187,17 @@ def _extract_debian_tools(archive, extractor_path, expected_digest, destination)
     extractor_spec.loader.exec_module(extractor)
     extractor.extract(archive, destination, expected_digest)
 
-def _run_mkosi(script, arguments, runner=subprocess.run):
+def _run_mkosi(script, arguments, runner=subprocess.run, environment=None):
     """Run mkosi and classify process-boundary failures without masking exit status."""
     try:
-        completed = runner(
-            [sys.executable, script] + arguments,
-            check=False,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
+        kwargs = {
+            "check": False,
+            "stdout": subprocess.PIPE,
+            "stderr": subprocess.PIPE,
+        }
+        if environment is not None:
+            kwargs["env"] = environment
+        completed = runner([sys.executable, script] + arguments, **kwargs)
     except OSError as error:
         diagnostics.fail("TOOLCHAIN_FAILURE", "mkosi executable cannot start {}: {}".format(script, error))
     if completed.returncode:
@@ -516,6 +519,16 @@ def _activate_release_mode(
 def main():
     if len(sys.argv) < 3:
         raise SystemExit("usage: run_mkosi.py MKOSI_SCRIPT [--executable-path PATH] -- [mkosi arguments]")
+    release_child = os.environ.get("RULES_MKOSI_RELEASE_CHILD") == "1"
+    if "--debian-snapshot-repository" in sys.argv[2:] and not release_child:
+        environment = dict(os.environ)
+        environment["RULES_MKOSI_RELEASE_CHILD"] = "1"
+        _run_mkosi(
+            os.path.abspath(__file__),
+            sys.argv[1:],
+            environment=environment,
+        )
+        return
     script = os.path.abspath(sys.argv[1])
     preamble_end = 2
     executable_paths = []
@@ -651,7 +664,11 @@ def main():
             release_snapshot,
             allowed_paths,
         )
-    _run_mkosi(script, arguments)
+    if release_child:
+        sys.argv[:] = [script] + arguments
+        runpy.run_path(script, run_name="__main__")
+    else:
+        _run_mkosi(script, arguments)
 
 
 if __name__ == "__main__":
