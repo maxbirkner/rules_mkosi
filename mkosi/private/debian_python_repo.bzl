@@ -1,6 +1,11 @@
 """Repository rule for the static Python runtime used by Debian tooling."""
 
-load("//mkosi/debian:provenance.bzl", "DEBIAN_TOOLS_PYTHON_SHA256", "DEBIAN_TOOLS_PYTHON_URL")
+load(
+    "//mkosi/debian:provenance.bzl",
+    "DEBIAN_TOOLS_PYTHON_SHA256",
+    "DEBIAN_TOOLS_PYTHON_URL",
+    "DEBIAN_TOOLS_PYTHON_VERSION",
+)
 
 def _impl(ctx):
     ctx.download_and_extract(
@@ -8,11 +13,13 @@ def _impl(ctx):
         sha256 = DEBIAN_TOOLS_PYTHON_SHA256,
         stripPrefix = "python/install",
     )
+    python_minor = ".".join(DEBIAN_TOOLS_PYTHON_VERSION.split(".")[:2])
+    ctx.symlink(ctx.path("bin/python" + python_minor), "python")
     ctx.file(
         "BUILD.bazel",
         """package(default_visibility = ["//visibility:public"])
 
-exports_files(glob(["bin/**", "lib/**"]))
+exports_files(["python"] + glob(["bin/**", "lib/**"]))
 
 filegroup(
     name = "runtime",

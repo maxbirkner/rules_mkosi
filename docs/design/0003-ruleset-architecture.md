@@ -63,10 +63,28 @@ the Bazel input-root materialization normalize timestamps and permissions while
 preserving valid relative links and executable bits.
 
 The toolchain provider carries the pinned mkosi executable and complete
-runfiles, a Bazel-managed Python runtime, the optional `pefile` dependency
+runfiles, a Bazel-managed Python 3.14 runtime, the optional `pefile` dependency
 needed by mkosi's bootable PE inspection paths, and source provenance
-(immutable URL and SHA-256 integrity). QEMU and firmware remain outside this
-image-building action and are supplied by their separate toolchain.
+(immutable URL and SHA-256 integrity). The generated repository selects that
+runtime through `@rules_python//python:toolchain_type`; the dependency module
+registers a deterministic CPython 3.14 default, while a root module can
+register another compatible in-build 3.14 runtime at normal toolchain
+precedence. Host-path runtimes and mismatched major/minor versions fail during
+analysis. QEMU and firmware remain outside this image-building action and are
+supplied by their separate toolchain.
+
+The Debian launcher deliberately does not use that replaceable runtime. Its
+first process must remain executable before a host or packaged dynamic loader
+is trusted, so a pinned static CPython 3.14.7 runtime and a fully static native
+bootstrap form a separate boundary. The native code uses rules_cc's runfiles
+implementation to locate only the static interpreter and generated Python
+stub, sanitizes inherited process state, and performs direct `execv(...,
+"-I", ...)`. The stub is Python source even though it contains a convenience
+shebang; that shebang is never used. The Click command owns argument parsing,
+runfile/configuration resolution, archive authentication and extraction, and
+namespace-runner orchestration. The separate static namespace runner retains
+exclusive ownership of user/mount/PID/IPC/UTS setup, descriptor-only typed
+mounts, pivoting away from the host root, and packaged-loader execution.
 
 ## Test layers
 
@@ -114,6 +132,12 @@ reproducibility while target packages are acquired over the network.
 consumes both a minimal configuration and a typed configuration/source tree
 through the public `mkosi_image` rule. Its image builds and semantic artifact
 tests run in the default consumer suite.
+
+The consumer registers a recognizable CPython 3.14 wrapper ahead of the
+dependency default. An analysis test inspects rules_mkosi's resolved
+interpreter field, and executable tests run mkosi and the direct managed test
+launcher with that runtime. This validates the ruleset's consumer-selection
+boundary; it is not a generic test of Bazel's toolchain algorithm.
 
 A nested `MODULE.bazel` does not stop root `//...` traversal. `.bazelignore`
 therefore excludes `e2e/`, and CI invokes the consumer from its own working

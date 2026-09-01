@@ -8,13 +8,48 @@ load(
     "qemu_ovmf_boot_test",
     "qemu_ovmf_smoke_test",
 )
-load("@rules_python//python:defs.bzl", "py_test")
+load("@rules_python//python:defs.bzl", "py_runtime", "py_runtime_pair", "py_test")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
 load(
     ":public_api_test.bzl",
     "image_public_api_test",
+    "mkosi_python_override_test",
     "public_api_test",
     "snapshot_public_api_test",
+)
+load(":python_override.bzl", "consumer_python")
+
+consumer_python(
+    name = "consumer_python",
+    interpreter = "@python_3_14//:python3",
+    runtime = "@python_3_14//:files",
+)
+
+py_runtime(
+    name = "consumer_python_runtime",
+    files = [":consumer_python"],
+    interpreter = ":consumer_python",
+    interpreter_version_info = {
+        "major": "3",
+        "micro": "0",
+        "minor": "14",
+    },
+    python_version = "PY3",
+)
+
+py_runtime_pair(
+    name = "consumer_python_runtime_pair",
+    py3_runtime = ":consumer_python_runtime",
+)
+
+toolchain(
+    name = "consumer_python_toolchain",
+    exec_compatible_with = [
+        "@platforms//os:linux",
+        "@platforms//cpu:x86_64",
+    ],
+    toolchain = ":consumer_python_runtime_pair",
+    toolchain_type = "@rules_python//python:toolchain_type",
 )
 
 mkosi_image(
@@ -58,6 +93,11 @@ build_test(
 public_api_test(
     name = "debian_tools_public_provider_test",
     target_under_test = "@mkosi_debian_tools//:toolchain",
+)
+
+mkosi_python_override_test(
+    name = "mkosi_python_override_test",
+    target_under_test = "@mkosi_toolchains//:mkosi_toolchain",
 )
 
 snapshot_public_api_test(
@@ -128,7 +168,7 @@ build_test(
 
 sh_test(
     name = "mkosi_version_test",
-    srcs = ["mkosi_version_test.sh"],
+    srcs = ["@rules_mkosi//mkosi/tests:mkosi_version_test.sh"],
     args = [
         "$(rootpath @mkosi_toolchains//:mkosi_python)",
         "$(rootpath @mkosi_toolchains//:mkosi_script)",
@@ -152,12 +192,12 @@ sh_test(
     args = [
         "$(rootpath :demo)",
         "$(rootpath raw_image_validator.py)",
-        "$(rootpath @mkosi_debian_python//:bin/python3.11)",
+        "$(rootpath @mkosi_debian_python//:python)",
     ],
     data = [
         "raw_image_validator.py",
         ":demo",
-        "@mkosi_debian_python//:bin/python3.11",
+        "@mkosi_debian_python//:python",
     ],
 )
 
@@ -166,12 +206,12 @@ sh_test(
     srcs = ["raw_image_validator_unit_test.sh"],
     args = [
         "$(rootpath raw_image_validator_test.py)",
-        "$(rootpath @mkosi_debian_python//:bin/python3.11)",
+        "$(rootpath @mkosi_debian_python//:python)",
     ],
     data = [
         "raw_image_validator.py",
         "raw_image_validator_test.py",
-        "@mkosi_debian_python//:bin/python3.11",
+        "@mkosi_debian_python//:python",
     ],
 )
 
@@ -180,14 +220,14 @@ sh_test(
     srcs = ["raw_image_corruption_test.sh"],
     args = [
         "$(rootpath raw_image_corruption_test.py)",
-        "$(rootpath @mkosi_debian_python//:bin/python3.11)",
+        "$(rootpath @mkosi_debian_python//:python)",
         "$(rootpath :demo)",
     ],
     data = [
         "raw_image_corruption_test.py",
         "raw_image_validator.py",
         ":demo",
-        "@mkosi_debian_python//:bin/python3.11",
+        "@mkosi_debian_python//:python",
     ],
     tags = ["requires-network"],
 )

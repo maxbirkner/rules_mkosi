@@ -13,7 +13,7 @@ exports_files([
     "debian_tools_security_test.py",
     "debian_tools_lock_digest_test.py",
     "debian_python_hermetic_test.py",
-    "launcher_main.c",
+    "launcher_main.cc",
     "namespace_runner.c",
     "package_archive.py",
 ])
@@ -32,6 +32,10 @@ py_test(
         "@mkosi_debian_tools//:tree",
     ],
     main = "debian_tools_security_test.py",
+    deps = [
+        "@mkosi_pypi//click",
+        "@rules_python//python/runfiles",
+    ],
 )
 
 py_test(
@@ -48,10 +52,23 @@ py_test(
 )
 
 py_test(
+    name = "debian_launcher_cli_test",
+    srcs = [
+        "debian_launcher.py",
+        "debian_launcher_cli_test.py",
+    ],
+    main = "debian_launcher_cli_test.py",
+    deps = [
+        "@mkosi_pypi//click",
+        "@rules_python//python/runfiles",
+    ],
+)
+
+py_test(
     name = "debian_python_hermetic_test",
     srcs = ["debian_python_hermetic_test.py"],
     data = [
-        "@mkosi_debian_python//:bin/python3.11",
+        "@mkosi_debian_python//:python",
         "@mkosi_debian_tools//:launcher",
         "@mkosi_debian_tools//:namespace_runner",
     ],

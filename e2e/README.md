@@ -17,6 +17,16 @@ public `mkosi_image` rule. Its real-image build and root-content artifact
 validator run as part of the default suite, exercising the network and
 host-kernel namespace/mount contract.
 
+The consumer also wraps and registers its own compatible CPython 3.14 runtime
+as `//:consumer_python_toolchain`. The
+`mkosi_python_override_test` analysis test verifies that
+`MkosiToolchainInfo.resolved_python_interpreter` is that consumer target rather
+than rules_mkosi's default. The ordinary mkosi version and launcher tests then
+execute through the same override, covering rules_mkosi's selection contract
+rather than merely testing Bazel registration. The repository root and the
+`module_resolution/default` fixture continue to cover the deterministic
+zero-configuration default.
+
 The `tree_demo` target additionally consumes a complete configuration directory
 and an explicitly typed configuration/source tree through the public API. Its
 build and semantic artifact tests also run by default.

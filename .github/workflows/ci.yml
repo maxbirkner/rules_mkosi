@@ -129,6 +129,10 @@ jobs:
             *"mkosi_debian_python/lib/"*) ;;
             *) echo "declared static Python library tree is missing" >&2; exit 1 ;;
           esac
+          case "$graph" in
+            *"mkosi_pypi_314_click"*"/click/"*common.py*|*"mkosi_pypi_314_click"*"/click/"*core.py*) ;;
+            *) echo "locked Click runtime is missing from Debian launcher runfiles" >&2; exit 1 ;;
+          esac
           image_graph="$(run_bazel bazel aquery --lockfile_mode="${mode}" --config=qualified --output=text \
             'mnemonic("MkosiImage", //mkosi/tests:real_image)')"
           case "$image_graph" in
@@ -221,6 +225,8 @@ jobs:
                       "hermetic_cc_toolchain",
                       "rules_cc~",
                       "rules_cc+",
+                      "rules_python~",
+                      "rules_python+",
                       "_main~debian_tools~",
                       "+debian_tools+",
                   )
@@ -319,7 +325,7 @@ jobs:
           if len(archive) < 1 or any(
               not args
               or "mkosi_debian_python" not in args[0][0]
-              or "python3.11" not in args[0][0]
+              or not args[0][0].endswith("/python")
               for args in archive
           ):
               raise SystemExit("archive action lacks complete static Python inputs")

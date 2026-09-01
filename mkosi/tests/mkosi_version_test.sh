@@ -74,17 +74,17 @@ if [ -n "$manifest" ] && [ -f "$manifest" ]; then
     while read -r logical physical
     do
         case "$logical" in
-            */lib/libpython3.11.so.1.0) runtime_lib=1 ;;
-            */lib/python3.11/os.py) runtime_stdlib=1 ;;
+            */lib/libpython3.14.so.1.0) runtime_lib=1 ;;
+            */lib/python3.14/os.py) runtime_stdlib=1 ;;
         esac
     done < "$manifest"
 else
     for runtime in "$runfiles_root"/*python* "$runfiles_root/_main"/*python*
     do
-        if [ -f "$runtime/lib/libpython3.11.so.1.0" ]; then
+        if [ -f "$runtime/lib/libpython3.14.so.1.0" ]; then
             runtime_lib=1
         fi
-        if [ -f "$runtime/lib/python3.11/os.py" ]; then
+        if [ -f "$runtime/lib/python3.14/os.py" ]; then
             runtime_stdlib=1
         fi
     done
