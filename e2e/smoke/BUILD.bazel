@@ -154,7 +154,7 @@ qemu_ovmf_boot_config(
     name = "boot_preflight_contract_config",
     boot_timeout_seconds = 1,
     diagnostic_bytes = 1,
-    image = "testdata/minimal.conf",
+    image = ":demo",
     machine_args = [
         "-machine",
         "q35",
@@ -171,6 +171,7 @@ sh_test(
     srcs = ["boot_preflight_contract_test.sh"],
     args = ["$(rootpath :boot_preflight_contract_config)"],
     data = [":boot_preflight_contract_config"],
+    tags = ["requires-network"],
 )
 
 managed_python_test(
