@@ -661,6 +661,10 @@ def mkosi_image_test_suite(name):
         name = "release_provider_test",
         target_under_test = ":release_subject",
     )
+    raw_image_file(
+        name = "release_raw_image",
+        image = ":release_subject",
+    )
 
     mkosi_image(
         name = "release_without_snapshot_subject",

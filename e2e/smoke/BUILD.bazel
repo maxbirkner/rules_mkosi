@@ -145,6 +145,11 @@ raw_image_file(
     image = ":tree_demo",
 )
 
+raw_image_file(
+    name = "release_demo_raw",
+    image = ":release_demo",
+)
+
 py_test(
     name = "demo_build_metadata_test",
     srcs = ["image_metadata_test.py"],
@@ -269,13 +274,13 @@ sh_test(
     name = "release_demo_artifact_test",
     srcs = ["raw_image_validator_test.sh"],
     args = [
-        "$(rootpath :release_demo)",
+        "$(rootpath :release_demo_raw)",
         "$(rootpath raw_image_validator.py)",
         "$(rootpath @mkosi_debian_python//:python)",
     ],
     data = [
         "raw_image_validator.py",
-        ":release_demo",
+        ":release_demo_raw",
         "@mkosi_debian_python//:python",
     ],
 )

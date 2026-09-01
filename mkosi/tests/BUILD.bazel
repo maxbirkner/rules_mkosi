@@ -450,10 +450,10 @@ py_test(
 py_test(
     name = "release_image_artifact_test",
     srcs = ["release_image_artifact_test.py"],
-    args = ["$(rootpath :release_subject)"],
+    args = ["$(rootpath :release_raw_image)"],
     data = [
         "raw_image_validator.py",
-        ":release_subject",
+        ":release_raw_image",
     ],
     main = "release_image_artifact_test.py",
     deps = ["@rules_python//python/runfiles"],
