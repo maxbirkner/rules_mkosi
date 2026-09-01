@@ -56,6 +56,20 @@ py_test(
     main = "partition_metadata_test.py",
 )
 
+py_test(
+    name = "behavior_matrix_test",
+    srcs = ["behavior_matrix_test.py"],
+    args = [
+        "$(rootpath //docs:behavior-matrix.md)",
+        "$(rootpath :behavior_matrix.tsv)",
+    ],
+    data = [
+        "behavior_matrix.tsv",
+        "//docs:behavior-matrix.md",
+    ],
+    main = "behavior_matrix_test.py",
+)
+
 debian_snapshot_provider_test(
     name = "debian_snapshot_provider_test",
     target_under_test = "@mkosi_debian_snapshot//:repository",
