@@ -266,6 +266,8 @@ def _validate_release_configuration(
     expected_seed = uuid.UUID(release_seed)
     allowed_roots = [Path(path).resolve() for path in allowed_paths]
     for config in images:
+        if getattr(config, "proxy_url", None):
+            raise SystemExit("release configuration cannot use a proxy")
         if config.seed != expected_seed:
             raise SystemExit(
                 "release configuration Seed must resolve to {}".format(expected_seed)
@@ -277,12 +279,6 @@ def _validate_release_configuration(
                 )
             )
         for name, value in vars(config).items():
-            if name in (
-                "proxy_peer_certificate",
-                "proxy_client_certificate",
-                "proxy_client_key",
-            ) and not config.proxy_url:
-                continue
             for path in _configuration_paths(value):
                 resolved = path.resolve()
                 if not any(
@@ -295,6 +291,21 @@ def _validate_release_configuration(
                             resolved,
                         )
                     )
+        for name in (
+            "sync_scripts",
+            "prepare_scripts",
+            "build_scripts",
+            "postinst_scripts",
+            "finalize_scripts",
+            "postoutput_scripts",
+            "configure_scripts",
+            "clean_scripts",
+            "extra_trees",
+        ):
+            if getattr(config, name, ()):
+                raise SystemExit(
+                    "release configuration {} is not supported".format(name)
+                )
     return tuple(allowed_roots)
 
 
@@ -365,13 +376,23 @@ def _activate_release_mode(
     def parse_config(*args, **kwargs):
         parsed = original_parse_config(*args, **kwargs)
         if validate_initial_configuration[0]:
+            images = tuple(
+                replace(
+                    config,
+                    proxy_peer_certificate = None,
+                    proxy_client_certificate = None,
+                    proxy_client_key = None,
+                )
+                for config in parsed[2]
+            )
             _validate_release_configuration(
-                parsed[2],
+                images,
                 release_seed,
                 release_source_date_epoch,
                 allowed_paths,
             )
             validate_initial_configuration[0] = False
+            return (parsed[0], parsed[1], images)
         return parsed
 
     def install_sandbox_trees(config, dst):

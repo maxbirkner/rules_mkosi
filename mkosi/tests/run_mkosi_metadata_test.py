@@ -138,6 +138,30 @@ def main():
         assert "undeclared path" in str(error)
     else:
         raise AssertionError("release configuration accepted an undeclared tree")
+    for configuration, message in (
+        (
+            types.SimpleNamespace(
+                seed=uuid.UUID(seed),
+                source_date_epoch=0,
+                proxy_peer_certificate=pathlib.Path("/etc/ssl/certs/ca-certificates.crt"),
+            ),
+            "undeclared path",
+        ),
+        (
+            types.SimpleNamespace(
+                seed=uuid.UUID(seed),
+                source_date_epoch=0,
+                extra_trees=[types.SimpleNamespace(source=root)],
+            ),
+            "extra_trees is not supported",
+        ),
+    ):
+        try:
+            wrapper._validate_release_configuration([configuration], seed, 0, [root])
+        except SystemExit as error:
+            assert message in str(error)
+        else:
+            raise AssertionError("cache-unsafe release configuration was accepted")
     print("materialized metadata and relative links are deterministic")
 
 

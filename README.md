@@ -246,6 +246,11 @@ package or attempted network access fails the action. Release images that
 install APT do not retain a mutable package-source configuration; consume a
 new declared snapshot to produce an updated release image.
 
+To retain that cache guarantee, release mode rejects proxies, lifecycle scripts,
+and `ExtraTrees`: those may otherwise import host state or restore an APT
+source after the offline package installation. Use a new immutable
+configuration/source-tree input and a new release image for such changes.
+
 For a complete mkosi configuration directory, mark the exported directory
 with `mkosi_config_tree`. The directory must contain `mkosi.conf`; mkosi's
 relative `mkosi.conf.d/`, `mkosi.profiles/`, and `mkosi.extra/` paths are
