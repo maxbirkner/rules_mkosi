@@ -2,6 +2,7 @@
 """Validate both GPT copies and emit normalized partition metadata."""
 
 import argparse
+import hashlib
 import json
 import os
 import struct
@@ -74,12 +75,16 @@ def _header(image, image_size, sector_size, lba, expected_backup, description):
         raise ValueError("{} partition-array CRC mismatch".format(description))
     return {
         "array": array,
+        "array_offset": array_offset,
         "count": count,
         "disk_guid": raw[56:72],
         "entry_size": entry_size,
         "entries_lba": entries_lba,
         "first_usable": first_usable,
+        "header_offset": lba * sector_size,
+        "header_size": header_size,
         "last_usable": last_usable,
+        "raw_header": raw,
     }
 
 
@@ -95,7 +100,7 @@ def _sector_size(image, image_size):
     return candidates[0]
 
 
-def project_image(path):
+def _validated_gpt(path):
     image_size = os.path.getsize(path)
     with open(path, "rb") as image:
         sector_size = _sector_size(image, image_size)
@@ -113,6 +118,11 @@ def project_image(path):
             raise ValueError("GPT copies disagree on {}".format(field))
     if primary["array"] != backup["array"]:
         raise ValueError("GPT partition arrays disagree")
+    return image_size, sector_size, primary, backup
+
+
+def project_image(path):
+    _, sector_size, primary, _ = _validated_gpt(path)
 
     partitions = []
     previous_first = None
@@ -165,6 +175,61 @@ def project_image(path):
         "partitions": partitions,
         "sector_size": sector_size,
     }
+
+
+def _canonical_header(header, array_crc):
+    result = bytearray(header["raw_header"])
+    result[16:20] = b"\0" * 4
+    result[56:72] = b"\0" * 16
+    struct.pack_into("<I", result, 88, array_crc)
+    struct.pack_into("<I", result, 16, zlib.crc32(result[:header["header_size"]]))
+    return bytes(result)
+
+
+def _hash_with_patches(path, image_size, patches):
+    digest = hashlib.sha256()
+    cursor = 0
+    with open(path, "rb") as image:
+        for offset, replacement in sorted(patches):
+            if offset < cursor:
+                raise ValueError("canonical GPT patches overlap")
+            remaining = offset - cursor
+            while remaining:
+                chunk = image.read(min(1024 * 1024, remaining))
+                if not chunk:
+                    raise ValueError("raw image is truncated while hashing")
+                digest.update(chunk)
+                remaining -= len(chunk)
+            image.seek(len(replacement), os.SEEK_CUR)
+            digest.update(replacement)
+            cursor = offset + len(replacement)
+        remaining = image_size - cursor
+        while remaining:
+            chunk = image.read(min(1024 * 1024, remaining))
+            if not chunk:
+                raise ValueError("raw image is truncated while hashing")
+            digest.update(chunk)
+            remaining -= len(chunk)
+    return digest.hexdigest()
+
+
+def canonical_image_sha256(path):
+    """Hashes every image byte after normalizing only GPT identity and CRC fields."""
+    project_image(path)
+    image_size, _, primary, backup = _validated_gpt(path)
+    array = bytearray(primary["array"])
+    for slot in range(primary["count"]):
+        offset = slot * primary["entry_size"]
+        array[offset + 16:offset + 32] = b"\0" * 16
+    array = bytes(array)
+    array_crc = zlib.crc32(array)
+    patches = [
+        (primary["header_offset"], _canonical_header(primary, array_crc)),
+        (primary["array_offset"], array),
+        (backup["array_offset"], array),
+        (backup["header_offset"], _canonical_header(backup, array_crc)),
+    ]
+    return _hash_with_patches(path, image_size, patches)
 
 
 def main():

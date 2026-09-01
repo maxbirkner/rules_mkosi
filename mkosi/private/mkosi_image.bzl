@@ -99,7 +99,7 @@ def _mkosi_reproducibility_manifest_impl(ctx):
         executable = mkosi.python,
         arguments = [args],
         inputs = depset(
-            [image.raw_image, image.build_metadata, image.partition_metadata, ctx.file._projector],
+            [image.raw_image, image.build_metadata, image.partition_metadata, ctx.file._partition_projector, ctx.file._projector],
             transitive = [mkosi.python_runtime_files],
         ),
         tools = [mkosi.python_files_to_run],
@@ -124,6 +124,11 @@ mkosi_reproducibility_manifest = rule(
         "_projector": attr.label(
             cfg = "exec",
             default = "//mkosi/private:reproducibility_manifest.py",
+            allow_single_file = True,
+        ),
+        "_partition_projector": attr.label(
+            cfg = "exec",
+            default = "//mkosi/private:partition_metadata.py",
             allow_single_file = True,
         ),
     },

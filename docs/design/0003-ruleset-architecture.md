@@ -156,9 +156,13 @@ and compare those instead:
 `mkosi_reproducibility_manifest` now projects normalized raw-image structure,
 provider-selected partition metadata, and build metadata into canonical JSON.
 It records the SHA-256 and byte size of both immutable metadata artifacts,
-embeds their parsed content with sorted JSON keys, and records the GPT disk
-and root-partition UUIDs, geometry, attributes, and
-ext4 UUID, hash seed, geometry, and image size. CI compares this text across
+embeds their parsed content with sorted JSON keys, and records a canonical
+whole-image SHA-256. That digest covers every image byte exactly once while
+normalizing only the GPT disk GUID, partition unique GUIDs, and the primary
+and backup header/partition-array CRC fields derived from those identities.
+Type GUIDs, labels, slot order, LBAs, attributes, padding, reserved bytes,
+partition payload, boot code, and every other image byte remain hashed. CI
+compares this text across
 two Bazel 8 builds with distinct clean
 `output_user_root` directories and with local and remote action-result caches
 disabled. Each invocation also uses `--nouse_action_cache` and an isolated
@@ -167,10 +171,9 @@ non-cache-hit `MkosiImage` and `MkosiReproducibilityManifest` action for each
 build before their manifests are compared. Repository downloads may be reused
 because their content is fixed and authenticated.
 
-The current unsigned release disk has one excluded embedded field:
-`raw_image.sha256`. ext4 allocation and bookkeeping bytes are not stable
-across fresh filesystem construction, so the comparison makes no whole-disk
-bit-for-bit claim and compares the documented GPT/ext4 projection instead.
+The current unsigned release disk excludes only GPT identity fields and their
+necessarily derived CRCs from its canonical digest: disk GUID, each partition
+unique GUID, both partition-array CRCs, and both header CRCs.
 The manifest's `excluded_variable_fields` names each non-artifact field that
 is intentionally omitted: output path, inode, ownership, permissions, mtime,
 output base, sandbox path, workspace path, action start time, and action

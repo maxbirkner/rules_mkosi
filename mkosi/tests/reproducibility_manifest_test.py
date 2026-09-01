@@ -3,10 +3,9 @@
 import importlib.util
 import os
 import pathlib
-import struct
 import sys
 import unittest
-import uuid
+from unittest import mock
 
 
 spec = importlib.util.spec_from_file_location("projection", sys.argv[1])
@@ -20,28 +19,15 @@ class ProjectionTest(unittest.TestCase):
         image = root / "image.raw"
         metadata = root / "metadata.json"
         partitions = root / "partitions.json"
-        raw = bytearray(1024 * 1024)
-        raw[512:520] = b"EFI PART"
-        disk_uuid = uuid.UUID("00000000-0000-4000-8000-000000000001")
-        raw[568:584] = disk_uuid.bytes_le
-        struct.pack_into("<QII", raw, 584, 2, 1, 128)
-        root_type = uuid.UUID("4f68bce3-e8cd-4db1-96e7-fbcaf984b709")
-        partition_uuid = uuid.UUID("00000000-0000-4000-8000-000000000002")
-        raw[1024:1040] = root_type.bytes_le
-        raw[1040:1056] = partition_uuid.bytes_le
-        struct.pack_into("<QQQ", raw, 1056, 8, 1023, 0)
-        superblock = 8 * 512 + 1024
-        struct.pack_into("<I", raw, superblock, 32)
-        struct.pack_into("<I", raw, superblock + 4, 128)
-        raw[superblock + 56:superblock + 58] = b"\x53\xef"
-        filesystem_uuid = uuid.UUID("00000000-0000-4000-8000-000000000003")
-        hash_seed = uuid.UUID("00000000-0000-4000-8000-000000000004")
-        raw[superblock + 104:superblock + 120] = filesystem_uuid.bytes
-        raw[superblock + 236:superblock + 252] = hash_seed.bytes
-        image.write_bytes(raw)
+        image.write_bytes(b"raw payload")
         metadata.write_text('{"z":2,"a":1}\n')
         partitions.write_text('{"format_version":"mkosi-partitions-v1"}\n')
-        result = projection.project(image, metadata, partitions)
+        with mock.patch.object(
+            projection.partition_metadata,
+            "canonical_image_sha256",
+            return_value="a" * 64,
+        ):
+            result = projection.project(image, metadata, partitions)
 
         self.assertEqual("mkosi-reproducibility-manifest-v1", result["format_version"])
         self.assertEqual(
@@ -56,7 +42,12 @@ class ProjectionTest(unittest.TestCase):
                 "build_process.workspace_path",
                 "build_process.start_time",
                 "build_process.duration",
-                "raw_image.sha256",
+                "raw_image.gpt.disk_guid",
+                "raw_image.gpt.partitions[].unique_guid",
+                "raw_image.gpt.primary.partition_array_crc32",
+                "raw_image.gpt.backup.partition_array_crc32",
+                "raw_image.gpt.primary.header_crc32",
+                "raw_image.gpt.backup.header_crc32",
             ],
             [item["field"] for item in result["excluded_variable_fields"]],
         )
@@ -65,10 +56,8 @@ class ProjectionTest(unittest.TestCase):
             result["normalized_manifests"]["build_metadata"],
         )
         self.assertEqual(
-            "00000000-0000-4000-8000-000000000003",
-            result["normalized_manifests"]["raw_image"]["root_partition"][
-                "filesystem"
-            ]["uuid"],
+            "a" * 64,
+            result["immutable_artifacts"]["raw_image"]["canonical_sha256"],
         )
         self.assertEqual(
             {"format_version": "mkosi-partitions-v1"},
