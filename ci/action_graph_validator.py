@@ -14,7 +14,12 @@ _HOST_TOOL_BASENAMES = {
     "sh",
     "strip",
 }
-_ZIG_ACTIONS = {"CppCompile", "CppLink"}
+_HERMETIC_PATH_ACTIONS = {
+    "CppArchive",
+    "CppCompile",
+    "CppLink",
+    "PythonZipper",
+}
 
 
 def validate_action_environment(action, input_paths):
@@ -29,13 +34,13 @@ def validate_action_environment(action, input_paths):
         if key == "PATH" and value == _FIXED_ZIG_PATH:
             if mnemonic == "CcStrip" and arguments[:1] == ["/usr/bin/false"]:
                 continue
-            if mnemonic not in _ZIG_ACTIONS or not arguments:
+            if mnemonic not in _HERMETIC_PATH_ACTIONS or not arguments:
                 raise ValueError(
                     f"nonempty PATH on unsupported action: {mnemonic}"
                 )
             executable = arguments[0]
             basename = pathlib.PurePosixPath(executable).name
-            if basename in _HOST_TOOL_BASENAMES:
+            if "/" not in executable and basename in _HOST_TOOL_BASENAMES:
                 raise ValueError(
                     f"host-tool basename exposed through PATH: {basename}"
                 )

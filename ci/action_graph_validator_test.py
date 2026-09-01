@@ -9,9 +9,9 @@ from action_graph_validator import validate_action_environment
 
 
 class ActionGraphValidatorTest(unittest.TestCase):
-    def action(self, executable):
+    def action(self, executable, mnemonic="CppCompile"):
         return {
-            "mnemonic": "CppCompile",
+            "mnemonic": mnemonic,
             "arguments": [executable, "-c", "source.cc"],
             "environmentVariables": [
                 {"key": "PATH", "value": "/bin:/usr/bin:/usr/local/bin"},
@@ -29,6 +29,23 @@ class ActionGraphValidatorTest(unittest.TestCase):
         )
         validate_action_environment(
             self.action(executable),
+            {executable, "source.cc"},
+        )
+
+    def test_accepts_declared_hermetic_archiver(self):
+        executable = (
+            "external/hermetic_cc_toolchain++toolchains+zig_config/"
+            "tools/x86_64-linux-musl/ar"
+        )
+        validate_action_environment(
+            self.action(executable, mnemonic="CppArchive"),
+            {executable, "source.cc"},
+        )
+
+    def test_accepts_declared_python_zipper(self):
+        executable = "external/bazel_tools/tools/zip/zipper/zipper"
+        validate_action_environment(
+            self.action(executable, mnemonic="PythonZipper"),
             {executable, "source.cc"},
         )
 
