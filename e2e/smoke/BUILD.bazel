@@ -14,6 +14,7 @@ load("@rules_python//python:defs.bzl", "py_runtime", "py_runtime_pair", "py_test
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
 load(
     ":public_api_test.bzl",
+    "behavior_targets",
     "image_build_metadata_file",
     "image_partition_metadata_file",
     "image_public_api_test",
@@ -28,6 +29,44 @@ consumer_python(
     name = "consumer_python",
     interpreter = "@python_3_14//:python3",
     runtime = "@python_3_14//:files",
+)
+
+behavior_targets(
+    name = "behavior_consumer_targets",
+    testonly = True,
+    targets = [
+        ":boot_entry_regression_test",
+        ":boot_launcher_contract_test",
+        ":boot_preflight_contract_test",
+        ":debian_snapshot_public_provider_test",
+        ":debian_tools_public_provider_test",
+        ":demo_artifact_test",
+        ":demo_boot_test",
+        ":image_public_provider_test",
+        ":mkosi_python_override_test",
+        ":release_demo_artifact_test",
+        ":release_demo_build_metadata_test",
+        ":release_demo_build_test",
+        ":tree_demo_build_test",
+        ":tree_demo_semantics_test",
+    ],
+)
+
+py_test(
+    name = "behavior_matrix_consumer_test",
+    srcs = ["@rules_mkosi//mkosi/tests:behavior_matrix_test.py"],
+    args = [
+        "$(rootpath @rules_mkosi//docs:behavior-matrix.md)",
+        "$(rootpath @rules_mkosi//mkosi/tests:behavior_matrix.tsv)",
+        "$(rootpath :behavior_consumer_targets)",
+        "consumer",
+    ],
+    data = [
+        ":behavior_consumer_targets",
+        "@rules_mkosi//docs:behavior-matrix.md",
+        "@rules_mkosi//mkosi/tests:behavior_matrix.tsv",
+    ],
+    main = "behavior_matrix_test.py",
 )
 
 py_runtime(

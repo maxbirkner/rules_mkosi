@@ -5,7 +5,8 @@ import unittest
 
 
 ID_RE = re.compile(r"^BHV-[A-Z0-9]+(?:-[A-Z0-9]+)*$")
-LAYERS = {"analysis", "artifact", "consumer", "runtime"}
+LAYERS = {"analysis", "artifact", "consumer", "module-resolution", "runtime"}
+ROOT_LAYERS = LAYERS - {"consumer"}
 
 
 def load_documented_ids(path):
@@ -16,8 +17,8 @@ def load_documented_ids(path):
     return set(ids)
 
 
-def load_matrix(path):
-    lines = path.read_text().splitlines()
+def parse_matrix(text):
+    lines = text.splitlines()
     if not lines or lines[0] != "id\tsurface\tcases\tbehavior\ttests":
         raise ValueError("matrix header is invalid")
     by_id = {}
@@ -37,8 +38,15 @@ def load_matrix(path):
         if not tests_text:
             raise ValueError(f"{behavior_id} has no mapped test target")
         mappings = []
+        mapping_keys = set()
         for entry in tests_text.split(";"):
             layer, target = entry.split("=", 1)
+            mapping_key = (layer, target)
+            if mapping_key in mapping_keys:
+                raise ValueError(
+                    f"{behavior_id} has duplicate mapping {layer}={target}"
+                )
+            mapping_keys.add(mapping_key)
             mapping = {"layer": layer, "target": target}
             mappings.append(mapping)
         for mapping in mappings:
@@ -57,6 +65,34 @@ def load_matrix(path):
             "tests": mappings,
         }
     return by_id
+
+
+def load_matrix(path):
+    return parse_matrix(path.read_text())
+
+
+def validate_registered_targets(matrix, manifest, scope):
+    registered = {
+        target.replace("@@//", "//", 1) for target in manifest.splitlines()
+    }
+    layers = {"consumer"} if scope == "consumer" else ROOT_LAYERS
+    mapped = {
+        mapping["target"]
+        for row in matrix.values()
+        for mapping in row["tests"]
+        if mapping["layer"] in layers
+    }
+    if scope == "consumer":
+        registered = {
+            target.replace("//:", "//e2e/smoke:", 1) for target in registered
+        }
+    missing = mapped - registered
+    extra = registered - mapped
+    if missing or extra:
+        raise ValueError(
+            f"{scope} target manifest differs: missing={sorted(missing)}, "
+            f"extra={sorted(extra)}"
+        )
 
 
 class BehaviorMatrixTest(unittest.TestCase):
@@ -82,8 +118,40 @@ class BehaviorMatrixTest(unittest.TestCase):
                 target = mapping["target"]
                 if mapping["layer"] == "consumer":
                     self.assertTrue(target.startswith("//e2e/smoke:"))
+                elif mapping["layer"] == "module-resolution":
+                    self.assertTrue(
+                        target.startswith("//:e2e/module_resolution/")
+                    )
                 else:
                     self.assertFalse(target.startswith("//e2e/smoke:"))
+
+    def test_registered_labels_match_mappings(self):
+        matrix = load_matrix(pathlib.Path(sys.argv[2]))
+        manifest = pathlib.Path(sys.argv[3]).read_text()
+        validate_registered_targets(matrix, manifest, sys.argv[4])
+
+    def test_duplicate_behavior_id_is_rejected(self):
+        header = "id\tsurface\tcases\tbehavior\ttests\n"
+        row = "BHV-DUP\tfailure\tnegative\tduplicate\tanalysis=//:test\n"
+        with self.assertRaisesRegex(ValueError, "duplicate matrix behavior ID"):
+            parse_matrix(header + row + row)
+
+    def test_duplicate_layer_target_mapping_is_rejected(self):
+        text = (
+            "id\tsurface\tcases\tbehavior\ttests\n"
+            "BHV-DUP\tfailure\tnegative\tduplicate\t"
+            "analysis=//:test;analysis=//:test\n"
+        )
+        with self.assertRaisesRegex(ValueError, "duplicate mapping"):
+            parse_matrix(text)
+
+    def test_stale_mapping_is_rejected_by_manifest_contract(self):
+        matrix = parse_matrix(
+            "id\tsurface\tcases\tbehavior\ttests\n"
+            "BHV-STALE\tfailure\tnegative\tstale\tanalysis=//:stale\n"
+        )
+        with self.assertRaisesRegex(ValueError, "missing=.*//:stale"):
+            validate_registered_targets(matrix, "//:maintained\n", "root")
 
 
 if __name__ == "__main__":

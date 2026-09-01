@@ -8,8 +8,9 @@ boundaries: the matrix measures contracts, not target count.
 
 Root `analysis` and `artifact` tests exercise the ruleset itself. `consumer`
 means the independently resolved `e2e/smoke` module. `runtime` means an
-executed launcher, image, or VM lifecycle test. These labels are intentionally
-not encoded as Bazel tags.
+executed launcher, image, or VM lifecycle test. `module-resolution` identifies
+a maintained nested-module fixture by its repository-owned `MODULE.bazel`
+input. These labels are intentionally not encoded as Bazel tags.
 
 ## Rules and attributes
 
@@ -133,7 +134,8 @@ than ambient host executables.
 <!-- behavior:BHV-EXTENSION-VALIDATION -->
 The module extension selects the default or one supported pinned version,
 honors one root override, and rejects unsupported, conflicting, multiple-name,
-or dependency-owned-name requests.
+or dependency-owned-name requests. The dependency-owned-name rejection is the
+maintained `e2e/module_resolution/nonroot_name` fixture.
 
 <!-- behavior:BHV-ACTION-FAILURES -->
 Executed failures preserve tool output and classify kernel capability,
