@@ -23,6 +23,7 @@ _VARIABLE = re.compile(
 _SHELL_SEPARATOR = re.compile(r"(?:&&|\|\||[;&|\n])")
 _SHELL_LINE_CONTINUATION = re.compile(r"\\(?:\r\n|\n)")
 _GITHUB_EXPRESSION = re.compile(r"\$\{\{.*?\}\}", re.DOTALL)
+_GITHUB_LAUNCHER = "GITHUB_EXPRESSION_LAUNCHER"
 _SHELL_WRAPPERS = {"bash", "command", "env", "exec", "run_bazel", "sh", "sudo"}
 
 
@@ -71,7 +72,7 @@ def _normalize_shell_continuations(text):
 def _shell_command_segments(text):
     """Yield command segments for literal and shell-variable launchers."""
     text = _normalize_shell_continuations(text)
-    text = _GITHUB_EXPRESSION.sub("GITHUB_EXPRESSION", text)
+    text = _GITHUB_EXPRESSION.sub(_GITHUB_LAUNCHER, text)
     start = 0
     for match in _SHELL_SEPARATOR.finditer(text):
         yield text[start : match.start()]
@@ -79,20 +80,8 @@ def _shell_command_segments(text):
     yield text[start:]
 
 
-def _expression_launches_build_or_test(text):
-    """Conservatively identify GitHub expressions used as Bazel launchers."""
-    text = _normalize_shell_continuations(text)
-    boundaries = "\n;&|(){}"
-    for match in _GITHUB_EXPRESSION.finditer(text):
-        command_end = len(text)
-        for character in boundaries:
-            boundary = text.find(character, match.end())
-            if boundary >= 0:
-                command_end = min(command_end, boundary)
-        suffix = text[match.end() : command_end]
-        if re.search(r"\b(?:build|test)\b", suffix):
-            return True
-    return False
+def _is_launcher_token(token):
+    return bool(_LAUNCHER.fullmatch(token) or _GITHUB_LAUNCHER in token)
 
 
 def _launcher_command(tokens, launcher_index):
@@ -100,7 +89,7 @@ def _launcher_command(tokens, launcher_index):
     index = launcher_index + 1
     if launcher == "run_bazel" and index < len(tokens):
         if (
-            _LAUNCHER.fullmatch(tokens[index])
+            _is_launcher_token(tokens[index])
             or tokens[index].endswith("/tools/bazel")
             or (
                 tokens[index].startswith("$")
@@ -128,28 +117,33 @@ def validate_shell_sources(sources):
     for source_name, text, workflow in sources:
         bodies = _yaml_shell_bodies(text) if workflow else [text]
         for body in bodies:
-            if _expression_launches_build_or_test(body):
-                violations.append(
-                    f"{source_name}: expression may launch a build/test command"
-                )
             for segment in _shell_command_segments(body):
-                if not _LAUNCHER.search(segment) and not _VARIABLE.search(segment):
+                if (
+                    _GITHUB_LAUNCHER not in segment
+                    and not _LAUNCHER.search(segment)
+                    and not _VARIABLE.search(segment)
+                ):
                     continue
                 try:
                     tokens = shlex.split(segment)
                 except ValueError as error:
-                    if _LAUNCHER.search(segment) and re.search(
-                        r"\b(?:test|build)\b", segment
+                    if _GITHUB_LAUNCHER in segment or (
+                        _LAUNCHER.search(segment)
+                        and re.search(r"\b(?:test|build)\b", segment)
                     ):
                         violations.append(
-                            f"{source_name}: cannot parse build/test command: {error}"
+                            f"{source_name}: cannot parse potential "
+                            f"Bazel command: {error}"
                         )
                     continue
                 for token in tokens:
                     if (
                         any(character.isspace() for character in token)
-                        and _LAUNCHER.search(token)
-                        and re.search(r"\b(?:test|build)\b", token)
+                        and (
+                            _GITHUB_LAUNCHER in token
+                            or _LAUNCHER.search(token)
+                        )
+                        and token != _GITHUB_LAUNCHER
                         and not _LAUNCHER.fullmatch(token)
                     ):
                         # Shell wrappers such as `sh -c "bazel test ..."`
@@ -160,7 +154,7 @@ def validate_shell_sources(sources):
                             )
                         )
                 for index, token in enumerate(tokens):
-                    if _LAUNCHER.fullmatch(token):
+                    if _is_launcher_token(token):
                         pass
                     elif _VARIABLE.fullmatch(token) and _variable_is_command(
                         tokens, index

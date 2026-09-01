@@ -7,7 +7,6 @@ import unittest
 
 sys.path.insert(0, str(pathlib.Path(__file__).parent))
 from workflow_bazel_command_test import (
-    _expression_launches_build_or_test,
     _yaml_shell_bodies,
     validate_shell_sources,
 )
@@ -18,6 +17,10 @@ def _workflow(run_yaml):
         run_yaml,
         "        ",
     ).lstrip()
+
+
+def _violations(source):
+    return validate_shell_sources([("fixture", source, False)])
 
 
 class WorkflowBazelCommandParserTest(unittest.TestCase):
@@ -150,6 +153,47 @@ class WorkflowBazelCommandParserTest(unittest.TestCase):
                 "  ${{ env.BAZEL }}    \\\n"
                 "        build //pkg:target\n",
             ),
+            (
+                "github-expression-continued-double-quoted-test",
+                "run: |\n"
+                "  ${{ env.BAZEL }} \\\n"
+                '    te""st //pkg:target\n',
+            ),
+            (
+                "github-expression-continued-single-quoted-test",
+                "run: |\n"
+                "  ${{ env.BAZEL }} \\\n"
+                "    t'es't //pkg:target\n",
+            ),
+            (
+                "github-expression-continued-escaped-test",
+                "run: |\n"
+                "  ${{ env.BAZEL }} \\\n"
+                "    te\\st //pkg:target\n",
+            ),
+            (
+                "github-expression-continued-double-quoted-build",
+                "run: |\n"
+                "  ${{ env.BAZEL }} \\\n"
+                '    bu""ild //pkg:target\n',
+            ),
+            (
+                "github-expression-continued-single-quoted-build",
+                "run: |\n"
+                "  ${{ env.BAZEL }} \\\n"
+                "    b'uil'd //pkg:target\n",
+            ),
+            (
+                "github-expression-continued-escaped-build",
+                "run: |\n"
+                "  ${{ env.BAZEL }} \\\n"
+                "    bu\\ild //pkg:target\n",
+            ),
+            (
+                "github-expression-malformed-shell",
+                "run: |\n"
+                '  ${{ env.BAZEL }} "unterminated\n',
+            ),
         ]
         for name, fixture in fixtures:
             with self.subTest(name=name):
@@ -170,6 +214,12 @@ class WorkflowBazelCommandParserTest(unittest.TestCase):
   ${{ matrix.script }} --help
   echo ${{ matrix.bazel }} query
   printf '%s\\n' "${{ fromJSON(inputs.tools)[0] }}" info
+  echo te""st //pkg:target
+  echo t'es't //pkg:target
+  echo te\\st //pkg:target
+  echo bu""ild //pkg:target
+  echo b'uil'd //pkg:target
+  echo bu\\ild //pkg:target
 """
         self.assertEqual(
             validate_shell_sources(
@@ -189,24 +239,25 @@ class WorkflowBazelCommandParserTest(unittest.TestCase):
             ["echo preparing\n  ${{ matrix.bazel }} test //pkg:target"],
         )
 
-    def test_expression_scan_handles_control_forms(self):
+    def test_expression_launchers_handle_control_forms(self):
         self.assertTrue(
-            _expression_launches_build_or_test(
-                "if ${{ matrix.bazel }} test //pkg:target; then echo bad; fi"
+            _violations(
+                "if ${{ matrix.bazel }} test //pkg:target; "
+                "then echo bad; fi"
             )
         )
         self.assertTrue(
-            _expression_launches_build_or_test(
+            _violations(
                 "{ time ${{ matrix.bazel }} build //pkg:target; }"
             )
         )
 
-    def test_expression_scan_normalizes_both_continuation_endings(self):
+    def test_expression_launchers_normalize_both_continuation_endings(self):
         for ending in ("\\\n", "\\\r\n"):
             for command in ("build", "test"):
                 with self.subTest(ending=repr(ending), command=command):
                     self.assertTrue(
-                        _expression_launches_build_or_test(
+                        _violations(
                             "${{ env.BAZEL }} "
                             + ending
                             + f"    {command} //pkg:target"
@@ -220,7 +271,7 @@ class WorkflowBazelCommandParserTest(unittest.TestCase):
             "${{ env.BAZEL }} \\\n"
             "  build //pkg:target\n"
         )
-        self.assertTrue(_expression_launches_build_or_test(source))
+        self.assertTrue(_violations(source))
 
 
 if __name__ == "__main__":
