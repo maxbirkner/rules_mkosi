@@ -21,6 +21,7 @@ _VARIABLE = re.compile(
     r"[A-Za-z_][A-Za-z0-9_]*)"
 )
 _SHELL_SEPARATOR = re.compile(r"(?:&&|\|\||[;&|\n])")
+_SHELL_LINE_CONTINUATION = re.compile(r"\\(?:\r\n|\n)")
 _GITHUB_EXPRESSION = re.compile(r"\$\{\{.*?\}\}", re.DOTALL)
 _SHELL_WRAPPERS = {"bash", "command", "env", "exec", "run_bazel", "sh", "sudo"}
 
@@ -62,10 +63,15 @@ def _yaml_shell_bodies(text):
     return bodies
 
 
+def _normalize_shell_continuations(text):
+    """Apply the shell's physical backslash-newline removal."""
+    return _SHELL_LINE_CONTINUATION.sub("", text)
+
+
 def _shell_command_segments(text):
     """Yield command segments for literal and shell-variable launchers."""
+    text = _normalize_shell_continuations(text)
     text = _GITHUB_EXPRESSION.sub("GITHUB_EXPRESSION", text)
-    text = text.replace("\\\n", " ")
     start = 0
     for match in _SHELL_SEPARATOR.finditer(text):
         yield text[start : match.start()]
@@ -75,6 +81,7 @@ def _shell_command_segments(text):
 
 def _expression_launches_build_or_test(text):
     """Conservatively identify GitHub expressions used as Bazel launchers."""
+    text = _normalize_shell_continuations(text)
     boundaries = "\n;&|(){}"
     for match in _GITHUB_EXPRESSION.finditer(text):
         command_end = len(text)

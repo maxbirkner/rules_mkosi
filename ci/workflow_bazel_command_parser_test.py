@@ -138,6 +138,18 @@ class WorkflowBazelCommandParserTest(unittest.TestCase):
                 "run: |\n"
                 "  (${{ matrix.bazel }} test //pkg:target)\n",
             ),
+            (
+                "github-expression-line-continuation-test",
+                "run: |\n"
+                "  ${{ env.BAZEL }} \\\n"
+                "    test //pkg:target\n",
+            ),
+            (
+                "github-expression-line-continuation-build",
+                "run: |\n"
+                "  ${{ env.BAZEL }}    \\\n"
+                "        build //pkg:target\n",
+            ),
         ]
         for name, fixture in fixtures:
             with self.subTest(name=name):
@@ -188,6 +200,27 @@ class WorkflowBazelCommandParserTest(unittest.TestCase):
                 "{ time ${{ matrix.bazel }} build //pkg:target; }"
             )
         )
+
+    def test_expression_scan_normalizes_both_continuation_endings(self):
+        for ending in ("\\\n", "\\\r\n"):
+            for command in ("build", "test"):
+                with self.subTest(ending=repr(ending), command=command):
+                    self.assertTrue(
+                        _expression_launches_build_or_test(
+                            "${{ env.BAZEL }} "
+                            + ending
+                            + f"    {command} //pkg:target"
+                        )
+                    )
+
+    def test_unrelated_and_literal_backslashes_do_not_hide_bypass(self):
+        source = (
+            "printf '%s' '\\\\'; echo unrelated \\\n"
+            "  value\n"
+            "${{ env.BAZEL }} \\\n"
+            "  build //pkg:target\n"
+        )
+        self.assertTrue(_expression_launches_build_or_test(source))
 
 
 if __name__ == "__main__":
