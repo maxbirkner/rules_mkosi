@@ -1,0 +1,13 @@
+#!/bin/sh
+set -eu
+
+directory=$PWD
+while [ "$directory" != "/" ]; do
+    if [ -f "$directory/MODULE.bazel" ] && [ -f "$directory/.bazelrc" ]; then
+        cd "$directory"
+        exec bazel "$@"
+    fi
+    directory=$(dirname "$directory")
+done
+echo "could not find a Bazel module root from $PWD" >&2
+exit 1

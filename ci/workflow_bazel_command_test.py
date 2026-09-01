@@ -19,7 +19,9 @@ _VARIABLE = re.compile(
     r"[A-Za-z_][A-Za-z0-9_]*)"
 )
 _SHELL_SEPARATOR = re.compile(r"(?:&&|\|\||[;&|\n])")
-_RUN_BLOCK = re.compile(r"^(\s*)run:\s*([|>])([1-9]?)([+-]?)\s*$")
+_RUN_BLOCK = re.compile(
+    r"^(\s*)run:\s*([|>])([+-]?[1-9]?|[1-9]?[+-]?)\s*$"
+)
 _RUN_INLINE = re.compile(r"^\s*run:\s*(?![|>])(.+)$")
 _SHELL_WRAPPERS = {"bash", "command", "env", "exec", "run_bazel", "sh", "sudo"}
 
@@ -52,7 +54,8 @@ def _yaml_shell_bodies(text):
             continue
         base_indent = len(match.group(1))
         style = match.group(2)
-        explicit_indent = int(match.group(3) or 0)
+        indicator = match.group(3)
+        explicit_indent = int("".join(c for c in indicator if c.isdigit()) or 0)
         index += 1
         content = []
         content_indent = None
@@ -92,7 +95,8 @@ def _yaml_shell_bodies(text):
 
 def _command_segments(text):
     text = re.sub(
-        r"\$\{\{\s*(?:env|vars|inputs)\.[A-Za-z_][A-Za-z0-9_]*\s*\}\}",
+        r"\$\{\{\s*(?:env|vars|inputs|matrix|steps(?:\.[A-Za-z_][A-Za-z0-9_]*){0,2})"
+        r"(?:\.[A-Za-z_][A-Za-z0-9_]*)?(?:\[[0-9]+\])?\s*\}\}",
         "$BAZEL",
         text,
     )
@@ -108,11 +112,24 @@ def _launcher_command(tokens, launcher_index):
     launcher = tokens[launcher_index]
     index = launcher_index + 1
     if launcher == "run_bazel" and index < len(tokens):
-        if _LAUNCHER.fullmatch(tokens[index]) and tokens[index] != "run_bazel":
+        if (
+            _LAUNCHER.fullmatch(tokens[index])
+            or (
+                tokens[index].startswith("$")
+                and "bazel" in tokens[index].lower()
+            )
+        ) and tokens[index] != "run_bazel":
             index += 1
+            wrapped_command = True
+        else:
+            wrapped_command = False
+    else:
+        wrapped_command = False
     while index < len(tokens) and tokens[index] not in ("test", "build"):
         index += 1
     if index == len(tokens):
+        if wrapped_command:
+            return -1
         return None
     return index
 
@@ -160,10 +177,15 @@ def validate_shell_sources(sources):
                     else:
                         continue
                     command_index = _launcher_command(tokens, index)
+                    if command_index == -1:
+                        continue
                     if command_index is None:
                         if any(
                             value in ("test", "build")
-                            or value.startswith(("$", "${"))
+                            or (
+                                value.startswith(("$", "${"))
+                                and value != "$@"
+                            )
                             for value in tokens[index + 1 :]
                         ):
                             violations.append(
@@ -193,7 +215,11 @@ def main():
     # invoked indirectly from a shell step. Keep this discovery narrow and
     # deterministic rather than scanning the whole repository.
     workflow_path = pathlib.Path(workflow)
-    for helper in re.findall(r"(?<![\w./-])([\w./-]+\.sh)\b", workflow_text):
+    for helper in re.findall(
+        r"(?<![\w./-])([\w./-]+(?:\.sh|/bazel))\b", workflow_text
+    ):
+        if helper.endswith("/tools/bazel"):
+            helper = "tools/bazel"
         helper_path = workflow_path.parent.parent.parent / helper
         if helper_path.is_file() and str(helper_path) not in {
             item[0] for item in sources

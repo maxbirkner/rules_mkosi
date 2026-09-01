@@ -47,8 +47,28 @@ class WorkflowBazelCommandParserTest(unittest.TestCase):
                 "run: >2-\n    bazel build //pkg:target\n",
             ),
             (
+                "scalar-chomp-indent",
+                "run: |-2\n    bazel test //pkg:target\n",
+            ),
+            (
+                "scalar-folded-chomp-indent",
+                "run: >+2\n    bazel build //pkg:target\n",
+            ),
+            (
                 "github-expression",
                 "run: |\n  ${{ env.BAZEL }} test //pkg:target\n",
+            ),
+            (
+                "github-matrix-expression",
+                "run: |\n  ${{ matrix.bazel }} test //pkg:target\n",
+            ),
+            (
+                "github-output-expression",
+                "run: |\n  ${{ steps.setup.outputs.bazel }} build //pkg:target\n",
+            ),
+            (
+                "github-index-expression",
+                "run: |\n  ${{ steps.setup.outputs.tools[0] }} test //pkg:target\n",
             ),
         ]
         for name, fixture in fixtures:

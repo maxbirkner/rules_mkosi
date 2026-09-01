@@ -51,7 +51,8 @@ jobs:
         run: |
           run_bazel() {
             sudo -n setpriv --reuid="$(id -u)" --regid="$(id -g)" \
-              --clear-groups env HOME="$HOME" PATH="$PATH" "$@"
+              --clear-groups env HOME="$HOME" PATH="$PATH" \
+              USE_BAZEL_VERSION="$USE_BAZEL_VERSION" "$@"
           }
           run_bazel sh -c '
             groups=
@@ -70,6 +71,12 @@ jobs:
           else
             bazel_configs=(--config=qualified)
           fi
+          expected_bazel_version="bazel ${{ matrix.bazel }}"
+          test "$(run_bazel bazel --version)" = "$expected_bazel_version"
+          (
+            cd e2e/smoke
+            test "$(run_bazel bazel --version)" = "$expected_bazel_version"
+          )
           preflight_configs=()
           if [ "${{ matrix.bazel }}" = "9.2.0" ]; then
             preflight_configs=(--config=bazel9)
@@ -203,7 +210,8 @@ jobs:
         run: |
           run_bazel() {
             sudo -n setpriv --reuid="$(id -u)" --regid="$(id -g)" \
-              --clear-groups env HOME="$HOME" PATH="$PATH" "$@"
+              --clear-groups env HOME="$HOME" PATH="$PATH" \
+                USE_BAZEL_VERSION="$USE_BAZEL_VERSION" "$@"
           }
           cache_mode=error
           if [ "${{ matrix.bazel }}" = "9.2.0" ]; then
@@ -211,13 +219,17 @@ jobs:
           fi
           (
             cd mkosi/tests
-            run_bazel bazel info --lockfile_mode="$cache_mode" workspace \
-              >/dev/null
+            run_bazel "$GITHUB_WORKSPACE/tools/bazel" \
+              --nosystem_rc --nohome_rc \
+              --bazelrc="$GITHUB_WORKSPACE/.bazelrc" \
+              --lockfile_mode="$cache_mode" info workspace >/dev/null
           )
           (
             cd e2e/smoke
-            run_bazel bazel info --lockfile_mode="$cache_mode" workspace \
-              >/dev/null
+            run_bazel "$GITHUB_WORKSPACE/tools/bazel" \
+              --nosystem_rc --nohome_rc \
+              --bazelrc="$GITHUB_WORKSPACE/e2e/smoke/.bazelrc" \
+              --lockfile_mode="$cache_mode" info workspace >/dev/null
           )
           for cache in \
             "$GITHUB_WORKSPACE/.cache/bazel-disk" \
@@ -237,7 +249,8 @@ jobs:
         run: |
           run_bazel() {
             sudo -n setpriv --reuid="$(id -u)" --regid="$(id -g)" \
-              --clear-groups env HOME="$HOME" PATH="$PATH" "$@"
+              --clear-groups env HOME="$HOME" PATH="$PATH" \
+                USE_BAZEL_VERSION="$USE_BAZEL_VERSION" "$@"
           }
           if [ "${{ matrix.bazel }}" = "8.5.1" ]; then
             mode=error
@@ -484,7 +497,8 @@ jobs:
         run: |
           run_bazel() {
             sudo -n setpriv --reuid="$(id -u)" --regid="$(id -g)" \
-              --clear-groups env HOME="$HOME" PATH="$PATH" "$@"
+              --clear-groups env HOME="$HOME" PATH="$PATH" \
+                USE_BAZEL_VERSION="$USE_BAZEL_VERSION" "$@"
           }
           mode=off
           if [ "${{ matrix.bazel }}" = "8.5.1" ]; then
@@ -509,7 +523,8 @@ jobs:
         run: |
           run_bazel() {
             sudo -n setpriv --reuid="$(id -u)" --regid="$(id -g)" \
-              --clear-groups env HOME="$HOME" PATH="$PATH" "$@"
+              --clear-groups env HOME="$HOME" PATH="$PATH" \
+                USE_BAZEL_VERSION="$USE_BAZEL_VERSION" "$@"
           }
           mode=error
           if [ "${{ matrix.bazel }}" = "9.2.0" ]; then
@@ -661,7 +676,8 @@ jobs:
         run: |
           run_bazel() {
             sudo -n setpriv --reuid="$(id -u)" --regid="$(id -g)" \
-              --clear-groups env HOME="$HOME" PATH="$PATH" "$@"
+              --clear-groups env HOME="$HOME" PATH="$PATH" \
+                USE_BAZEL_VERSION="$USE_BAZEL_VERSION" "$@"
           }
           output_a="$GITHUB_WORKSPACE/.ci-output-a"
           output_b="$GITHUB_WORKSPACE/.ci-output-b"

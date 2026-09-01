@@ -1,6 +1,6 @@
 common --enable_bzlmod
 common --lockfile_mode=error
-build --disk_cache=%workspace%/.cache/bazel-disk
+build --disk_cache=.cache/bazel-disk
 test --test_output=errors
 
 try-import %workspace%/.bazelrc.ci
