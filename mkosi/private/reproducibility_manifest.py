@@ -3,10 +3,22 @@
 
 import argparse
 import hashlib
+import importlib.util
 import json
 from pathlib import Path
 
-import mkosi.private.partition_metadata as partition_metadata
+
+def _load_partition_metadata():
+    path = Path(__file__).with_name("partition_metadata.py")
+    spec = importlib.util.spec_from_file_location("mkosi_partition_metadata", path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError("partition metadata projector cannot be loaded")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+partition_metadata = _load_partition_metadata()
 
 
 def _metadata_projection(path):
