@@ -75,6 +75,8 @@ mkosi_image(
     config = "testdata/release.conf",
     debian_snapshot = "@mkosi_debian_snapshot//:repository",
     mode = "release",
+    release_seed = "00000000-0000-4000-8000-000000000015",
+    release_source_date_epoch = 0,
 )
 
 mkosi_config_tree(
@@ -135,6 +137,11 @@ image_build_metadata_file(
     image = ":demo",
 )
 
+image_build_metadata_file(
+    name = "release_demo_build_metadata",
+    image = ":release_demo",
+)
+
 raw_image_file(
     name = "demo_raw",
     image = ":demo",
@@ -153,8 +160,22 @@ raw_image_file(
 py_test(
     name = "demo_build_metadata_test",
     srcs = ["image_metadata_test.py"],
-    args = ["$(rootpath :demo_build_metadata)"],
+    args = [
+        "$(rootpath :demo_build_metadata)",
+        "tracer",
+    ],
     data = [":demo_build_metadata"],
+    main = "image_metadata_test.py",
+)
+
+py_test(
+    name = "release_demo_build_metadata_test",
+    srcs = ["image_metadata_test.py"],
+    args = [
+        "$(rootpath :release_demo_build_metadata)",
+        "release",
+    ],
+    data = [":release_demo_build_metadata"],
     main = "image_metadata_test.py",
 )
 

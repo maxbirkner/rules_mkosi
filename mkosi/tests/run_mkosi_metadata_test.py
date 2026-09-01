@@ -1,11 +1,14 @@
 """Regression tests for the wrapper's input-root and metadata handling."""
 
 import importlib.util
+import inspect
 import json
 import os
 import pathlib
 import stat
 import sys
+import types
+import uuid
 
 
 def _load_wrapper(path):
@@ -91,6 +94,32 @@ def main():
     assert (
         root / "workspace/release-sandbox/etc/apt/apt.conf.d/99rules-mkosi-release"
     ).read_text() == 'Acquire::Languages "none";\nAcquire::By-Hash "no";\n'
+    assert (root / "workspace/release-sandbox/etc/passwd").read_text() == wrapper._RELEASE_PASSWD
+    assert (root / "workspace/release-sandbox/etc/group").read_text() == wrapper._RELEASE_GROUP
+    assert (root / "workspace/release-sandbox/etc/hosts").read_text() == wrapper._RELEASE_HOSTS
+    assert (
+        root / "workspace/release-sandbox/etc/nsswitch.conf"
+    ).read_text() == wrapper._RELEASE_NSSWITCH
+    release_setup = inspect.getsource(wrapper._activate_release_mode)
+    for host_file in ("/etc/passwd", "/etc/group", "/etc/hosts"):
+        assert host_file not in release_setup
+
+    seed = "00000000-0000-4000-8000-000000000015"
+    wrapper._validate_release_configuration(
+        [types.SimpleNamespace(seed=uuid.UUID(seed), source_date_epoch=0)],
+        seed,
+        0,
+    )
+    for configuration, message in (
+        (types.SimpleNamespace(seed=uuid.uuid4(), source_date_epoch=0), "Seed"),
+        (types.SimpleNamespace(seed=uuid.UUID(seed), source_date_epoch=None), "SourceDateEpoch"),
+    ):
+        try:
+            wrapper._validate_release_configuration([configuration], seed, 0)
+        except SystemExit as error:
+            assert message in str(error)
+        else:
+            raise AssertionError("non-deterministic release configuration was accepted")
     print("materialized metadata and relative links are deterministic")
 
 

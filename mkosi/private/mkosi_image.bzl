@@ -231,6 +231,15 @@ def _mkosi_image_impl(ctx):
         fail("release mode requires debian_snapshot")
     if not release_mode and ctx.attr.debian_snapshot:
         fail("debian_snapshot is only supported in release mode")
+    if release_mode and not ctx.attr.release_seed:
+        fail("release mode requires release_seed")
+    if release_mode and ctx.attr.release_source_date_epoch < 0:
+        fail("release mode requires a non-negative release_source_date_epoch")
+    if not release_mode and (
+        ctx.attr.release_seed or
+        ctx.attr.release_source_date_epoch >= 0
+    ):
+        fail("release_seed and release_source_date_epoch are only supported in release mode")
     if ctx.attr.config and ctx.attr.config_tree:
         fail("set exactly one of config and config_tree")
     if not ctx.attr.config and not ctx.attr.config_tree:
@@ -271,6 +280,10 @@ def _mkosi_image_impl(ctx):
     if release_mode:
         arguments.add("--debian-snapshot-repository")
         arguments.add(ctx.attr.debian_snapshot[DebianSnapshotInfo].repository.path)
+        arguments.add("--release-seed")
+        arguments.add(ctx.attr.release_seed)
+        arguments.add("--release-source-date-epoch")
+        arguments.add(ctx.attr.release_source_date_epoch)
     if config_is_directory:
         for path in ctx.attr.config_tree[MkosiConfigTreeInfo].executable_paths:
             arguments.add("--executable-path")
@@ -345,24 +358,41 @@ def _mkosi_image_impl(ctx):
 
     # This projection deliberately records output roles and normalized mkosi
     # settings rather than deriving meaning from output filenames or binaries.
+    metadata = {
+        "artifacts": {
+            "build_metadata": True,
+            "manifest": False,
+            "partition_metadata": False,
+            "raw_image": True,
+            "uki": False,
+        },
+        "format_version": "mkosi-image-build-metadata-v2",
+        "mkosi": {
+            "compression": "none",
+            "format": "disk",
+            "split_artifacts": False,
+            "version": mkosi.version,
+        },
+        "mode": ctx.attr.mode,
+    }
+    if release_mode:
+        snapshot = ctx.attr.debian_snapshot[DebianSnapshotInfo]
+        metadata["debian_snapshot"] = {
+            "architecture": snapshot.architecture,
+            "codename": snapshot.codename,
+            "format_version": snapshot.format_version,
+            "lock_sha256": snapshot.lock_sha256,
+            "snapshot": snapshot.snapshot,
+            "snapshot_url": snapshot.snapshot_url,
+        }
+        metadata["reproducibility"] = {
+            "seed": ctx.attr.release_seed,
+            "source_date_epoch": ctx.attr.release_source_date_epoch,
+        }
+
     ctx.actions.write(
         output = build_metadata,
-        content = json.encode({
-            "artifacts": {
-                "build_metadata": True,
-                "manifest": False,
-                "partition_metadata": False,
-                "raw_image": True,
-                "uki": False,
-            },
-            "format_version": "mkosi-image-build-metadata-v1",
-            "mkosi": {
-                "compression": "none",
-                "format": "disk",
-                "split_artifacts": False,
-                "version": mkosi.version,
-            },
-        }) + "\n",
+        content = json.encode(metadata) + "\n",
     )
 
     return [
@@ -397,6 +427,13 @@ Release mode remains local-execution-only until its Linux execution platform is 
         "debian_snapshot": attr.label(
             providers = [DebianSnapshotInfo],
             doc = "Authenticated Debian snapshot repository required by release mode.",
+        ),
+        "release_seed": attr.string(
+            doc = "Required fixed UUID that must match the release configuration's resolved Seed=.",
+        ),
+        "release_source_date_epoch": attr.int(
+            default = -1,
+            doc = "Required non-negative value that must match the release configuration's resolved SourceDateEpoch=.",
         ),
         "config": attr.label(
             allow_files = True,

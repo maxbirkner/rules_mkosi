@@ -354,6 +354,10 @@ def _release_provider_test_impl(ctx):
     argv = image_action.argv
     repository = argv.index("--debian-snapshot-repository")
     asserts.true(env, argv[repository + 1].endswith("/repository_repository"))
+    seed = argv.index("--release-seed")
+    asserts.equals(env, "00000000-0000-4000-8000-000000000007", argv[seed + 1])
+    epoch = argv.index("--release-source-date-epoch")
+    asserts.equals(env, "0", argv[epoch + 1])
     info = target[MkosiImageInfo]
     asserts.equals(env, "mkosi-image-v1", info.format_version)
     asserts.equals(env, "release_subject.raw", info.raw_image.basename)
@@ -656,6 +660,8 @@ def mkosi_image_test_suite(name):
         config = "testdata/minimal.conf",
         debian_snapshot = "@mkosi_debian_snapshot//:repository",
         mode = "release",
+        release_seed = "00000000-0000-4000-8000-000000000007",
+        release_source_date_epoch = 0,
     )
     _release_provider_test(
         name = "release_provider_test",
@@ -665,11 +671,17 @@ def mkosi_image_test_suite(name):
         name = "release_raw_image",
         image = ":release_subject",
     )
+    build_metadata_file(
+        name = "release_subject_build_metadata",
+        image = ":release_subject",
+    )
 
     mkosi_image(
         name = "release_without_snapshot_subject",
         config = "testdata/minimal.conf",
         mode = "release",
+        release_seed = "00000000-0000-4000-8000-000000000007",
+        release_source_date_epoch = 0,
         tags = ["manual"],
     )
     _invalid_tree_mapping_test(
@@ -700,6 +712,34 @@ def mkosi_image_test_suite(name):
         name = "invalid_mode_test",
         expected_error = "must be either 'tracer' or 'release'",
         target_under_test = ":invalid_mode_subject",
+    )
+
+    mkosi_image(
+        name = "release_without_seed_subject",
+        config = "testdata/minimal.conf",
+        debian_snapshot = "@mkosi_debian_snapshot//:repository",
+        mode = "release",
+        release_source_date_epoch = 0,
+        tags = ["manual"],
+    )
+    _invalid_tree_mapping_test(
+        name = "release_without_seed_test",
+        expected_error = "release mode requires release_seed",
+        target_under_test = ":release_without_seed_subject",
+    )
+
+    mkosi_image(
+        name = "release_without_epoch_subject",
+        config = "testdata/minimal.conf",
+        debian_snapshot = "@mkosi_debian_snapshot//:repository",
+        mode = "release",
+        release_seed = "00000000-0000-4000-8000-000000000007",
+        tags = ["manual"],
+    )
+    _invalid_tree_mapping_test(
+        name = "release_without_epoch_test",
+        expected_error = "release mode requires a non-negative release_source_date_epoch",
+        target_under_test = ":release_without_epoch_subject",
     )
 
     mkosi_image(
@@ -1068,6 +1108,8 @@ def mkosi_image_test_suite(name):
             ":release_without_snapshot_test",
             ":tracer_with_snapshot_test",
             ":invalid_mode_test",
+            ":release_without_seed_test",
+            ":release_without_epoch_test",
             ":config_tree_provider_test",
             ":legacy_default_name_test",
             ":legacy_alternate_name_test",

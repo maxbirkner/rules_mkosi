@@ -220,17 +220,21 @@ mkosi_image(
     config = "mkosi-release.conf",
     mode = "release",
     debian_snapshot = "@mkosi_debian_snapshot//:repository",
+    release_seed = "00000000-0000-4000-8000-000000000015",
+    release_source_date_epoch = 0,
 )
 ```
 
-Release configurations must pin mkosi's output entropy, including `Seed=` and
-`SourceDateEpoch=`. With declared configuration/source trees, the pinned mkosi
-and Debian toolchains, and the authenticated snapshot repository, a release
-action may use Bazel's local and remote action caches. It deliberately keeps
-`no-remote-exec`, because a remote execution platform has not yet been
-qualified for the required Linux namespace and mount contract. There is no
-fallback to a network mirror: a missing locked package or attempted network
-access fails the action.
+Release mode resolves the supplied configuration with pinned mkosi and rejects
+it unless `Seed=` and `SourceDateEpoch=` exactly match `release_seed` and
+`release_source_date_epoch`. It supplies fixed passwd, group, hosts, and NSS
+files instead of importing host `/etc` state. With those declared
+configuration/source inputs, the pinned mkosi and Debian toolchains, and the
+authenticated snapshot repository, a release action may use Bazel's local and
+remote action caches. It deliberately keeps `no-remote-exec`, because a remote
+execution platform has not yet been qualified for the required Linux namespace
+and mount contract. There is no fallback to a network mirror: a missing locked
+package or attempted network access fails the action.
 
 For a complete mkosi configuration directory, mark the exported directory
 with `mkosi_config_tree`. The directory must contain `mkosi.conf`; mkosi's
@@ -295,7 +299,7 @@ basename, or the contents of `DefaultInfo`.
 | `manifest` | `File` or `None` | `None` until a mode explicitly requests mkosi manifest output. |
 | `partition_metadata` | `File` or `None` | `None` until the normalized partition projection is implemented. |
 | `uki` | `File` or `None` | `None` until a mode produces a Unified Kernel Image. |
-| `build_metadata` | `File` or `None` | Present for every current target. It is normalized JSON with schema `mkosi-image-build-metadata-v1`, output-role booleans, and the forced mkosi disk/raw/no-compression settings. |
+| `build_metadata` | `File` or `None` | Present for every current target. It is normalized JSON with schema `mkosi-image-build-metadata-v2`, output-role booleans, mode, and forced mkosi disk/raw/no-compression settings. Release metadata additionally records the authenticated snapshot identity, lock digest, and resolved reproducibility inputs. |
 | `image` | `File` or `None` | Deprecated compatibility alias for `raw_image`; it is exactly the same artifact. New consumers must use `raw_image`. |
 
 `DefaultInfo.files` contains each non-`None` artifact field once; its depset
@@ -307,6 +311,11 @@ was the raw disk must migrate to `MkosiImageInfo.raw_image`. The retained
 `image` field preserves source compatibility for existing provider consumers.
 This contract defines output roles only; it does not generate UKIs, verity
 artifacts, or partition metadata.
+
+The provider stays at `mkosi-image-v1`: the metadata schema independently
+advanced from v1 to v2 to make cache-relevant release provenance explicit.
+Consumers must select the metadata artifact through `build_metadata` and use
+its schema version when parsing its contents.
 
 `qemu_ovmf_boot_test` is the reusable public boot-test adapter:
 

@@ -19,8 +19,10 @@ host-kernel namespace/mount contract.
 
 `release_demo` uses the same public rule with `mode = "release"` and the
 authenticated `@mkosi_debian_snapshot//:repository`. It has a deterministic
-seed and source date, materializes only that local APT mirror, and runs with
-the action network namespace blocked. The release target may use Bazel's local
+seed and source date, which the rule resolves and validates at execution,
+materializes only that local APT mirror, and runs with the action network
+namespace blocked. Its metadata validates the authenticated snapshot provenance
+through the public provider contract. The release target may use Bazel's local
 or remote action cache but deliberately retains `no-remote-exec`: qualifying a
 remote execution platform is outside this contract.
 

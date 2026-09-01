@@ -53,10 +53,16 @@ be replayed as a directory artifact. The explicit `mode` API defaults to
 networked `"tracer"` mode, which is non-cacheable and not remote- or
 offline-hermetic. `"release"` mode requires `DebianSnapshotInfo`, materializes
 the authenticated local APT tree, blocks network access, and omits the
-tracer-only `no-cache` requirement. Release callers must pin `Seed=` and
-`SourceDateEpoch=` in their declared configuration before relying on cache
-reuse. The release action retains `no-remote-exec` pending execution-platform
-qualification, but may use local and remote action caches. The tracer action forces disk/raw/uncompressed output
+tracer-only `no-cache` requirement. Release callers must provide
+`release_seed` and `release_source_date_epoch`; execution resolves the pinned
+mkosi configuration and rejects it unless these match `Seed=` and
+`SourceDateEpoch=`. A narrow release wrapper supplies deterministic passwd,
+group, hosts, and NSS sandbox inputs rather than mkosi's host `/etc` defaults.
+The stable provider remains `mkosi-image-v1`; its normalized metadata advances
+to `mkosi-image-build-metadata-v2`, adding the release mode, reproducibility
+inputs, and authenticated snapshot identity/lock digest. The release action
+retains `no-remote-exec` pending execution-platform qualification, but may use
+local and remote action caches. The tracer action forces disk/raw/uncompressed output
 and disables split artifacts; configuration files cannot redirect the declared
 artifact or select a custom format. The legacy `config` attribute accepts
 exactly one file. Complete
