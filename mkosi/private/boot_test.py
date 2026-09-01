@@ -5,12 +5,26 @@ import os
 
 os.environ["PATH"] = ""
 
+import importlib.util
 import pathlib
 import shutil
 import socket
 import subprocess
 import sys
 import time
+
+
+def _load_diagnostics():
+    path = pathlib.Path(__file__).with_name("diagnostics.py")
+    spec = importlib.util.spec_from_file_location("mkosi_diagnostics", path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError("diagnostic formatter cannot be loaded: {}".format(path))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+diagnostics = _load_diagnostics()
 
 
 class QmpHandshakeError(RuntimeError):
@@ -37,7 +51,10 @@ def _resolve_runfile(path):
     for candidate in candidates:
         if os.path.exists(candidate):
             return candidate
-    raise RuntimeError("runfile is missing: %s" % path)
+    diagnostics.fail(
+        "TOOLCHAIN_FAILURE",
+        "required Bazel runfile is unavailable: {}".format(path),
+    )
 
 
 def _read_log(path):
@@ -48,7 +65,7 @@ def _read_log(path):
 
 
 def _diagnose(kind, message, serial_log, qemu_log, diagnostic_bytes):
-    print("%s: %s" % (kind, message), file=sys.stderr)
+    diagnostics.report("VM_FAILURE", "{}: {}".format(kind, message))
     for title, path in (("serial log", serial_log), ("QEMU log", qemu_log)):
         print("%s (%s):" % (title, path), file=sys.stderr)
         print(
@@ -165,6 +182,7 @@ def _boot(
     machine_args=(),
     firmware_code=None,
     firmware_vars=None,
+    kernel_preflight=None,
     readiness_marker="",
     shutdown_markers=(),
     boot_timeout_seconds=180,
@@ -192,6 +210,8 @@ def _boot(
     qmp_socket_file = scratch / qmp_socket
     process = None
     try:
+        if kernel_preflight:
+            diagnostics.run_kernel_preflight(kernel_preflight, "QEMU boot test")
         if firmware_vars:
             shutil.copyfile(firmware_vars, vars_copy)
             vars_copy.chmod(0o600)
@@ -345,6 +365,7 @@ def main():
         qemu_args=config["qemu_args"],
         firmware_code=_resolve_runfile(config["firmware_code"]),
         firmware_vars=_resolve_runfile(config["firmware_vars"]),
+        kernel_preflight=_resolve_runfile(config["kernel_preflight"]),
         readiness_marker=config["readiness_marker"],
         shutdown_markers=config["shutdown_markers"],
         boot_timeout_seconds=config["boot_timeout_seconds"],

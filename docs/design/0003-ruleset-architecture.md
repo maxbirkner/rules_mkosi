@@ -211,6 +211,25 @@ Real mkosi image tests run in the qualified Linux lane. Unsupported or
 privileged tests are either covered by the explicit kernel preflight or
 modeled as execution requirements; they are not silently omitted.
 
+## Action diagnostics
+
+The image wrapper and serial boot lifecycle run the Bazel-built kernel
+preflight before their expensive work. A failed probe preserves its individual
+`FAIL <capability>` remediation lines and adds one
+`KERNEL_CAPABILITY_FAILURE` boundary diagnostic. No action modifies a host
+sysctl or privilege to make that probe pass.
+
+All user-visible action failures use one of these stable categories, retain
+the original tool output, and include a single `Action:` remediation:
+
+| Category | Boundary |
+| --- | --- |
+| `KERNEL_CAPABILITY_FAILURE` | The proven namespace/mount preflight rejected the action. |
+| `TOOLCHAIN_FAILURE` | A Bazel-provided executable or runfile could not start. |
+| `NETWORK_FAILURE` | mkosi package acquisition failed with a network signal. |
+| `ASSEMBLY_FAILURE` | mkosi exited for a non-network image-assembly reason. |
+| `VM_FAILURE` | QEMU/firmware/guest lifecycle failed; its subtype and logs are retained. |
+
 ## Coverage
 
 Bazel's coverage support instruments languages built by rules, not Starlark
