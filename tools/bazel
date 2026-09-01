@@ -5,6 +5,11 @@ directory=$PWD
 while [ "$directory" != "/" ]; do
     if [ -f "$directory/MODULE.bazel" ] && [ -f "$directory/.bazelrc" ]; then
         cd "$directory"
+        cache="$directory/.cache/bazel-disk"
+        case " $* " in
+            *" --disk_cache="*) ;;
+            *) set -- "--disk_cache=$cache" "$@" ;;
+        esac
         exec bazel "$@"
     fi
     directory=$(dirname "$directory")
