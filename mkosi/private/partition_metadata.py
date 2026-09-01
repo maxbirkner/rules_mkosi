@@ -115,8 +115,9 @@ def project_image(path):
         raise ValueError("GPT partition arrays disagree")
 
     partitions = []
-    ranges = []
     previous_first = None
+    previous_last = None
+    previous_number = None
     for slot in range(primary["count"]):
         entry = primary["array"][
             slot * primary["entry_size"] : (slot + 1) * primary["entry_size"]
@@ -131,13 +132,13 @@ def project_image(path):
             raise ValueError("partition {} is outside the usable range".format(number))
         if previous_first is not None and first < previous_first:
             raise ValueError("partition {} is out of order".format(number))
+        if previous_last is not None and first <= previous_last:
+            raise ValueError(
+                "partition {} overlaps partition {}".format(number, previous_number)
+            )
         previous_first = first
-        for other_first, other_last, other_number in ranges:
-            if first <= other_last and other_first <= last:
-                raise ValueError(
-                    "partition {} overlaps partition {}".format(number, other_number)
-                )
-        ranges.append((first, last, number))
+        previous_last = last
+        previous_number = number
         start_bytes = first * sector_size
         if start_bytes % ALIGNMENT:
             raise ValueError("partition {} is not 1 MiB aligned".format(number))

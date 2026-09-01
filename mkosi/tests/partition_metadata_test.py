@@ -1,6 +1,8 @@
 """Focused tests for raw GPT validation and normalized projection."""
 
 import os
+import ast
+import inspect
 import struct
 import tempfile
 import unittest
@@ -93,11 +95,79 @@ class ProjectionTest(unittest.TestCase):
             output.write(raw)
         return partition_metadata.project_image(self.path)
 
+    def write_dense_image(self, count):
+        sectors = 2048 * (count + 2)
+        array = bytearray(count * ENTRY_SIZE)
+        for slot in range(count):
+            offset = slot * ENTRY_SIZE
+            array[offset : offset + 16] = uuid.UUID(
+                partition_metadata.ROOT_X86_64
+                if slot == 0
+                else "0fc63daf-8483-4772-8e79-3d69d8477de4"
+            ).bytes_le
+            first = 2048 * (slot + 1)
+            struct.pack_into("<QQ", array, offset + 32, first, first + 2047)
+            label = ("root-x86-64" if slot == 0 else "data-{}".format(slot)).encode(
+                "utf-16-le"
+            )
+            array[offset + 56 : offset + 56 + len(label)] = label
+        array_sectors = (len(array) + SECTOR - 1) // SECTOR
+        backup_array_lba = sectors - 1 - array_sectors
+        primary = _header(
+            1,
+            sectors - 1,
+            2,
+            array,
+            count=count,
+            first_usable=2048,
+            last_usable=sectors - 2049,
+        )
+        backup = _header(
+            sectors - 1,
+            1,
+            backup_array_lba,
+            array,
+            count=count,
+            first_usable=2048,
+            last_usable=sectors - 2049,
+        )
+        with open(self.path, "wb") as output:
+            output.truncate(sectors * SECTOR)
+            output.seek(SECTOR)
+            output.write(primary)
+            output.seek(2 * SECTOR)
+            output.write(array)
+            output.seek(backup_array_lba * SECTOR)
+            output.write(array)
+            output.seek((sectors - 1) * SECTOR)
+            output.write(backup)
+
     def test_sparse_slots_and_identifier_normalization(self):
         projected = self.project(image())
         self.assertEqual(2, projected["partitions"][0]["number"])
         self.assertNotIn("disk_guid", projected)
         self.assertNotIn("unique_guid", projected["partitions"][0])
+
+    def test_dense_table_uses_one_linear_entry_scan(self):
+        self.write_dense_image(512)
+        projected = partition_metadata.project_image(self.path)
+        self.assertEqual(512, len(projected["partitions"]))
+
+        tree = ast.parse(inspect.getsource(partition_metadata.project_image))
+        slot_loop = next(
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.For)
+            and isinstance(node.target, ast.Name)
+            and node.target.id == "slot"
+        )
+        nested_loops = [
+            node
+            for statement in slot_loop.body
+            for node in ast.walk(statement)
+            if isinstance(node, (ast.For, ast.While))
+        ]
+        self.assertEqual([], nested_loops)
 
     def test_each_header_and_array_copy_is_checked(self):
         for offset in (SECTOR + 24, (SECTORS - 1) * SECTOR + 24, 2 * SECTOR, (SECTORS - 3) * SECTOR):
