@@ -8,15 +8,15 @@ MkosiImageInfo = provider(
 Consumers select artifacts through these fields, never by inspecting
 DefaultInfo filenames. Every artifact field is either a File or None. The
 raw_image and build_metadata fields are present for every currently supported
-mkosi_image target; manifest, partition_metadata, and uki are reserved for
-future output modes. DefaultInfo contains every non-None artifact field once.
+mkosi_image target; release images also provide partition_metadata. DefaultInfo
+contains every non-None artifact field once.
 The image field is a compatibility alias for raw_image.
 """,
     fields = {
         "format_version": "Stable MkosiImageInfo contract version, currently mkosi-image-v1.",
         "raw_image": "The raw disk image File, or None when an output mode does not produce one.",
         "manifest": "The mkosi manifest File, or None when manifest generation is disabled.",
-        "partition_metadata": "Normalized partition metadata File, or None until that projection is generated.",
+        "partition_metadata": "Normalized, validated GPT partition metadata File for release images, or None.",
         "uki": "The Unified Kernel Image File, or None when no UKI is generated.",
         "build_metadata": "Normalized JSON build-metadata File describing this contract's output modes.",
         "image": "Deprecated compatibility alias for raw_image; use raw_image in new consumers.",
@@ -260,6 +260,9 @@ def _mkosi_image_impl(ctx):
         staging = _stage_inputs(ctx, config, config_is_directory, source_trees)
 
     image = ctx.actions.declare_file(ctx.label.name + ".raw")
+    partition_metadata = (
+        ctx.actions.declare_file(ctx.label.name + ".partitions.json") if release_mode else None
+    )
     build_metadata = ctx.actions.declare_file(
         ctx.label.name + ".mkosi-image-info.json",
     )
@@ -373,13 +376,40 @@ def _mkosi_image_impl(ctx):
         progress_message = "Building mkosi image %{label}",
     )
 
+    if release_mode:
+        partition_arguments = ctx.actions.args()
+        partition_arguments.add(ctx.file._partition_metadata.path)
+        partition_arguments.add("--image")
+        partition_arguments.add(image.path)
+        partition_arguments.add("--output")
+        partition_arguments.add(partition_metadata.path)
+        ctx.actions.run(
+            executable = mkosi.python,
+            arguments = [partition_arguments],
+            inputs = depset(
+                [ctx.file._partition_metadata, image],
+                transitive = [mkosi.python_runtime_files],
+            ),
+            tools = [
+                mkosi.python_files_to_run,
+            ],
+            outputs = [partition_metadata],
+            env = {
+                "PATH": "",
+                "PYTHONNOUSERSITE": "1",
+            },
+            execution_requirements = _execution_requirements(True),
+            mnemonic = "MkosiPartitionMetadata",
+            progress_message = "Projecting GPT metadata for %{label}",
+        )
+
     # This projection deliberately records output roles and normalized mkosi
     # settings rather than deriving meaning from output filenames or binaries.
     metadata = {
         "artifacts": {
             "build_metadata": True,
             "manifest": False,
-            "partition_metadata": False,
+            "partition_metadata": release_mode,
             "raw_image": True,
             "uki": False,
         },
@@ -416,7 +446,7 @@ def _mkosi_image_impl(ctx):
         _image_default_info(
             raw_image = image,
             manifest = None,
-            partition_metadata = None,
+            partition_metadata = partition_metadata,
             uki = None,
             build_metadata = build_metadata,
         ),
@@ -424,7 +454,7 @@ def _mkosi_image_impl(ctx):
             format_version = "mkosi-image-v1",
             raw_image = image,
             manifest = None,
-            partition_metadata = None,
+            partition_metadata = partition_metadata,
             uki = None,
             build_metadata = build_metadata,
             image = image,
@@ -485,6 +515,11 @@ its label basename, are copied to that key.
             default = "//mkosi/private:kernel_preflight",
             executable = True,
         ),
+        "_partition_metadata": attr.label(
+            cfg = "exec",
+            default = "//mkosi/private:partition_metadata.py",
+            allow_single_file = True,
+        ),
         "_diagnostics": attr.label(
             cfg = "exec",
             default = "//mkosi/private:diagnostics.py",
@@ -499,8 +534,9 @@ debian_snapshot, materializes it as mkosi's only local APT mirror, blocks
 network access, and permits Bazel cache reuse. Both modes require the Linux
 namespace and mount capabilities documented by the host-kernel contract;
 release mode does not claim remote-execution portability. MkosiImageInfo.raw_image
-and MkosiImageInfo.build_metadata are present; manifest, partition_metadata,
-and uki are None. DefaultInfo includes the raw image and build metadata, so
+and MkosiImageInfo.build_metadata are present; release images also provide
+validated normalized partition_metadata, while manifest and uki are None.
+DefaultInfo includes every provided artifact, so
 consumers that need a particular artifact must select its MkosiImageInfo field.
 """,
     provides = [MkosiImageInfo],

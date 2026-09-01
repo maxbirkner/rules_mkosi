@@ -363,6 +363,22 @@ def _release_provider_test_impl(ctx):
     asserts.equals(env, "release_subject.raw", info.raw_image.basename)
     asserts.equals(env, info.raw_image, info.image)
     asserts.equals(env, "release_subject.mkosi-image-info.json", info.build_metadata.basename)
+    asserts.equals(env, "release_subject.partitions.json", info.partition_metadata.basename)
+    partition_actions = [action for action in actions if action.mnemonic == "MkosiPartitionMetadata"]
+    asserts.equals(env, 1, len(partition_actions))
+    asserts.true(env, info.partition_metadata in partition_actions[0].outputs.to_list())
+    asserts.true(env, info.raw_image in partition_actions[0].inputs.to_list())
+    asserts.true(env, any([file.basename == "partition_metadata.py" for file in partition_actions[0].inputs.to_list()]))
+    asserts.false(env, any([file.basename == "launcher" for file in partition_actions[0].inputs.to_list()]))
+    asserts.equals(
+        env,
+        sorted([
+            info.raw_image.path,
+            info.partition_metadata.path,
+            info.build_metadata.path,
+        ]),
+        sorted([file.path for file in target[DefaultInfo].files.to_list()]),
+    )
 
     return analysistest.end(env)
 

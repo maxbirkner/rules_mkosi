@@ -318,7 +318,7 @@ basename, or the contents of `DefaultInfo`.
 | `format_version` | `string` | Always `mkosi-image-v1`. It identifies the stable provider contract. |
 | `raw_image` | `File` or `None` | Present for the current disk/raw output mode. |
 | `manifest` | `File` or `None` | `None` until a mode explicitly requests mkosi manifest output. |
-| `partition_metadata` | `File` or `None` | `None` until the normalized partition projection is implemented. |
+| `partition_metadata` | `File` or `None` | Validated, normalized GPT JSON for release images; `None` in tracer mode. |
 | `uki` | `File` or `None` | `None` until a mode produces a Unified Kernel Image. |
 | `build_metadata` | `File` or `None` | Present for every current target. It is normalized JSON with schema `mkosi-image-build-metadata-v2`, output-role booleans, mode, and forced mkosi disk/raw/no-compression settings. Release metadata additionally records the authenticated snapshot identity, lock digest, and resolved reproducibility inputs. |
 | `image` | `File` or `None` | Deprecated compatibility alias for `raw_image`; it is exactly the same artifact. New consumers must use `raw_image`. |

@@ -9,6 +9,7 @@ def main() -> None:
     metadata = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
     assert metadata["format_version"] == "mkosi-image-build-metadata-v2"
     assert metadata["mode"] == "release"
+    assert metadata["artifacts"]["partition_metadata"] is True
     assert metadata["debian_snapshot"] == {
         "architecture": "amd64",
         "codename": "trixie",

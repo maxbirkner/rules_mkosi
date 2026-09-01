@@ -82,6 +82,20 @@ image_build_metadata_file = rule(
     },
 )
 
+def _image_partition_metadata_file_impl(ctx):
+    metadata = ctx.attr.image[MkosiImageInfo].partition_metadata
+    if metadata == None:
+        fail("image must provide MkosiImageInfo.partition_metadata")
+    return [DefaultInfo(files = depset([metadata]))]
+
+image_partition_metadata_file = rule(
+    implementation = _image_partition_metadata_file_impl,
+    attrs = {
+        "image": attr.label(mandatory = True, providers = [MkosiImageInfo]),
+    },
+    doc = "Selects partition metadata through the public image provider.",
+)
+
 def _raw_image_file_impl(ctx):
     """Selects a raw disk artifact through MkosiImageInfo."""
     raw_image = ctx.attr.image[MkosiImageInfo].raw_image
