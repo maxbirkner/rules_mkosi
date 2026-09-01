@@ -182,6 +182,9 @@ assumed to exist on the runner.
 The checked-in tracer configurations fix `Seed=` and `SourceDateEpoch=` to
 remove two known sources of variation. This does not claim full image
 reproducibility while target packages are acquired over the network.
+Release mode additionally passes its fixed seed to make2fs as the ext4
+directory-index `hash_seed`; make2fs otherwise generates that superblock field
+randomly even when the filesystem UUID and timestamps are fixed.
 
 ### Consumer module
 

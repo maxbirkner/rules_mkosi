@@ -403,6 +403,8 @@ def _mkosi_image_impl(ctx):
         environment.update({
             "MKOSI_HOST_DISTRIBUTION": snapshot.distribution,
             "MKOSI_HOST_RELEASE": snapshot.codename,
+            # make2fs otherwise generates a random ext4 directory-index seed.
+            "SYSTEMD_REPART_MKFS_OPTIONS_EXT4": "-E hash_seed=" + ctx.attr.release_seed,
         })
 
     ctx.actions.run(
