@@ -271,7 +271,7 @@ jobs:
             rc="$module/.cache/bazel-wrapper.bazelrc"
             test -f "$rc"
             grep -Fx \
-              "build --disk_cache=\"$module/.cache/bazel-disk\"" "$rc"
+              "build --disk_cache=$module/.cache/bazel-disk" "$rc"
           done
           test ! -e "$GITHUB_WORKSPACE/mkosi/tests/.cache/bazel-disk"
           test ! -e "$GITHUB_WORKSPACE/e2e/.cache/bazel-disk"
@@ -686,7 +686,7 @@ jobs:
           rc="$fixture_root/.cache/bazel-wrapper.bazelrc"
           test -f "$rc"
           grep -Fx \
-            "build --disk_cache=\"$fixture_root/.cache/bazel-disk\"" "$rc"
+            "build --disk_cache=$fixture_root/.cache/bazel-disk" "$rc"
           git -C "$GITHUB_WORKSPACE" check-ignore -q "$rc"
           case "${{ matrix.fixture }}" in
             default|explicit)
