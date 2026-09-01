@@ -261,6 +261,9 @@ def _validate_release_configuration(
     images,
     release_seed,
     release_source_date_epoch,
+    release_distribution,
+    release_codename,
+    release_snapshot,
     allowed_paths,
 ):
     expected_seed = uuid.UUID(release_seed)
@@ -268,6 +271,18 @@ def _validate_release_configuration(
     for config in images:
         if getattr(config, "proxy_url", None):
             raise SystemExit("release configuration cannot use a proxy")
+        if getattr(config, "distribution", None) and (
+            config.distribution.value != release_distribution or
+            config.release != release_codename or
+            config.snapshot != release_snapshot
+        ):
+            raise SystemExit(
+                "release configuration must resolve to {} {} snapshot {}".format(
+                    release_distribution,
+                    release_codename,
+                    release_snapshot,
+                )
+            )
         if config.seed != expected_seed:
             raise SystemExit(
                 "release configuration Seed must resolve to {}".format(expected_seed)
@@ -317,6 +332,18 @@ def _validate_release_configuration(
                 raise SystemExit(
                     "release configuration {} is not supported".format(name)
                 )
+        for name in (
+            "secure_boot_key_source",
+            "secure_boot_certificate_source",
+            "verity_key_source",
+            "verity_certificate_source",
+            "sign_expected_pcr_key_source",
+            "sign_expected_pcr_certificate_source",
+        ):
+            if getattr(getattr(config, name, None), "source", None):
+                raise SystemExit(
+                    "release configuration {} is not supported".format(name)
+                )
     return tuple(allowed_roots)
 
 
@@ -324,6 +351,9 @@ def _activate_release_mode(
     mirror,
     release_seed,
     release_source_date_epoch,
+    release_distribution,
+    release_codename,
+    release_snapshot,
     allowed_paths,
 ):
     """Mount a long Bazel path at mkosi's stable in-sandbox repository path."""
@@ -400,6 +430,9 @@ def _activate_release_mode(
                 images,
                 release_seed,
                 release_source_date_epoch,
+                release_distribution,
+                release_codename,
+                release_snapshot,
                 allowed_paths,
             )
             validate_initial_configuration[0] = False
@@ -477,6 +510,9 @@ def main():
     release_mirror = None
     release_seed = None
     release_source_date_epoch = None
+    release_distribution = None
+    release_codename = None
+    release_snapshot = None
     while preamble_end < len(sys.argv) and sys.argv[preamble_end] != "--":
         option = sys.argv[preamble_end]
         if option == "--executable-path" and preamble_end + 1 < len(sys.argv):
@@ -509,6 +545,15 @@ def main():
             except ValueError as error:
                 raise SystemExit("release source date epoch must be an integer") from error
             preamble_end += 2
+        elif option == "--release-distribution" and preamble_end + 1 < len(sys.argv):
+            release_distribution = sys.argv[preamble_end + 1]
+            preamble_end += 2
+        elif option == "--release-codename" and preamble_end + 1 < len(sys.argv):
+            release_codename = sys.argv[preamble_end + 1]
+            preamble_end += 2
+        elif option == "--release-snapshot" and preamble_end + 1 < len(sys.argv):
+            release_snapshot = sys.argv[preamble_end + 1]
+            preamble_end += 2
         else:
             raise SystemExit("invalid run_mkosi.py preamble")
     if preamble_end == len(sys.argv):
@@ -538,6 +583,9 @@ def main():
         debian_snapshot_repository,
         release_seed,
         release_source_date_epoch,
+        release_distribution,
+        release_codename,
+        release_snapshot,
     )
     if any(option is not None for option in release_options) and not all(
         option is not None for option in release_options
@@ -580,6 +628,9 @@ def main():
             os.fspath(release_mirror),
             release_seed,
             release_source_date_epoch,
+            release_distribution,
+            release_codename,
+            release_snapshot,
             allowed_paths,
         )
     _run_mkosi(script, arguments)

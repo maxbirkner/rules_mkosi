@@ -235,7 +235,8 @@ Release mode requires a declared `mkosi_config_tree`, resolves that
 configuration with pinned mkosi, and rejects filesystem paths outside the
 staged declared inputs. It also rejects a configuration unless `Seed=` and
 `SourceDateEpoch=` exactly match `release_seed` and
-`release_source_date_epoch`. It supplies fixed passwd, group, hosts, and NSS
+`release_source_date_epoch`, and resolves Debian distribution, codename, and
+snapshot defaults from `debian_snapshot`. It supplies fixed passwd, group, hosts, and NSS
 files instead of importing host `/etc` state. With those declared
 configuration/source inputs, the pinned mkosi and Debian toolchains, and the
 authenticated snapshot repository, a release action may use Bazel's local and

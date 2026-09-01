@@ -57,7 +57,8 @@ tracer-only `no-cache` requirement. Release callers must provide
 `config_tree`, `release_seed`, and `release_source_date_epoch`; execution
 resolves the pinned mkosi configuration, rejects filesystem paths outside its
 declared staged inputs, and rejects it unless the values match `Seed=` and
-`SourceDateEpoch=`. A narrow release wrapper supplies deterministic passwd,
+`SourceDateEpoch=`; its Debian defaults are forced from the snapshot provider.
+A narrow release wrapper supplies deterministic passwd,
 group, hosts, and NSS sandbox inputs rather than mkosi's host `/etc` defaults.
 The stable provider remains `mkosi-image-v1`; its normalized metadata advances
 to `mkosi-image-build-metadata-v2`, adding the release mode, reproducibility

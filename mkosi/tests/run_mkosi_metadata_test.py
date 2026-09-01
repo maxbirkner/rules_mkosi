@@ -109,6 +109,9 @@ def main():
         [types.SimpleNamespace(seed=uuid.UUID(seed), source_date_epoch=0)],
         seed,
         0,
+        "debian",
+        "trixie",
+        "20250814T000000Z",
         [root],
     )
     for configuration, message in (
@@ -116,7 +119,15 @@ def main():
         (types.SimpleNamespace(seed=uuid.UUID(seed), source_date_epoch=None), "SourceDateEpoch"),
     ):
         try:
-            wrapper._validate_release_configuration([configuration], seed, 0, [root])
+            wrapper._validate_release_configuration(
+                [configuration],
+                seed,
+                0,
+                "debian",
+                "trixie",
+                "20250814T000000Z",
+                [root],
+            )
         except SystemExit as error:
             assert message in str(error)
         else:
@@ -132,6 +143,9 @@ def main():
             ],
             seed,
             0,
+            "debian",
+            "trixie",
+            "20250814T000000Z",
             [root],
         )
     except SystemExit as error:
@@ -195,9 +209,35 @@ def main():
             ),
             "kernel_modules_initrd_include cannot include host modules",
         ),
+        (
+            types.SimpleNamespace(
+                seed=uuid.UUID(seed),
+                source_date_epoch=0,
+                distribution=types.SimpleNamespace(value="ubuntu"),
+                release="noble",
+                snapshot="20250814T000000Z",
+            ),
+            "must resolve to debian trixie snapshot",
+        ),
+        (
+            types.SimpleNamespace(
+                seed=uuid.UUID(seed),
+                source_date_epoch=0,
+                secure_boot_key_source=types.SimpleNamespace(source="engine"),
+            ),
+            "secure_boot_key_source is not supported",
+        ),
     ):
         try:
-            wrapper._validate_release_configuration([configuration], seed, 0, [root])
+            wrapper._validate_release_configuration(
+                [configuration],
+                seed,
+                0,
+                "debian",
+                "trixie",
+                "20250814T000000Z",
+                [root],
+            )
         except SystemExit as error:
             assert message in str(error)
         else:

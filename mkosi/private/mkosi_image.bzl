@@ -280,12 +280,19 @@ def _mkosi_image_impl(ctx):
     arguments.add("--kernel-preflight")
     arguments.add(ctx.executable._kernel_preflight.path)
     if release_mode:
+        snapshot = ctx.attr.debian_snapshot[DebianSnapshotInfo]
         arguments.add("--debian-snapshot-repository")
-        arguments.add(ctx.attr.debian_snapshot[DebianSnapshotInfo].repository.path)
+        arguments.add(snapshot.repository.path)
         arguments.add("--release-seed")
         arguments.add(ctx.attr.release_seed)
         arguments.add("--release-source-date-epoch")
         arguments.add(ctx.attr.release_source_date_epoch)
+        arguments.add("--release-distribution")
+        arguments.add(snapshot.distribution)
+        arguments.add("--release-codename")
+        arguments.add(snapshot.codename)
+        arguments.add("--release-snapshot")
+        arguments.add(snapshot.snapshot)
     if config_is_directory:
         for path in ctx.attr.config_tree[MkosiConfigTreeInfo].executable_paths:
             arguments.add("--executable-path")
@@ -332,6 +339,18 @@ def _mkosi_image_impl(ctx):
     arguments.add("--no-pager")
     arguments.add("build")
 
+    environment = {
+        "PATH": "",
+        "PYTHONNOUSERSITE": "1",
+        "PYTHONPATH": mkosi_root + ":" + pefile_root,
+    }
+    if release_mode:
+        snapshot = ctx.attr.debian_snapshot[DebianSnapshotInfo]
+        environment.update({
+            "MKOSI_HOST_DISTRIBUTION": snapshot.distribution,
+            "MKOSI_HOST_RELEASE": snapshot.codename,
+        })
+
     ctx.actions.run(
         executable = mkosi.python,
         arguments = [arguments],
@@ -348,11 +367,7 @@ def _mkosi_image_impl(ctx):
             ctx.attr._kernel_preflight[DefaultInfo].files_to_run,
         ],
         outputs = [image],
-        env = {
-            "PATH": "",
-            "PYTHONNOUSERSITE": "1",
-            "PYTHONPATH": mkosi_root + ":" + pefile_root,
-        },
+        env = environment,
         execution_requirements = _execution_requirements(release_mode),
         mnemonic = "MkosiImage",
         progress_message = "Building mkosi image %{label}",
