@@ -40,9 +40,10 @@ because registration and advanced integrations need a stable label.
 `format_version` is always `mkosi-image-v1`, and its `raw_image`, `manifest`,
 `partition_metadata`, `uki`, and `build_metadata` fields are each a `File` or
 `None`; consumers select fields rather than infer roles from artifact names.
-The current disk/raw mode provides `raw_image` and
-the normalized JSON `build_metadata` projection, and sets the future manifest,
-partition, and UKI fields to `None`. Its legacy `image` field remains an exact
+The current disk/raw mode provides `raw_image` and the normalized JSON
+`build_metadata` projection. Release images also provide a normalized GPT
+`partition_metadata` projection; tracer images set it to `None`. Manifest and
+UKI fields remain `None`. Its legacy `image` field remains an exact
 compatibility alias for `raw_image`. `DefaultInfo.files` contains each
 non-`None` provider artifact once, with no ordering guarantee; existing
 consumers must not assume it is a singleton. The action invokes the pinned mkosi v27 executable and the pinned Debian 13

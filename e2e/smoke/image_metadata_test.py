@@ -17,7 +17,7 @@ def main() -> None:
     assert metadata["artifacts"] == {
         "build_metadata": True,
         "manifest": False,
-        "partition_metadata": False,
+        "partition_metadata": sys.argv[2] == "release",
         "raw_image": True,
         "uki": False,
     }
