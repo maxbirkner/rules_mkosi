@@ -4,11 +4,13 @@
 import importlib.util
 import json
 import os
+import runpy
 import shutil
 import subprocess
 import sys
+import uuid
+from dataclasses import replace
 from pathlib import Path
-
 
 def _load_diagnostics():
     path = Path(__file__).with_name("diagnostics.py")
@@ -19,10 +21,29 @@ def _load_diagnostics():
     spec.loader.exec_module(module)
     return module
 
-
 diagnostics = _load_diagnostics()
 
 _EPOCH = (0, 0)
+_RELEASE_PASSWD = "root:x:0:0:root:/root:/bin/sh\n"
+_RELEASE_GROUP = "root:x:0:\n"
+_RELEASE_HOSTS = "127.0.0.1 localhost\n::1 localhost\n"
+_RELEASE_NSSWITCH = """\
+passwd:     files
+shadow:     files
+group:      files
+hosts:      files
+services:   files
+netgroup:   files
+automount:  files
+
+aliases:    files
+ethers:     files
+gshadow:    files
+networks:   files
+protocols:  files
+publickey:  files
+rpc:        files
+"""
 sys.dont_write_bytecode = True
 
 
@@ -38,6 +59,7 @@ _PATH_OPTIONS = {
     "--cache-directory",
     "--package-cache-directory",
     "--build-directory",
+    "--sandbox-tree",
 }
 
 
@@ -165,21 +187,19 @@ def _extract_debian_tools(archive, extractor_path, expected_digest, destination)
     extractor_spec.loader.exec_module(extractor)
     extractor.extract(archive, destination, expected_digest)
 
-
-def _run_mkosi(script, arguments, runner=subprocess.run):
-    """Run mkosi and classify its process-boundary failure without masking it."""
+def _run_mkosi(script, arguments, runner=subprocess.run, environment=None):
+    """Run mkosi and classify process-boundary failures without masking exit status."""
     try:
-        completed = runner(
-            [sys.executable, script] + arguments,
-            check=False,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
+        kwargs = {
+            "check": False,
+            "stdout": subprocess.PIPE,
+            "stderr": subprocess.PIPE,
+        }
+        if environment is not None:
+            kwargs["env"] = environment
+        completed = runner([sys.executable, script] + arguments, **kwargs)
     except OSError as error:
-        diagnostics.fail(
-            "TOOLCHAIN_FAILURE",
-            "mkosi executable cannot start {}: {}".format(script, error),
-        )
+        diagnostics.fail("TOOLCHAIN_FAILURE", "mkosi executable cannot start {}: {}".format(script, error))
     if completed.returncode:
         diagnostics.fail(
             diagnostics.classify_mkosi_output(completed.stdout + completed.stderr),
@@ -195,9 +215,320 @@ def _run_mkosi(script, arguments, runner=subprocess.run):
             binary_stream.write(content)
 
 
+def _write_release_file(path, content):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content)
+    os.chmod(path, 0o644)
+    os.utime(path, _EPOCH)
+
+
+def _configure_release_mirror(source, workspace, arguments):
+    mirror = workspace / "debian-snapshot"
+    _materialize_tree(source, mirror)
+    sandbox_tree = workspace / "release-sandbox"
+    _write_release_file(
+        sandbox_tree / "etc/apt/apt.conf.d/99rules-mkosi-release",
+        'Acquire::Languages "none";\nAcquire::By-Hash "no";\n',
+    )
+    _write_release_file(sandbox_tree / "etc/passwd", _RELEASE_PASSWD)
+    _write_release_file(sandbox_tree / "etc/group", _RELEASE_GROUP)
+    _write_release_file(sandbox_tree / "etc/hosts", _RELEASE_HOSTS)
+    _write_release_file(sandbox_tree / "etc/nsswitch.conf", _RELEASE_NSSWITCH)
+    arguments.extend(
+        [
+            "--local-mirror",
+            "file://" + os.fspath(mirror),
+            "--sandbox-tree",
+            os.fspath(sandbox_tree),
+        ]
+    )
+    return mirror
+
+
+def _configuration_paths(value):
+    if isinstance(value, Path):
+        yield value
+    elif hasattr(value, "source"):
+        source = value.source
+        if source:
+            yield from _configuration_paths(source)
+    elif isinstance(value, (list, tuple, set)):
+        for item in value:
+            yield from _configuration_paths(item)
+    elif isinstance(value, dict):
+        for item in value.values():
+            yield from _configuration_paths(item)
+
+
+def _validate_release_ini_entry(section):
+    if section in ("Match", "TriggerMatch"):
+        raise SystemExit(
+            "release configuration cannot use [{}] host-dependent matching".format(
+                section
+            )
+        )
+
+
+def _validate_release_configuration(
+    images,
+    release_seed,
+    release_source_date_epoch,
+    release_distribution,
+    release_codename,
+    release_snapshot,
+    allowed_paths,
+):
+    expected_seed = uuid.UUID(release_seed)
+    allowed_roots = [Path(path).resolve() for path in allowed_paths]
+    for config in images:
+        if getattr(config, "proxy_url", None):
+            raise SystemExit("release configuration cannot use a proxy")
+        if getattr(getattr(config, "incremental", None), "value", "no") != "no":
+            raise SystemExit("release configuration incremental mode is not supported")
+        if getattr(config, "distribution", None) and (
+            config.distribution.value != release_distribution or
+            config.release != release_codename or
+            config.snapshot != release_snapshot
+        ):
+            raise SystemExit(
+                "release configuration must resolve to {} {} snapshot {}".format(
+                    release_distribution,
+                    release_codename,
+                    release_snapshot,
+                )
+            )
+        if config.seed != expected_seed:
+            raise SystemExit(
+                "release configuration Seed must resolve to {}".format(expected_seed)
+            )
+        if config.source_date_epoch != release_source_date_epoch:
+            raise SystemExit(
+                "release configuration SourceDateEpoch must resolve to {}".format(
+                    release_source_date_epoch
+                )
+            )
+        for name in (
+            "kernel_modules_include",
+            "kernel_modules_initrd_include",
+        ):
+            if "host" in getattr(config, name, ()):
+                raise SystemExit(
+                    "release configuration {} cannot include host modules".format(name)
+                )
+        for name, value in vars(config).items():
+            for path in _configuration_paths(value):
+                resolved = path.resolve()
+                if not any(
+                    resolved == root or resolved.is_relative_to(root)
+                    for root in allowed_roots
+                ):
+                    raise SystemExit(
+                        "release configuration {} resolves undeclared path {}".format(
+                            name,
+                            resolved,
+                        )
+                    )
+        for name in (
+            "sync_scripts",
+            "prepare_scripts",
+            "build_scripts",
+            "postinst_scripts",
+            "finalize_scripts",
+            "postoutput_scripts",
+            "configure_scripts",
+            "clean_scripts",
+            "extra_trees",
+            "microcode_host",
+            "kernel_modules_include_host",
+            "kernel_modules_initrd_include_host",
+        ):
+            if getattr(config, name, ()):
+                raise SystemExit(
+                    "release configuration {} is not supported".format(name)
+                )
+        for name in (
+            "secure_boot_key_source",
+            "secure_boot_certificate_source",
+            "verity_key_source",
+            "verity_certificate_source",
+            "sign_expected_pcr_key_source",
+            "sign_expected_pcr_certificate_source",
+        ):
+            if getattr(getattr(config, name, None), "source", None):
+                raise SystemExit(
+                    "release configuration {} is not supported".format(name)
+                )
+    return tuple(allowed_roots)
+
+
+def _activate_release_mode(
+    mirror,
+    release_seed,
+    release_source_date_epoch,
+    release_distribution,
+    release_codename,
+    release_snapshot,
+    allowed_paths,
+):
+    """Mount a long Bazel path at mkosi's stable in-sandbox repository path."""
+    from pathlib import Path
+
+    import mkosi
+    import mkosi.config
+    import mkosi.distribution.debian
+    from mkosi.context import Context
+    from mkosi.distribution.debian import Installer
+    from mkosi.installer import PackageManager
+
+    mirror = os.fspath(mirror)
+    source_url = "file://" + mirror
+    original_context_init = Context.__init__
+    original_mounts = PackageManager.mounts.__func__
+    original_repositories = Installer.repositories.__func__
+    original_parse_config = mkosi.config.parse_config
+    original_parse_ini = mkosi.config.parse_ini
+    validate_initial_configuration = [True]
+
+    def repositories(cls, context, for_image=False):
+        if for_image:
+            return
+        for repository in original_repositories(cls, context, for_image):
+            if repository.url == source_url:
+                yield replace(repository, url="file:///repository")
+            else:
+                yield repository
+
+    def mounts(cls, context):
+        result = original_mounts(cls, context)
+        for index in range(len(result) - 2):
+            if (
+                result[index] == "--bind"
+                and os.fspath(result[index + 1]) == mirror
+                and result[index + 2] == "/repository"
+            ):
+                result[index] = "--ro-bind"
+                break
+        else:
+            raise SystemExit("mkosi did not register the declared release mirror")
+        for index in range(len(result) - 2):
+            if (
+                result[index] == "--ro-bind"
+                and os.fspath(result[index + 1]) == mirror
+                and os.fspath(result[index + 2]) == mirror
+            ):
+                del result[index : index + 3]
+                break
+        return result
+
+    def context_init(self, *args, **kwargs):
+        original_context_init(self, *args, **kwargs)
+        self._rules_mkosi_release_mirror = True
+
+    def repository(self):
+        if not getattr(self, "_rules_mkosi_release_mirror", False):
+            return self.workspace / "repository"
+        return Path(mirror)
+
+    def parse_config(*args, **kwargs):
+        parsed = original_parse_config(*args, **kwargs)
+        if validate_initial_configuration[0]:
+            images = tuple(
+                replace(
+                    config,
+                    proxy_peer_certificate = None,
+                    proxy_client_certificate = None,
+                    proxy_client_key = None,
+                )
+                for config in parsed[2]
+            )
+            _validate_release_configuration(
+                images,
+                release_seed,
+                release_source_date_epoch,
+                release_distribution,
+                release_codename,
+                release_snapshot,
+                allowed_paths,
+            )
+            validate_initial_configuration[0] = False
+            return (parsed[0], parsed[1], images)
+        return parsed
+
+    def parse_ini(*args, **kwargs):
+        for section, setting, value in original_parse_ini(*args, **kwargs):
+            _validate_release_ini_entry(section)
+            yield section, setting, value
+
+    def install_sandbox_trees(config, dst):
+        (dst / "etc").mkdir(exist_ok=True)
+
+        if (policy := config.tools() / "usr/share/crypto-policies/back-ends/DEFAULT").exists():
+            Path(dst / "etc/crypto-policies").mkdir(exist_ok=True)
+            mkosi.copy_tree(policy, dst / "etc/crypto-policies/back-ends", sandbox=config.sandbox)
+
+        if config.sandbox_trees:
+            with mkosi.complete_step("Copying in sandbox trees…"):
+                for tree in config.sandbox_trees:
+                    mkosi.install_tree(config, tree.source, dst, target=tree.target, preserve=False)
+
+        if not (dst / "etc/mtab").is_symlink():
+            (dst / "etc/mtab").symlink_to("../proc/self/mounts")
+
+        Path(dst / "etc/resolv.conf").unlink(missing_ok=True)
+        Path(dst / "etc/resolv.conf").touch()
+
+        if not (dst / "etc/nsswitch.conf").exists():
+            _write_release_file(dst / "etc/nsswitch.conf", _RELEASE_NSSWITCH)
+
+        Path(dst / "etc/static").unlink(missing_ok=True)
+        if (config.tools() / "etc/static").is_symlink():
+            (dst / "etc/static").symlink_to((config.tools() / "etc/static").readlink())
+
+        for directory in (
+            "etc/pki/ca-trust",
+            "etc/pki/tls",
+            "etc/ssl",
+            "etc/ca-certificates",
+            "etc/pacman.d/gnupg",
+            "etc/alternatives",
+        ):
+            (dst / directory).mkdir(parents=True, exist_ok=True)
+        for filename in ("etc/shadow", "etc/gshadow", "etc/ld.so.cache"):
+            (dst / filename).touch(exist_ok=True)
+
+    def install_apt_sources(context, repositories):
+        del repositories
+        apt = context.root / "etc/apt"
+        (apt / "sources.list").unlink(missing_ok=True)
+        sources = apt / "sources.list.d"
+        if sources.exists():
+            for source in sources.iterdir():
+                if source.is_file() and source.suffix in (".list", ".sources"):
+                    source.unlink()
+
+    Context.__init__ = context_init
+    Installer.repositories = classmethod(repositories)
+    PackageManager.mounts = classmethod(mounts)
+    Context.repository = property(repository)
+    mkosi.config.parse_config = parse_config
+    mkosi.config.parse_ini = parse_ini
+    mkosi.distribution.debian.install_apt_sources = install_apt_sources
+    mkosi.install_sandbox_trees = install_sandbox_trees
+
+
 def main():
     if len(sys.argv) < 3:
         raise SystemExit("usage: run_mkosi.py MKOSI_SCRIPT [--executable-path PATH] -- [mkosi arguments]")
+    release_child = os.environ.get("RULES_MKOSI_RELEASE_CHILD") == "1"
+    if "--debian-snapshot-repository" in sys.argv[2:] and not release_child:
+        environment = dict(os.environ)
+        environment["RULES_MKOSI_RELEASE_CHILD"] = "1"
+        _run_mkosi(
+            os.path.abspath(__file__),
+            sys.argv[1:],
+            environment=environment,
+        )
+        return
     script = os.path.abspath(sys.argv[1])
     preamble_end = 2
     executable_paths = []
@@ -206,6 +537,13 @@ def main():
     debian_tools_extractor = None
     debian_tools_sha256 = None
     kernel_preflight = None
+    debian_snapshot_repository = None
+    release_mirror = None
+    release_seed = None
+    release_source_date_epoch = None
+    release_distribution = None
+    release_codename = None
+    release_snapshot = None
     while preamble_end < len(sys.argv) and sys.argv[preamble_end] != "--":
         option = sys.argv[preamble_end]
         if option == "--executable-path" and preamble_end + 1 < len(sys.argv):
@@ -225,6 +563,27 @@ def main():
             preamble_end += 2
         elif option == "--kernel-preflight" and preamble_end + 1 < len(sys.argv):
             kernel_preflight = os.path.abspath(sys.argv[preamble_end + 1])
+            preamble_end += 2
+        elif option == "--debian-snapshot-repository" and preamble_end + 1 < len(sys.argv):
+            debian_snapshot_repository = os.path.abspath(sys.argv[preamble_end + 1])
+            preamble_end += 2
+        elif option == "--release-seed" and preamble_end + 1 < len(sys.argv):
+            release_seed = sys.argv[preamble_end + 1]
+            preamble_end += 2
+        elif option == "--release-source-date-epoch" and preamble_end + 1 < len(sys.argv):
+            try:
+                release_source_date_epoch = int(sys.argv[preamble_end + 1])
+            except ValueError as error:
+                raise SystemExit("release source date epoch must be an integer") from error
+            preamble_end += 2
+        elif option == "--release-distribution" and preamble_end + 1 < len(sys.argv):
+            release_distribution = sys.argv[preamble_end + 1]
+            preamble_end += 2
+        elif option == "--release-codename" and preamble_end + 1 < len(sys.argv):
+            release_codename = sys.argv[preamble_end + 1]
+            preamble_end += 2
+        elif option == "--release-snapshot" and preamble_end + 1 < len(sys.argv):
+            release_snapshot = sys.argv[preamble_end + 1]
             preamble_end += 2
         else:
             raise SystemExit("invalid run_mkosi.py preamble")
@@ -251,6 +610,18 @@ def main():
     )
     if any(debian_options) and not all(debian_options):
         raise SystemExit("incomplete Debian tools archive configuration")
+    release_options = (
+        debian_snapshot_repository,
+        release_seed,
+        release_source_date_epoch,
+        release_distribution,
+        release_codename,
+        release_snapshot,
+    )
+    if any(option is not None for option in release_options) and not all(
+        option is not None for option in release_options
+    ):
+        raise SystemExit("incomplete release configuration")
     if all(debian_options):
         workspace = Path(arguments[arguments.index("--workspace-directory") + 1])
         tools_root = Path(arguments[arguments.index("--tools-tree") + 1])
@@ -264,6 +635,9 @@ def main():
             debian_tools_sha256,
             tools_root,
         )
+    if debian_snapshot_repository:
+        workspace = Path(arguments[arguments.index("--workspace-directory") + 1])
+        release_mirror = _configure_release_mirror(debian_snapshot_repository, workspace, arguments)
     if "-C" in arguments:
         directory = Path(arguments[arguments.index("-C") + 1])
         workspace = Path(arguments[arguments.index("--workspace-directory") + 1])
@@ -276,7 +650,25 @@ def main():
             for index, argument in enumerate(arguments):
                 if argument.startswith(os.fspath(directory) + os.sep):
                     arguments[index] = os.fspath(materialized) + argument[len(os.fspath(directory)) :]
-    _run_mkosi(script, arguments)
+    if release_mirror:
+        allowed_paths = []
+        for index, argument in enumerate(arguments):
+            if argument in _PATH_OPTIONS and index + 1 < len(arguments):
+                allowed_paths.append(arguments[index + 1])
+        _activate_release_mode(
+            os.fspath(release_mirror),
+            release_seed,
+            release_source_date_epoch,
+            release_distribution,
+            release_codename,
+            release_snapshot,
+            allowed_paths,
+        )
+    if release_child:
+        sys.argv[:] = [script] + arguments
+        runpy.run_path(script, run_name="__main__")
+    else:
+        _run_mkosi(script, arguments)
 
 
 if __name__ == "__main__":

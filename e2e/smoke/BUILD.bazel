@@ -70,9 +70,23 @@ mkosi_image(
     tags = ["requires-network"],
 )
 
+mkosi_image(
+    name = "release_demo",
+    config_tree = ":release_config_tree",
+    debian_snapshot = "@mkosi_debian_snapshot//:repository",
+    mode = "release",
+    release_seed = "00000000-0000-4000-8000-000000000015",
+    release_source_date_epoch = 0,
+)
+
 mkosi_config_tree(
     name = "config_tree",
     src = "@rules_mkosi//mkosi/tests:testdata/config-tree",
+)
+
+mkosi_config_tree(
+    name = "release_config_tree",
+    src = "testdata/release-config",
 )
 
 mkosi_source_tree(
@@ -91,6 +105,11 @@ build_test(
     name = "tree_demo_build_test",
     tags = ["requires-network"],
     targets = [":tree_demo"],
+)
+
+build_test(
+    name = "release_demo_build_test",
+    targets = [":release_demo"],
 )
 
 public_api_test(
@@ -123,6 +142,11 @@ image_build_metadata_file(
     image = ":demo",
 )
 
+image_build_metadata_file(
+    name = "release_demo_build_metadata",
+    image = ":release_demo",
+)
+
 raw_image_file(
     name = "demo_raw",
     image = ":demo",
@@ -133,11 +157,30 @@ raw_image_file(
     image = ":tree_demo",
 )
 
+raw_image_file(
+    name = "release_demo_raw",
+    image = ":release_demo",
+)
+
 py_test(
     name = "demo_build_metadata_test",
     srcs = ["image_metadata_test.py"],
-    args = ["$(rootpath :demo_build_metadata)"],
+    args = [
+        "$(rootpath :demo_build_metadata)",
+        "tracer",
+    ],
     data = [":demo_build_metadata"],
+    main = "image_metadata_test.py",
+)
+
+py_test(
+    name = "release_demo_build_metadata_test",
+    srcs = ["image_metadata_test.py"],
+    args = [
+        "$(rootpath :release_demo_build_metadata)",
+        "release",
+    ],
+    data = [":release_demo_build_metadata"],
     main = "image_metadata_test.py",
 )
 
@@ -249,6 +292,21 @@ sh_test(
     data = [
         "raw_image_validator.py",
         ":demo_raw",
+        "@mkosi_debian_python//:python",
+    ],
+)
+
+sh_test(
+    name = "release_demo_artifact_test",
+    srcs = ["raw_image_validator_test.sh"],
+    args = [
+        "$(rootpath :release_demo_raw)",
+        "$(rootpath raw_image_validator.py)",
+        "$(rootpath @mkosi_debian_python//:python)",
+    ],
+    data = [
+        "raw_image_validator.py",
+        ":release_demo_raw",
         "@mkosi_debian_python//:python",
     ],
 )

@@ -17,6 +17,15 @@ public `mkosi_image` rule. Its real-image build and root-content artifact
 validator run as part of the default suite, exercising the network and
 host-kernel namespace/mount contract.
 
+`release_demo` uses the same public rule with `mode = "release"` and the
+authenticated `@mkosi_debian_snapshot//:repository`. It has a deterministic
+seed and source date, which the rule resolves and validates at execution,
+materializes only that local APT mirror, and runs with the action network
+namespace blocked. Its metadata validates the authenticated snapshot provenance
+through the public provider contract. The release target may use Bazel's local
+or remote action cache but deliberately retains `no-remote-exec`: qualifying a
+remote execution platform is outside this contract.
+
 The consumer also wraps and registers its own compatible CPython 3.14 runtime
 as `//:consumer_python_toolchain`. The
 `mkosi_python_override_test` analysis test verifies that

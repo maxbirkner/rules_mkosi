@@ -7,7 +7,7 @@ import pathlib
 import sys
 
 
-_EXPECTED_SHA256 = "ebc174414d5291b2f06597dd72b8c210e99442dc316aad6a9e020590040c3fbb"
+_EXPECTED_SHA256 = "522f1ad5d2494f767092c1fe8051f0e0b053f9c6fafb97b7041bc28a652e359c"
 sys.dont_write_bytecode = True
 
 

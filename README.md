@@ -195,9 +195,9 @@ The repository rule performs network fetches only while Bazel resolves the
 extension. The staging action itself has only downloaded metadata, locked
 packages, the managed Python runtime, and the Debian toolchain as inputs; it
 does not invoke apt, dpkg, curl, gpg, or host filesystem tools. This mirror is
-the stable input boundary for a future offline image mode; it does not change
-the current `mkosi_image` network/cache behavior. The lock is an explicitly
-selected representative Debian tools closure, not a general dependency solver.
+the stable input boundary for `mkosi_image` release mode. The lock is an
+explicitly selected representative Debian tools closure, not a general
+dependency solver.
 
 ```starlark
 load("@rules_mkosi//mkosi:defs.bzl", "mkosi_image")
@@ -207,6 +207,55 @@ mkosi_image(
     config = "mkosi.conf",
 )
 ```
+
+The explicit `mode` attribute selects image-build policy. The default
+`"tracer"` mode preserves the existing networked behavior and is intentionally
+non-cacheable. A `"release"` image requires the authenticated snapshot target;
+it stages that content-addressed mirror as mkosi's sole APT source and blocks
+the action network namespace:
+
+```starlark
+load("@rules_mkosi//mkosi:defs.bzl", "mkosi_config_tree", "mkosi_image")
+
+mkosi_config_tree(
+    name = "release_config",
+    src = "mkosi-release",
+)
+mkosi_image(
+    name = "release",
+    config_tree = ":release_config",
+    mode = "release",
+    debian_snapshot = "@mkosi_debian_snapshot//:repository",
+    release_seed = "00000000-0000-4000-8000-000000000015",
+    release_source_date_epoch = 0,
+)
+```
+
+Release mode requires a declared `mkosi_config_tree`, resolves that
+configuration with pinned mkosi, and rejects filesystem paths outside the
+staged declared inputs. It also rejects a configuration unless `Seed=` and
+`SourceDateEpoch=` exactly match `release_seed` and
+`release_source_date_epoch`, and resolves Debian distribution, codename, and
+snapshot defaults from `debian_snapshot`. It supplies fixed passwd, group, hosts, and NSS
+files instead of importing host `/etc` state. With those declared
+configuration/source inputs, the pinned mkosi and Debian toolchains, and the
+authenticated snapshot repository, a release action may use Bazel's local and
+remote action caches. It deliberately keeps `no-remote-exec`, because a remote
+execution platform has not yet been qualified for the required Linux namespace
+and mount contract. There is no fallback to a network mirror: a missing locked
+package or attempted network access fails the action. Release images that
+install APT do not retain a mutable package-source configuration; consume a
+new declared snapshot to produce an updated release image.
+
+To retain that cache guarantee, release mode rejects proxies, lifecycle scripts,
+`ExtraTrees`, host microcode, and host kernel-module selection: those may
+otherwise import host state or restore an APT source after the offline package
+installation. Use a new immutable
+configuration/source-tree input and a new release image for such changes.
+Release configurations also reject `[Match]` and `[TriggerMatch]` sections,
+because mkosi evaluates their host probes before configuration resolution.
+They also reject mkosi incremental mode, so no untracked workspace cache can
+influence a release artifact.
 
 For a complete mkosi configuration directory, mark the exported directory
 with `mkosi_config_tree`. The directory must contain `mkosi.conf`; mkosi's
@@ -271,7 +320,7 @@ basename, or the contents of `DefaultInfo`.
 | `manifest` | `File` or `None` | `None` until a mode explicitly requests mkosi manifest output. |
 | `partition_metadata` | `File` or `None` | `None` until the normalized partition projection is implemented. |
 | `uki` | `File` or `None` | `None` until a mode produces a Unified Kernel Image. |
-| `build_metadata` | `File` or `None` | Present for every current target. It is normalized JSON with schema `mkosi-image-build-metadata-v1`, output-role booleans, and the forced mkosi disk/raw/no-compression settings. |
+| `build_metadata` | `File` or `None` | Present for every current target. It is normalized JSON with schema `mkosi-image-build-metadata-v2`, output-role booleans, mode, and forced mkosi disk/raw/no-compression settings. Release metadata additionally records the authenticated snapshot identity, lock digest, and resolved reproducibility inputs. |
 | `image` | `File` or `None` | Deprecated compatibility alias for `raw_image`; it is exactly the same artifact. New consumers must use `raw_image`. |
 
 `DefaultInfo.files` contains each non-`None` artifact field once; its depset
@@ -283,6 +332,11 @@ was the raw disk must migrate to `MkosiImageInfo.raw_image`. The retained
 `image` field preserves source compatibility for existing provider consumers.
 This contract defines output roles only; it does not generate UKIs, verity
 artifacts, or partition metadata.
+
+The provider stays at `mkosi-image-v1`: the metadata schema independently
+advanced from v1 to v2 to make cache-relevant release provenance explicit.
+Consumers must select the metadata artifact through `build_metadata` and use
+its schema version when parsing its contents.
 
 `qemu_ovmf_boot_test` is the reusable public boot-test adapter:
 
@@ -319,10 +373,13 @@ the staging preflight.
 The rule overrides config output settings to `Format=disk`, `OutputExtension=raw`,
 `CompressOutput=none`, and no split artifacts, so custom formats and redirected
 outputs are not part of this tracer contract. The minimal tracer configuration
-may acquire target Debian packages over the network, so the action is
-explicitly non-cacheable, does not use remote execution, and requires a Linux
-x86-64 execution platform with the namespace and mount capabilities in the
-host-kernel contract. It is not an offline or remote-execution-hermetic action.
+may acquire target Debian packages over the network, so its action is
+explicitly non-cacheable, does not use remote
+execution, and requires a Linux x86-64 execution platform with the namespace
+and mount capabilities in the host-kernel contract. It is not an offline or
+remote-execution-hermetic action. Release mode removes only the tracer's
+network and no-cache restrictions; it remains local-execution-only until a
+remote platform is qualified.
 
 Before adding an image action, run the explicitly sandboxed
 `//mkosi/private:kernel_preflight_host_test` on the intended Linux execution

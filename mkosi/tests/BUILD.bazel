@@ -207,9 +207,20 @@ mkosi_image_test_suite(name = "analysis_tests")
 py_test(
     name = "debian_subject_build_metadata_test",
     srcs = ["mkosi_image_metadata_test.py"],
-    args = ["$(rootpath :debian_subject_build_metadata)"],
+    args = [
+        "$(rootpath :debian_subject_build_metadata)",
+        "tracer",
+    ],
     data = [":debian_subject_build_metadata"],
     main = "mkosi_image_metadata_test.py",
+)
+
+py_test(
+    name = "release_subject_build_metadata_test",
+    srcs = ["release_image_metadata_test.py"],
+    args = ["$(rootpath :release_subject_build_metadata)"],
+    data = [":release_subject_build_metadata"],
+    main = "release_image_metadata_test.py",
 )
 
 qemu_ovmf_boot_test(
@@ -440,10 +451,51 @@ py_test(
     main = "run_mkosi_metadata_test.py",
 )
 
+py_test(
+    name = "release_network_isolation_test",
+    srcs = ["release_network_isolation_test.py"],
+    args = ["$(rootpath :release_raw_image)"],
+    data = [
+        "raw_image_validator.py",
+        ":release_raw_image",
+    ],
+    main = "release_network_isolation_test.py",
+    tags = ["block-network"],
+    deps = ["@rules_python//python/runfiles"],
+)
+
+py_test(
+    name = "release_image_artifact_test",
+    srcs = ["release_image_artifact_test.py"],
+    args = ["$(rootpath :release_raw_image)"],
+    data = [
+        "raw_image_validator.py",
+        ":release_raw_image",
+    ],
+    main = "release_image_artifact_test.py",
+    deps = ["@rules_python//python/runfiles"],
+)
+
+py_test(
+    name = "release_apt_sources_test",
+    srcs = ["release_apt_sources_test.py"],
+    args = [
+        "$(rootpath :release_raw_image)",
+        "$(rootpath @mkosi_debian_tools//:launcher)",
+    ],
+    data = [
+        ":release_raw_image",
+        "@mkosi_debian_tools//:launcher",
+    ],
+    main = "release_apt_sources_test.py",
+    deps = ["@rules_python//python/runfiles"],
+)
+
 exports_files([
     "mkosi_version_test.sh",
     "staged_image_semantics_test.py",
     "testdata/config-tree",
     "testdata/source-tree",
     "testdata/source-tree-two",
+    "testdata/release.conf",
 ])
