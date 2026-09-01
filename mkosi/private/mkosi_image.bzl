@@ -1,9 +1,23 @@
 """Implementation of the public mkosi_image rule."""
 
 MkosiImageInfo = provider(
-    doc = "Information about an image produced by mkosi_image.",
+    doc = """Stable output contract for mkosi_image.
+
+Consumers select artifacts through these fields, never by inspecting
+DefaultInfo filenames. Every artifact field is either a File or None. The
+raw_image and build_metadata fields are present for every currently supported
+mkosi_image target; manifest, partition_metadata, and uki are reserved for
+future output modes. DefaultInfo contains every non-None artifact field once.
+The image field is a compatibility alias for raw_image.
+""",
     fields = {
-        "image": "The generated raw disk image artifact.",
+        "format_version": "Stable MkosiImageInfo contract version, currently mkosi-image-v1.",
+        "raw_image": "The raw disk image File, or None when an output mode does not produce one.",
+        "manifest": "The mkosi manifest File, or None when manifest generation is disabled.",
+        "partition_metadata": "Normalized partition metadata File, or None until that projection is generated.",
+        "uki": "The Unified Kernel Image File, or None when no UKI is generated.",
+        "build_metadata": "Normalized JSON build-metadata File describing this contract's output modes.",
+        "image": "Deprecated compatibility alias for raw_image; use raw_image in new consumers.",
     },
 )
 
@@ -79,6 +93,27 @@ def _single_input(target, attribute):
     if len(files) != 1:
         fail("{} must resolve to exactly one single file or directory, got {}".format(attribute, len(files)))
     return files[0]
+
+def _image_default_info(
+        raw_image,
+        manifest,
+        partition_metadata,
+        uki,
+        build_metadata):
+    """Returns the DefaultInfo projection of the MkosiImageInfo artifacts."""
+    return DefaultInfo(
+        files = depset([
+            artifact
+            for artifact in [
+                raw_image,
+                manifest,
+                partition_metadata,
+                uki,
+                build_metadata,
+            ]
+            if artifact != None
+        ]),
+    )
 
 def _stage_inputs(ctx, config, config_is_directory, source_trees):
     staging = ctx.actions.declare_directory(ctx.label.name + ".mkosi")
@@ -193,6 +228,9 @@ def _mkosi_image_impl(ctx):
         staging = _stage_inputs(ctx, config, config_is_directory, source_trees)
 
     image = ctx.actions.declare_file(ctx.label.name + ".raw")
+    build_metadata = ctx.actions.declare_file(
+        ctx.label.name + ".mkosi-image-info.json",
+    )
     output_name = image.basename[:-len(".raw")]
     workspace = image.dirname + "/." + ctx.label.name + "-mkosi"
     mkosi_root = mkosi.script.path[:-len("/mkosi/__main__.py")]
@@ -277,9 +315,45 @@ def _mkosi_image_impl(ctx):
         progress_message = "Building mkosi image %{label}",
     )
 
+    # This projection deliberately records output roles and normalized mkosi
+    # settings rather than deriving meaning from output filenames or binaries.
+    ctx.actions.write(
+        output = build_metadata,
+        content = json.encode({
+            "artifacts": {
+                "build_metadata": True,
+                "manifest": False,
+                "partition_metadata": False,
+                "raw_image": True,
+                "uki": False,
+            },
+            "format_version": "mkosi-image-build-metadata-v1",
+            "mkosi": {
+                "compression": "none",
+                "format": "disk",
+                "split_artifacts": False,
+                "version": mkosi.version,
+            },
+        }) + "\n",
+    )
+
     return [
-        DefaultInfo(files = depset([image])),
-        MkosiImageInfo(image = image),
+        _image_default_info(
+            raw_image = image,
+            manifest = None,
+            partition_metadata = None,
+            uki = None,
+            build_metadata = build_metadata,
+        ),
+        MkosiImageInfo(
+            format_version = "mkosi-image-v1",
+            raw_image = image,
+            manifest = None,
+            partition_metadata = None,
+            uki = None,
+            build_metadata = build_metadata,
+            image = image,
+        ),
     ]
 
 mkosi_image = rule(
@@ -319,7 +393,10 @@ its label basename, are copied to that key.
 The action downloads target Debian packages over the network and requires the
 Linux namespace and mount capabilities documented by the host-kernel contract.
 It is intentionally non-cacheable and does not claim remote-execution or
-offline hermeticity.
+offline hermeticity. MkosiImageInfo.raw_image and
+MkosiImageInfo.build_metadata are present; manifest, partition_metadata, and
+uki are None. DefaultInfo includes the raw image and build metadata, so
+consumers that need a particular artifact must select its MkosiImageInfo field.
 """,
     provides = [MkosiImageInfo],
     toolchains = [

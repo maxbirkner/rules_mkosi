@@ -36,8 +36,16 @@ Consumers load rules and providers only from `//mkosi:defs.bzl`. Files below
 `//mkosi/private` are implementation details. The toolchain type is public
 because registration and advanced integrations need a stable label.
 
-`mkosi_image` exposes only its generated raw image through `MkosiImageInfo`.
-The action invokes the pinned mkosi v27 executable and the pinned Debian 13
+`mkosi_image` exposes a stable `MkosiImageInfo` output contract. Its
+`format_version` is always `mkosi-image-v1`, and its `raw_image`, `manifest`,
+`partition_metadata`, `uki`, and `build_metadata` fields are each a `File` or
+`None`; consumers select fields rather than infer roles from artifact names.
+The current disk/raw mode provides `raw_image` and
+the normalized JSON `build_metadata` projection, and sets the future manifest,
+partition, and UKI fields to `None`. Its legacy `image` field remains an exact
+compatibility alias for `raw_image`. `DefaultInfo.files` contains each
+non-`None` provider artifact once, with no ordering guarantee; existing
+consumers must not assume it is a singleton. The action invokes the pinned mkosi v27 executable and the pinned Debian 13
 tools tree through registered toolchains. The toolchain crosses Bazel's cache
 boundary as an authenticated regular tar artifact; the image wrapper extracts
 it into action-local workspace storage so merged-`/usr` symlinks never need to
@@ -93,11 +101,12 @@ mounts, pivoting away from the host root, and packaged-loader execution.
 `bazel_skylib` `analysistest` inspects the configured target without executing
 the action. It verifies:
 
-- `MkosiImageInfo` is present.
-- Provider fields are correct.
-- The output name is stable.
+- `MkosiImageInfo` is present and every optional-output combination preserves
+  field/`DefaultInfo` correspondence.
+- Provider fields and absent artifacts are correct.
+- The raw-image and normalized-metadata projections are stable.
 - Toolchain resolution selected the expected toolchain.
-- Exactly one expected action was registered.
+- The expected mkosi action and normalized-metadata projection were registered.
 
 Analysis tests are the preferred Bazel mechanism for testing rule internals.
 They are fast and isolate Starlark behavior from external tools.
@@ -141,7 +150,9 @@ boundary; it is not a generic test of Bazel's toolchain algorithm.
 
 A nested `MODULE.bazel` does not stop root `//...` traversal. `.bazelignore`
 therefore excludes `e2e/`, and CI invokes the consumer from its own working
-directory. The consumer must remain in release archives because BCR runs it as
+directory. The consumer also selects `MkosiImageInfo.build_metadata` through a small
+consumer-owned rule and validates the resulting JSON, rather than depending on
+its filename or default output ordering. The consumer must remain in release archives because BCR runs it as
 the module's test project.
 
 ### Future boot tests

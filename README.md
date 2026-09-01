@@ -247,16 +247,42 @@ Development and test commands are documented once in
 [CONTRIBUTING.md](CONTRIBUTING.md). The independent consumer module is
 described in [`e2e/README.md`](e2e/README.md).
 
-`mkosi_image` declares a single `<name>.raw` output and consumes either one
-mkosi configuration file through `config` or one explicitly typed configuration
-tree through `config_tree`. It invokes the pinned mkosi v27 executable and the
-extracted Debian 13 tools tree through their registered toolchains. The Debian tree crosses Bazel's
+`mkosi_image` consumes either one mkosi configuration file through `config` or
+one explicitly typed configuration tree through `config_tree`. It invokes the
+pinned mkosi v27 executable and the extracted Debian 13 tools tree through
+their registered toolchains. The Debian tree crosses Bazel's
 content-addressed cache as an authenticated tar file and is materialized only
 inside the image action, preserving merged-`/usr` symlinks without exposing a
 symlink-rich directory artifact to cache replay. The action uses an empty
 ambient `PATH`; no host executable lookup or shebang launcher is used.
 The configuration label is mandatory and must resolve to exactly one file;
 invalid file targets fail during Bazel analysis.
+
+### `MkosiImageInfo` output contract
+
+`mkosi_image` returns the public `MkosiImageInfo` provider. Select a specific
+artifact from this provider rather than identifying an artifact from a suffix,
+basename, or the contents of `DefaultInfo`.
+
+| Field | Type | Availability |
+| --- | --- | --- |
+| `format_version` | `string` | Always `mkosi-image-v1`. It identifies the stable provider contract. |
+| `raw_image` | `File` or `None` | Present for the current disk/raw output mode. |
+| `manifest` | `File` or `None` | `None` until a mode explicitly requests mkosi manifest output. |
+| `partition_metadata` | `File` or `None` | `None` until the normalized partition projection is implemented. |
+| `uki` | `File` or `None` | `None` until a mode produces a Unified Kernel Image. |
+| `build_metadata` | `File` or `None` | Present for every current target. It is normalized JSON with schema `mkosi-image-build-metadata-v1`, output-role booleans, and the forced mkosi disk/raw/no-compression settings. |
+| `image` | `File` or `None` | Deprecated compatibility alias for `raw_image`; it is exactly the same artifact. New consumers must use `raw_image`. |
+
+`DefaultInfo.files` contains each non-`None` artifact field once; its depset
+iteration order is not an API. Today that is `raw_image` and `build_metadata`.
+Future manifest, partition, or UKI modes will add their non-`None` artifacts
+without changing the provider field meanings. This intentionally changes the
+old singleton `DefaultInfo` projection: consumers that assumed its sole file
+was the raw disk must migrate to `MkosiImageInfo.raw_image`. The retained
+`image` field preserves source compatibility for existing provider consumers.
+This contract defines output roles only; it does not generate UKIs, verity
+artifacts, or partition metadata.
 
 `qemu_ovmf_boot_test` is the reusable public boot-test adapter:
 
@@ -270,7 +296,9 @@ qemu_ovmf_boot_test(
 )
 ```
 
-It resolves QEMU and OVMF through the registered toolchain, runs QEMU with TCG,
+It accepts an `mkosi_image` target and selects
+`MkosiImageInfo.raw_image` explicitly. It resolves QEMU and OVMF through the
+registered toolchain, runs QEMU with TCG,
 no default devices, and a read-only snapshot of the image, then requires exact
 serial readiness and guest shutdown markers. QMP, launch, firmware, guest,
 readiness-timeout, and shutdown failures are reported separately with bounded

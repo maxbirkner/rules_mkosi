@@ -1,6 +1,7 @@
 """Reusable OVMF adapter for the generic serial boot lifecycle."""
 
 load(":managed_python_test.bzl", "managed_python_test")
+load(":mkosi_image.bzl", "MkosiImageInfo")
 
 _QEMU_TOOLCHAIN_TYPE = "//mkosi/toolchain:qemu_toolchain_type"
 _TEST_TIMEOUT_SECONDS = {
@@ -22,6 +23,9 @@ QemuOvmfBootConfigInfo = provider(
 )
 
 def _qemu_ovmf_boot_config_impl(ctx):
+    image = ctx.attr.image[MkosiImageInfo].raw_image
+    if image == None:
+        fail("image must provide MkosiImageInfo.raw_image for the OVMF raw-disk adapter")
     if ctx.attr.boot_timeout_seconds <= 0:
         fail("boot_timeout_seconds must be positive")
     if ctx.attr.qmp_initialization_timeout_seconds <= 0:
@@ -58,7 +62,7 @@ def _qemu_ovmf_boot_config_impl(ctx):
         "diagnostic_bytes": ctx.attr.diagnostic_bytes,
         "firmware_code": qemu.ovmf_code.short_path,
         "firmware_vars": qemu.ovmf_vars.short_path,
-        "image": ctx.file.image.short_path,
+        "image": image.short_path,
         "qemu_args": ctx.attr.machine_args + [
             "-drive",
             "if=pflash,format=raw,readonly=on,file={firmware_code}",
@@ -79,7 +83,7 @@ def _qemu_ovmf_boot_config_impl(ctx):
     )
     runfiles = ctx.runfiles(
         files = [
-            ctx.file.image,
+            image,
             qemu.ovmf_code,
             qemu.ovmf_vars,
             qemu.qemu_files_to_run.executable,
@@ -105,9 +109,9 @@ qemu_ovmf_boot_config = rule(
     implementation = _qemu_ovmf_boot_config_impl,
     attrs = {
         "image": attr.label(
-            allow_single_file = True,
             mandatory = True,
-            doc = "Raw guest image to boot read-only through a snapshot.",
+            providers = [MkosiImageInfo],
+            doc = "mkosi_image target whose MkosiImageInfo.raw_image is booted read-only through a snapshot.",
         ),
         "readiness_marker": attr.string(
             mandatory = True,

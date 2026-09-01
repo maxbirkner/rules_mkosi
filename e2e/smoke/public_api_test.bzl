@@ -53,7 +53,48 @@ def _image_public_api_test_impl(ctx):
     env = analysistest.begin(ctx)
     target = analysistest.target_under_test(env)
     asserts.true(env, MkosiImageInfo in target)
-    asserts.equals(env, "demo.raw", target[MkosiImageInfo].image.basename)
+    info = target[MkosiImageInfo]
+    asserts.equals(env, "mkosi-image-v1", info.format_version)
+    asserts.equals(env, "demo.raw", info.raw_image.basename)
+    asserts.equals(env, info.raw_image, info.image)
+    asserts.equals(env, None, info.manifest)
+    asserts.equals(env, None, info.partition_metadata)
+    asserts.equals(env, None, info.uki)
+    asserts.equals(env, "demo.mkosi-image-info.json", info.build_metadata.basename)
     return analysistest.end(env)
 
 image_public_api_test = analysistest.make(_image_public_api_test_impl)
+
+def _image_build_metadata_file_impl(ctx):
+    """Selects metadata through MkosiImageInfo rather than output names."""
+    metadata = ctx.attr.image[MkosiImageInfo].build_metadata
+    if metadata == None:
+        fail("image must provide MkosiImageInfo.build_metadata")
+    return [DefaultInfo(files = depset([metadata]))]
+
+image_build_metadata_file = rule(
+    implementation = _image_build_metadata_file_impl,
+    attrs = {
+        "image": attr.label(
+            mandatory = True,
+            providers = [MkosiImageInfo],
+        ),
+    },
+)
+
+def _raw_image_file_impl(ctx):
+    """Selects a raw disk artifact through MkosiImageInfo."""
+    raw_image = ctx.attr.image[MkosiImageInfo].raw_image
+    if raw_image == None:
+        fail("image must provide MkosiImageInfo.raw_image")
+    return [DefaultInfo(files = depset([raw_image]))]
+
+raw_image_file = rule(
+    implementation = _raw_image_file_impl,
+    attrs = {
+        "image": attr.label(
+            mandatory = True,
+            providers = [MkosiImageInfo],
+        ),
+    },
+)

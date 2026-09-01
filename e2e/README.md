@@ -31,6 +31,14 @@ The `tree_demo` target additionally consumes a complete configuration directory
 and an explicitly typed configuration/source tree through the public API. Its
 build and semantic artifact tests also run by default.
 
+The consumer's `image_public_provider_test` and
+`demo_build_metadata_test` exercise the stable `MkosiImageInfo` contract. The
+consumer-owned selector reads `MkosiImageInfo.build_metadata` directly and
+validates its normalized JSON projection; it does not identify the metadata
+or raw image from a filename or `DefaultInfo` ordering. The current image mode
+provides `raw_image` and `build_metadata`; manifest, partition metadata, and
+UKI fields are explicitly absent until their producing modes exist.
+
 `demo_boot_test` is the dedicated UEFI tracer test. It consumes `demo` through
 the public `qemu_ovmf_boot_test` macro, boots it with the registered QEMU/OVMF
 artifacts and TCG, waits for the exact systemd hostname marker on the guest

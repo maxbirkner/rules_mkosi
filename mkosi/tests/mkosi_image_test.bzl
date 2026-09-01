@@ -22,12 +22,25 @@ def _provider_test_impl(ctx):
     target = analysistest.target_under_test(env)
 
     asserts.true(env, MkosiImageInfo in target)
-    asserts.equals(env, ctx.attr.expected_output, target[MkosiImageInfo].image.basename)
+    info = target[MkosiImageInfo]
+    asserts.equals(env, "mkosi-image-v1", info.format_version)
+    asserts.equals(env, ctx.attr.expected_output, info.raw_image.basename)
+    asserts.equals(env, info.raw_image, info.image)
+    asserts.equals(env, None, info.manifest)
+    asserts.equals(env, None, info.partition_metadata)
+    asserts.equals(env, None, info.uki)
+    asserts.equals(env, ctx.attr.expected_metadata, info.build_metadata.basename)
+    asserts.equals(
+        env,
+        sorted([info.raw_image.path, info.build_metadata.path]),
+        sorted([file.path for file in target[DefaultInfo].files.to_list()]),
+    )
 
     actions = analysistest.target_actions(env)
-    asserts.equals(env, 1, len(actions))
-    asserts.equals(env, "MkosiImage", actions[0].mnemonic)
-    action_inputs = [file.basename for file in actions[0].inputs.to_list()]
+    image_actions = [action for action in actions if action.mnemonic == "MkosiImage"]
+    asserts.equals(env, 1, len(image_actions))
+    image_action = image_actions[0]
+    action_inputs = [file.basename for file in image_action.inputs.to_list()]
     asserts.true(env, ctx.attr.expected_config in action_inputs)
     asserts.true(env, "flat.tar" in action_inputs)
     asserts.true(env, "extract_tree.py" in action_inputs)
@@ -40,9 +53,9 @@ def _provider_test_impl(ctx):
     asserts.false(env, "mkosi_cli" in action_inputs)
     asserts.false(env, "mkosi_launcher.sh" in action_inputs)
     asserts.false(env, "launcher" in action_inputs)
-    asserts.equals(env, 1, len(actions[0].outputs.to_list()))
-    asserts.equals(env, ctx.attr.expected_output, actions[0].outputs.to_list()[0].basename)
-    argv = actions[0].argv
+    asserts.equals(env, 1, len(image_action.outputs.to_list()))
+    asserts.equals(env, ctx.attr.expected_output, image_action.outputs.to_list()[0].basename)
+    argv = image_action.argv
     asserts.true(env, argv[0].endswith("python3"))
     asserts.true(env, argv[1].endswith("/run_mkosi.py"))
     asserts.true(env, argv[2].endswith("/mkosi/__main__.py"))
@@ -84,8 +97,8 @@ def _provider_test_impl(ctx):
     asserts.true(env, "--build-sources=" in argv)
     asserts.true(env, "--no-pager" in argv)
     asserts.equals(env, "build", argv[-1])
-    asserts.equals(env, "", actions[0].env["PATH"])
-    asserts.equals(env, "1", actions[0].env["PYTHONNOUSERSITE"])
+    asserts.equals(env, "", image_action.env["PATH"])
+    asserts.equals(env, "1", image_action.env["PYTHONNOUSERSITE"])
 
     return analysistest.end(env)
 
@@ -207,8 +220,118 @@ _provider_test = analysistest.make(
     _provider_test_impl,
     attrs = {
         "expected_config": attr.string(mandatory = True),
+        "expected_metadata": attr.string(mandatory = True),
         "expected_name": attr.string(mandatory = True),
         "expected_output": attr.string(mandatory = True),
+    },
+)
+
+def _image_info_fixture_impl(ctx):
+    """Creates analysis-only MkosiImageInfo output combinations."""
+    raw_image = ctx.actions.declare_file(ctx.label.name + ".raw") if ctx.attr.raw_image else None
+    manifest = ctx.actions.declare_file(ctx.label.name + ".manifest.json") if ctx.attr.manifest else None
+    partition_metadata = ctx.actions.declare_file(ctx.label.name + ".partitions.json") if ctx.attr.partition_metadata else None
+    uki = ctx.actions.declare_file(ctx.label.name + ".efi") if ctx.attr.uki else None
+    build_metadata = ctx.actions.declare_file(ctx.label.name + ".mkosi-image-info.json") if ctx.attr.build_metadata else None
+    artifacts = [raw_image, manifest, partition_metadata, uki, build_metadata]
+    for artifact in artifacts:
+        if artifact != None:
+            ctx.actions.write(output = artifact, content = artifact.basename + "\n")
+    return [
+        DefaultInfo(files = depset([artifact for artifact in artifacts if artifact != None])),
+        MkosiImageInfo(
+            format_version = "mkosi-image-v1",
+            raw_image = raw_image,
+            manifest = manifest,
+            partition_metadata = partition_metadata,
+            uki = uki,
+            build_metadata = build_metadata,
+            image = raw_image,
+        ),
+    ]
+
+_image_info_fixture = rule(
+    implementation = _image_info_fixture_impl,
+    attrs = {
+        "raw_image": attr.bool(mandatory = True),
+        "manifest": attr.bool(mandatory = True),
+        "partition_metadata": attr.bool(mandatory = True),
+        "uki": attr.bool(mandatory = True),
+        "build_metadata": attr.bool(mandatory = True),
+    },
+)
+
+def _image_info_contract_test_impl(ctx):
+    env = analysistest.begin(ctx)
+    target = analysistest.target_under_test(env)
+    info = target[MkosiImageInfo]
+    asserts.equals(env, "mkosi-image-v1", info.format_version)
+    artifacts = [
+        info.raw_image,
+        info.manifest,
+        info.partition_metadata,
+        info.uki,
+        info.build_metadata,
+    ]
+    expected = [
+        ctx.attr.expect_raw_image,
+        ctx.attr.expect_manifest,
+        ctx.attr.expect_partition_metadata,
+        ctx.attr.expect_uki,
+        ctx.attr.expect_build_metadata,
+    ]
+    for index in range(len(artifacts)):
+        asserts.equals(env, expected[index], artifacts[index] != None)
+    asserts.equals(env, info.raw_image, info.image)
+    asserts.equals(
+        env,
+        sorted([artifact.path for artifact in artifacts if artifact != None]),
+        sorted([artifact.path for artifact in target[DefaultInfo].files.to_list()]),
+    )
+    return analysistest.end(env)
+
+_image_info_contract_test = analysistest.make(
+    _image_info_contract_test_impl,
+    attrs = {
+        "expect_raw_image": attr.bool(mandatory = True),
+        "expect_manifest": attr.bool(mandatory = True),
+        "expect_partition_metadata": attr.bool(mandatory = True),
+        "expect_uki": attr.bool(mandatory = True),
+        "expect_build_metadata": attr.bool(mandatory = True),
+    },
+)
+
+def _build_metadata_file_impl(ctx):
+    """Selects build metadata through the public provider, not a filename."""
+    metadata = ctx.attr.image[MkosiImageInfo].build_metadata
+    if metadata == None:
+        fail("image must provide MkosiImageInfo.build_metadata")
+    return [DefaultInfo(files = depset([metadata]))]
+
+build_metadata_file = rule(
+    implementation = _build_metadata_file_impl,
+    attrs = {
+        "image": attr.label(
+            mandatory = True,
+            providers = [MkosiImageInfo],
+        ),
+    },
+)
+
+def _raw_image_file_impl(ctx):
+    """Selects a raw disk artifact through the public provider."""
+    raw_image = ctx.attr.image[MkosiImageInfo].raw_image
+    if raw_image == None:
+        fail("image must provide MkosiImageInfo.raw_image")
+    return [DefaultInfo(files = depset([raw_image]))]
+
+raw_image_file = rule(
+    implementation = _raw_image_file_impl,
+    attrs = {
+        "image": attr.label(
+            mandatory = True,
+            providers = [MkosiImageInfo],
+        ),
     },
 )
 
@@ -218,7 +341,6 @@ def _tree_provider_test_impl(ctx):
     asserts.true(env, MkosiImageInfo in target)
 
     actions = analysistest.target_actions(env)
-    asserts.equals(env, 2, len(actions))
     stage = [action for action in actions if action.mnemonic == "MkosiStageInputs"][0]
     image = [action for action in actions if action.mnemonic == "MkosiImage"][0]
     asserts.equals(env, 2, len(stage.outputs.to_list()))
@@ -347,9 +469,14 @@ def mkosi_image_test_suite(name):
     _provider_test(
         name = "debian_provider_test",
         expected_config = "minimal.conf",
+        expected_metadata = "debian_subject.mkosi-image-info.json",
         expected_name = "debian_subject",
         expected_output = "debian_subject.raw",
         target_under_test = ":debian_subject",
+    )
+    build_metadata_file(
+        name = "debian_subject_build_metadata",
+        image = ":debian_subject",
     )
 
     mkosi_image(
@@ -440,13 +567,60 @@ def mkosi_image_test_suite(name):
         target_under_test = ":invalid_source_tree_subject",
     )
 
+    _qemu_ovmf_boot_config(
+        name = "missing_raw_image_boot_subject",
+        image = ":image_info_fixture_00",
+        readiness_marker = "READY",
+        shutdown_markers = ["SHUTDOWN"],
+        machine_args = ["-machine", "q35"],
+        boot_timeout_seconds = 15,
+        qmp_initialization_timeout_seconds = 15,
+        shutdown_timeout_seconds = 15,
+        diagnostic_bytes = 4096,
+        tags = ["manual"],
+    )
+    _invalid_qemu_config_test(
+        name = "missing_raw_image_boot_test",
+        expected_failure = "MkosiImageInfo.raw_image",
+        target_under_test = ":missing_raw_image_boot_subject",
+    )
+
     _provider_test(
         name = "output_override_provider_test",
         expected_config = "redirect.conf",
+        expected_metadata = "override_subject.mkosi-image-info.json",
         expected_name = "override_subject",
         expected_output = "override_subject.raw",
         target_under_test = ":override_subject",
     )
+
+    for output_mask in range(32):
+        output_suffix = "0{}".format(output_mask) if output_mask < 10 else str(output_mask)
+        fixture_name = "image_info_fixture_" + output_suffix
+        test_name = "image_info_contract_" + output_suffix + "_test"
+        raw_image = output_mask % 2 == 1
+        manifest = output_mask % 4 >= 2
+        partition_metadata = output_mask % 8 >= 4
+        uki = output_mask % 16 >= 8
+        build_metadata = output_mask >= 16
+        _image_info_fixture(
+            name = fixture_name,
+            raw_image = raw_image,
+            manifest = manifest,
+            partition_metadata = partition_metadata,
+            uki = uki,
+            build_metadata = build_metadata,
+            tags = ["manual"],
+        )
+        _image_info_contract_test(
+            name = test_name,
+            expect_raw_image = raw_image,
+            expect_manifest = manifest,
+            expect_partition_metadata = partition_metadata,
+            expect_uki = uki,
+            expect_build_metadata = build_metadata,
+            target_under_test = ":" + fixture_name,
+        )
 
     mkosi_image(
         name = "legacy_default_name_subject",
@@ -778,6 +952,38 @@ def mkosi_image_test_suite(name):
         tests = [
             ":debian_provider_test",
             ":output_override_provider_test",
+            ":image_info_contract_00_test",
+            ":image_info_contract_01_test",
+            ":image_info_contract_02_test",
+            ":image_info_contract_03_test",
+            ":image_info_contract_04_test",
+            ":image_info_contract_05_test",
+            ":image_info_contract_06_test",
+            ":image_info_contract_07_test",
+            ":image_info_contract_08_test",
+            ":image_info_contract_09_test",
+            ":image_info_contract_10_test",
+            ":image_info_contract_11_test",
+            ":image_info_contract_12_test",
+            ":image_info_contract_13_test",
+            ":image_info_contract_14_test",
+            ":image_info_contract_15_test",
+            ":image_info_contract_16_test",
+            ":image_info_contract_17_test",
+            ":image_info_contract_18_test",
+            ":image_info_contract_19_test",
+            ":image_info_contract_20_test",
+            ":image_info_contract_21_test",
+            ":image_info_contract_22_test",
+            ":image_info_contract_23_test",
+            ":image_info_contract_24_test",
+            ":image_info_contract_25_test",
+            ":image_info_contract_26_test",
+            ":image_info_contract_27_test",
+            ":image_info_contract_28_test",
+            ":image_info_contract_29_test",
+            ":image_info_contract_30_test",
+            ":image_info_contract_31_test",
             ":config_tree_provider_test",
             ":legacy_default_name_test",
             ":legacy_alternate_name_test",
@@ -785,6 +991,7 @@ def mkosi_image_test_suite(name):
             ":collision_tree_mapping_test",
             ":duplicate_tree_mapping_test",
             ":invalid_source_tree_test",
+            ":missing_raw_image_boot_test",
             ":invalid_config_test",
             ":invalid_boot_deadline_test",
             ":invalid_public_boot_deadline_test",
