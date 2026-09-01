@@ -20,6 +20,7 @@ load(
 mkosi_image(
     name = "demo",
     config = "testdata/minimal.conf",
+    tags = ["requires-network"],
 )
 
 mkosi_image(
@@ -28,6 +29,7 @@ mkosi_image(
     source_trees = {
         "src": ":source_tree",
     },
+    tags = ["requires-network"],
 )
 
 mkosi_config_tree(
@@ -43,11 +45,13 @@ mkosi_source_tree(
 
 build_test(
     name = "demo_build_test",
+    tags = ["requires-network"],
     targets = [":demo"],
 )
 
 build_test(
     name = "tree_demo_build_test",
+    tags = ["requires-network"],
     targets = [":tree_demo"],
 )
 
@@ -75,44 +79,35 @@ qemu_ovmf_boot_test(
     name = "demo_boot_test",
     image = ":demo",
     tags = [
-        "ci_manifest_boot",
-        "ci_qualified",
+        "manifest",
+        "requires-network",
     ],
 )
 
 managed_python_test(
     name = "boot_launcher_contract_test",
     src = "launcher_contract.py",
-    args = ["$(rootpath :boot_entry_regression_runner)"],
+    args = ["$(rootpath @mkosi_toolchains//:mkosi_python)"],
     data = [
         "launcher_contract.py",
-        ":boot_entry_regression_runner",
+        "@mkosi_toolchains//:mkosi_python",
     ],
-)
-
-managed_python_test(
-    name = "boot_entry_regression_runner",
-    src = "@rules_mkosi//mkosi/private:boot_test.py",
-    data = [
-        "launcher_contract.py",
-        "testdata/invalid_boot_config.json",
-        "@rules_mkosi//mkosi/private:boot_test.py",
-    ],
-    tags = ["manual"],
+    tags = ["manifest"],
 )
 
 sh_test(
     name = "boot_entry_regression_test",
     srcs = ["boot_entry_regression.sh"],
     args = [
-        "$(rootpath :boot_entry_regression_runner)",
+        "$(rootpath @mkosi_toolchains//:mkosi_python)",
         "$(rootpath @rules_mkosi//mkosi/private:managed_python_bootstrap.py)",
         "$(rootpath @rules_mkosi//mkosi/private:boot_test.py)",
         "$(rootpath testdata/invalid_boot_config.json)",
     ],
     data = [
+        "launcher_contract.py",
         "testdata/invalid_boot_config.json",
-        ":boot_entry_regression_runner",
+        "@mkosi_toolchains//:mkosi_python",
         "@rules_mkosi//mkosi/private:boot_test.py",
         "@rules_mkosi//mkosi/private:managed_python_bootstrap.py",
     ],
@@ -194,7 +189,7 @@ sh_test(
         ":demo",
         "@mkosi_debian_python//:bin/python3.11",
     ],
-    tags = ["manual"],
+    tags = ["requires-network"],
 )
 
 sh_test(
@@ -210,6 +205,7 @@ py_test(
     args = ["$(rootpath :tree_demo)"],
     data = [":tree_demo"],
     main = "raw_image_validator.py",
+    tags = ["requires-network"],
 )
 
 py_test(
@@ -218,4 +214,5 @@ py_test(
     args = ["$(rootpath :tree_demo)"],
     data = [":tree_demo"],
     main = "staged_image_semantics_test.py",
+    tags = ["requires-network"],
 )

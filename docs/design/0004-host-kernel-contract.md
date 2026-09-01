@@ -58,12 +58,12 @@ Every check emits `PASS` or `FAIL` with a remediation, followed by a
 `RESULT kernel_contract` line. A non-zero exit status means the host is not
 qualified. `--proc-root=PATH` exists only to make sysctl diagnostics testable. The
 portable fixture test injects operation results and never performs namespace
-or mount syscalls; only the manual host test exercises those operations on the
+or mount syscalls; only the qualified host test exercises those operations on the
 running kernel.
 
 `bazel run //mkosi:kernel_preflight` is also available for inspecting a
 runner, but `bazel run` is not itself a sandboxed action. Its result is not a
-substitute for the test above. The test is tagged `manual` so portable
+substitute for the test above. The test is tagged `requires_kernel_contract` so portable
 repository tests do not accidentally claim that an arbitrary execution
 environment is an image runner.
 

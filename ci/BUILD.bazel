@@ -1,0 +1,10 @@
+load("@rules_python//python:defs.bzl", "py_test")
+
+py_test(
+    name = "action_graph_validator_test",
+    srcs = [
+        "action_graph_validator.py",
+        "action_graph_validator_test.py",
+    ],
+    main = "action_graph_validator_test.py",
+)

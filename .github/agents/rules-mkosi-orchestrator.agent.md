@@ -113,17 +113,32 @@ report blocked cleanup.
    feasible; treat that report as evidence, not a complete effective-config
    resolver. If any setting that can configure `output_base`,
    `output_user_root`, `disk_cache`, or `repository_cache` is not fully
-   accounted for, report blocked cleanup. Shared disk/repository caches may
-   remain only when their canonical paths are proven outside and
-   non-overlapping every worktree and output base; never delete them.
+   accounted for, report blocked cleanup. This repository's root `.bazelrc`
+   configures the exact workspace-local disk cache
+   `<workspace>/.cache/bazel-disk`; the independent `e2e/smoke` workspace
+   configures its own `<workspace>/.cache/bazel-disk`. These are disk-cache
+   directories, not Bazel `output_base` directories. For every exercised
+   workspace, resolve that exact expected path and prove that it is a
+   non-symlink directory owned by the candidate workspace, ignored by Git,
+   contained by that workspace, and non-overlapping with every other cache,
+   registered worktree, and output base. A cache missing after a clean run is
+   still accounted for only when the rc source and exact expected path are
+   proven. Remove each accounted workspace-local cache at its exact canonical
+   path before `git worktree remove`; if any configured cache cannot be
+   accounted for, report blocked cleanup. Shared setup-bazel
+   disk/repository caches may remain only when their canonical paths are
+   proven outside and non-overlapping every worktree and output base; never
+   delete those shared caches.
 3. Protect every registered worktree and every output base discovered for
-   another workspace. Reject any overlap, including an output base equal to
-   or containing a worktree or another output base, or being contained by one.
-   Validate `bazel-*` convenience-symlink targets; never trust a symlink as
-   ownership proof. Shut down each corresponding Bazel server with its exact
-   validated default output base, then delete only those exact output bases.
-   This repository's `.bazelrc` has no cache setting, while CI's setup-bazel
-   enables shared disk and repository caches.
+   another workspace. Reject any overlap, including an output base or
+   workspace-local disk cache equal to or containing a worktree, another
+   output base, or another cache, or being contained by one. Validate
+   `bazel-*` convenience-symlink targets; never trust a symlink as ownership
+   proof. Shut down each corresponding Bazel server with its exact validated
+   default output base, then delete only those exact output bases. The
+   repository rc files own the root and e2e workspace-local caches described
+   above, while CI's setup-bazel separately manages shared disk and repository
+   caches; the latter must remain protected.
 4. Only after all validated output bases are gone, run `git worktree remove
    <canonical-candidate>` without force. This already unregisters that exact
    worktree. Before any repository-wide prune, run `git worktree prune

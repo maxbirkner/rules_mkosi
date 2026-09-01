@@ -3,6 +3,7 @@
 ## Prerequisites
 
 - Bazelisk, or the Bazel version declared in `.bazelversion`.
+- Python 3.11 or newer for the secure local `tools/bazel` launcher.
 - [`prek`](https://prek.j178.dev/) 0.5 or newer.
 
 The hello-world implementation and tests do not require mkosi or other host
@@ -31,6 +32,48 @@ Run the independent consumer test module:
   bazel test //...
 )
 ```
+
+The checked-in `.bazelrc` enables a module-local disk cache at
+`.cache/bazel-disk`; every standalone module gets a separate cache directory.
+These paths are ignored by Git, and the root and `e2e/smoke` paths are also
+ignored by Bazel, so they cannot become source inputs or committed artifacts.
+The repository-only `.bazelrc.ci`
+defines only execution-policy configs: `manifest`, `qualified`, `portable`,
+`deterministic`, `kernel_preflight`, and `bazel9`. A plain `bazel test //...`
+therefore runs the complete suite on a capable host; CI's Bazel 8 qualified
+lane runs every root and consumer test that needs the host kernel contract
+after its explicit preflight. Bazel 9 uses `portable` for compatibility and
+omits only tests tagged `requires-network`, which the Bazel 8 lane covers.
+
+The rc cache path is intentionally relative because Bazel does not expand
+repository-relative substitutions in ordinary option values. Canonical
+commands run from a module root. From any nested directory, use the checked-in
+`tools/bazel` wrapper. It preserves the caller's directory and relative-label
+semantics and uses the nearest `MODULE.bazel` module's
+`.cache/bazel-disk`. See [`tools/README.md`](tools/README.md) for nested
+invocation and cleanup instructions.
+
+```console
+bazel test //...
+USE_BAZEL_VERSION=9.2.0 bazel test --config=portable --config=bazel9 //...
+```
+
+The qualified config forces Linux sandbox execution, disables test-result
+caching, and excludes only `requires_kernel_contract`, a semantic tag for the
+host-only preflight that runs immediately before it. Networked image actions
+remain non-cacheable. The `portable` compatibility config excludes only the
+semantic `requires-network` mode to avoid rebuilding networked images twice.
+The deterministic bootstrap config uses the same semantic exclusion because
+its clean-build proof is about offline bootstrap binaries, not mutable image
+package downloads.
+The independent consumer's manifest config is the one remaining selector: it
+uses `--enable_runfiles=no` and the `manifest` tag to exercise the launcher
+contract that cannot run in the ordinary runfiles mode.
+`manual` is reserved for synthetic analysis subjects (invalid configurations
+and deliberately non-booted provider fixtures); these are excluded from
+wildcard execution while their companion analysis tests assert the contract.
+Executable tests use only the semantic `requires-network`,
+`requires_kernel_contract`, and `manifest` tags described above.
 
 These commands use Bazel 8.5.1 and the two committed lockfiles by default:
 the root `MODULE.bazel.lock` and `e2e/smoke/MODULE.bazel.lock`. CI also tests

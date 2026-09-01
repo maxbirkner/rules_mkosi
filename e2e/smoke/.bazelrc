@@ -1,3 +1,11 @@
+# Resolve this standalone consumer's dependencies through Bzlmod.
 common --enable_bzlmod
+# Protect the consumer's committed lockfile from implicit updates.
 common --lockfile_mode=error
+# Keep consumer action results in this module instead of the repository cache.
+build --disk_cache=.cache/bazel-disk
+# Surface failed consumer test output without a second invocation.
 test --test_output=errors
+
+# Reuse the repository's execution profiles from the standalone consumer.
+try-import %workspace%/../../.bazelrc.ci

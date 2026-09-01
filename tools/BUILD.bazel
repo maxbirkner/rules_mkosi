@@ -1,0 +1,11 @@
+load("@rules_python//python:defs.bzl", "py_test")
+
+exports_files(["bazel"])
+
+py_test(
+    name = "bazel_wrapper_test",
+    srcs = ["bazel_wrapper_test.py"],
+    args = ["$(rootpath :bazel)"],
+    data = [":bazel"],
+    main = "bazel_wrapper_test.py",
+)

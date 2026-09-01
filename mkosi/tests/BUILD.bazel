@@ -142,6 +142,7 @@ diff_test(
     name = "debian_tools_launcher_probe_test",
     file1 = "testdata/debian_tools_launcher_probe.golden.txt",
     file2 = ":debian_tools_launcher_probe",
+    tags = ["manifest"],
 )
 
 sh_test(
@@ -194,6 +195,8 @@ mkosi_image_test_suite(name = "analysis_tests")
 qemu_ovmf_boot_test(
     name = "analysis_boot_test",
     image = ":debian_subject",
+    # This is an analysis subject; boot_config_test checks its generated
+    # configuration, while real boot coverage is provided by e2e/smoke.
     tags = ["manual"],
 )
 
@@ -239,14 +242,20 @@ mkosi_image(
     name = "real_image",
     config_tree = ":config_tree",
     source_trees = {"src": ":source_tree"},
+    tags = ["requires-network"],
 )
 
 py_test(
     name = "real_image_artifact_test",
-    srcs = ["raw_image_validator.py"],
+    srcs = ["raw_image_artifact_test.py"],
     args = ["$(rootpath :real_image)"],
-    data = [":real_image"],
-    main = "raw_image_validator.py",
+    data = [
+        "raw_image_validator.py",
+        ":real_image",
+    ],
+    main = "raw_image_artifact_test.py",
+    tags = ["requires-network"],
+    deps = ["@rules_python//python/runfiles"],
 )
 
 py_test(
@@ -255,15 +264,20 @@ py_test(
     args = ["$(rootpath :real_image)"],
     data = [":real_image"],
     main = "staged_image_semantics_test.py",
+    tags = ["requires-network"],
 )
 
 py_test(
     name = "override_image_artifact_test",
-    srcs = ["raw_image_validator.py"],
+    srcs = ["raw_image_override_artifact_test.py"],
     args = ["$(rootpath :override_subject)"],
-    data = [":override_subject"],
-    main = "raw_image_validator.py",
-    tags = ["manual"],
+    data = [
+        "raw_image_validator.py",
+        ":override_subject",
+    ],
+    main = "raw_image_override_artifact_test.py",
+    tags = ["requires-network"],
+    deps = ["@rules_python//python/runfiles"],
 )
 
 py_test(
@@ -278,13 +292,17 @@ py_test(
 py_test(
     name = "raw_image_corruption_test",
     srcs = [
-        "raw_image_corruption_test.py",
-        "raw_image_validator.py",
+        "raw_image_corruption_runner.py",
     ],
     args = ["$(rootpath :real_image)"],
-    data = [":real_image"],
-    main = "raw_image_corruption_test.py",
-    tags = ["manual"],
+    data = [
+        "raw_image_corruption_test.py",
+        "raw_image_validator.py",
+        ":real_image",
+    ],
+    main = "raw_image_corruption_runner.py",
+    tags = ["requires-network"],
+    deps = ["@rules_python//python/runfiles"],
 )
 
 py_test(

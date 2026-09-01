@@ -1,12 +1,12 @@
 #!/bin/sh
 set -eu
 
-runner="$1"
+python="$1"
 bootstrap="$2"
 src="$3"
 config="$4"
 set +e
-output="$("$runner" "$bootstrap" "$src" "$config" 2>&1)"
+output="$("$python" "$bootstrap" "$src" "$config" 2>&1)"
 status="$?"
 set -e
 

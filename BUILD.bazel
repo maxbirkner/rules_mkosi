@@ -4,3 +4,11 @@ exports_files([
     "LICENSE",
     "MODULE.bazel",
 ])
+
+filegroup(
+    name = "deterministic_bootstrap",
+    srcs = [
+        "@mkosi_debian_tools//:launcher",
+        "@mkosi_debian_tools//:namespace_runner",
+    ],
+)

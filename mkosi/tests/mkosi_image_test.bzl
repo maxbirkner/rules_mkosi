@@ -337,7 +337,7 @@ def mkosi_image_test_suite(name):
     mkosi_image(
         name = "debian_subject",
         config = "testdata/minimal.conf",
-        tags = ["manual"],
+        tags = ["requires-network"],
     )
 
     _provider_test(
@@ -351,7 +351,7 @@ def mkosi_image_test_suite(name):
     mkosi_image(
         name = "override_subject",
         config = "testdata/redirect.conf",
-        tags = ["manual"],
+        tags = ["requires-network"],
     )
 
     mkosi_image(
@@ -360,7 +360,7 @@ def mkosi_image_test_suite(name):
         source_trees = {
             "src": ":source_tree",
         },
-        tags = ["manual"],
+        tags = ["requires-network"],
     )
 
     mkosi_config_tree(
@@ -473,6 +473,8 @@ def mkosi_image_test_suite(name):
     mkosi_image(
         name = "invalid_config_subject",
         config = ":invalid_mkosi_config",
+        # This deliberately invalid analysis subject cannot be part of a
+        # wildcard build; the companion analysistest expects its failure.
         tags = ["manual"],
     )
 
@@ -528,6 +530,9 @@ def mkosi_image_test_suite(name):
         shutdown_timeout_seconds = 30,
         diagnostic_bytes = 4096,
         timeout = "long",
+        # Analysis-only macro subject; the provider test below validates the
+        # generated configuration without booting this deliberately synthetic
+        # guest.
         tags = ["manual"],
     )
     _boot_deadline_provider_test(
@@ -610,6 +615,7 @@ def mkosi_image_test_suite(name):
         image = ":debian_subject",
         boot_timeout_seconds = 600,
         timeout = "long",
+        # Analysis-only timeout propagation subject.
         tags = ["manual"],
     )
     _public_boot_timeout_test(
@@ -630,6 +636,7 @@ def mkosi_image_test_suite(name):
         qmp_initialization_timeout_seconds = 5,
         shutdown_timeout_seconds = 5,
         timeout = "short",
+        # Analysis-only timeout propagation subject.
         tags = ["manual"],
     )
     _public_boot_timeout_test(
