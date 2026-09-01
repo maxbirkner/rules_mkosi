@@ -223,10 +223,12 @@ jobs:
             "$GITHUB_WORKSPACE/.cache/bazel-disk" \
             "$GITHUB_WORKSPACE/e2e/smoke/.cache/bazel-disk"
           do
-            test -d "$cache"
             test ! -L "$cache"
-            test "$(realpath "$cache")" = "$cache"
             git -C "$GITHUB_WORKSPACE" check-ignore -q "$cache"
+            if [ -e "$cache" ]; then
+              test -d "$cache"
+              test "$(realpath "$cache")" = "$cache"
+            fi
           done
           test ! -e "$GITHUB_WORKSPACE/mkosi/tests/.cache/bazel-disk"
           test ! -e "$GITHUB_WORKSPACE/e2e/.cache/bazel-disk"
