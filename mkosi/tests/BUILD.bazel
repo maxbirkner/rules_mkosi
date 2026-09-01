@@ -23,6 +23,7 @@ load(
     ":mkosi_image_test.bzl",
     "boot_config_test",
     "mkosi_image_test_suite",
+    "raw_image_file",
 )
 
 debian_snapshot_provider_test(
@@ -193,6 +194,14 @@ root_dependency_test(name = "root_dependency_test")
 
 mkosi_image_test_suite(name = "analysis_tests")
 
+py_test(
+    name = "debian_subject_build_metadata_test",
+    srcs = ["mkosi_image_metadata_test.py"],
+    args = ["$(rootpath :debian_subject_build_metadata)"],
+    data = [":debian_subject_build_metadata"],
+    main = "mkosi_image_metadata_test.py",
+)
+
 qemu_ovmf_boot_test(
     name = "analysis_boot_test",
     image = ":debian_subject",
@@ -246,13 +255,23 @@ mkosi_image(
     tags = ["requires-network"],
 )
 
+raw_image_file(
+    name = "real_image_raw",
+    image = ":real_image",
+)
+
+raw_image_file(
+    name = "override_subject_raw",
+    image = ":override_subject",
+)
+
 py_test(
     name = "real_image_artifact_test",
     srcs = ["raw_image_artifact_test.py"],
-    args = ["$(rootpath :real_image)"],
+    args = ["$(rootpath :real_image_raw)"],
     data = [
         "raw_image_validator.py",
-        ":real_image",
+        ":real_image_raw",
     ],
     main = "raw_image_artifact_test.py",
     tags = ["requires-network"],
@@ -262,8 +281,8 @@ py_test(
 py_test(
     name = "real_image_semantics_test",
     srcs = ["staged_image_semantics_test.py"],
-    args = ["$(rootpath :real_image)"],
-    data = [":real_image"],
+    args = ["$(rootpath :real_image_raw)"],
+    data = [":real_image_raw"],
     main = "staged_image_semantics_test.py",
     tags = ["requires-network"],
 )
@@ -271,10 +290,10 @@ py_test(
 py_test(
     name = "override_image_artifact_test",
     srcs = ["raw_image_override_artifact_test.py"],
-    args = ["$(rootpath :override_subject)"],
+    args = ["$(rootpath :override_subject_raw)"],
     data = [
         "raw_image_validator.py",
-        ":override_subject",
+        ":override_subject_raw",
     ],
     main = "raw_image_override_artifact_test.py",
     tags = ["requires-network"],
@@ -295,11 +314,11 @@ py_test(
     srcs = [
         "raw_image_corruption_runner.py",
     ],
-    args = ["$(rootpath :real_image)"],
+    args = ["$(rootpath :real_image_raw)"],
     data = [
         "raw_image_corruption_test.py",
         "raw_image_validator.py",
-        ":real_image",
+        ":real_image_raw",
     ],
     main = "raw_image_corruption_runner.py",
     tags = ["requires-network"],

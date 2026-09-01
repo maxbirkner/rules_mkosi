@@ -12,9 +12,11 @@ load("@rules_python//python:defs.bzl", "py_runtime", "py_runtime_pair", "py_test
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
 load(
     ":public_api_test.bzl",
+    "image_build_metadata_file",
     "image_public_api_test",
     "mkosi_python_override_test",
     "public_api_test",
+    "raw_image_file",
     "snapshot_public_api_test",
 )
 load(":python_override.bzl", "consumer_python")
@@ -115,6 +117,29 @@ image_public_api_test(
     target_under_test = ":demo",
 )
 
+image_build_metadata_file(
+    name = "demo_build_metadata",
+    image = ":demo",
+)
+
+raw_image_file(
+    name = "demo_raw",
+    image = ":demo",
+)
+
+raw_image_file(
+    name = "tree_demo_raw",
+    image = ":tree_demo",
+)
+
+py_test(
+    name = "demo_build_metadata_test",
+    srcs = ["image_metadata_test.py"],
+    args = ["$(rootpath :demo_build_metadata)"],
+    data = [":demo_build_metadata"],
+    main = "image_metadata_test.py",
+)
+
 qemu_ovmf_boot_test(
     name = "demo_boot_test",
     image = ":demo",
@@ -190,13 +215,13 @@ sh_test(
     name = "demo_artifact_test",
     srcs = ["raw_image_validator_test.sh"],
     args = [
-        "$(rootpath :demo)",
+        "$(rootpath :demo_raw)",
         "$(rootpath raw_image_validator.py)",
         "$(rootpath @mkosi_debian_python//:python)",
     ],
     data = [
         "raw_image_validator.py",
-        ":demo",
+        ":demo_raw",
         "@mkosi_debian_python//:python",
     ],
 )
@@ -221,12 +246,12 @@ sh_test(
     args = [
         "$(rootpath raw_image_corruption_test.py)",
         "$(rootpath @mkosi_debian_python//:python)",
-        "$(rootpath :demo)",
+        "$(rootpath :demo_raw)",
     ],
     data = [
         "raw_image_corruption_test.py",
         "raw_image_validator.py",
-        ":demo",
+        ":demo_raw",
         "@mkosi_debian_python//:python",
     ],
     tags = ["requires-network"],
@@ -242,8 +267,8 @@ sh_test(
 py_test(
     name = "tree_demo_artifact_test",
     srcs = ["raw_image_validator.py"],
-    args = ["$(rootpath :tree_demo)"],
-    data = [":tree_demo"],
+    args = ["$(rootpath :tree_demo_raw)"],
+    data = [":tree_demo_raw"],
     main = "raw_image_validator.py",
     tags = ["requires-network"],
 )
@@ -251,8 +276,8 @@ py_test(
 py_test(
     name = "tree_demo_semantics_test",
     srcs = ["staged_image_semantics_test.py"],
-    args = ["$(rootpath :tree_demo)"],
-    data = [":tree_demo"],
+    args = ["$(rootpath :tree_demo_raw)"],
+    data = [":tree_demo_raw"],
     main = "staged_image_semantics_test.py",
     tags = ["requires-network"],
 )
