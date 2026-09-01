@@ -4,6 +4,7 @@ load(
     "managed_python_test",
     "mkosi_config_tree",
     "mkosi_image",
+    "mkosi_reproducibility_manifest",
     "mkosi_source_tree",
     "qemu_ovmf_boot_config",
     "qemu_ovmf_boot_test",
@@ -60,6 +61,19 @@ mkosi_image(
     name = "demo",
     config = "testdata/minimal.conf",
     tags = ["requires-network"],
+)
+
+mkosi_reproducibility_manifest(
+    name = "release_demo_reproducibility",
+    image = ":release_demo",
+)
+
+py_test(
+    name = "release_demo_reproducibility_test",
+    srcs = ["reproducibility_manifest_test.py"],
+    args = ["$(rootpath :release_demo_reproducibility)"],
+    data = [":release_demo_reproducibility"],
+    main = "reproducibility_manifest_test.py",
 )
 
 mkosi_image(

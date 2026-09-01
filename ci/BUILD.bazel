@@ -1,6 +1,14 @@
 load("@rules_python//python:defs.bzl", "py_test")
 
 py_test(
+    name = "verify_reproducibility_execution_test",
+    srcs = ["verify_reproducibility_execution_test.py"],
+    args = ["$(rootpath :verify_reproducibility_execution.py)"],
+    data = [":verify_reproducibility_execution.py"],
+    main = "verify_reproducibility_execution_test.py",
+)
+
+py_test(
     name = "action_graph_validator_test",
     srcs = [
         "action_graph_validator.py",

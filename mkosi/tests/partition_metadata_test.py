@@ -82,6 +82,16 @@ def _recrc_header(raw, offset):
     struct.pack_into("<I", raw, offset + 16, zlib.crc32(header[:92]))
 
 
+def _rewrite_arrays(raw, mutate):
+    for array_offset in (2 * SECTOR, (SECTORS - 3) * SECTOR):
+        array = bytearray(raw[array_offset:array_offset + COUNT * ENTRY_SIZE])
+        mutate(array)
+        raw[array_offset:array_offset + len(array)] = array
+        header_offset = SECTOR if array_offset == 2 * SECTOR else (SECTORS - 1) * SECTOR
+        struct.pack_into("<I", raw, header_offset + 88, zlib.crc32(array))
+        _recrc_header(raw, header_offset)
+
+
 class ProjectionTest(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
@@ -94,6 +104,67 @@ class ProjectionTest(unittest.TestCase):
         with open(self.path, "wb") as output:
             output.write(raw)
         return partition_metadata.project_image(self.path)
+
+    def digest(self, raw):
+        with open(self.path, "wb") as output:
+            output.write(raw)
+        return partition_metadata.canonical_image_sha256(self.path)
+
+    def test_canonical_digest_covers_partition_payload(self):
+        original = image()
+        changed = bytearray(original)
+        changed[2048 * SECTOR + 123] ^= 1
+        self.assertNotEqual(self.digest(original), self.digest(changed))
+
+    def test_canonical_digest_normalizes_only_gpt_identity_and_crcs(self):
+        original = image()
+        changed = bytearray(original)
+        replacement_disk_guid = uuid.uuid4().bytes_le
+        for header_offset in (SECTOR, (SECTORS - 1) * SECTOR):
+            changed[header_offset + 56:header_offset + 72] = replacement_disk_guid
+            _recrc_header(changed, header_offset)
+        replacement_partition_guid = uuid.uuid4().bytes_le
+        _rewrite_arrays(
+            changed,
+            lambda array: array.__setitem__(
+                slice(ENTRY_SIZE + 16, ENTRY_SIZE + 32),
+                replacement_partition_guid,
+            ),
+        )
+        self.assertEqual(self.digest(original), self.digest(changed))
+
+    def test_canonical_digest_preserves_partition_semantics(self):
+        original = image()
+        mutations = {
+            "attributes": lambda array: struct.pack_into(
+                "<Q", array, ENTRY_SIZE + 48, 1
+            ),
+            "lba": lambda array: struct.pack_into(
+                "<QQ", array, ENTRY_SIZE + 32, 4096, 6143
+            ),
+        }
+        for name, mutation in mutations.items():
+            with self.subTest(name=name):
+                changed = bytearray(original)
+                _rewrite_arrays(changed, mutation)
+                self.assertNotEqual(self.digest(original), self.digest(changed))
+
+        invalid_mutations = {
+            "type_guid": lambda array: array.__setitem__(
+                slice(ENTRY_SIZE, ENTRY_SIZE + 16),
+                uuid.UUID("0fc63daf-8483-4772-8e79-3d69d8477de4").bytes_le,
+            ),
+            "label": lambda array: array.__setitem__(
+                slice(ENTRY_SIZE + 56, ENTRY_SIZE + 80),
+                "not-the-root".encode("utf-16-le"),
+            ),
+        }
+        for name, mutation in invalid_mutations.items():
+            with self.subTest(name=name):
+                changed = bytearray(original)
+                _rewrite_arrays(changed, mutation)
+                with self.assertRaises(ValueError):
+                    self.digest(changed)
 
     def write_dense_image(self, count):
         sectors = 2048 * (count + 2)

@@ -25,6 +25,7 @@ load(
     _MkosiSourceTreeInfo = "MkosiSourceTreeInfo",
     _mkosi_config_tree = "mkosi_config_tree",
     _mkosi_image = "mkosi_image",
+    _mkosi_reproducibility_manifest = "mkosi_reproducibility_manifest",
     _mkosi_source_tree = "mkosi_source_tree",
 )
 load(
@@ -48,6 +49,7 @@ DebianSnapshotInfo = _DebianSnapshotInfo
 ManagedPythonTestInfo = _ManagedPythonTestInfo
 QemuOvmfBootConfigInfo = _QemuOvmfBootConfigInfo
 mkosi_image = _mkosi_image
+mkosi_reproducibility_manifest = _mkosi_reproducibility_manifest
 debian_snapshot = _debian_snapshot
 mkosi_config_tree = _mkosi_config_tree
 mkosi_source_tree = _mkosi_source_tree
