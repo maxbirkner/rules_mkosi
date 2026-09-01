@@ -380,11 +380,6 @@ def _release_provider_test_impl(ctx):
     asserts.equals(env, "00000000-0000-4000-8000-000000000007", argv[seed + 1])
     epoch = argv.index("--release-source-date-epoch")
     asserts.equals(env, "0", argv[epoch + 1])
-    asserts.equals(
-        env,
-        "-E hash_seed=00000000-0000-4000-8000-000000000007",
-        image_action.env["SYSTEMD_REPART_MKFS_OPTIONS_EXT4"],
-    )
     asserts.equals(env, "0", image_action.env["SOURCE_DATE_EPOCH"])
     info = target[MkosiImageInfo]
     asserts.equals(env, "mkosi-image-v1", info.format_version)

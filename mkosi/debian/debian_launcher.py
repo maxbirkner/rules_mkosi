@@ -35,7 +35,6 @@ TOOLS = {
 
 _DETERMINISTIC_ENVIRONMENT = (
     "SOURCE_DATE_EPOCH",
-    "SYSTEMD_REPART_MKFS_OPTIONS_EXT4",
 )
 _MOUNT_ROOTS = ("/root", "/tmp", "/proc", "/dev", "/workspace", "/inputs", "/outputs")
 _RUNFILES = {
@@ -60,6 +59,16 @@ def _tool_environment():
         if name in os.environ:
             environment[name] = os.environ[name]
     return environment
+
+
+def _deterministic_tool_arguments(tool, arguments):
+    arguments = list(arguments)
+    if tool == "/usr/sbin/mkfs.ext4" and "-U" in arguments:
+        uuid_index = arguments.index("-U") + 1
+        if uuid_index >= len(arguments):
+            raise click.ClickException("mkfs.ext4 -U is missing its value")
+        arguments.extend(["-E", "hash_seed=" + arguments[uuid_index]])
+    return arguments
 
 
 def _inside_root(root, path):
@@ -379,6 +388,7 @@ def _run(
                     "dir" if bind[4] else "file",
                 ]
             )
+        arguments = _deterministic_tool_arguments(tool, arguments)
         command = [
             namespace_runner,
             root,
