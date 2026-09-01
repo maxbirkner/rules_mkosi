@@ -43,6 +43,13 @@ lane runs every root and consumer test that needs the host kernel contract
 after its explicit preflight. Bazel 9 uses `portable` for compatibility and
 omits only tests tagged `requires-network`, which the Bazel 8 lane covers:
 
+The rc cache path is intentionally relative to the module root because Bazel
+does not expand repository-relative substitutions in ordinary option values.
+Canonical commands run from the root or `e2e/smoke` module root. When invoking
+Bazel from a nested directory, use the checked-in `tools/bazel` wrapper; it
+finds the nearest module root before delegating, preventing literal or nested
+`.cache/bazel-disk` paths.
+
 ```console
 bazel test //...
 USE_BAZEL_VERSION=9.2.0 bazel test --config=portable --config=bazel9 //...
