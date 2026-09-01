@@ -254,6 +254,8 @@ installation. Use a new immutable
 configuration/source-tree input and a new release image for such changes.
 Release configurations also reject `[Match]` and `[TriggerMatch]` sections,
 because mkosi evaluates their host probes before configuration resolution.
+They also reject mkosi incremental mode, so no untracked workspace cache can
+influence a release artifact.
 
 For a complete mkosi configuration directory, mark the exported directory
 with `mkosi_config_tree`. The directory must contain `mkosi.conf`; mkosi's

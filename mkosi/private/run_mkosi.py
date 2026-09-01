@@ -280,6 +280,8 @@ def _validate_release_configuration(
     for config in images:
         if getattr(config, "proxy_url", None):
             raise SystemExit("release configuration cannot use a proxy")
+        if getattr(getattr(config, "incremental", None), "value", "no") != "no":
+            raise SystemExit("release configuration incremental mode is not supported")
         if getattr(config, "distribution", None) and (
             config.distribution.value != release_distribution or
             config.release != release_codename or

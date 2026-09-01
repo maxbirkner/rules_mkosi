@@ -71,6 +71,8 @@ import an undeclared host input or restore an APT source after that cleanup,
 and rejects host microcode and every host kernel-module selection form.
 Release mode rejects mkosi `[Match]` and `[TriggerMatch]` sections before
 their host-probe expressions are evaluated.
+It rejects mkosi incremental mode to prevent workspace cache state from
+crossing a Bazel action boundary.
 The tracer action forces disk/raw/uncompressed output
 and disables split artifacts; configuration files cannot redirect the declared
 artifact or select a custom format. The legacy `config` attribute accepts

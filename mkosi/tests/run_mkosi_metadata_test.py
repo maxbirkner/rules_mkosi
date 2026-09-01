@@ -235,6 +235,14 @@ def main():
             ),
             "secure_boot_key_source is not supported",
         ),
+        (
+            types.SimpleNamespace(
+                seed=uuid.UUID(seed),
+                source_date_epoch=0,
+                incremental=types.SimpleNamespace(value="yes"),
+            ),
+            "incremental mode is not supported",
+        ),
     ):
         try:
             wrapper._validate_release_configuration(
