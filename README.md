@@ -215,9 +215,15 @@ it stages that content-addressed mirror as mkosi's sole APT source and blocks
 the action network namespace:
 
 ```starlark
+load("@rules_mkosi//mkosi:defs.bzl", "mkosi_config_tree", "mkosi_image")
+
+mkosi_config_tree(
+    name = "release_config",
+    src = "mkosi-release",
+)
 mkosi_image(
     name = "release",
-    config = "mkosi-release.conf",
+    config_tree = ":release_config",
     mode = "release",
     debian_snapshot = "@mkosi_debian_snapshot//:repository",
     release_seed = "00000000-0000-4000-8000-000000000015",
@@ -225,8 +231,10 @@ mkosi_image(
 )
 ```
 
-Release mode resolves the supplied configuration with pinned mkosi and rejects
-it unless `Seed=` and `SourceDateEpoch=` exactly match `release_seed` and
+Release mode requires a declared `mkosi_config_tree`, resolves that
+configuration with pinned mkosi, and rejects filesystem paths outside the
+staged declared inputs. It also rejects a configuration unless `Seed=` and
+`SourceDateEpoch=` exactly match `release_seed` and
 `release_source_date_epoch`. It supplies fixed passwd, group, hosts, and NSS
 files instead of importing host `/etc` state. With those declared
 configuration/source inputs, the pinned mkosi and Debian toolchains, and the

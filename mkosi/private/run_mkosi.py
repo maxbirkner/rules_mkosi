@@ -242,8 +242,29 @@ def _configure_release_mirror(source, workspace, arguments):
     return mirror
 
 
-def _validate_release_configuration(images, release_seed, release_source_date_epoch):
+def _configuration_paths(value):
+    if isinstance(value, Path):
+        yield value
+    elif hasattr(value, "source"):
+        source = value.source
+        if source:
+            yield from _configuration_paths(source)
+    elif isinstance(value, (list, tuple, set)):
+        for item in value:
+            yield from _configuration_paths(item)
+    elif isinstance(value, dict):
+        for item in value.values():
+            yield from _configuration_paths(item)
+
+
+def _validate_release_configuration(
+    images,
+    release_seed,
+    release_source_date_epoch,
+    allowed_paths,
+):
     expected_seed = uuid.UUID(release_seed)
+    allowed_roots = [Path(path).resolve() for path in allowed_paths]
     for config in images:
         if config.seed != expected_seed:
             raise SystemExit(
@@ -255,9 +276,34 @@ def _validate_release_configuration(images, release_seed, release_source_date_ep
                     release_source_date_epoch
                 )
             )
+        for name, value in vars(config).items():
+            if name in (
+                "proxy_peer_certificate",
+                "proxy_client_certificate",
+                "proxy_client_key",
+            ) and not config.proxy_url:
+                continue
+            for path in _configuration_paths(value):
+                resolved = path.resolve()
+                if not any(
+                    resolved == root or resolved.is_relative_to(root)
+                    for root in allowed_roots
+                ):
+                    raise SystemExit(
+                        "release configuration {} resolves undeclared path {}".format(
+                            name,
+                            resolved,
+                        )
+                    )
+    return tuple(allowed_roots)
 
 
-def _activate_release_mode(mirror, release_seed, release_source_date_epoch):
+def _activate_release_mode(
+    mirror,
+    release_seed,
+    release_source_date_epoch,
+    allowed_paths,
+):
     """Mount a long Bazel path at mkosi's stable in-sandbox repository path."""
     from pathlib import Path
 
@@ -323,6 +369,7 @@ def _activate_release_mode(mirror, release_seed, release_source_date_epoch):
                 parsed[2],
                 release_seed,
                 release_source_date_epoch,
+                allowed_paths,
             )
             validate_initial_configuration[0] = False
         return parsed
@@ -493,10 +540,15 @@ def main():
                 if argument.startswith(os.fspath(directory) + os.sep):
                     arguments[index] = os.fspath(materialized) + argument[len(os.fspath(directory)) :]
     if release_mirror:
+        allowed_paths = []
+        for index, argument in enumerate(arguments):
+            if argument in _PATH_OPTIONS and index + 1 < len(arguments):
+                allowed_paths.append(arguments[index + 1])
         _activate_release_mode(
             os.fspath(release_mirror),
             release_seed,
             release_source_date_epoch,
+            allowed_paths,
         )
     _run_mkosi(script, arguments)
 

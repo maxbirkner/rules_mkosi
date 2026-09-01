@@ -72,7 +72,7 @@ mkosi_image(
 
 mkosi_image(
     name = "release_demo",
-    config = "testdata/release.conf",
+    config_tree = ":release_config_tree",
     debian_snapshot = "@mkosi_debian_snapshot//:repository",
     mode = "release",
     release_seed = "00000000-0000-4000-8000-000000000015",
@@ -82,6 +82,11 @@ mkosi_image(
 mkosi_config_tree(
     name = "config_tree",
     src = "@rules_mkosi//mkosi/tests:testdata/config-tree",
+)
+
+mkosi_config_tree(
+    name = "release_config_tree",
+    src = "testdata/release-config",
 )
 
 mkosi_source_tree(

@@ -657,7 +657,7 @@ def mkosi_image_test_suite(name):
 
     mkosi_image(
         name = "release_subject",
-        config = "testdata/release.conf",
+        config_tree = ":release_config_tree",
         debian_snapshot = "@mkosi_debian_snapshot//:repository",
         mode = "release",
         release_seed = "00000000-0000-4000-8000-000000000007",
@@ -674,6 +674,10 @@ def mkosi_image_test_suite(name):
     build_metadata_file(
         name = "release_subject_build_metadata",
         image = ":release_subject",
+    )
+    mkosi_config_tree(
+        name = "release_config_tree",
+        src = "testdata/release-config",
     )
 
     mkosi_image(
@@ -740,6 +744,21 @@ def mkosi_image_test_suite(name):
         name = "release_without_epoch_test",
         expected_error = "release mode requires a non-negative release_source_date_epoch",
         target_under_test = ":release_without_epoch_subject",
+    )
+
+    mkosi_image(
+        name = "release_single_config_subject",
+        config = "testdata/minimal.conf",
+        debian_snapshot = "@mkosi_debian_snapshot//:repository",
+        mode = "release",
+        release_seed = "00000000-0000-4000-8000-000000000007",
+        release_source_date_epoch = 0,
+        tags = ["manual"],
+    )
+    _invalid_tree_mapping_test(
+        name = "release_single_config_test",
+        expected_error = "release mode requires config_tree",
+        target_under_test = ":release_single_config_subject",
     )
 
     mkosi_image(
@@ -1110,6 +1129,7 @@ def mkosi_image_test_suite(name):
             ":invalid_mode_test",
             ":release_without_seed_test",
             ":release_without_epoch_test",
+            ":release_single_config_test",
             ":config_tree_provider_test",
             ":legacy_default_name_test",
             ":legacy_alternate_name_test",

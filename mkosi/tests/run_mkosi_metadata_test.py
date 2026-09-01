@@ -109,17 +109,35 @@ def main():
         [types.SimpleNamespace(seed=uuid.UUID(seed), source_date_epoch=0)],
         seed,
         0,
+        [root],
     )
     for configuration, message in (
         (types.SimpleNamespace(seed=uuid.uuid4(), source_date_epoch=0), "Seed"),
         (types.SimpleNamespace(seed=uuid.UUID(seed), source_date_epoch=None), "SourceDateEpoch"),
     ):
         try:
-            wrapper._validate_release_configuration([configuration], seed, 0)
+            wrapper._validate_release_configuration([configuration], seed, 0, [root])
         except SystemExit as error:
             assert message in str(error)
         else:
             raise AssertionError("non-deterministic release configuration was accepted")
+    try:
+        wrapper._validate_release_configuration(
+            [
+                types.SimpleNamespace(
+                    seed=uuid.UUID(seed),
+                    source_date_epoch=0,
+                    skeleton_trees=[types.SimpleNamespace(source=pathlib.Path("/etc"))],
+                )
+            ],
+            seed,
+            0,
+            [root],
+        )
+    except SystemExit as error:
+        assert "undeclared path" in str(error)
+    else:
+        raise AssertionError("release configuration accepted an undeclared tree")
     print("materialized metadata and relative links are deterministic")
 
 

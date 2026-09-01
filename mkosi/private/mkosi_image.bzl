@@ -246,6 +246,8 @@ def _mkosi_image_impl(ctx):
         fail("one of config or config_tree is required")
 
     config_is_directory = bool(ctx.attr.config_tree)
+    if release_mode and not config_is_directory:
+        fail("release mode requires config_tree so every configuration path is declared")
     config = (
         ctx.attr.config_tree[MkosiConfigTreeInfo].tree if config_is_directory else _single_input(ctx.attr.config, "config")
     )

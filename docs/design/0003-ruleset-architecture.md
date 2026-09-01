@@ -54,8 +54,9 @@ networked `"tracer"` mode, which is non-cacheable and not remote- or
 offline-hermetic. `"release"` mode requires `DebianSnapshotInfo`, materializes
 the authenticated local APT tree, blocks network access, and omits the
 tracer-only `no-cache` requirement. Release callers must provide
-`release_seed` and `release_source_date_epoch`; execution resolves the pinned
-mkosi configuration and rejects it unless these match `Seed=` and
+`config_tree`, `release_seed`, and `release_source_date_epoch`; execution
+resolves the pinned mkosi configuration, rejects filesystem paths outside its
+declared staged inputs, and rejects it unless the values match `Seed=` and
 `SourceDateEpoch=`. A narrow release wrapper supplies deterministic passwd,
 group, hosts, and NSS sandbox inputs rather than mkosi's host `/etc` defaults.
 The stable provider remains `mkosi-image-v1`; its normalized metadata advances
