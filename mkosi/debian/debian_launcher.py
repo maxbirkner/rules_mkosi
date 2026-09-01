@@ -33,6 +33,10 @@ TOOLS = {
     "sqv": "/usr/bin/sqv",
 }
 
+_DETERMINISTIC_ENVIRONMENT = (
+    "SOURCE_DATE_EPOCH",
+    "SYSTEMD_REPART_MKFS_OPTIONS_EXT4",
+)
 _MOUNT_ROOTS = ("/root", "/tmp", "/proc", "/dev", "/workspace", "/inputs", "/outputs")
 _RUNFILES = {
     "archive": "mkosi_debian_tools/flat.tar",
@@ -48,6 +52,14 @@ class RuntimeFiles(NamedTuple):
     archive_sha256: str
     extractor: str
     namespace_runner: str
+
+
+def _tool_environment():
+    environment = {"PATH": "", "HOME": "/root"}
+    for name in _DETERMINISTIC_ENVIRONMENT:
+        if name in os.environ:
+            environment[name] = os.environ[name]
+    return environment
 
 
 def _inside_root(root, path):
@@ -378,7 +390,7 @@ def _run(
         ] + mount_arguments + ["--"] + arguments
         return subprocess.run(
             command,
-            env={"PATH": "", "HOME": "/root"},
+            env=_tool_environment(),
         ).returncode
     finally:
         shutil.rmtree(runtime, ignore_errors=True)

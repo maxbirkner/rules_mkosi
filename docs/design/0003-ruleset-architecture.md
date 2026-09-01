@@ -192,6 +192,9 @@ directory-index `hash_seed`; `make2fs` otherwise generates that superblock field
 randomly even when the filesystem UUID and timestamps are fixed. It exports
 the matching `SOURCE_DATE_EPOCH` so mkosi's subprocesses, including filesystem
 tools, observe the configuration value rather than only mkosi's parser.
+The isolated Debian launcher forwards only these two deterministic controls in
+addition to its fixed `PATH` and `HOME`; arbitrary host environment variables
+remain excluded.
 
 ### Consumer module
 

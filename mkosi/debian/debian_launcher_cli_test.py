@@ -1,4 +1,5 @@
 import importlib.util
+import os
 import pathlib
 import unittest
 from unittest import mock
@@ -15,6 +16,26 @@ _SPEC.loader.exec_module(debian_launcher)
 
 
 class DebianLauncherCliTest(unittest.TestCase):
+    def test_tool_environment_preserves_only_determinism_controls(self):
+        with mock.patch.dict(
+            os.environ,
+            {
+                "HOST_SECRET": "excluded",
+                "SOURCE_DATE_EPOCH": "0",
+                "SYSTEMD_REPART_MKFS_OPTIONS_EXT4": "-E hash_seed=fixed",
+            },
+            clear=True,
+        ):
+            self.assertEqual(
+                {
+                    "HOME": "/root",
+                    "PATH": "",
+                    "SOURCE_DATE_EPOCH": "0",
+                    "SYSTEMD_REPART_MKFS_OPTIONS_EXT4": "-E hash_seed=fixed",
+                },
+                debian_launcher._tool_environment(),
+            )
+
     def test_help_is_a_successful_cli_operation(self):
         result = CliRunner().invoke(debian_launcher.cli, ["--help"])
 
