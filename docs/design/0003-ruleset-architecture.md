@@ -153,6 +153,26 @@ and compare those instead:
 - UKI sections and signatures.
 - Reproducibility across repeated builds.
 
+`mkosi_reproducibility_manifest` now projects the raw image and normalized
+build metadata into canonical JSON. It records the SHA-256 and byte size of
+both immutable artifacts and embeds the parsed build metadata with sorted JSON
+keys. CI compares this text across two Bazel 8 builds with distinct clean
+`output_user_root` directories and with local and remote action-result caches
+disabled; repository downloads may be reused because their content is fixed
+and authenticated.
+
+The current unsigned release disk has no excluded embedded artifact fields.
+The manifest's `excluded_variable_fields` names each non-artifact field that
+is intentionally omitted: output path, inode, ownership, permissions, mtime,
+output base, sandbox path, workspace path, action start time, and action
+duration. Each entry carries its reason. These describe the two build
+processes rather than artifact content. The comparison makes no claim about
+future signed UKIs or detached signatures: signature bytes, signing time,
+certificate ordering, and signer randomness must be identified and excluded
+with a reason if those artifacts are added. Execution paths, sandbox paths,
+workspace paths, and action timing are likewise outside the artifact manifest
+because they are build-process state and are not embedded release fields.
+
 Inspection binaries must be supplied through Bazel toolchains rather than
 assumed to exist on the runner.
 

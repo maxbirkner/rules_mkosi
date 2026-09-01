@@ -78,6 +78,57 @@ mkosi_source_tree = rule(
     doc = "Marks a label as an mkosi BuildSources tree.",
 )
 
+def _mkosi_reproducibility_manifest_impl(ctx):
+    image = ctx.attr.image[MkosiImageInfo]
+    if image.raw_image == None or image.build_metadata == None:
+        fail("image must provide raw_image and build_metadata")
+
+    output = ctx.actions.declare_file(ctx.label.name + ".reproducibility.json")
+    mkosi = ctx.toolchains["//mkosi/toolchain:toolchain_type"].mkosi
+    args = ctx.actions.args()
+    args.add(ctx.file._projector.path)
+    args.add("--raw-image")
+    args.add(image.raw_image.path)
+    args.add("--build-metadata")
+    args.add(image.build_metadata.path)
+    args.add("--output")
+    args.add(output.path)
+    ctx.actions.run(
+        executable = mkosi.python,
+        arguments = [args],
+        inputs = depset(
+            [image.raw_image, image.build_metadata, ctx.file._projector],
+            transitive = [mkosi.python_runtime_files],
+        ),
+        tools = [mkosi.python_files_to_run],
+        outputs = [output],
+        mnemonic = "MkosiReproducibilityManifest",
+        progress_message = "Projecting reproducibility manifest for %{label}",
+        env = {
+            "PATH": "",
+            "PYTHONNOUSERSITE": "1",
+        },
+    )
+    return [DefaultInfo(files = depset([output]))]
+
+mkosi_reproducibility_manifest = rule(
+    implementation = _mkosi_reproducibility_manifest_impl,
+    attrs = {
+        "image": attr.label(
+            mandatory = True,
+            providers = [MkosiImageInfo],
+            doc = "Release-mode image whose immutable outputs are projected.",
+        ),
+        "_projector": attr.label(
+            cfg = "exec",
+            default = "//mkosi/private:reproducibility_manifest.py",
+            allow_single_file = True,
+        ),
+    },
+    doc = "Produces a normalized JSON manifest of an image's immutable content hashes.",
+    toolchains = ["//mkosi/toolchain:toolchain_type"],
+)
+
 def _normalise_destination(destination, attribute):
     """Validates a path inside the staged mkosi directory."""
     if not destination:

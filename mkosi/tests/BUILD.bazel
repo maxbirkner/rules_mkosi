@@ -27,6 +27,14 @@ load(
 )
 
 py_test(
+    name = "reproducibility_manifest_test",
+    srcs = ["reproducibility_manifest_test.py"],
+    args = ["$(rootpath //mkosi/private:reproducibility_manifest.py)"],
+    data = ["//mkosi/private:reproducibility_manifest.py"],
+    main = "reproducibility_manifest_test.py",
+)
+
+py_test(
     name = "diagnostic_contract_test",
     srcs = ["diagnostic_contract_test.py"],
     data = [

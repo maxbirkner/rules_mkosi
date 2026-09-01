@@ -100,6 +100,9 @@ jobs:
             run_bazel bazel test "${bazel_configs[@]}" //...
             run_bazel bazel test "${manifest_configs[@]}" //...
           )
+          if [ "${{ matrix.bazel }}" = "8.5.1" ]; then
+            run_bazel ./ci/verify-release-reproducibility.sh
+          fi
 
       - name: Audit Debian tools action graph
         run: |

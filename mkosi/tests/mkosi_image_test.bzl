@@ -9,6 +9,7 @@ load(
     "QemuOvmfBootConfigInfo",
     "mkosi_config_tree",
     "mkosi_image",
+    "mkosi_reproducibility_manifest",
     "mkosi_source_tree",
     "qemu_ovmf_boot_config",
     "qemu_ovmf_boot_test",
@@ -16,6 +17,27 @@ load(
 load("//mkosi/debian:toolchain.bzl", "DebianToolsInfo")
 
 _qemu_ovmf_boot_config = qemu_ovmf_boot_config
+
+def _reproducibility_manifest_test_impl(ctx):
+    env = analysistest.begin(ctx)
+    actions = analysistest.target_actions(env)
+    asserts.equals(env, 1, len(actions))
+    action = actions[0]
+    asserts.equals(env, "MkosiReproducibilityManifest", action.mnemonic)
+    asserts.equals(
+        env,
+        ["release_reproducibility.reproducibility.json"],
+        [output.basename for output in action.outputs.to_list()],
+    )
+    inputs = [file.basename for file in action.inputs.to_list()]
+    asserts.true(env, "release_subject.raw" in inputs)
+    asserts.true(env, "release_subject.mkosi-image-info.json" in inputs)
+    asserts.true(env, "reproducibility_manifest.py" in inputs)
+    return analysistest.end(env)
+
+_reproducibility_manifest_test = analysistest.make(
+    _reproducibility_manifest_test_impl,
+)
 
 def _provider_test_impl(ctx):
     env = analysistest.begin(ctx)
@@ -678,6 +700,14 @@ def mkosi_image_test_suite(name):
         mode = "release",
         release_seed = "00000000-0000-4000-8000-000000000007",
         release_source_date_epoch = 0,
+    )
+    mkosi_reproducibility_manifest(
+        name = "release_reproducibility",
+        image = ":release_subject",
+    )
+    _reproducibility_manifest_test(
+        name = "release_reproducibility_analysis_test",
+        target_under_test = ":release_reproducibility",
     )
     _release_provider_test(
         name = "release_provider_test",
