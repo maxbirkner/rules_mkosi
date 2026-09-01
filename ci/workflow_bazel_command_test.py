@@ -23,17 +23,31 @@ _VARIABLE = re.compile(
 _SHELL_SEPARATOR = re.compile(r"(?:&&|\|\||[;&|\n])")
 _SHELL_LINE_CONTINUATION = re.compile(r"\\(?:\r\n|\n)")
 _GITHUB_EXPRESSION = re.compile(r"\$\{\{.*?\}\}", re.DOTALL)
-_GITHUB_LAUNCHER = "GITHUB_EXPRESSION_LAUNCHER"
+_GITHUB_LAUNCHER_BASE = "GITHUB_EXPRESSION_LAUNCHER"
 _SHELL_WRAPPERS = {"bash", "command", "env", "exec", "run_bazel", "sh", "sudo"}
+_SHELL_CONTROL_PREFIXES = {
+    "!",
+    "(",
+    "{",
+    "do",
+    "elif",
+    "else",
+    "if",
+    "then",
+    "time",
+    "until",
+    "while",
+}
 
 
-def _variable_is_command(tokens, index):
-    """Recognize a variable in command position without flagging arguments."""
+def _token_is_command_position(tokens, index):
+    """Recognize executable positions after shell controls and wrappers."""
     if index == 0:
         return True
     prefix = tokens[:index]
     return all(
         value in _SHELL_WRAPPERS
+        or value in _SHELL_CONTROL_PREFIXES
         or value.startswith("-")
         or "=" in value
         for value in prefix
@@ -69,10 +83,20 @@ def _normalize_shell_continuations(text):
     return _SHELL_LINE_CONTINUATION.sub("", text)
 
 
-def _shell_command_segments(text):
-    """Yield command segments for literal and shell-variable launchers."""
+def _expression_marker(text):
+    """Choose a deterministic expression marker absent from source text."""
+    marker = _GITHUB_LAUNCHER_BASE
+    suffix = 0
+    while marker in text:
+        suffix += 1
+        marker = f"{_GITHUB_LAUNCHER_BASE}_{suffix}"
+    return marker
+
+
+def _shell_command_segments(text, expression_marker):
+    """Yield normalized command segments with expression provenance."""
     text = _normalize_shell_continuations(text)
-    text = _GITHUB_EXPRESSION.sub(_GITHUB_LAUNCHER, text)
+    text = _GITHUB_EXPRESSION.sub(expression_marker, text)
     start = 0
     for match in _SHELL_SEPARATOR.finditer(text):
         yield text[start : match.start()]
@@ -80,16 +104,23 @@ def _shell_command_segments(text):
     yield text[start:]
 
 
-def _is_launcher_token(token):
-    return bool(_LAUNCHER.fullmatch(token) or _GITHUB_LAUNCHER in token)
+def _is_launcher_token(tokens, index, expression_marker):
+    token = tokens[index]
+    return bool(
+        _LAUNCHER.fullmatch(token)
+        or (
+            expression_marker in token
+            and _token_is_command_position(tokens, index)
+        )
+    )
 
 
-def _launcher_command(tokens, launcher_index):
+def _launcher_command(tokens, launcher_index, expression_marker):
     launcher = tokens[launcher_index]
     index = launcher_index + 1
     if launcher == "run_bazel" and index < len(tokens):
         if (
-            _is_launcher_token(tokens[index])
+            _is_launcher_token(tokens, index, expression_marker)
             or tokens[index].endswith("/tools/bazel")
             or (
                 tokens[index].startswith("$")
@@ -111,84 +142,99 @@ def _launcher_command(tokens, launcher_index):
     return index
 
 
+def _validate_shell_body(source_name, body, expression_marker=None):
+    violations = []
+    if expression_marker is None:
+        expression_marker = _expression_marker(body)
+    for segment in _shell_command_segments(body, expression_marker):
+        if (
+            expression_marker not in segment
+            and not _LAUNCHER.search(segment)
+            and not _VARIABLE.search(segment)
+        ):
+            continue
+        try:
+            tokens = shlex.split(segment)
+        except ValueError as error:
+            if expression_marker in segment or (
+                _LAUNCHER.search(segment)
+                and re.search(r"\b(?:test|build)\b", segment)
+            ):
+                violations.append(
+                    f"{source_name}: cannot parse potential "
+                    f"Bazel command: {error}"
+                )
+            continue
+        for index, token in enumerate(tokens):
+            if (
+                any(character.isspace() for character in token)
+                and (
+                    expression_marker in token
+                    or _LAUNCHER.search(token)
+                )
+                and _token_is_command_position(tokens, index)
+                and token != expression_marker
+                and not _LAUNCHER.fullmatch(token)
+            ):
+                # Shell wrappers such as `sh -c "bazel test ..."`
+                # leave the nested command as one shlex token.
+                violations.extend(
+                    _validate_shell_body(
+                        source_name,
+                        token,
+                        expression_marker,
+                    )
+                )
+        for index, token in enumerate(tokens):
+            if _is_launcher_token(tokens, index, expression_marker):
+                pass
+            elif _VARIABLE.fullmatch(token) and _token_is_command_position(
+                tokens, index
+            ):
+                pass
+            else:
+                continue
+            command_index = _launcher_command(
+                tokens,
+                index,
+                expression_marker,
+            )
+            if command_index == -1:
+                continue
+            if command_index is None:
+                if any(
+                    value in ("test", "build")
+                    or (
+                        value.startswith(("$", "${"))
+                        and value != "$@"
+                        and not value.startswith("${args[@]")
+                    )
+                    for value in tokens[index + 1 :]
+                ):
+                    violations.append(
+                        f"{source_name}: ambiguous build/test command"
+                    )
+                continue
+            target_tokens = [
+                value
+                for value in tokens[command_index + 1 :]
+                if value.startswith(("//", "@"))
+            ]
+            if target_tokens != ["//..."]:
+                violations.append(
+                    f"{source_name}: expected only //..., "
+                    f"got {target_tokens!r}"
+                )
+    return violations
+
+
 def validate_shell_sources(sources):
     """Return human-readable violations from workflow/helper shell sources."""
     violations = []
     for source_name, text, workflow in sources:
         bodies = _yaml_shell_bodies(text) if workflow else [text]
         for body in bodies:
-            for segment in _shell_command_segments(body):
-                if (
-                    _GITHUB_LAUNCHER not in segment
-                    and not _LAUNCHER.search(segment)
-                    and not _VARIABLE.search(segment)
-                ):
-                    continue
-                try:
-                    tokens = shlex.split(segment)
-                except ValueError as error:
-                    if _GITHUB_LAUNCHER in segment or (
-                        _LAUNCHER.search(segment)
-                        and re.search(r"\b(?:test|build)\b", segment)
-                    ):
-                        violations.append(
-                            f"{source_name}: cannot parse potential "
-                            f"Bazel command: {error}"
-                        )
-                    continue
-                for token in tokens:
-                    if (
-                        any(character.isspace() for character in token)
-                        and (
-                            _GITHUB_LAUNCHER in token
-                            or _LAUNCHER.search(token)
-                        )
-                        and token != _GITHUB_LAUNCHER
-                        and not _LAUNCHER.fullmatch(token)
-                    ):
-                        # Shell wrappers such as `sh -c "bazel test ..."`
-                        # leave the nested command as one shlex token.
-                        violations.extend(
-                            validate_shell_sources(
-                                [(source_name, token, False)]
-                            )
-                        )
-                for index, token in enumerate(tokens):
-                    if _is_launcher_token(token):
-                        pass
-                    elif _VARIABLE.fullmatch(token) and _variable_is_command(
-                        tokens, index
-                    ):
-                        pass
-                    else:
-                        continue
-                    command_index = _launcher_command(tokens, index)
-                    if command_index == -1:
-                        continue
-                    if command_index is None:
-                        if any(
-                            value in ("test", "build")
-                            or (
-                                value.startswith(("$", "${"))
-                                and value != "$@"
-                                and not value.startswith("${args[@]")
-                            )
-                            for value in tokens[index + 1 :]
-                        ):
-                            violations.append(
-                                f"{source_name}: ambiguous build/test command"
-                            )
-                        continue
-                    target_tokens = [
-                        value
-                        for value in tokens[command_index + 1 :]
-                        if value.startswith(("//", "@"))
-                    ]
-                    if target_tokens != ["//..."]:
-                        violations.append(
-                            f"{source_name}: expected only //..., "
-                            f"got {target_tokens!r}"
-                        )
+            violations.extend(_validate_shell_body(source_name, body))
     return violations
 
 

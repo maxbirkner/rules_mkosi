@@ -7,6 +7,7 @@ import unittest
 
 sys.path.insert(0, str(pathlib.Path(__file__).parent))
 from workflow_bazel_command_test import (
+    _token_is_command_position,
     _yaml_shell_bodies,
     validate_shell_sources,
 )
@@ -194,6 +195,11 @@ class WorkflowBazelCommandParserTest(unittest.TestCase):
                 "run: |\n"
                 '  ${{ env.BAZEL }} "unterminated\n',
             ),
+            (
+                "github-expression-nested-shell-fragments",
+                "run: |\n"
+                "  sh -c '${{ env.BAZEL }} te\"\"st //pkg:target'\n",
+            ),
         ]
         for name, fixture in fixtures:
             with self.subTest(name=name):
@@ -220,6 +226,9 @@ class WorkflowBazelCommandParserTest(unittest.TestCase):
   echo bu""ild //pkg:target
   echo b'uil'd //pkg:target
   echo bu\\ild //pkg:target
+  echo "${{ matrix.bazel }}" test //pkg:target
+  printf '%s\\n' "${{ env.BAZEL }}" build //pkg:target
+  echo GITHUB_EXPRESSION_LAUNCHER test //pkg:target
 """
         self.assertEqual(
             validate_shell_sources(
@@ -251,6 +260,34 @@ class WorkflowBazelCommandParserTest(unittest.TestCase):
                 "{ time ${{ matrix.bazel }} build //pkg:target; }"
             )
         )
+
+    def test_token_command_positions(self):
+        cases = [
+            (["launcher"], 0, True),
+            (["if", "launcher"], 1, True),
+            (["then", "launcher"], 1, True),
+            (["elif", "launcher"], 1, True),
+            (["while", "launcher"], 1, True),
+            (["until", "launcher"], 1, True),
+            (["time", "launcher"], 1, True),
+            (["!", "launcher"], 1, True),
+            (["{", "launcher"], 1, True),
+            (["(", "launcher"], 1, True),
+            (
+                ["sudo", "-n", "env", "BAZEL=bazel", "launcher"],
+                4,
+                True,
+            ),
+            (["echo", "launcher"], 1, False),
+            (["printf", "%s", "launcher"], 2, False),
+            (["if", "echo", "launcher"], 2, False),
+        ]
+        for tokens, index, expected in cases:
+            with self.subTest(tokens=tokens):
+                self.assertEqual(
+                    _token_is_command_position(tokens, index),
+                    expected,
+                )
 
     def test_expression_launchers_normalize_both_continuation_endings(self):
         for ending in ("\\\n", "\\\r\n"):
