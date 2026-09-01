@@ -155,6 +155,22 @@ def main():
             ),
             "extra_trees is not supported",
         ),
+        (
+            types.SimpleNamespace(
+                seed=uuid.UUID(seed),
+                source_date_epoch=0,
+                microcode_host=True,
+            ),
+            "microcode_host is not supported",
+        ),
+        (
+            types.SimpleNamespace(
+                seed=uuid.UUID(seed),
+                source_date_epoch=0,
+                kernel_modules_include_host=True,
+            ),
+            "kernel_modules_include_host is not supported",
+        ),
     ):
         try:
             wrapper._validate_release_configuration([configuration], seed, 0, [root])

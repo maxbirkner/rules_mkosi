@@ -301,6 +301,8 @@ def _validate_release_configuration(
             "configure_scripts",
             "clean_scripts",
             "extra_trees",
+            "microcode_host",
+            "kernel_modules_include_host",
         ):
             if getattr(config, name, ()):
                 raise SystemExit(
