@@ -26,9 +26,19 @@ def report(category, detail, original=b""):
         print(original.rstrip(), file=sys.stderr)
 
 
-def fail(category, detail, original=b""):
+def fail(category, detail, original=b"", exit_code=1):
+    """Report a failure and terminate with its validated action status."""
+    if isinstance(exit_code, bool) or not isinstance(exit_code, int) or exit_code <= 0:
+        raise ValueError("diagnostic exit code must be a positive integer")
     report(category, detail, original)
-    raise SystemExit(1)
+    raise SystemExit(exit_code)
+
+
+def child_exit_code(returncode):
+    """Preserve ordinary child exits and normalize subprocess signal statuses."""
+    if isinstance(returncode, bool) or not isinstance(returncode, int) or returncode == 0:
+        raise ValueError("child failure status must be a nonzero integer")
+    return returncode if returncode > 0 else 128 - returncode
 
 
 def classify_mkosi_output(output):

@@ -79,15 +79,33 @@ class DiagnosticContractTest(unittest.TestCase):
             stderr=b"",
         )
         output = io.StringIO()
-        with contextlib.redirect_stderr(output), self.assertRaises(SystemExit):
+        with contextlib.redirect_stderr(output), self.assertRaises(SystemExit) as failure:
             self.run_mkosi._run_mkosi(
                 "mkosi.py",
                 ["build"],
                 runner=lambda *_args, **_kwargs: result,
             )
+        self.assertEqual(17, failure.exception.code)
         message = output.getvalue()
         self.assertEqual(1, message.count("NETWORK_FAILURE:"))
         self.assertIn("download failed: connection refused", message)
+
+    def test_mkosi_signal_failure_uses_shell_compatible_status(self):
+        result = types.SimpleNamespace(
+            returncode=-9,
+            stdout=b"",
+            stderr=b"mkosi process was killed\n",
+        )
+        output = io.StringIO()
+        with contextlib.redirect_stderr(output), self.assertRaises(SystemExit) as failure:
+            self.run_mkosi._run_mkosi(
+                "mkosi.py",
+                ["build"],
+                runner=lambda *_args, **_kwargs: result,
+            )
+        self.assertEqual(137, failure.exception.code)
+        self.assertIn("ASSEMBLY_FAILURE:", output.getvalue())
+        self.assertIn("mkosi process was killed", output.getvalue())
 
 
 if __name__ == "__main__":

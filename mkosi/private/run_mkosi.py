@@ -185,6 +185,7 @@ def _run_mkosi(script, arguments, runner=subprocess.run):
             diagnostics.classify_mkosi_output(completed.stdout + completed.stderr),
             "mkosi image assembly exited with status {}".format(completed.returncode),
             completed.stdout + completed.stderr,
+            exit_code=diagnostics.child_exit_code(completed.returncode),
         )
     for stream, content in ((sys.stdout, completed.stdout), (sys.stderr, completed.stderr)):
         binary_stream = getattr(stream, "buffer", None)
