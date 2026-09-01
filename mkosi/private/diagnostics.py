@@ -11,6 +11,8 @@ _ACTIONS = {
     "ASSEMBLY_FAILURE": "inspect the preserved mkosi output",
     "VM_FAILURE": "inspect the preserved serial and QEMU logs",
 }
+_MIN_EXIT_STATUS = 1
+_MAX_EXIT_STATUS = 255
 
 
 def report(category, detail, original=b""):
@@ -28,17 +30,30 @@ def report(category, detail, original=b""):
 
 def fail(category, detail, original=b"", exit_code=1):
     """Report a failure and terminate with its validated action status."""
-    if isinstance(exit_code, bool) or not isinstance(exit_code, int) or exit_code <= 0:
-        raise ValueError("diagnostic exit code must be a positive integer")
+    if (
+        isinstance(exit_code, bool) or
+        not isinstance(exit_code, int) or
+        not _MIN_EXIT_STATUS <= exit_code <= _MAX_EXIT_STATUS
+    ):
+        raise ValueError("diagnostic exit code must be an integer from 1 through 255")
     report(category, detail, original)
     raise SystemExit(exit_code)
 
 
 def child_exit_code(returncode):
-    """Preserve ordinary child exits and normalize subprocess signal statuses."""
+    """Return a nonzero one-byte status for a failed subprocess.
+
+    subprocess uses negative return codes for signals. Preserve conventional
+    128 + signal statuses through signal 127; statuses outside the one-byte
+    process range use 1 rather than risking an OS-level success after truncation.
+    """
     if isinstance(returncode, bool) or not isinstance(returncode, int) or returncode == 0:
         raise ValueError("child failure status must be a nonzero integer")
-    return returncode if returncode > 0 else 128 - returncode
+    if _MIN_EXIT_STATUS <= returncode <= _MAX_EXIT_STATUS:
+        return returncode
+    if returncode < 0 and -returncode <= _MAX_EXIT_STATUS - 128:
+        return 128 - returncode
+    return 1
 
 
 def classify_mkosi_output(output):

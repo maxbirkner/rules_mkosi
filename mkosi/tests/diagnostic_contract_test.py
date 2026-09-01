@@ -107,6 +107,27 @@ class DiagnosticContractTest(unittest.TestCase):
         self.assertIn("ASSEMBLY_FAILURE:", output.getvalue())
         self.assertIn("mkosi process was killed", output.getvalue())
 
+    def test_child_exit_code_stays_in_the_portable_process_status_range(self):
+        cases = {
+            255: 255,
+            256: 1,
+            -127: 255,
+            -128: 1,
+            -9999: 1,
+        }
+        for returncode, expected in cases.items():
+            status = self.diagnostics.child_exit_code(returncode)
+            self.assertEqual(expected, status)
+            self.assertGreaterEqual(status, 1)
+            self.assertLessEqual(status, 255)
+        with self.assertRaises(ValueError):
+            self.diagnostics.child_exit_code(0)
+
+    def test_fail_rejects_process_statuses_outside_one_byte_range(self):
+        for exit_code in (0, 256):
+            with self.assertRaises(ValueError):
+                self.diagnostics.fail("ASSEMBLY_FAILURE", "detail", exit_code=exit_code)
+
 
 if __name__ == "__main__":
     unittest.main()
