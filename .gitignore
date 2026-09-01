@@ -3,7 +3,6 @@ bazel-*
 /.bazelrc.user
 **/.cache/
 /e2e/smoke/.cache/
-/.ci-wrapper-integration/
 
 # mkosi build artifacts and caches
 /mkosi.cache/

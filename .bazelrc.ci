@@ -1,35 +1,64 @@
 # CI invokes //... directly. Configurations change execution semantics, not
 # membership in a hand-maintained test inventory.
+# Force qualified actions through the host-kernel isolation boundary.
 build:qualified_runtime --spawn_strategy=linux-sandbox
+# Re-execute qualified tests so host qualification is never hidden by cache.
 test:qualified_runtime --cache_test_results=no
+# Run qualified tests under the same isolation policy as their actions.
 test:qualified_runtime --spawn_strategy=linux-sandbox
+# Preserve complete diagnostics for expensive qualified failures.
 test:qualified_runtime --test_output=all
 
+# Share the qualified runtime policy with the full capable-host lane.
 common:qualified --config=qualified_runtime
+# Leave the host-only preflight test to its dedicated configuration.
 test:qualified --test_tag_filters=-requires_kernel_contract
+# Give compatibility lanes the qualified runtime's isolation guarantees.
 common:portable --config=qualified_runtime
+# Avoid repeating mutable network-backed image builds in compatibility lanes.
 build:portable --build_tag_filters=-requires-network
+# Skip network and host-preflight tests already covered by the Bazel 8 lane.
 test:portable --test_tag_filters=-requires-network,-requires_kernel_contract
+# Exercise manifest mode under the same isolated runtime policy.
 common:manifest --config=qualified_runtime
+# Build launchers without runfiles to validate manifest-only operation.
 build:manifest --enable_runfiles=no
+# Prevent ordinary runfiles-mode actions from satisfying manifest builds.
 build:manifest --disk_cache=
+# Disable runfiles and serialize tests that share manifest-mode resources.
 test:manifest --enable_runfiles=no --test_strategy=exclusive
+# Re-run manifest tests without either test-result or action-cache reuse.
 test:manifest --cache_test_results=no --disk_cache=
+# Select only tests whose contract specifically requires manifest mode.
 test:manifest --test_tag_filters=manifest
 
+# Prove bootstrap outputs without accepting remote cached results.
 build:deterministic --noremote_accept_cached
+# Keep the clean bootstrap proof from publishing local results remotely.
 build:deterministic --noremote_upload_local_results
+# Prevent local action-cache hits from masking bootstrap reproducibility.
 build:deterministic --disk_cache=
+# Keep deterministic bootstrap validation offline and reproducible.
 build:deterministic --build_tag_filters=-requires-network
 
+# Build the host-kernel probe with production optimization behavior.
 build:kernel_preflight --compilation_mode=opt
+# Require fresh preflight actions against the current runner kernel.
 build:kernel_preflight --disk_cache=
+# Restrict the preflight build graph to its semantic host-contract tag.
 build:kernel_preflight --build_tag_filters=requires_kernel_contract
+# Permit the probe to observe the qualified runner's real kernel contract.
 build:kernel_preflight --noexperimental_use_hermetic_linux_sandbox
+# Retain process isolation while exposing the intended host kernel.
 build:kernel_preflight --spawn_strategy=linux-sandbox
+# Run only tests that establish the host-kernel prerequisite.
 test:kernel_preflight --test_tag_filters=requires_kernel_contract
+# Isolate the one-time host probe from concurrently executing tests.
 test:kernel_preflight --test_strategy=exclusive
+# Keep all probe output as qualification evidence when it fails.
 test:kernel_preflight --test_output=all
+# Never reuse a probe result from a different runner state.
 test:kernel_preflight --cache_test_results=no
 
+# Avoid rewriting the Bazel 8 lock format during Bazel 9 compatibility runs.
 common:bazel9 --lockfile_mode=off

@@ -43,23 +43,15 @@ defines only execution-policy configs: `manifest`, `qualified`, `portable`,
 therefore runs the complete suite on a capable host; CI's Bazel 8 qualified
 lane runs every root and consumer test that needs the host kernel contract
 after its explicit preflight. Bazel 9 uses `portable` for compatibility and
-omits only tests tagged `requires-network`, which the Bazel 8 lane covers:
+omits only tests tagged `requires-network`, which the Bazel 8 lane covers.
 
 The rc cache path is intentionally relative because Bazel does not expand
 repository-relative substitutions in ordinary option values. Canonical
 commands run from a module root. From any nested directory, use the checked-in
 `tools/bazel` wrapper. It preserves the caller's directory and relative-label
-semantics, stops at the nearest `MODULE.bazel` (whether or not that module has
-a `.bazelrc`), and generates an ignored module-local rc containing that
-module's absolute `.cache/bazel-disk` path. The wrapper adds only the generated
-rc startup option and leaves the caller's arguments untouched, so Bazel parses
-all startup options itself. Bazel's rc inheritance applies the `build` cache
-setting to `test` and `run`; an explicit command-line `--disk_cache` remains
-authoritative. The launcher rejects symlinked cache components, creates its
-mode-`0600` temporary rc exclusively inside the verified `.cache` directory,
-and atomically publishes `.cache/bazel-wrapper.bazelrc`. Interrupted
-invocations remove their temporary rc; removing a module's ignored `.cache`
-directory cleans both the generated rc and disk cache.
+semantics and uses the nearest `MODULE.bazel` module's
+`.cache/bazel-disk`. See [`tools/README.md`](tools/README.md) for nested
+invocation and cleanup instructions.
 
 ```console
 bazel test //...
@@ -92,14 +84,6 @@ versions because they test extension semantics, not dependency locking. If
 dependencies change, regenerate the two committed lockfiles with Bazel 8.5.1
 using `--lockfile_mode=update`; never edit generated lockfiles by hand or
 update them in CI.
-
-Python package versions are declared in `requirements.in`. Regenerate their
-hash-pinned lock with the repository's `uv` workflow:
-
-```console
-uv pip compile requirements.in --generate-hashes \
-  --output-file requirements_lock.txt
-```
 
 The root command intentionally excludes `e2e/`. See
 [the test architecture](docs/design/0003-ruleset-architecture.md#consumer-module)

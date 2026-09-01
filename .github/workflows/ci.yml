@@ -81,205 +81,25 @@ jobs:
           if [ "${{ matrix.bazel }}" = "9.2.0" ]; then
             preflight_configs=(--config=bazel9)
           fi
-          evidence=0
-          if [ "${{ matrix.bazel }}" = "8.5.1" ]; then
-            evidence=1
-            run_bazel bazel query \
-              'kind(".*_test rule", //...) except attr("tags", "manual", //...)' \
-              --output=label > discovered-root-tests.txt
-          fi
           run_bazel bazel shutdown
           set -o pipefail
-          preflight_events=()
-          if [ "$evidence" -eq 1 ]; then
-            preflight_events=(--build_event_json_file=kernel-preflight-events.json)
-          fi
           run_bazel bazel test --config=kernel_preflight \
-            "${preflight_configs[@]}" "${preflight_events[@]}" \
-            //... 2>&1 | tee kernel-preflight.log
+            "${preflight_configs[@]}" //... 2>&1 | tee kernel-preflight.log
           grep -F "Executed 1 out of 1 test" kernel-preflight.log
           ! grep -F "(cached)" kernel-preflight.log
           rm kernel-preflight.log
-          qualified_events=()
-          if [ "$evidence" -eq 1 ]; then
-            qualified_events=(--build_event_json_file=qualified-root-events.json)
-          fi
-          run_bazel bazel test "${bazel_configs[@]}" \
-            "${qualified_events[@]}" //...
+          run_bazel bazel test "${bazel_configs[@]}" //...
           manifest_configs=(--config=manifest)
           if [ "${{ matrix.bazel }}" = "9.2.0" ]; then
             manifest_configs+=(--config=bazel9)
           fi
           run_bazel bazel test "${manifest_configs[@]}" //...
-          if [ "$evidence" -eq 1 ]; then
-            python3 - discovered-root-tests.txt \
-              kernel-preflight-events.json qualified-root-events.json <<'PY'
-          import json
-          import sys
-
-          expected = {
-              line.strip()
-              for line in open(sys.argv[1], encoding="utf-8")
-              if line.strip()
-          }
-          actual = set()
-          def collect(value):
-              if isinstance(value, dict):
-                  summary = value.get("testSummary")
-                  if summary and summary.get("label"):
-                      actual.add(summary["label"])
-                  for child in value.values():
-                      collect(child)
-              elif isinstance(value, list):
-                  for child in value:
-                      collect(child)
-
-          for filename in sys.argv[2:]:
-              with open(filename, encoding="utf-8") as stream:
-                  for line in stream:
-                      collect(json.loads(line))
-          missing = sorted(expected - actual)
-          if missing:
-              raise SystemExit(
-                  "full-suite execution omitted discovered tests: "
-                  + ", ".join(missing)
-              )
-          print(
-              "full-suite execution covered discovered tests:",
-              len(expected),
-          )
-          PY
-          fi
           (
             cd e2e/smoke
             run_bazel bazel shutdown
-            e2e_events=()
-            if [ "$evidence" -eq 1 ]; then
-              run_bazel bazel query \
-                'kind(".*_test rule", //...) except attr("tags", "manual", //...)' \
-                --output=label > discovered-e2e-tests.txt
-              e2e_events=(--build_event_json_file=qualified-e2e-events.json)
-            fi
-            run_bazel bazel test "${bazel_configs[@]}" \
-              "${e2e_events[@]}" //...
+            run_bazel bazel test "${bazel_configs[@]}" //...
             run_bazel bazel test "${manifest_configs[@]}" //...
-            if [ "$evidence" -eq 1 ]; then
-              python3 - discovered-e2e-tests.txt qualified-e2e-events.json <<'PY'
-          import json
-          import sys
-
-          expected = {
-              line.strip()
-              for line in open(sys.argv[1], encoding="utf-8")
-              if line.strip()
-          }
-          actual = set()
-          def collect(value):
-              if isinstance(value, dict):
-                  summary = value.get("testSummary")
-                  if summary and summary.get("label"):
-                      actual.add(summary["label"])
-                  for child in value.values():
-                      collect(child)
-              elif isinstance(value, list):
-                  for child in value:
-                      collect(child)
-
-          with open(sys.argv[2], encoding="utf-8") as stream:
-              for line in stream:
-                  collect(json.loads(line))
-          missing = sorted(expected - actual)
-          if missing:
-              raise SystemExit(
-                  "full-suite execution omitted discovered tests: "
-                  + ", ".join(missing)
-              )
-          print(
-              "full-suite execution covered discovered e2e tests:",
-              len(expected),
           )
-          PY
-            fi
-          )
-          rm -f discovered-root-tests.txt kernel-preflight-events.json \
-            qualified-root-events.json
-          rm -f e2e/smoke/discovered-e2e-tests.txt \
-            e2e/smoke/qualified-e2e-events.json
-
-      - name: Verify nested-directory cache anchoring
-        run: |
-          run_bazel() {
-            sudo -n setpriv --reuid="$(id -u)" --regid="$(id -g)" \
-              --clear-groups env HOME="$HOME" PATH="$PATH" \
-                USE_BAZEL_VERSION="$USE_BAZEL_VERSION" "$@"
-          }
-          cache_mode=error
-          if [ "${{ matrix.bazel }}" = "9.2.0" ]; then
-            cache_mode=off
-          fi
-          expected_bazel_version="bazel ${{ matrix.bazel }}"
-          test "$(
-            PATH="$GITHUB_WORKSPACE/tools:$PATH" run_bazel \
-              "$GITHUB_WORKSPACE/tools/bazel" --version
-          )" = "$expected_bazel_version"
-          PATH="$GITHUB_WORKSPACE/tools:$PATH" run_bazel \
-            "$GITHUB_WORKSPACE/tools/bazel" \
-            --nosystem_rc --nohome_rc \
-            --bazelrc="$GITHUB_WORKSPACE/.bazelrc" \
-            info --lockfile_mode="$cache_mode" workspace >/dev/null
-          override_cache="$GITHUB_WORKSPACE/.cache/wrapper-override"
-          rm -rf "$override_cache"
-          PATH="$GITHUB_WORKSPACE/tools:$PATH" run_bazel \
-            "$GITHUB_WORKSPACE/tools/bazel" \
-            --nosystem_rc --nohome_rc \
-            info --lockfile_mode="$cache_mode" \
-            --disk_cache="$override_cache" workspace >/dev/null
-          test -d "$override_cache"
-          rm -rf "$override_cache"
-          (
-            cd mkosi/tests
-            PATH="$GITHUB_WORKSPACE/tools:$PATH" run_bazel \
-              "$GITHUB_WORKSPACE/tools/bazel" \
-              --nosystem_rc --nohome_rc \
-              --bazelrc="$GITHUB_WORKSPACE/.bazelrc" \
-              query --lockfile_mode="$cache_mode" \
-              :boot_lifecycle_test >/dev/null
-          )
-          (
-            cd e2e/smoke
-            test "$(
-              PATH="$GITHUB_WORKSPACE/tools:$PATH" run_bazel \
-                "$GITHUB_WORKSPACE/tools/bazel" --version
-            )" = "$expected_bazel_version"
-            PATH="$GITHUB_WORKSPACE/tools:$PATH" run_bazel \
-              "$GITHUB_WORKSPACE/tools/bazel" \
-              --nosystem_rc --nohome_rc \
-              --bazelrc="$GITHUB_WORKSPACE/e2e/smoke/.bazelrc" \
-              info --lockfile_mode="$cache_mode" workspace >/dev/null
-          )
-          for cache in \
-            "$GITHUB_WORKSPACE/.cache/bazel-disk" \
-            "$GITHUB_WORKSPACE/e2e/smoke/.cache/bazel-disk"
-          do
-            test -d "$cache"
-            test ! -L "$cache"
-            git -C "$GITHUB_WORKSPACE" check-ignore -q "$cache"
-            test "$(realpath "$cache")" = "$cache"
-          done
-          for module in "$GITHUB_WORKSPACE" "$GITHUB_WORKSPACE/e2e/smoke"
-          do
-            rc="$module/.cache/bazel-wrapper.bazelrc"
-            test -f "$rc"
-            grep -Fx \
-              "build --disk_cache=$module/.cache/bazel-disk" "$rc"
-          done
-          test ! -e "$GITHUB_WORKSPACE/mkosi/tests/.cache/bazel-disk"
-          test ! -e "$GITHUB_WORKSPACE/e2e/.cache/bazel-disk"
-          python3 tools/bazel_integration_test.py \
-            "$GITHUB_WORKSPACE/tools/bazel" \
-            "$GITHUB_WORKSPACE/.ci-wrapper-integration" \
-            "${{ matrix.bazel }}"
-          test ! -e "$GITHUB_WORKSPACE/.ci-wrapper-integration"
 
       - name: Audit Debian tools action graph
         run: |

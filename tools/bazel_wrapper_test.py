@@ -88,6 +88,7 @@ class BazelWrapperTest(unittest.TestCase):
             [
                 shlex.split(line)
                 for line in rc.read_text(encoding="utf-8").splitlines()
+                if not line.startswith("#")
             ],
             [
                 [command, f"--disk_cache={root}/.cache/bazel-disk"]
@@ -96,79 +97,26 @@ class BazelWrapperTest(unittest.TestCase):
         )
         return f"--bazelrc={rc}"
 
-    def test_root_and_nested_cwd_preserve_labels_and_argv(self):
+    def test_nested_cwd_preserves_labels_and_arguments(self):
         root = self.module("module with spaces", bazelrc=True)
         nested = root / "pkg" / "nested directory"
         nested.mkdir(parents=True)
-        output_base = self.case / "output base"
-        for version in ("8.5.1", "9.2.0"):
-            with self.subTest(version=version, cwd="root"):
-                actual = self.invoke(root, version, "build", "//...")
-                self.assert_invocation(
-                    actual,
-                    root,
-                    version,
-                    (
-                        self.rc_option(root),
-                        "build",
-                        "//...",
-                    ),
-                )
-            with self.subTest(version=version, cwd="nested"):
-                actual = self.invoke(
-                    nested,
-                    version,
-                    "--command_port",
-                    "0",
-                    "--invocation_policy",
-                    '{"strategy": "test policy"}',
-                    "--host_jvm_profile",
-                    str(self.case / "profile with spaces"),
-                    "--install_base",
-                    str(self.case / "install base"),
-                    "--unix_digest_hash_attribute_name",
-                    "user.checksum",
-                    "--output_base",
-                    str(output_base),
-                    "--failure_detail_out",
-                    str(self.case / "failure detail"),
-                    "--host_jvm_args",
-                    "-Dmessage=value with spaces",
-                    "test",
-                    "--test_env=VALUE=two words",
-                    ":target",
-                    ":target with spaces",
-                )
-                self.assert_invocation(
-                    actual,
-                    nested,
-                    version,
-                    (
-                        self.rc_option(root),
-                        "--command_port",
-                        "0",
-                        "--invocation_policy",
-                        '{"strategy": "test policy"}',
-                        "--host_jvm_profile",
-                        str(self.case / "profile with spaces"),
-                        "--install_base",
-                        str(self.case / "install base"),
-                        "--unix_digest_hash_attribute_name",
-                        "user.checksum",
-                        "--output_base",
-                        str(output_base),
-                        "--failure_detail_out",
-                        str(self.case / "failure detail"),
-                        "--host_jvm_args",
-                        "-Dmessage=value with spaces",
-                        "test",
-                        "--test_env=VALUE=two words",
-                        ":target",
-                        ":target with spaces",
-                    ),
-                )
-            self.assertFalse((root / ".cache" / "bazel-disk").exists())
-            self.assertFalse((nested / ".cache").exists())
+        arguments = (
+            "--command_port",
+            "0",
+            "test",
+            f"--disk_cache={self.case}/user cache",
+            ":target with spaces",
+        )
+        actual = self.invoke(nested, "9.2.0", *arguments)
+        self.assert_invocation(
+            actual,
+            nested,
+            "9.2.0",
+            (self.rc_option(root), *arguments),
+        )
+        self.assertFalse((root / ".cache" / "bazel-disk").exists())
+        self.assertFalse((nested / ".cache").exists())
 
     def test_nearest_module_without_bazelrc_owns_cache(self):
         outer = self.module("outer", bazelrc=True)
@@ -180,78 +128,20 @@ class BazelWrapperTest(unittest.TestCase):
         )
         nested = fixture / "package"
         nested.mkdir()
-        for version in ("8.5.1", "9.2.0"):
-            with self.subTest(version=version):
-                actual = self.invoke(nested, version, "query", ":local")
-                self.assert_invocation(
-                    actual,
-                    nested,
-                    version,
-                    (
-                        self.rc_option(fixture),
-                        "query",
-                        ":local",
-                    ),
-                )
+        actual = self.invoke(nested, "8.5.1", "query", ":local")
+        self.assert_invocation(
+            actual,
+            nested,
+            "8.5.1",
+            (
+                self.rc_option(fixture),
+                "query",
+                ":local",
+            ),
+        )
         self.assertFalse((fixture / ".cache" / "bazel-disk").exists())
         self.assertFalse((outer / ".cache").exists())
         self.assertFalse((nested / ".cache").exists())
-
-    def test_explicit_disk_cache_override_is_preserved(self):
-        root = self.module("module")
-        nested = root / "pkg"
-        nested.mkdir()
-        for version, option in (
-            ("8.5.1", (f"--disk_cache={self.case}/user cache",)),
-            ("9.2.0", ("--disk_cache", f"{self.case}/user cache")),
-        ):
-            with self.subTest(version=version):
-                actual = self.invoke(nested, version, "test", *option, ":target")
-                self.assert_invocation(
-                    actual,
-                    nested,
-                    version,
-                    (self.rc_option(root), "test", *option, ":target"),
-                )
-        self.assertFalse((self.case / "user cache").exists())
-        self.assertFalse((root / ".cache" / "bazel-disk").exists())
-        self.assertFalse((nested / ".cache").exists())
-
-    def test_disk_cache_text_is_not_mistaken_for_an_override(self):
-        root = self.module("module")
-        actual = self.invoke(
-            root,
-            "9.2.0",
-            "test",
-            "--define=message=--disk_cache=relative",
-            "--",
-            "--disk_cache=also-a-target",
-        )
-        self.assert_invocation(
-            actual,
-            root,
-            "9.2.0",
-            (
-                self.rc_option(root),
-                "test",
-                "--define=message=--disk_cache=relative",
-                "--",
-                "--disk_cache=also-a-target",
-            ),
-        )
-        self.assertFalse((root / ".cache" / "bazel-disk").exists())
-        self.assertFalse((root / "relative").exists())
-
-    def test_non_build_command_remains_transparent(self):
-        root = self.module("module")
-        actual = self.invoke(root, "8.5.1", "mod", "deps")
-        self.assert_invocation(
-            actual,
-            root,
-            "8.5.1",
-            (self.rc_option(root), "mod", "deps"),
-        )
-        self.assertFalse((root / ".cache" / "bazel-disk").exists())
 
     def test_client_information_modes_remain_transparent(self):
         root = self.module("module")

@@ -1,7 +1,13 @@
+# Resolve external dependencies through the module graph used by this ruleset.
 common --enable_bzlmod
+# Refuse dependency resolution that would silently rewrite the committed lock.
 common --lockfile_mode=error
+# Reuse local action results without sharing cache state across modules.
 build --disk_cache=.cache/bazel-disk
+# Print failed test output immediately so local failures are actionable.
 test --test_output=errors
 
+# Make the checked-in execution profiles available without requiring them.
 try-import %workspace%/.bazelrc.ci
+# Allow ignored developer overrides while keeping a clean checkout sufficient.
 try-import %workspace%/.bazelrc.user

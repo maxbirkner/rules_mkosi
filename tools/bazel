@@ -105,9 +105,13 @@ def _write_rc(module_root):
         )
         _reject_unsafe_component(directory_fd, rc_name, stat.S_ISREG)
         option = shlex.quote(str(cache))
-        content = "".join(
-            f"{command} --disk_cache={option}\n"
-            for command in ("build", "info", "query")
+        content = (
+            "# Keep build, test, and run actions in the nearest module cache.\n"
+            f"build --disk_cache={option}\n"
+            "# Use the same module cache when info evaluates configured data.\n"
+            f"info --disk_cache={option}\n"
+            "# Keep repository work triggered by queries in the module cache.\n"
+            f"query --disk_cache={option}\n"
         ).encode()
 
         for _ in range(100):
