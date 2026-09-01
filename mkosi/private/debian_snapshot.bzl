@@ -67,6 +67,7 @@ def _impl(ctx):
         outputs = [output, scratch],
         env = {
             "PATH": "",
+            "PYTHONHOME": debian_tools.python.path[:debian_tools.python.path.rfind("/")],
             "PYTHONNOUSERSITE": "1",
         },
         mnemonic = "StageDebianSnapshot",

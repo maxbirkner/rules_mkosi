@@ -3,7 +3,8 @@
 ## Prerequisites
 
 - Bazelisk, or the Bazel version declared in `.bazelversion`.
-- Python 3.11 or newer for the secure local `tools/bazel` launcher.
+- Host Python 3.11 or newer only for the secure local `tools/bazel` wrapper.
+  Bazel actions use the registered managed Python 3.14 toolchain.
 - [`prek`](https://prek.j178.dev/) 0.5 or newer.
 
 The hello-world implementation and tests do not require mkosi or other host

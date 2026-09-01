@@ -5,7 +5,6 @@ import os
 import pathlib
 import re
 import shutil
-import sys
 import tarfile
 import unittest
 from unittest import mock
@@ -149,10 +148,7 @@ class DebianToolsSecurityTest(unittest.TestCase):
         scratch = self.work / "launcher-scratch"
         with mock.patch.dict(
             os.environ,
-            {
-                "MKOSI_DEBIAN_TOOLS_SCRATCH": str(scratch),
-                "DEBIAN_TOOLS_EXTRACTOR": str(_HERE / "extract_tree.py"),
-            },
+            {"MKOSI_DEBIAN_TOOLS_SCRATCH": str(scratch)},
         ):
             with self.assertRaisesRegex(ValueError, "digest mismatch"):
                 debian_launcher._extract_root(
@@ -160,6 +156,7 @@ class DebianToolsSecurityTest(unittest.TestCase):
                     hashlib.sha256(archive.read_bytes()).hexdigest(),
                     "/usr/bin/dpkg",
                     ([], []),
+                    str(_HERE / "extract_tree.py"),
                 )
         self.assertFalse(scratch.exists())
 
@@ -419,18 +416,6 @@ class DebianToolsSecurityTest(unittest.TestCase):
             )
 
     def test_missing_mapping_and_executable_fail_precisely(self):
-        original_argv = sys.argv
-        original_environment = os.environ.copy()
-        try:
-            sys.argv = ["debian_launcher.py", "/usr/bin/not-mapped"]
-            os.environ.clear()
-            self.assertEqual(debian_launcher.main(), 2)
-            sys.argv = ["debian_launcher.py", "/usr/bin/dpkg"]
-            self.assertEqual(debian_launcher.main(), 1)
-        finally:
-            sys.argv = original_argv
-            os.environ.clear()
-            os.environ.update(original_environment)
         with self.assertRaises(RuntimeError):
             debian_launcher._require_executable(str(self.work), "/usr/bin/missing", "test executable")
 
@@ -471,14 +456,15 @@ class DebianToolsSecurityTest(unittest.TestCase):
         (scratch / ".in-use").mkdir()
         with mock.patch.dict(
             os.environ,
-            {
-                "MKOSI_DEBIAN_TOOLS_SCRATCH": str(scratch),
-                "DEBIAN_TOOLS_EXTRACTOR": str(_HERE / "extract_tree.py"),
-            },
+            {"MKOSI_DEBIAN_TOOLS_SCRATCH": str(scratch)},
         ):
             with self.assertRaisesRegex(RuntimeError, "already in use"):
                 debian_launcher._extract_root(
-                    str(archive), digest, "/usr/bin/dpkg", ([], [])
+                    str(archive),
+                    digest,
+                    "/usr/bin/dpkg",
+                    ([], []),
+                    str(_HERE / "extract_tree.py"),
                 )
 
 

@@ -22,4 +22,12 @@ fi
     echo "static Debian launcher is missing" >&2
     exit 1
 }
-"$runner" --self-test-manifest-escaping
+output="$("$runner" --help)"
+case "$output" in
+    *"Usage: debian-launcher"*"--validate-only"*) ;;
+    *)
+        echo "manifest launcher did not reach the Click CLI" >&2
+        echo "$output" >&2
+        exit 1
+        ;;
+esac

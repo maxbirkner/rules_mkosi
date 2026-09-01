@@ -4,8 +4,9 @@
 
 This directory contains opt-in, repository-maintained developer commands.
 `tools/bazel` provides a safe module-local disk cache when Bazel is invoked
-below a module root. It requires Python 3.11 or newer and a `bazel` or
-`bazelisk` backend on `PATH`.
+below a module root. This wrapper requires host Python 3.11 or newer and a
+`bazel` or `bazelisk` backend on `PATH`; Bazel actions use the separately
+registered managed Python 3.14 toolchain.
 
 Use Bazel normally from a module root:
 

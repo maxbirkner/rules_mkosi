@@ -161,7 +161,7 @@ sh_test(
     srcs = ["debian_tools_runtime_test.sh"],
     data = [
         "debian_tools_runtime_setup.py",
-        "@mkosi_debian_python//:bin/python3.11",
+        "@mkosi_debian_python//:python",
         "@mkosi_debian_tools//:launcher",
     ],
 )
@@ -176,6 +176,7 @@ sh_test(
     name = "debian_tools_manifest_test",
     srcs = ["debian_tools_manifest_test.sh"],
     data = ["@mkosi_debian_tools//:launcher"],
+    tags = ["manifest"],
 )
 
 sh_test(
@@ -405,6 +406,7 @@ py_test(
 )
 
 exports_files([
+    "mkosi_version_test.sh",
     "staged_image_semantics_test.py",
     "testdata/config-tree",
     "testdata/source-tree",

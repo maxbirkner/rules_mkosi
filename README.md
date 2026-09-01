@@ -55,10 +55,45 @@ The supported toolchain versions are intentionally explicit:
 | --- | --- | --- |
 | 27 | `https://github.com/systemd/mkosi/archive/4736cd836108a97772142c461c49f1ddb4172348.tar.gz` | `fa34b3ba66cc71d202b267a0f55e6c77f41d8db273ea5404f7fad99e464835f8` |
 
-The runtime uses a checksum-pinned, statically linked Python 3.11 runtime for
-the Debian launcher and extractor. The pinned `pefile` wheel remains included
-for v27's bootable PE inspection paths and is not obtained from the host
-environment.
+The zero-configuration mkosi toolchain uses the Python 3.14 line supplied by
+the pinned `rules_python` 1.7.0 dependency (currently CPython 3.14.0). The
+generated toolchain resolves `@rules_python//python:toolchain_type` instead of
+embedding an interpreter label. A downstream root may therefore register its
+own in-build CPython 3.14 toolchain at normal Bazel root-module precedence:
+
+```starlark
+# The target must provide a Python 3.14 PyRuntimeInfo with an interpreter
+# artifact, its complete files, and interpreter_version_info.
+register_toolchains("//toolchains:python_3_14")
+```
+
+Host `interpreter_path` runtimes are rejected: image actions require a declared
+interpreter artifact and complete runtime closure. The Python major/minor must
+remain 3.14 because mkosi and its locked wheels are tested as one runtime
+contract. `MkosiToolchainInfo.python_version` reports that compatibility line;
+`resolved_python_version` and `resolved_python_interpreter` identify the
+selected concrete toolchain for diagnostics. No Python registration is needed
+when accepting the default.
+
+The Debian launcher has a separate requirement. It uses checksum-pinned,
+statically linked CPython 3.14.7 because it must start before the isolated
+Debian root or any dynamic loader is available. Consumers do not override this
+security bootstrap. The native `@mkosi_debian_tools//:launcher` is a narrow,
+fully static ELF entrypoint: the maintained rules_cc runfiles library locates
+that interpreter and a generated Python launcher stub, inherited Python/loader
+injection and signal state are cleared, and the interpreter is executed
+directly with `-I`. The stub's host shebang is never executed.
+
+All option parsing, archive/runfile selection, authentication, extraction, and
+typed mount orchestration live in `debian_launcher.py`. Its public command is a
+Click 8.5.0 CLI supplied through the locked `mkosi_pypi` repository. Click and
+the Python runfiles library are present in the generated launcher's normal and
+manifest runfiles, so neither `/usr/bin/env` nor host `PATH` is involved.
+`--help` succeeds with status 0, usage errors use Click's status 2 diagnostics,
+setup failures retain the `Debian launcher setup failed:` prefix and status 1,
+and an invoked Debian tool's status is propagated unchanged. The pinned
+`pefile` wheel remains included for v27's bootable PE inspection paths and is
+not obtained from the host environment.
 
 The Debian build-time userspace is pinned to Debian 13 (trixie), `amd64`,
 and snapshot `20250814T000000Z`. The checked-in lockfile pins every package
@@ -74,7 +109,7 @@ package dependencies, and an empty ambient `PATH`. The initial tracer set
 includes APT/dpkg bootstrap tools, `systemd-repart`, filesystem and partition
 utilities, GRUB/systemd-boot UEFI tools, `objcopy`, and their locked runtime
 dependencies. Target image package acquisition remains out of scope.
-Extraction uses that static Python runtime and preserves modes, merged-`/usr`
+Extraction uses the static Python bootstrap and preserves modes, merged-`/usr`
 links, and in-root absolute links. Before any dynamic Debian ELF runs, the
 static launcher and static namespace runner establish the user, mount, PID,
 IPC, and UTS namespaces, pivot into the extracted root, and detach the host

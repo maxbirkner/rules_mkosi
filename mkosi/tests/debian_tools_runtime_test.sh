@@ -34,7 +34,7 @@ if [ -f "$mapping" ]; then
         case "$mapping_line" in
             ",mkosi_debian_python,"*)
                 repository="${mapping_line#*,mkosi_debian_python,}"
-                python="$runfiles_root/$repository/bin/python3.11"
+                python="$runfiles_root/$repository/python"
                 break
                 ;;
         esac
@@ -46,7 +46,7 @@ fi
 }
 bind_source="/dev/shm"
 bind_directory="$bind_source/rules-mkosi-${TEST_TMPDIR##*/}"
-python_home="${python%/bin/python3.11}"
+python_home="${python%/python}"
 PYTHONHOME="$python_home" PYTHONNOUSERSITE=1 "$python" -I "$setup_script" "$bind_directory"
 
 hostile_sitecustomize="$TEST_TMPDIR/sitecustomize.py"

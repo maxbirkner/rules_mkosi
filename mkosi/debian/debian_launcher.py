@@ -1,6 +1,7 @@
 """Execute a Debian build tool from an authenticated, isolated package tree."""
 
 import importlib.util
+import json
 import os
 import pathlib
 import posixpath
@@ -8,6 +9,10 @@ import shutil
 import stat
 import subprocess
 import sys
+from typing import NamedTuple
+
+import click
+from python.runfiles import runfiles
 
 
 TOOLS = {
@@ -28,7 +33,20 @@ TOOLS = {
 }
 
 _MOUNT_ROOTS = ("/root", "/tmp", "/proc", "/dev", "/workspace", "/inputs", "/outputs")
+_RUNFILES = {
+    "archive": "mkosi_debian_tools/flat.tar",
+    "config": "mkosi_debian_tools/launcher_config.json",
+    "extractor": "rules_mkosi/mkosi/debian/extract_tree.py",
+    "namespace_runner": "mkosi_debian_tools/namespace_runner",
+}
 sys.dont_write_bytecode = True
+
+
+class RuntimeFiles(NamedTuple):
+    archive: str
+    archive_sha256: str
+    extractor: str
+    namespace_runner: str
 
 
 def _inside_root(root, path):
@@ -207,9 +225,43 @@ def _private_scratch():
     return scratch_parent
 
 
-def _extract_root(archive, expected_digest, tool, binds):
+def _required_runfile(resolver, logical, executable=False):
+    path = resolver.Rlocation(logical)
+    valid = path and os.path.isfile(path)
+    if not valid or (executable and not os.access(path, os.X_OK)):
+        raise RuntimeError("Debian launcher runfile is missing: %s" % logical)
+    return path
+
+
+def _runtime_files():
+    resolver = runfiles.Create()
+    if resolver is None:
+        raise RuntimeError("unable to initialize Debian launcher runfiles")
+    config_path = _required_runfile(resolver, _RUNFILES["config"])
+    with open(config_path, encoding="utf-8") as config_file:
+        config = json.load(config_file)
+    if config.get("format_version") != "debian-launcher-v1":
+        raise RuntimeError("unsupported Debian launcher configuration")
+    archive_sha256 = config.get("archive_sha256", "")
+    if len(archive_sha256) != 64 or any(
+        character not in "0123456789abcdef" for character in archive_sha256
+    ):
+        raise RuntimeError("Debian launcher archive digest is invalid")
+    return RuntimeFiles(
+        archive=_required_runfile(resolver, _RUNFILES["archive"]),
+        archive_sha256=archive_sha256,
+        extractor=_required_runfile(resolver, _RUNFILES["extractor"]),
+        namespace_runner=_required_runfile(
+            resolver,
+            _RUNFILES["namespace_runner"],
+            executable=True,
+        ),
+    )
+
+
+def _extract_root(archive, expected_digest, tool, binds, extractor_path):
     if not expected_digest:
-        raise RuntimeError("DEBIAN_TOOLS_ARCHIVE_SHA256 is required")
+        raise RuntimeError("Debian tools archive digest is required")
     if os.environ.get("MKOSI_DEBIAN_TOOLS_SCRATCH_FORMAT", "physical-v5") != "physical-v5":
         raise RuntimeError("unsupported Debian tools scratch format")
     scratch_parent_value = os.environ.get("MKOSI_DEBIAN_TOOLS_SCRATCH") or os.environ.get(
@@ -232,9 +284,6 @@ def _extract_root(archive, expected_digest, tool, binds):
         partial = os.path.join(scratch_parent, ".partial")
         os.mkdir(partial, 0o700)
         try:
-            extractor_path = os.environ.get("DEBIAN_TOOLS_EXTRACTOR")
-            if not extractor_path:
-                raise RuntimeError("DEBIAN_TOOLS_EXTRACTOR is required")
             extractor_path = os.path.realpath(extractor_path)
             spec = importlib.util.spec_from_file_location("mkosi_debian_extract_tree", extractor_path)
             if spec is None or spec.loader is None:
@@ -275,7 +324,15 @@ def _runtime_directory(parent, name, mode=0o700):
     return path
 
 
-def _run(tool, arguments, root, ro_binds, rw_binds, scratch_parent):
+def _run(
+    tool,
+    arguments,
+    root,
+    ro_binds,
+    rw_binds,
+    scratch_parent,
+    namespace_runner,
+):
     runtime = os.path.join(scratch_parent, ".runtime")
     os.mkdir(runtime, 0o700)
     try:
@@ -291,8 +348,7 @@ def _run(tool, arguments, root, ro_binds, rw_binds, scratch_parent):
                 source_is_directory,
             )
 
-        runner = os.environ.get("DEBIAN_TOOLS_NAMESPACE_RUNNER")
-        if not runner or not os.path.isfile(runner) or not os.access(runner, os.X_OK):
+        if not os.path.isfile(namespace_runner) or not os.access(namespace_runner, os.X_OK):
             raise RuntimeError("static Debian namespace runner is missing")
         loader, _ = _validate_root(root, tool)
         loader_relative = "/" + os.path.relpath(loader, root)
@@ -311,7 +367,7 @@ def _run(tool, arguments, root, ro_binds, rw_binds, scratch_parent):
                 ]
             )
         command = [
-            runner,
+            namespace_runner,
             root,
             workspace,
             outputs,
@@ -327,60 +383,120 @@ def _run(tool, arguments, root, ro_binds, rw_binds, scratch_parent):
         shutil.rmtree(runtime, ignore_errors=True)
 
 
-def main():
-    if len(sys.argv) < 2:
-        print(
-            "usage: debian-launcher [--validate-only] [--write-version OUTPUT] /absolute/tool [args...]",
-            file=sys.stderr,
-        )
-        return 2
-    output = None
-    arguments = sys.argv[1:]
-    validate_only = False
-    if arguments[0] == "--validate-only":
-        validate_only = True
-        arguments = arguments[1:]
-        if not arguments:
-            print("usage: --validate-only /absolute/tool", file=sys.stderr)
-            return 2
-    if arguments[0] == "--write-version":
-        if len(arguments) < 3:
-            print("usage: --write-version OUTPUT /absolute/tool [args...]", file=sys.stderr)
-            return 2
-        output = arguments[1]
-        arguments = arguments[2:]
+class _ToolPath(click.ParamType):
+    name = "tool"
+
+    def convert(self, value, param, ctx):
+        if value not in TOOLS.values():
+            self.fail("unknown or unmapped Debian tool: %s" % value, param, ctx)
+        return value
+
+
+class _LauncherSetupError(click.ClickException):
+    exit_code = 1
+
+    def show(self, file=None):
+        click.echo("Debian launcher setup failed: %s" % self.message, file=file, err=True)
+
+
+def _launch(
+    *,
+    tool: str,
+    tool_arguments: tuple[str, ...],
+    validate_only: bool,
+    output: pathlib.Path | None,
+    ro_bind_specs: tuple[str, ...],
+    rw_bind_specs: tuple[str, ...],
+) -> int:
+    arguments = []
+    for option, specifications in (
+        ("--ro-bind", ro_bind_specs),
+        ("--rw-bind", rw_bind_specs),
+    ):
+        for specification in specifications:
+            arguments.extend([option, specification])
     ro_binds, rw_binds = _validate_binds(arguments)
-    if not arguments:
-        print("tool path is required", file=sys.stderr)
-        return 2
-    tool = arguments.pop(0)
-    if tool not in TOOLS.values():
-        print("unknown or unmapped Debian tool: %s" % tool, file=sys.stderr)
-        return 2
-
-    archive = os.environ.get("DEBIAN_TOOLS_ARCHIVE")
-    if not archive:
-        print("DEBIAN_TOOLS_ARCHIVE is required", file=sys.stderr)
-        return 1
-    expected_digest = os.environ.get("DEBIAN_TOOLS_ARCHIVE_SHA256")
-    if not expected_digest:
-        print("DEBIAN_TOOLS_ARCHIVE_SHA256 is required", file=sys.stderr)
-        return 1
-
-    root = _extract_root(archive, expected_digest, tool, (ro_binds, rw_binds))
+    runtime = _runtime_files()
+    root = _extract_root(
+        runtime.archive,
+        runtime.archive_sha256,
+        tool,
+        (ro_binds, rw_binds),
+        runtime.extractor,
+    )
     if validate_only:
         return 0
     scratch_parent = os.path.dirname(root)
-    status = _run(tool, arguments, root, ro_binds, rw_binds, scratch_parent)
+    status = _run(
+        tool,
+        list(tool_arguments),
+        root,
+        ro_binds,
+        rw_binds,
+        scratch_parent,
+        runtime.namespace_runner,
+    )
     if output:
         with open(output, "w", encoding="utf-8") as version:
             version.write("Debian tool probe: %s\n" % tool)
     return status
 
 
-if __name__ == "__main__":
+@click.command(
+    name="debian-launcher",
+    context_settings={"allow_interspersed_args": False},
+)
+@click.option(
+    "--validate-only",
+    is_flag=True,
+    help="Authenticate, extract, and validate the tools tree without execution.",
+)
+@click.option(
+    "--write-version",
+    "output",
+    type=click.Path(path_type=pathlib.Path, dir_okay=False),
+    metavar="OUTPUT",
+    help="Write the successful tool probe identity to OUTPUT.",
+)
+@click.option(
+    "--ro-bind",
+    "ro_bind_specs",
+    multiple=True,
+    metavar="SRC:DEST",
+    help="Mount SRC read-only below /inputs.",
+)
+@click.option(
+    "--rw-bind",
+    "rw_bind_specs",
+    multiple=True,
+    metavar="SRC:DEST",
+    help="Mount SRC read-write below /workspace or /outputs.",
+)
+@click.argument("tool", type=_ToolPath())
+@click.argument("tool_arguments", nargs=-1, type=click.UNPROCESSED)
+def cli(
+    validate_only: bool,
+    output: pathlib.Path | None,
+    ro_bind_specs: tuple[str, ...],
+    rw_bind_specs: tuple[str, ...],
+    tool: str,
+    tool_arguments: tuple[str, ...],
+) -> None:
+    """Execute an allowlisted tool inside the authenticated Debian root."""
     try:
-        raise SystemExit(main())
+        status = _launch(
+            tool=tool,
+            tool_arguments=tool_arguments,
+            validate_only=validate_only,
+            output=output,
+            ro_bind_specs=ro_bind_specs,
+            rw_bind_specs=rw_bind_specs,
+        )
     except (OSError, RuntimeError, ValueError) as error:
-        print("Debian launcher setup failed: %s" % error, file=sys.stderr)
-        raise SystemExit(1)
+        raise _LauncherSetupError(str(error)) from error
+    if status:
+        raise click.exceptions.Exit(status)
+
+
+if __name__ == "__main__":
+    cli(prog_name="debian-launcher")

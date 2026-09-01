@@ -2,20 +2,16 @@
 
 def _impl(ctx):
     ctx.file(
-        "launcher_config.h",
-        """#define DEBIAN_TOOLS_ARCHIVE_SHA256 "{archive_sha256}"
-#define DEBIAN_TOOLS_ARCHIVE_RLOCATION "mkosi_debian_tools/flat.tar"
-#define DEBIAN_TOOLS_PYTHON_RLOCATION "mkosi_debian_python/bin/python3.11"
-#define DEBIAN_TOOLS_SCRIPT_RLOCATION "rules_mkosi/mkosi/debian/debian_launcher.py"
-#define DEBIAN_TOOLS_SCRIPT_ALTERNATE_RLOCATION "_main/mkosi/debian/debian_launcher.py"
-#define DEBIAN_TOOLS_EXTRACTOR_RLOCATION "rules_mkosi/mkosi/debian/extract_tree.py"
-#define DEBIAN_TOOLS_EXTRACTOR_ALTERNATE_RLOCATION "_main/mkosi/debian/extract_tree.py"
-#define DEBIAN_TOOLS_NAMESPACE_RLOCATION "mkosi_debian_tools/namespace_runner"
-""".format(archive_sha256 = ctx.attr.archive_sha256),
+        "launcher_config.json",
+        json.encode({
+            "archive_sha256": ctx.attr.archive_sha256,
+            "format_version": "debian-launcher-v1",
+        }) + "\n",
     )
     ctx.file(
         "BUILD.bazel",
         """load("@rules_cc//cc:defs.bzl", "cc_binary")
+load("@rules_python//python:defs.bzl", "py_binary")
 load("@rules_mkosi//mkosi/debian:toolchain.bzl", "debian_tools_archive", "debian_tools_toolchain", "debian_tools_tree")
 
 package(default_visibility = ["//visibility:public"])
@@ -36,7 +32,7 @@ debian_tools_tree(
     archive_sha256 = "{archive_sha256}",
 )
 
-alias(name = "python", actual = "@mkosi_debian_python//:bin/python3.11")
+alias(name = "python", actual = "@mkosi_debian_python//:python")
 filegroup(
     name = "launcher_script",
     srcs = ["@rules_mkosi//mkosi/debian:debian_launcher.py"],
@@ -46,20 +42,34 @@ filegroup(
     srcs = ["@rules_mkosi//mkosi/debian:extract_tree.py"],
 )
 
+py_binary(
+    name = "launcher_cli",
+    srcs = ["@rules_mkosi//mkosi/debian:debian_launcher.py"],
+    data = [
+        ":launcher_config.json",
+        ":namespace_runner",
+        ":tree",
+        "@rules_mkosi//mkosi/debian:extract_tree.py",
+    ],
+    main = "@rules_mkosi//mkosi/debian:debian_launcher.py",
+    deps = [
+        "@mkosi_pypi//click",
+        "@rules_python//python/runfiles",
+    ],
+    visibility = ["//visibility:private"],
+)
+
 cc_binary(
     name = "launcher",
     srcs = [
-        "@rules_mkosi//mkosi/debian:launcher_main.c",
-        "launcher_config.h",
+        "@rules_mkosi//mkosi/debian:launcher_main.cc",
     ],
     data = [
-        ":tree",
-        ":extractor",
-        ":launcher_script",
+        ":launcher_cli",
         ":python",
         ":python_runtime",
-        ":namespace_runner",
     ],
+    deps = ["@rules_cc//cc/runfiles"],
     features = ["fully_static_link"],
     linkopts = ["-static", "-Wl,--strip-debug", "-Wl,--build-id=none"],
     exec_compatible_with = [
@@ -101,6 +111,7 @@ debian_tools_toolchain(
     snapshot_url = "https://snapshot.debian.org/archive/debian/20250814T000000Z",
     lock_sha256 = "{lock_sha256}",
     archive_sha256 = "{archive_sha256}",
+    python_version = "{python_version}",
     tree = ":tree",
     tree_root = ":tree_root",
     launcher = ":launcher",
@@ -128,6 +139,7 @@ toolchain(
             required_components = repr(ctx.attr.required_components),
             lock_sha256 = ctx.attr.lock_sha256,
             archive_sha256 = ctx.attr.archive_sha256,
+            python_version = ctx.attr.python_version,
         ),
     )
     if hasattr(ctx, "repo_metadata"):
@@ -143,5 +155,6 @@ debian_tools_repo = repository_rule(
         "required_components": attr.string_list(mandatory = True),
         "lock_sha256": attr.string(mandatory = True),
         "archive_sha256": attr.string(mandatory = True),
+        "python_version": attr.string(mandatory = True),
     },
 )

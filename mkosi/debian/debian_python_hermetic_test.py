@@ -18,7 +18,7 @@ def _repository_file(apparent, relative):
 
 
 def _python_executable():
-    return _repository_file("mkosi_debian_python", "bin/python3.11")
+    return _repository_file("mkosi_debian_python", "python")
 
 
 class DebianPythonHermeticTest(unittest.TestCase):

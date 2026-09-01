@@ -8,9 +8,9 @@ DEBIAN_TOOLS_SNAPSHOT = "20250814T000000Z"
 DEBIAN_TOOLS_SNAPSHOT_URL = "https://snapshot.debian.org/archive/debian/20250814T000000Z"
 DEBIAN_TOOLS_LOCK_SHA256 = "d92b93836d652799006045aec102c5487dec01b5b478f4e7e1e4e1018811d409"
 DEBIAN_TOOLS_ARCHIVE_SHA256 = "ebc174414d5291b2f06597dd72b8c210e99442dc316aad6a9e020590040c3fbb"
-DEBIAN_TOOLS_PYTHON_VERSION = "3.11.16"
-DEBIAN_TOOLS_PYTHON_URL = "https://github.com/astral-sh/python-build-standalone/releases/download/20260825/cpython-3.11.16%2B20260825-x86_64-unknown-linux-musl-lto%2Bstatic-full.tar.zst"
-DEBIAN_TOOLS_PYTHON_SHA256 = "db37cb55adaf13d3eb78c56e76d2fcefaf7472945c8b52c17da60aede58d7529"
+DEBIAN_TOOLS_PYTHON_VERSION = "3.14.7"
+DEBIAN_TOOLS_PYTHON_URL = "https://github.com/astral-sh/python-build-standalone/releases/download/20260825/cpython-3.14.7%2B20260825-x86_64-unknown-linux-musl-lto%2Bstatic-full.tar.zst"
+DEBIAN_TOOLS_PYTHON_SHA256 = "1709517f7f9a642ecbec562c3612989a7b1b6b5638db61803f993185d4ae2df7"
 
 # The package lock is authoritative for package versions, URLs, hashes, and
 # dependency edges.  These are the initial tracer-required command names.

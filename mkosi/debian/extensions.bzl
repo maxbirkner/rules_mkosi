@@ -1,6 +1,12 @@
 """Bzlmod extension for the pinned Debian userspace tree."""
 
-load("//mkosi/debian:provenance.bzl", "DEBIAN_TOOLS_ARCHIVE_SHA256", "DEBIAN_TOOLS_LOCK_SHA256", "DEBIAN_TOOLS_REQUIRED_COMPONENTS")
+load(
+    "//mkosi/debian:provenance.bzl",
+    "DEBIAN_TOOLS_ARCHIVE_SHA256",
+    "DEBIAN_TOOLS_LOCK_SHA256",
+    "DEBIAN_TOOLS_PYTHON_VERSION",
+    "DEBIAN_TOOLS_REQUIRED_COMPONENTS",
+)
 load("//mkosi/private:debian_package_repo.bzl", "debian_package_repo")
 load("//mkosi/private:debian_python_repo.bzl", "debian_python_repo")
 load("//mkosi/private:debian_snapshot_repo.bzl", "debian_snapshot_repo")
@@ -30,6 +36,7 @@ def _debian_tools_impl(module_ctx):
         required_components = DEBIAN_TOOLS_REQUIRED_COMPONENTS,
         lock_sha256 = DEBIAN_TOOLS_LOCK_SHA256,
         archive_sha256 = DEBIAN_TOOLS_ARCHIVE_SHA256,
+        python_version = DEBIAN_TOOLS_PYTHON_VERSION,
     )
     return module_ctx.extension_metadata(reproducible = True)
 

@@ -12,12 +12,13 @@ DebianToolsInfo = provider(
         "snapshot_url": "Pinned snapshot URL.",
         "lock_sha256": "SHA-256 digest of the checked-in package lockfile.",
         "archive_sha256": "SHA-256 digest of the flattened package archive.",
+        "python_version": "Pinned static Python bootstrap version.",
         "tree": "Flattened tar archive containing the installed package tree.",
         "tree_root": "Extracted Debian tools TreeArtifact.",
         "launcher": "FilesToRunProvider for the root-isolated executable launcher.",
-        "python": "Bazel-managed standalone Python interpreter.",
-        "python_files_to_run": "FilesToRunProvider for the standalone interpreter.",
-        "launcher_script": "Python launcher script passed to the interpreter.",
+        "python": "Pinned static Python bootstrap interpreter.",
+        "python_files_to_run": "FilesToRunProvider for the static interpreter.",
+        "launcher_script": "Click launcher implementation source retained for compatibility.",
         "extractor": "Shared strict extraction implementation.",
         "tree_files_to_run": "FilesToRunProvider preserving tree mappings.",
         "tree_runfiles": "Runfiles for the package tree.",
@@ -27,10 +28,12 @@ DebianToolsInfo = provider(
     },
 )
 
+def _python_home(executable):
+    return executable.path[:executable.path.rfind("/")]
+
 def _tree_impl(ctx):
     root = ctx.actions.declare_directory(ctx.label.name + "_root")
-    python_home = ctx.executable._python.path
-    python_home = python_home[:python_home.rfind("/bin/")]
+    python_home = _python_home(ctx.executable._python)
     runtime_files = ctx.attr._python_runtime[DefaultInfo].files
     ctx.actions.run(
         executable = ctx.executable._python,
@@ -59,8 +62,7 @@ def _tree_impl(ctx):
 
 def _archive_impl(ctx):
     output = ctx.actions.declare_file("flat.tar")
-    python_home = ctx.executable._python.path
-    python_home = python_home[:python_home.rfind("/bin/")]
+    python_home = _python_home(ctx.executable._python)
     runtime_files = ctx.attr._python_runtime[DefaultInfo].files
     ctx.actions.run(
         executable = ctx.executable._python,
@@ -100,7 +102,7 @@ debian_tools_archive = rule(
             allow_files = True,
             executable = True,
             cfg = "exec",
-            default = "@mkosi_debian_python//:bin/python3.11",
+            default = "@mkosi_debian_python//:python",
         ),
         "_python_runtime": attr.label(
             cfg = "exec",
@@ -124,7 +126,7 @@ debian_tools_tree = rule(
             allow_files = True,
             executable = True,
             cfg = "exec",
-            default = "@mkosi_debian_python//:bin/python3.11",
+            default = "@mkosi_debian_python//:python",
         ),
         "_python_runtime": attr.label(
             cfg = "exec",
@@ -231,6 +233,7 @@ def _debian_tools_toolchain_impl(ctx):
         snapshot_url = ctx.attr.snapshot_url,
         lock_sha256 = ctx.attr.lock_sha256,
         archive_sha256 = ctx.attr.archive_sha256,
+        python_version = ctx.attr.python_version,
         tree = tree_file,
         tree_root = tree_root,
         launcher = launcher.files_to_run,
@@ -258,6 +261,7 @@ debian_tools_toolchain = rule(
         "snapshot_url": attr.string(mandatory = True),
         "lock_sha256": attr.string(mandatory = True),
         "archive_sha256": attr.string(mandatory = True),
+        "python_version": attr.string(mandatory = True),
         "tree": attr.label(mandatory = True, allow_single_file = True),
         "tree_root": attr.label(mandatory = True),
         "launcher": attr.label(mandatory = True, executable = True, cfg = "exec"),

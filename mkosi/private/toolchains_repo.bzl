@@ -1,12 +1,6 @@
 """Repository rule that exposes registered mkosi and QEMU toolchains."""
 
 def _toolchains_repo_impl(repository_ctx):
-    python_label = "@python_{}//:python3".format(
-        repository_ctx.attr.python_version.replace(".", "_"),
-    )
-    python_runtime_label = "@python_{}//:files".format(
-        repository_ctx.attr.python_version.replace(".", "_"),
-    )
     repository_ctx.download_and_extract(
         url = repository_ctx.attr.source_url,
         sha256 = repository_ctx.attr.source_sha256,
@@ -18,14 +12,19 @@ def _toolchains_repo_impl(repository_ctx):
         stripPrefix = repository_ctx.attr.ovmf_strip_prefix,
     )
 
-    mkosi_build = '''load("@rules_mkosi//mkosi:toolchain.bzl", "mkosi_toolchain")
+    mkosi_build = '''load("@rules_mkosi//mkosi:toolchain.bzl", "managed_python_tool", "mkosi_toolchain")
 
 package(default_visibility = ["//visibility:public"])
+
+managed_python_tool(
+    name = "mkosi_python",
+    python_version = {python_version},
+)
 
 filegroup(
     name = "mkosi_runfiles",
     srcs = glob(["mkosi/**/*.py", "mkosi/resources/**"]) + [
-        {python_label_repr},
+        ":mkosi_python",
     ] + {python_dependencies},
 )
 
@@ -36,12 +35,7 @@ filegroup(
 
 filegroup(
     name = "mkosi_runtime",
-    srcs = [{python_runtime_label_repr}],
-)
-
-alias(
-    name = "mkosi_python",
-    actual = {python_label_repr},
+    srcs = [":mkosi_python"],
 )
 
 mkosi_toolchain(
@@ -52,8 +46,7 @@ mkosi_toolchain(
     source_sha256 = {source_sha256},
     source_integrity = {source_integrity},
     python_version = {python_version},
-    python = {python_label_repr},
-    python_runtime = {python_runtime_label_repr},
+    python = ":mkosi_python",
     script = "mkosi/__main__.py",
     python_dependency = {python_import_dependency_repr},
     runfiles = ":mkosi_runfiles",
@@ -75,9 +68,6 @@ toolchain(
         source_sha256 = repr(repository_ctx.attr.source_sha256),
         source_integrity = repr(repository_ctx.attr.source_integrity),
         python_version = repr(repository_ctx.attr.python_version),
-        python_label = python_label,
-        python_label_repr = repr(python_label),
-        python_runtime_label_repr = repr(python_runtime_label),
         python_dependencies = repr(repository_ctx.attr.python_dependencies),
         python_import_dependency_repr = repr(repository_ctx.attr.python_import_dependencies[0]),
     )

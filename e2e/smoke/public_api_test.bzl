@@ -14,10 +14,25 @@ def _public_api_test_impl(ctx):
     asserts.true(env, DebianToolsInfo in target)
     asserts.equals(env, "debian", target[DebianToolsInfo].distribution)
     asserts.equals(env, "13", target[DebianToolsInfo].release)
+    asserts.equals(env, "3.14.7", target[DebianToolsInfo].python_version)
     asserts.true(env, target[DebianToolsInfo].launcher.executable != None)
     return analysistest.end(env)
 
 public_api_test = analysistest.make(_public_api_test_impl)
+
+def _mkosi_python_override_test_impl(ctx):
+    env = analysistest.begin(ctx)
+    info = analysistest.target_under_test(env)[platform_common.ToolchainInfo].mkosi
+    asserts.equals(env, "3.14", info.python_version)
+    asserts.equals(env, "3.14.0", info.resolved_python_version)
+    asserts.true(
+        env,
+        "consumer_python" in info.resolved_python_interpreter.path,
+        "mkosi toolchain selected the consumer-registered Python runtime",
+    )
+    return analysistest.end(env)
+
+mkosi_python_override_test = analysistest.make(_mkosi_python_override_test_impl)
 
 def _snapshot_public_api_test_impl(ctx):
     env = analysistest.begin(ctx)
