@@ -234,7 +234,9 @@ authenticated snapshot repository, a release action may use Bazel's local and
 remote action caches. It deliberately keeps `no-remote-exec`, because a remote
 execution platform has not yet been qualified for the required Linux namespace
 and mount contract. There is no fallback to a network mirror: a missing locked
-package or attempted network access fails the action.
+package or attempted network access fails the action. Release images that
+install APT do not retain a mutable package-source configuration; consume a
+new declared snapshot to produce an updated release image.
 
 For a complete mkosi configuration directory, mark the exported directory
 with `mkosi_config_tree`. The directory must contain `mkosi.conf`; mkosi's

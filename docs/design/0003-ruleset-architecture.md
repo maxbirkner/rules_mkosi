@@ -62,7 +62,9 @@ The stable provider remains `mkosi-image-v1`; its normalized metadata advances
 to `mkosi-image-build-metadata-v2`, adding the release mode, reproducibility
 inputs, and authenticated snapshot identity/lock digest. The release action
 retains `no-remote-exec` pending execution-platform qualification, but may use
-local and remote action caches. The tracer action forces disk/raw/uncompressed output
+local and remote action caches. If APT is installed, release mode removes its
+persistent package-source files rather than embedding a mutable network mirror.
+The tracer action forces disk/raw/uncompressed output
 and disables split artifacts; configuration files cannot redirect the declared
 artifact or select a custom format. The legacy `config` attribute accepts
 exactly one file. Complete

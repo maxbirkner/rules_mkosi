@@ -657,7 +657,7 @@ def mkosi_image_test_suite(name):
 
     mkosi_image(
         name = "release_subject",
-        config = "testdata/minimal.conf",
+        config = "testdata/release.conf",
         debian_snapshot = "@mkosi_debian_snapshot//:repository",
         mode = "release",
         release_seed = "00000000-0000-4000-8000-000000000007",

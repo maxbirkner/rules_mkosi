@@ -263,6 +263,7 @@ def _activate_release_mode(mirror, release_seed, release_source_date_epoch):
 
     import mkosi
     import mkosi.config
+    import mkosi.distribution.debian
     from mkosi.context import Context
     from mkosi.distribution.debian import Installer
     from mkosi.installer import PackageManager
@@ -276,6 +277,8 @@ def _activate_release_mode(mirror, release_seed, release_source_date_epoch):
     validate_initial_configuration = [True]
 
     def repositories(cls, context, for_image=False):
+        if for_image:
+            return
         for repository in original_repositories(cls, context, for_image):
             if repository.url == source_url:
                 yield replace(repository, url="file:///repository")
@@ -361,11 +364,22 @@ def _activate_release_mode(mirror, release_seed, release_source_date_epoch):
         for filename in ("etc/shadow", "etc/gshadow", "etc/ld.so.cache"):
             (dst / filename).touch(exist_ok=True)
 
+    def install_apt_sources(context, repositories):
+        del repositories
+        apt = context.root / "etc/apt"
+        (apt / "sources.list").unlink(missing_ok=True)
+        sources = apt / "sources.list.d"
+        if sources.exists():
+            for source in sources.iterdir():
+                if source.is_file() and source.suffix in (".list", ".sources"):
+                    source.unlink()
+
     Context.__init__ = context_init
     Installer.repositories = classmethod(repositories)
     PackageManager.mounts = classmethod(mounts)
     Context.repository = property(repository)
     mkosi.config.parse_config = parse_config
+    mkosi.distribution.debian.install_apt_sources = install_apt_sources
     mkosi.install_sandbox_trees = install_sandbox_trees
 
 

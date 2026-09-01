@@ -476,10 +476,26 @@ py_test(
     deps = ["@rules_python//python/runfiles"],
 )
 
+py_test(
+    name = "release_apt_sources_test",
+    srcs = ["release_apt_sources_test.py"],
+    args = [
+        "$(rootpath :release_raw_image)",
+        "$(rootpath @mkosi_debian_tools//:launcher)",
+    ],
+    data = [
+        ":release_raw_image",
+        "@mkosi_debian_tools//:launcher",
+    ],
+    main = "release_apt_sources_test.py",
+    deps = ["@rules_python//python/runfiles"],
+)
+
 exports_files([
     "mkosi_version_test.sh",
     "staged_image_semantics_test.py",
     "testdata/config-tree",
     "testdata/source-tree",
     "testdata/source-tree-two",
+    "testdata/release.conf",
 ])
