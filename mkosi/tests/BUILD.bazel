@@ -9,6 +9,7 @@ load(
     "qemu_ovmf_smoke_test",
 )
 load("//mkosi/debian:toolchain.bzl", "debian_tools_launcher_probe", "debian_tools_preflight", "debian_tools_preflight_test")
+load(":behavior_targets.bzl", "behavior_targets")
 load(":debian_snapshot_test.bzl", "debian_snapshot_provider_test")
 load(
     ":extension_semantics_test.bzl",
@@ -54,6 +55,62 @@ py_test(
         "//mkosi/private:partition_metadata.py",
     ],
     main = "partition_metadata_test.py",
+)
+
+py_test(
+    name = "behavior_matrix_test",
+    srcs = ["behavior_matrix_test.py"],
+    args = [
+        "$(rootpath //docs:behavior-matrix.md)",
+        "$(rootpath :behavior_matrix.tsv)",
+        "$(rootpath :behavior_root_targets)",
+        "root",
+    ],
+    data = [
+        "behavior_matrix.tsv",
+        ":behavior_root_targets",
+        "//docs:behavior-matrix.md",
+    ],
+    main = "behavior_matrix_test.py",
+)
+
+behavior_targets(
+    name = "behavior_root_targets",
+    testonly = True,
+    targets = [
+        "//:e2e/module_resolution/nonroot_name/MODULE.bazel",
+        "//ci:verify-release-reproducibility.sh",
+        "//ci:verify_reproducibility_execution_test",
+        ":analysis_tests",
+        ":boot_config_test",
+        ":boot_lifecycle_test",
+        ":conflicting_root_test",
+        ":debian_snapshot_artifact_test",
+        ":debian_snapshot_provider_test",
+        ":debian_snapshot_trust_test",
+        ":debian_snapshot_unit_test",
+        ":debian_tools_runtime_test",
+        ":default_version_test",
+        ":diagnostic_contract_test",
+        ":explicit_version_test",
+        ":mkosi_staging_artifact_test",
+        ":mkosi_staging_metadata_test",
+        ":mkosi_staging_role_test",
+        ":mkosi_staging_security_test",
+        ":mkosi_version_test",
+        ":partition_metadata_test",
+        ":qemu_ovmf_negative_test",
+        ":real_image_artifact_test",
+        ":real_image_semantics_test",
+        ":release_apt_sources_test",
+        ":release_image_artifact_test",
+        ":release_network_isolation_test",
+        ":release_reproducibility_analysis_test",
+        ":release_subject_build_metadata_test",
+        ":reproducibility_manifest_test",
+        ":root_dependency_test",
+        ":unsupported_version_test",
+    ],
 )
 
 debian_snapshot_provider_test(
@@ -512,6 +569,8 @@ py_test(
 )
 
 exports_files([
+    "behavior_matrix.tsv",
+    "behavior_matrix_test.py",
     "mkosi_version_test.sh",
     "staged_image_semantics_test.py",
     "testdata/config-tree",
