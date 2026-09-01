@@ -158,8 +158,11 @@ build metadata into canonical JSON. It records the SHA-256 and byte size of
 both immutable artifacts and embeds the parsed build metadata with sorted JSON
 keys. CI compares this text across two Bazel 8 builds with distinct clean
 `output_user_root` directories and with local and remote action-result caches
-disabled; repository downloads may be reused because their content is fixed
-and authenticated.
+disabled. Each invocation also uses `--nouse_action_cache` and an isolated
+empty disk-cache directory. A Bazel JSON execution log must record exactly one
+non-cache-hit `MkosiImage` and `MkosiReproducibilityManifest` action for each
+build before their manifests are compared. Repository downloads may be reused
+because their content is fixed and authenticated.
 
 The current unsigned release disk has no excluded embedded artifact fields.
 The manifest's `excluded_variable_fields` names each non-artifact field that

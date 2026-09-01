@@ -35,11 +35,15 @@ build_once() {
     build \
     --config=qualified \
     --lockfile_mode=error \
-    --disk_cache= \
+    --nouse_action_cache \
+    --disk_cache="$output_root/action-cache" \
     --remote_cache= \
     --noremote_accept_cached \
     --noremote_upload_local_results \
+    --execution_log_json_file="$results/$name.execution.json" \
     //mkosi/tests:release_reproducibility
+  python3 ci/verify_reproducibility_execution.py \
+    "$results/$name.execution.json" "$name"
   local output
   output="$(USE_BAZEL_VERSION=8.5.1 bazel \
     --output_user_root="$output_root" \
