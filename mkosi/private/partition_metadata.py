@@ -65,7 +65,7 @@ def main():
         [
             args.launcher,
             "--ro-bind={}".format(os.path.abspath(args.image)) + ":/inputs/image",
-            "sfdisk",
+            "/usr/sbin/sfdisk",
             "--json",
             "/inputs/image",
         ],
