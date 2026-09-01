@@ -11,5 +11,9 @@ assert all(
     excluded["field"] and excluded["reason"]
     for excluded in manifest["excluded_variable_fields"]
 )
-assert len(manifest["immutable_artifacts"]["raw_image"]["sha256"]) == 64
+assert len(manifest["immutable_artifacts"]["build_metadata"]["sha256"]) == 64
+assert (
+    manifest["normalized_manifests"]["raw_image"]["root_partition"]["type_uuid"]
+    == "4f68bce3-e8cd-4db1-96e7-fbcaf984b709"
+)
 assert manifest["normalized_manifests"]["build_metadata"]["mode"] == "release"

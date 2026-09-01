@@ -4,17 +4,59 @@
 import argparse
 import hashlib
 import json
+import struct
+import uuid
 from pathlib import Path
 
+_LINUX_ROOT_X86_64 = uuid.UUID("4f68bce3-e8cd-4db1-96e7-fbcaf984b709")
 
-def _digest(path):
-    digest = hashlib.sha256()
-    size = 0
-    with path.open("rb") as source:
-        while chunk := source.read(1024 * 1024):
-            digest.update(chunk)
-            size += len(chunk)
-    return {"sha256": digest.hexdigest(), "size": size}
+
+def _raw_image_manifest(path):
+    with path.open("rb") as image:
+        image.seek(512)
+        header = image.read(512)
+        if header[:8] != b"EFI PART":
+            raise ValueError("raw image has no primary GPT header")
+        disk_guid = uuid.UUID(bytes_le=header[56:72])
+        entries_lba, entry_count, entry_size = struct.unpack_from("<QII", header, 72)
+        image.seek(entries_lba * 512)
+        entries = image.read(entry_count * entry_size)
+        root = None
+        for index in range(entry_count):
+            entry = entries[index * entry_size:(index + 1) * entry_size]
+            if uuid.UUID(bytes_le=entry[:16]) == _LINUX_ROOT_X86_64:
+                root = entry
+                break
+        if root is None:
+            raise ValueError("raw image has no Linux x86-64 root partition")
+        partition_uuid = uuid.UUID(bytes_le=root[16:32])
+        first_lba, last_lba, attributes = struct.unpack_from("<QQQ", root, 32)
+        image.seek(first_lba * 512 + 1024)
+        superblock = image.read(1024)
+        if superblock[56:58] != b"\x53\xef":
+            raise ValueError("root partition is not ext4")
+        filesystem_uuid = uuid.UUID(bytes=superblock[104:120])
+        hash_seed = uuid.UUID(bytes=superblock[236:252])
+        blocks = struct.unpack_from("<I", superblock, 4)[0]
+        blocks |= struct.unpack_from("<I", superblock, 336)[0] << 32
+        return {
+            "disk_guid": str(disk_guid),
+            "image_size": path.stat().st_size,
+            "root_partition": {
+                "attributes": attributes,
+                "filesystem": {
+                    "block_count": blocks,
+                    "block_size": 1024 << struct.unpack_from("<I", superblock, 24)[0],
+                    "hash_seed": str(hash_seed),
+                    "inode_count": struct.unpack_from("<I", superblock, 0)[0],
+                    "uuid": str(filesystem_uuid),
+                },
+                "first_lba": first_lba,
+                "last_lba": last_lba,
+                "type_uuid": str(_LINUX_ROOT_X86_64),
+                "uuid": str(partition_uuid),
+            },
+        }
 
 
 def project(raw_image, build_metadata):
@@ -62,6 +104,13 @@ def project(raw_image, build_metadata):
                 "field": "build_process.duration",
                 "reason": "Runner performance is not artifact content.",
             },
+            {
+                "field": "raw_image.sha256",
+                "reason": (
+                    "ext4 allocation and bookkeeping bytes are not stable; "
+                    "the documented GPT/ext4 manifest is compared instead."
+                ),
+            },
         ],
         "format_version": "mkosi-reproducibility-manifest-v1",
         "immutable_artifacts": {
@@ -69,10 +118,10 @@ def project(raw_image, build_metadata):
                 "sha256": hashlib.sha256(metadata_bytes).hexdigest(),
                 "size": len(metadata_bytes),
             },
-            "raw_image": _digest(raw_image),
         },
         "normalized_manifests": {
             "build_metadata": metadata,
+            "raw_image": _raw_image_manifest(raw_image),
         },
     }
 

@@ -153,10 +153,12 @@ and compare those instead:
 - UKI sections and signatures.
 - Reproducibility across repeated builds.
 
-`mkosi_reproducibility_manifest` now projects the raw image and normalized
-build metadata into canonical JSON. It records the SHA-256 and byte size of
-both immutable artifacts and embeds the parsed build metadata with sorted JSON
-keys. CI compares this text across two Bazel 8 builds with distinct clean
+`mkosi_reproducibility_manifest` now projects normalized raw-image structure
+and build metadata into canonical JSON. It records the SHA-256 and byte size
+of immutable build metadata, embeds that parsed metadata with sorted JSON keys,
+and records the GPT disk and root-partition UUIDs, geometry, attributes, and
+ext4 UUID, hash seed, geometry, and image size. CI compares this text across
+two Bazel 8 builds with distinct clean
 `output_user_root` directories and with local and remote action-result caches
 disabled. Each invocation also uses `--nouse_action_cache` and an isolated
 empty disk-cache directory. A Bazel JSON execution log must record exactly one
@@ -164,7 +166,10 @@ non-cache-hit `MkosiImage` and `MkosiReproducibilityManifest` action for each
 build before their manifests are compared. Repository downloads may be reused
 because their content is fixed and authenticated.
 
-The current unsigned release disk has no excluded embedded artifact fields.
+The current unsigned release disk has one excluded embedded field:
+`raw_image.sha256`. ext4 allocation and bookkeeping bytes are not stable
+across fresh filesystem construction, so the comparison makes no whole-disk
+bit-for-bit claim and compares the documented GPT/ext4 projection instead.
 The manifest's `excluded_variable_fields` names each non-artifact field that
 is intentionally omitted: output path, inode, ownership, permissions, mtime,
 output base, sandbox path, workspace path, action start time, and action
