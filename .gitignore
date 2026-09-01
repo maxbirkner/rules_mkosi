@@ -1,7 +1,7 @@
 # Bazel output symlinks
 bazel-*
 /.bazelrc.user
-/.cache/
+**/.cache/
 /e2e/smoke/.cache/
 
 # mkosi build artifacts and caches

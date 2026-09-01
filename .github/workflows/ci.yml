@@ -217,19 +217,36 @@ jobs:
           if [ "${{ matrix.bazel }}" = "9.2.0" ]; then
             cache_mode=off
           fi
+          expected_bazel_version="bazel ${{ matrix.bazel }}"
+          test "$(
+            PATH="$GITHUB_WORKSPACE/tools:$PATH" run_bazel \
+              "$GITHUB_WORKSPACE/tools/bazel" --version
+          )" = "$expected_bazel_version"
+          PATH="$GITHUB_WORKSPACE/tools:$PATH" run_bazel \
+            "$GITHUB_WORKSPACE/tools/bazel" \
+            --nosystem_rc --nohome_rc \
+            --bazelrc="$GITHUB_WORKSPACE/.bazelrc" \
+            info --lockfile_mode="$cache_mode" workspace >/dev/null
           (
             cd mkosi/tests
-            run_bazel "$GITHUB_WORKSPACE/tools/bazel" \
+            PATH="$GITHUB_WORKSPACE/tools:$PATH" run_bazel \
+              "$GITHUB_WORKSPACE/tools/bazel" \
               --nosystem_rc --nohome_rc \
               --bazelrc="$GITHUB_WORKSPACE/.bazelrc" \
-              --lockfile_mode="$cache_mode" info workspace >/dev/null
+              query --lockfile_mode="$cache_mode" \
+              :boot_lifecycle_test >/dev/null
           )
           (
             cd e2e/smoke
-            run_bazel "$GITHUB_WORKSPACE/tools/bazel" \
+            test "$(
+              PATH="$GITHUB_WORKSPACE/tools:$PATH" run_bazel \
+                "$GITHUB_WORKSPACE/tools/bazel" --version
+            )" = "$expected_bazel_version"
+            PATH="$GITHUB_WORKSPACE/tools:$PATH" run_bazel \
+              "$GITHUB_WORKSPACE/tools/bazel" \
               --nosystem_rc --nohome_rc \
               --bazelrc="$GITHUB_WORKSPACE/e2e/smoke/.bazelrc" \
-              --lockfile_mode="$cache_mode" info workspace >/dev/null
+              info --lockfile_mode="$cache_mode" workspace >/dev/null
           )
           for cache in \
             "$GITHUB_WORKSPACE/.cache/bazel-disk" \
@@ -638,7 +655,23 @@ jobs:
           actual="$(bazel --version)"
           echo "$actual"
           test "$actual" = "bazel ${{ matrix.bazel }}"
-          LOCKFILE_MODE=off e2e/module_resolution/test.sh ${{ matrix.fixture }}
+          fixture_root="$GITHUB_WORKSPACE/e2e/module_resolution/${{ matrix.fixture }}"
+          PATH="$GITHUB_WORKSPACE/tools:$PATH" \
+            BAZEL="$GITHUB_WORKSPACE/tools/bazel" \
+            LOCKFILE_MODE=off \
+            e2e/module_resolution/test.sh ${{ matrix.fixture }}
+          case "${{ matrix.fixture }}" in
+            default|explicit)
+              cache="$fixture_root/.cache/bazel-disk"
+              test -d "$cache"
+              test "$(realpath "$cache")" = "$cache"
+              git -C "$GITHUB_WORKSPACE" check-ignore -q "$cache"
+              ;;
+            *)
+              test ! -e "$fixture_root/.cache"
+              ;;
+          esac
+          rm -rf "$fixture_root/.cache"
 
   lint:
     name: prek

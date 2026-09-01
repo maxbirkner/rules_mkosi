@@ -95,10 +95,10 @@ def _yaml_shell_bodies(text):
 
 def _command_segments(text):
     text = re.sub(
-        r"\$\{\{\s*(?:env|vars|inputs|matrix|steps(?:\.[A-Za-z_][A-Za-z0-9_]*){0,2})"
-        r"(?:\.[A-Za-z_][A-Za-z0-9_]*)?(?:\[[0-9]+\])?\s*\}\}",
-        "$BAZEL",
+        r"\$\{\{.*?\}\}",
+        "$GITHUB_EXPRESSION",
         text,
+        flags=re.DOTALL,
     )
     text = text.replace("\\\n", " ")
     start = 0
@@ -114,6 +114,7 @@ def _launcher_command(tokens, launcher_index):
     if launcher == "run_bazel" and index < len(tokens):
         if (
             _LAUNCHER.fullmatch(tokens[index])
+            or tokens[index].endswith("/tools/bazel")
             or (
                 tokens[index].startswith("$")
                 and "bazel" in tokens[index].lower()
@@ -170,6 +171,10 @@ def validate_shell_sources(sources):
                 for index, token in enumerate(tokens):
                     if _LAUNCHER.fullmatch(token):
                         pass
+                    elif token.startswith(
+                        "$GITHUB_EXPRESSION"
+                    ) and _variable_is_command(tokens, index):
+                        pass
                     elif _VARIABLE.fullmatch(token) and _variable_is_command(
                         tokens, index
                     ):
@@ -185,6 +190,7 @@ def validate_shell_sources(sources):
                             or (
                                 value.startswith(("$", "${"))
                                 and value != "$@"
+                                and not value.startswith("${args[@]")
                             )
                             for value in tokens[index + 1 :]
                         ):

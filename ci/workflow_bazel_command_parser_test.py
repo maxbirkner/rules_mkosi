@@ -70,6 +70,26 @@ class WorkflowBazelCommandParserTest(unittest.TestCase):
                 "github-index-expression",
                 "run: |\n  ${{ steps.setup.outputs.tools[0] }} test //pkg:target\n",
             ),
+            (
+                "github-matrix-string-index",
+                "run: |\n  ${{ matrix['bazel'] }} test //pkg:target\n",
+            ),
+            (
+                "github-needs-output",
+                "run: |\n  ${{ needs.setup.outputs.bazel }} build //pkg:target\n",
+            ),
+            (
+                "github-event-input",
+                "run: |\n  ${{ github.event.inputs.bazel }} test //pkg:target\n",
+            ),
+            (
+                "github-computed-expression",
+                "run: |\n  ${{ fromJSON(inputs.tools)[0] }} build //pkg:target\n",
+            ),
+            (
+                "github-expression-command-prefix",
+                "run: |\n  ${{ github.workspace }}/bin/tool test //pkg:target\n",
+            ),
         ]
         for name, fixture in fixtures:
             with self.subTest(name=name):
@@ -85,6 +105,9 @@ class WorkflowBazelCommandParserTest(unittest.TestCase):
   bazel query //pkg:target
   $bazel cquery //pkg:target
   /usr/bin/bazel info output_base
+  ${{ matrix.script }} --help
+  echo ${{ matrix.bazel }} build
+  printf '%s\n' "${{ fromJSON(inputs.tools)[0] }}" test
 """
         self.assertEqual(
             validate_shell_sources([("fixture", fixture, True)]),

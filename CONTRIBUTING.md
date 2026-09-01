@@ -32,10 +32,11 @@ Run the independent consumer test module:
 )
 ```
 
-The checked-in `.bazelrc` enables a worktree-local disk cache at
-`.cache/bazel-disk`; the root and `e2e/smoke` modules have separate cache
-directories. These paths are ignored by Git and Bazel, so they cannot become
-source inputs or committed artifacts. The repository-only `.bazelrc.ci`
+The checked-in `.bazelrc` enables a module-local disk cache at
+`.cache/bazel-disk`; every standalone module gets a separate cache directory.
+These paths are ignored by Git, and the root and `e2e/smoke` paths are also
+ignored by Bazel, so they cannot become source inputs or committed artifacts.
+The repository-only `.bazelrc.ci`
 defines only execution-policy configs: `manifest`, `qualified`, `portable`,
 `deterministic`, `kernel_preflight`, and `bazel9`. A plain `bazel test //...`
 therefore runs the complete suite on a capable host; CI's Bazel 8 qualified
@@ -43,12 +44,13 @@ lane runs every root and consumer test that needs the host kernel contract
 after its explicit preflight. Bazel 9 uses `portable` for compatibility and
 omits only tests tagged `requires-network`, which the Bazel 8 lane covers:
 
-The rc cache path is intentionally relative to the module root because Bazel
-does not expand repository-relative substitutions in ordinary option values.
-Canonical commands run from the root or `e2e/smoke` module root. When invoking
-Bazel from a nested directory, use the checked-in `tools/bazel` wrapper; it
-finds the nearest module root before delegating, preventing literal or nested
-`.cache/bazel-disk` paths.
+The rc cache path is intentionally relative because Bazel does not expand
+repository-relative substitutions in ordinary option values. Canonical
+commands run from a module root. From any nested directory, use the checked-in
+`tools/bazel` wrapper. It preserves the caller's directory and relative-label
+semantics, stops at the nearest `MODULE.bazel` (whether or not that module has
+a `.bazelrc`), and supplies that module's absolute `.cache/bazel-disk` path.
+An explicit command-line `--disk_cache` remains authoritative.
 
 ```console
 bazel test //...
