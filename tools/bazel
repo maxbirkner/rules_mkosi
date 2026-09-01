@@ -1,52 +1,195 @@
-#!/usr/bin/env bash
-set -euo pipefail
+#!/usr/bin/env python3
+"""Bazel launcher with a securely anchored module-local disk cache."""
 
-module_root=$PWD
-while [[ ! -f "$module_root/MODULE.bazel" ]]; do
-    if [[ "$module_root" == / ]]; then
-        echo "could not find a Bazel module root from $PWD" >&2
-        exit 1
-    fi
-    module_root=${module_root%/*}
-    [[ -n "$module_root" ]] || module_root=/
-done
+import os
+import pathlib
+import secrets
+import shlex
+import stat
+import sys
 
-backend=
-IFS=: read -r -a path_entries <<<"${PATH:-}"
-for name in bazel bazelisk; do
-    for path_entry in "${path_entries[@]}"; do
-        [[ -n "$path_entry" ]] || path_entry=.
-        candidate=$path_entry/$name
-        if [[ -f "$candidate" && -x "$candidate" &&
-              ! "$candidate" -ef "${BASH_SOURCE[0]}" ]]; then
-            backend=$candidate
-            break 2
-        fi
-    done
-done
-if [[ -z "$backend" ]]; then
-    echo "could not find a Bazel or Bazelisk executable other than ${BASH_SOURCE[0]}" >&2
-    exit 1
-fi
 
-case "${1:-}" in
-    -h|--help|--version)
-        exec "$backend" "$@"
-        ;;
-esac
+class WrapperError(RuntimeError):
+    """User-facing wrapper configuration error."""
 
-cache=$module_root/.cache/bazel-disk
-rc_directory=$module_root/.cache
-rc=$rc_directory/bazel-wrapper.bazelrc
-mkdir -p "$rc_directory"
-rc_temporary=$rc.$BASHPID
-trap 'rm -f "$rc_temporary"' EXIT
-escaped_cache=${cache//\\/\\\\}
-escaped_cache=${escaped_cache//\"/\\\"}
-for command in build info query; do
-    printf '%s --disk_cache="%s"\n' "$command" "$escaped_cache"
-done >"$rc_temporary"
-mv -f "$rc_temporary" "$rc"
-trap - EXIT
 
-exec "$backend" "--bazelrc=$rc" "$@"
+def _module_root():
+    cwd = pathlib.Path.cwd().resolve(strict=True)
+    for directory in (cwd, *cwd.parents):
+        module = directory / "MODULE.bazel"
+        try:
+            module_stat = module.stat(follow_symlinks=False)
+        except FileNotFoundError:
+            continue
+        if stat.S_ISLNK(module_stat.st_mode):
+            raise WrapperError(f"refusing symlinked module boundary: {module}")
+        if stat.S_ISREG(module_stat.st_mode):
+            return directory
+        raise WrapperError(f"module boundary is not a regular file: {module}")
+    raise WrapperError(f"could not find a Bazel module root from {cwd}")
+
+
+def _backend(wrapper):
+    for name in ("bazel", "bazelisk"):
+        for directory in os.get_exec_path():
+            candidate = pathlib.Path(directory or os.curdir) / name
+            try:
+                resolved = candidate.resolve(strict=True)
+            except (FileNotFoundError, OSError):
+                continue
+            if not resolved.is_file() or not os.access(candidate, os.X_OK):
+                continue
+            if os.path.samefile(resolved, wrapper):
+                continue
+            return resolved
+    raise WrapperError(
+        f"could not find a Bazel or Bazelisk executable other than {wrapper}"
+    )
+
+
+def _verified_directory(path):
+    try:
+        os.mkdir(path, mode=0o700)
+    except FileExistsError:
+        pass
+    directory_stat = path.stat(follow_symlinks=False)
+    if stat.S_ISLNK(directory_stat.st_mode) or not stat.S_ISDIR(
+        directory_stat.st_mode
+    ):
+        raise WrapperError(f"refusing unsafe cache directory: {path}")
+    descriptor = os.open(
+        path,
+        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+    )
+    opened_stat = os.fstat(descriptor)
+    if (directory_stat.st_dev, directory_stat.st_ino) != (
+        opened_stat.st_dev,
+        opened_stat.st_ino,
+    ):
+        os.close(descriptor)
+        raise WrapperError(f"cache directory changed while opening: {path}")
+    return descriptor
+
+
+def _reject_unsafe_component(directory_fd, name, expected_type):
+    try:
+        component_stat = os.stat(
+            name,
+            dir_fd=directory_fd,
+            follow_symlinks=False,
+        )
+    except FileNotFoundError:
+        return
+    if stat.S_ISLNK(component_stat.st_mode) or not expected_type(
+        component_stat.st_mode
+    ):
+        raise WrapperError(f"refusing unsafe cache component: {name}")
+
+
+def _write_rc(module_root):
+    cache_directory = module_root / ".cache"
+    cache = cache_directory / "bazel-disk"
+    rc_name = "bazel-wrapper.bazelrc"
+    rc = cache_directory / rc_name
+    if cache_directory.parent != module_root:
+        raise WrapperError(f"cache escaped module root: {cache_directory}")
+
+    directory_fd = _verified_directory(cache_directory)
+    temporary_name = None
+    replaced = False
+    try:
+        _reject_unsafe_component(
+            directory_fd,
+            "bazel-disk",
+            stat.S_ISDIR,
+        )
+        _reject_unsafe_component(directory_fd, rc_name, stat.S_ISREG)
+        option = shlex.quote(str(cache))
+        content = "".join(
+            f"{command} --disk_cache={option}\n"
+            for command in ("build", "info", "query")
+        ).encode()
+
+        for _ in range(100):
+            temporary_name = (
+                f".{rc_name}.{os.getpid()}.{secrets.token_hex(16)}"
+            )
+            try:
+                temporary_fd = os.open(
+                    temporary_name,
+                    os.O_WRONLY
+                    | os.O_CREAT
+                    | os.O_EXCL
+                    | os.O_NOFOLLOW,
+                    0o600,
+                    dir_fd=directory_fd,
+                )
+                os.fchmod(temporary_fd, 0o600)
+                break
+            except FileExistsError:
+                temporary_name = None
+        else:
+            raise WrapperError("could not allocate an exclusive rc file")
+
+        with os.fdopen(temporary_fd, "wb") as stream:
+            stream.write(content)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(
+            temporary_name,
+            rc_name,
+            src_dir_fd=directory_fd,
+            dst_dir_fd=directory_fd,
+        )
+        replaced = True
+        os.fsync(directory_fd)
+
+        path_stat = cache_directory.stat(follow_symlinks=False)
+        opened_stat = os.fstat(directory_fd)
+        if (
+            stat.S_ISLNK(path_stat.st_mode)
+            or (path_stat.st_dev, path_stat.st_ino)
+            != (opened_stat.st_dev, opened_stat.st_ino)
+        ):
+            os.unlink(rc_name, dir_fd=directory_fd)
+            raise WrapperError(
+                f"cache directory changed while publishing rc: {cache_directory}"
+            )
+        _reject_unsafe_component(directory_fd, rc_name, stat.S_ISREG)
+        rc_stat = os.stat(
+            rc_name,
+            dir_fd=directory_fd,
+            follow_symlinks=False,
+        )
+        if stat.S_IMODE(rc_stat.st_mode) != 0o600:
+            raise WrapperError(f"generated rc has unsafe permissions: {rc}")
+    finally:
+        if temporary_name is not None and not replaced:
+            try:
+                os.unlink(temporary_name, dir_fd=directory_fd)
+            except FileNotFoundError:
+                pass
+        os.close(directory_fd)
+    return rc
+
+
+def main():
+    wrapper = pathlib.Path(__file__).resolve(strict=True)
+    backend = _backend(wrapper)
+    arguments = sys.argv[1:]
+    if arguments[:1] in (["-h"], ["--help"], ["--version"]):
+        os.execve(backend, [str(backend), *arguments], os.environ)
+    rc = _write_rc(_module_root())
+    os.execve(
+        backend,
+        [str(backend), f"--bazelrc={rc}", *arguments],
+        os.environ,
+    )
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except (OSError, WrapperError) as error:
+        print(f"tools/bazel: {error}", file=sys.stderr)
+        sys.exit(1)

@@ -79,6 +79,11 @@ class BazelWrapperTest(unittest.TestCase):
     def rc_option(self, root):
         rc = root / ".cache" / "bazel-wrapper.bazelrc"
         self.assertTrue(rc.is_file())
+        self.assertEqual(stat.S_IMODE(rc.stat().st_mode), 0o600)
+        self.assertEqual(
+            list((root / ".cache").glob(".bazel-wrapper.bazelrc.*")),
+            [],
+        )
         self.assertEqual(
             [
                 shlex.split(line)
@@ -273,6 +278,52 @@ class BazelWrapperTest(unittest.TestCase):
                 "info",
                 "workspace",
             ),
+        )
+
+    def test_rejects_symlinked_cache_directory(self):
+        root = self.module("module")
+        target = self.case / "attacker-cache"
+        target.mkdir()
+        (root / ".cache").symlink_to(target, target_is_directory=True)
+        with self.assertRaises(subprocess.CalledProcessError):
+            self.invoke(root, "8.5.1", "info", "workspace")
+        self.assertFalse(self.capture.exists())
+
+    def test_rejects_symlinked_disk_cache(self):
+        root = self.module("module")
+        cache = root / ".cache"
+        cache.mkdir()
+        target = self.case / "attacker-disk"
+        target.mkdir()
+        (cache / "bazel-disk").symlink_to(target, target_is_directory=True)
+        with self.assertRaises(subprocess.CalledProcessError):
+            self.invoke(root, "8.5.1", "info", "workspace")
+        self.assertFalse(self.capture.exists())
+
+    def test_rejects_symlinked_rc(self):
+        root = self.module("module")
+        cache = root / ".cache"
+        cache.mkdir()
+        target = self.case / "attacker-rc"
+        target.write_text("sentinel\n", encoding="utf-8")
+        (cache / "bazel-wrapper.bazelrc").symlink_to(target)
+        with self.assertRaises(subprocess.CalledProcessError):
+            self.invoke(root, "8.5.1", "info", "workspace")
+        self.assertEqual(target.read_text(encoding="utf-8"), "sentinel\n")
+        self.assertFalse(self.capture.exists())
+
+    def test_physical_module_root_anchors_symlinked_cwd(self):
+        root = self.module("physical-module")
+        package = root / "package"
+        package.mkdir()
+        alias = self.case / "cwd-alias"
+        alias.symlink_to(package, target_is_directory=True)
+        actual = self.invoke(alias, "9.2.0", "query", ":target")
+        self.assert_invocation(
+            actual,
+            package,
+            "9.2.0",
+            (self.rc_option(root), "query", ":target"),
         )
 
 

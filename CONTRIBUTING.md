@@ -3,6 +3,7 @@
 ## Prerequisites
 
 - Bazelisk, or the Bazel version declared in `.bazelversion`.
+- Python 3.11 or newer for the secure local `tools/bazel` launcher.
 - [`prek`](https://prek.j178.dev/) 0.5 or newer.
 
 The hello-world implementation and tests do not require mkosi or other host
@@ -54,7 +55,11 @@ module's absolute `.cache/bazel-disk` path. The wrapper adds only the generated
 rc startup option and leaves the caller's arguments untouched, so Bazel parses
 all startup options itself. Bazel's rc inheritance applies the `build` cache
 setting to `test` and `run`; an explicit command-line `--disk_cache` remains
-authoritative.
+authoritative. The launcher rejects symlinked cache components, creates its
+mode-`0600` temporary rc exclusively inside the verified `.cache` directory,
+and atomically publishes `.cache/bazel-wrapper.bazelrc`. Interrupted
+invocations remove their temporary rc; removing a module's ignored `.cache`
+directory cleans both the generated rc and disk cache.
 
 ```console
 bazel test //...
@@ -87,6 +92,14 @@ versions because they test extension semantics, not dependency locking. If
 dependencies change, regenerate the two committed lockfiles with Bazel 8.5.1
 using `--lockfile_mode=update`; never edit generated lockfiles by hand or
 update them in CI.
+
+Python package versions are declared in `requirements.in`. Regenerate their
+hash-pinned lock with the repository's `uv` workflow:
+
+```console
+uv pip compile requirements.in --generate-hashes \
+  --output-file requirements_lock.txt
+```
 
 The root command intentionally excludes `e2e/`. See
 [the test architecture](docs/design/0003-ruleset-architecture.md#consumer-module)

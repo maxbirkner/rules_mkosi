@@ -2,14 +2,22 @@
 
 import pathlib
 import sys
+import textwrap
 import unittest
 
 sys.path.insert(0, str(pathlib.Path(__file__).parent))
 from workflow_bazel_command_test import (
-    _shell_command_segments,
+    _expression_launches_build_or_test,
     _yaml_shell_bodies,
     validate_shell_sources,
 )
+
+
+def _workflow(run_yaml):
+    return "jobs:\n  fixture:\n    steps:\n      - " + textwrap.indent(
+        run_yaml,
+        "        ",
+    ).lstrip()
 
 
 class WorkflowBazelCommandParserTest(unittest.TestCase):
@@ -37,7 +45,10 @@ class WorkflowBazelCommandParserTest(unittest.TestCase):
                 "ambiguous-variable",
                 "run: |\n  \"$BAZEL\" \"$ACTION\" //pkg:target\n",
             ),
-            ("generic-variable", 'run: "$cmd" test //pkg:target\n'),
+            (
+                "generic-variable",
+                'run: |\n  "$cmd" test //pkg:target\n',
+            ),
             (
                 "shell-wrapper",
                 'run: |\n  sh -c "bazel test //pkg:target"\n',
@@ -107,11 +118,33 @@ class WorkflowBazelCommandParserTest(unittest.TestCase):
                 "  echo preparing\n"
                 "    ${{ matrix.bazel }} test //pkg:target\n",
             ),
+            (
+                "github-expression-folded-header-comment",
+                "run: >- # retained by structural YAML parsing\n"
+                "  ${{ matrix.bazel }} test //pkg:target\n",
+            ),
+            (
+                "github-expression-after-time",
+                "run: |\n"
+                "  time ${{ matrix.bazel }} test //pkg:target\n",
+            ),
+            (
+                "github-expression-in-brace-group",
+                "run: |\n"
+                "  { ${{ matrix.bazel }} test //pkg:target; }\n",
+            ),
+            (
+                "github-expression-in-subshell",
+                "run: |\n"
+                "  (${{ matrix.bazel }} test //pkg:target)\n",
+            ),
         ]
         for name, fixture in fixtures:
             with self.subTest(name=name):
                 self.assertTrue(
-                    validate_shell_sources([("fixture", fixture, True)]),
+                    validate_shell_sources(
+                        [("fixture", _workflow(fixture), True)]
+                    ),
                     name,
                 )
 
@@ -123,11 +156,13 @@ class WorkflowBazelCommandParserTest(unittest.TestCase):
   $bazel cquery //pkg:target
   /usr/bin/bazel info output_base
   ${{ matrix.script }} --help
-  echo ${{ matrix.bazel }} build
-  printf '%s\n' "${{ fromJSON(inputs.tools)[0] }}" test
+  echo ${{ matrix.bazel }} query
+  printf '%s\\n' "${{ fromJSON(inputs.tools)[0] }}" info
 """
         self.assertEqual(
-            validate_shell_sources([("fixture", fixture, True)]),
+            validate_shell_sources(
+                [("fixture", _workflow(fixture), True)]
+            ),
             [],
         )
 
@@ -138,23 +173,20 @@ class WorkflowBazelCommandParserTest(unittest.TestCase):
             "    ${{ matrix.bazel }} test //pkg:target\n"
         )
         self.assertEqual(
-            _yaml_shell_bodies(fixture),
+            _yaml_shell_bodies(_workflow(fixture)),
             ["echo preparing\n  ${{ matrix.bazel }} test //pkg:target"],
         )
 
-    def test_shell_segments_keep_control_word_command(self):
-        segments = list(
-            _shell_command_segments(
+    def test_expression_scan_handles_control_forms(self):
+        self.assertTrue(
+            _expression_launches_build_or_test(
                 "if ${{ matrix.bazel }} test //pkg:target; then echo bad; fi"
             )
         )
-        self.assertEqual(
-            segments,
-            [
-                "if $GITHUB_EXPRESSION test //pkg:target",
-                " then echo bad",
-                " fi",
-            ],
+        self.assertTrue(
+            _expression_launches_build_or_test(
+                "{ time ${{ matrix.bazel }} build //pkg:target; }"
+            )
         )
 
 

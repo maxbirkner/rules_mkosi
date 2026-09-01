@@ -275,6 +275,11 @@ jobs:
           done
           test ! -e "$GITHUB_WORKSPACE/mkosi/tests/.cache/bazel-disk"
           test ! -e "$GITHUB_WORKSPACE/e2e/.cache/bazel-disk"
+          python3 tools/bazel_integration_test.py \
+            "$GITHUB_WORKSPACE/tools/bazel" \
+            "$GITHUB_WORKSPACE/.ci-wrapper-integration" \
+            "${{ matrix.bazel }}"
+          test ! -e "$GITHUB_WORKSPACE/.ci-wrapper-integration"
 
       - name: Audit Debian tools action graph
         run: |

@@ -5,6 +5,8 @@ import re
 import shlex
 import sys
 
+import yaml
+
 
 _LAUNCHER = re.compile(
     r"(?<![\w$])(?:run_bazel|\b(?:bazel|bazelisk)\b|"
@@ -19,112 +21,71 @@ _VARIABLE = re.compile(
     r"[A-Za-z_][A-Za-z0-9_]*)"
 )
 _SHELL_SEPARATOR = re.compile(r"(?:&&|\|\||[;&|\n])")
-_RUN_BLOCK = re.compile(
-    r"^(\s*)run:\s*([|>])([+-]?[1-9]?|[1-9]?[+-]?)\s*$"
-)
-_RUN_INLINE = re.compile(r"^\s*run:\s*(?![|>])(.+)$")
+_GITHUB_EXPRESSION = re.compile(r"\$\{\{.*?\}\}", re.DOTALL)
 _SHELL_WRAPPERS = {"bash", "command", "env", "exec", "run_bazel", "sh", "sudo"}
-_SHELL_CONTROL_WORDS = {"!", "do", "elif", "else", "if", "then", "until", "while"}
 
 
-def _variable_is_command(tokens, index, allow_control_words=False):
+def _variable_is_command(tokens, index):
     """Recognize a variable in command position without flagging arguments."""
     if index == 0:
         return True
     prefix = tokens[:index]
     return all(
         value in _SHELL_WRAPPERS
-        or (allow_control_words and value in _SHELL_CONTROL_WORDS)
         or value.startswith("-")
         or "=" in value
         for value in prefix
     )
 
 
-def _decode_block_scalar(content, style, content_indent):
-    """Decode the line folding relevant to workflow shell command boundaries."""
-    decoded = []
-    lines = []
-    for line, indent in content:
-        if line.strip():
-            lines.append((line[content_indent:], indent > content_indent))
-        else:
-            lines.append(("", False))
-    for index, (line, more_indented) in enumerate(lines):
-        decoded.append(line)
-        if index + 1 == len(lines):
-            continue
-        next_line, next_more_indented = lines[index + 1]
-        if (
-            style == "|"
-            or not line
-            or not next_line
-            or more_indented
-            or next_more_indented
-        ):
-            decoded.append("\n")
-        else:
-            decoded.append(" ")
-    return "".join(decoded)
-
-
 def _yaml_shell_bodies(text):
-    """Extract literal and folded `run:` block scalars without a YAML parser."""
-    lines = text.splitlines()
+    """Extract workflow step shell sources through structural YAML parsing."""
+    workflow = yaml.safe_load(text)
+    if not isinstance(workflow, dict):
+        return []
+    jobs = workflow.get("jobs", {})
+    if not isinstance(jobs, dict):
+        return []
     bodies = []
-    index = 0
-    while index < len(lines):
-        match = _RUN_BLOCK.match(lines[index])
-        if not match:
-            inline = _RUN_INLINE.match(lines[index])
-            if inline:
-                bodies.append(inline.group(1))
-            index += 1
+    for job in jobs.values():
+        if not isinstance(job, dict):
             continue
-        base_indent = len(match.group(1))
-        style = match.group(2)
-        indicator = match.group(3)
-        explicit_indent = int("".join(c for c in indicator if c.isdigit()) or 0)
-        index += 1
-        content = []
-        content_indent = None
-        while index < len(lines):
-            line = lines[index]
-            indent = len(line) - len(line.lstrip())
-            if line.strip():
-                if indent <= base_indent:
-                    break
-                if content_indent is None:
-                    content_indent = (
-                        base_indent + explicit_indent
-                        if explicit_indent
-                        else indent
-                    )
-            elif content_indent is None:
-                content.append((line, indent))
-                index += 1
+        steps = job.get("steps", [])
+        if not isinstance(steps, list):
+            continue
+        for step in steps:
+            if not isinstance(step, dict):
                 continue
-            if content_indent is not None:
-                content.append((line, indent))
-            index += 1
-        bodies.append(_decode_block_scalar(content, style, content_indent or 0))
+            run = step.get("run")
+            if isinstance(run, str):
+                bodies.append(run)
     return bodies
 
 
 def _shell_command_segments(text):
-    """Yield shell command segments after normalizing GitHub expressions."""
-    text = re.sub(
-        r"\$\{\{.*?\}\}",
-        "$GITHUB_EXPRESSION",
-        text,
-        flags=re.DOTALL,
-    )
+    """Yield command segments for literal and shell-variable launchers."""
+    text = _GITHUB_EXPRESSION.sub("GITHUB_EXPRESSION", text)
     text = text.replace("\\\n", " ")
     start = 0
     for match in _SHELL_SEPARATOR.finditer(text):
         yield text[start : match.start()]
         start = match.end()
     yield text[start:]
+
+
+def _expression_launches_build_or_test(text):
+    """Conservatively identify GitHub expressions used as Bazel launchers."""
+    boundaries = "\n;&|(){}"
+    for match in _GITHUB_EXPRESSION.finditer(text):
+        command_end = len(text)
+        for character in boundaries:
+            boundary = text.find(character, match.end())
+            if boundary >= 0:
+                command_end = min(command_end, boundary)
+        suffix = text[match.end() : command_end]
+        if re.search(r"\b(?:build|test)\b", suffix):
+            return True
+    return False
 
 
 def _launcher_command(tokens, launcher_index):
@@ -160,6 +121,10 @@ def validate_shell_sources(sources):
     for source_name, text, workflow in sources:
         bodies = _yaml_shell_bodies(text) if workflow else [text]
         for body in bodies:
+            if _expression_launches_build_or_test(body):
+                violations.append(
+                    f"{source_name}: expression may launch a build/test command"
+                )
             for segment in _shell_command_segments(body):
                 if not _LAUNCHER.search(segment) and not _VARIABLE.search(segment):
                     continue
@@ -189,14 +154,6 @@ def validate_shell_sources(sources):
                         )
                 for index, token in enumerate(tokens):
                     if _LAUNCHER.fullmatch(token):
-                        pass
-                    elif token.startswith(
-                        "$GITHUB_EXPRESSION"
-                    ) and _variable_is_command(
-                        tokens,
-                        index,
-                        allow_control_words=True,
-                    ):
                         pass
                     elif _VARIABLE.fullmatch(token) and _variable_is_command(
                         tokens, index

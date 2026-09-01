@@ -6,6 +6,7 @@ py_test(
     args = ["$(rootpath //:.github/workflows/ci.yml)"],
     data = ["//:.github/workflows/ci.yml"],
     main = "workflow_bazel_command_test.py",
+    deps = ["@mkosi_pypi//pyyaml"],
 )
 
 py_test(
@@ -15,6 +16,7 @@ py_test(
         "workflow_bazel_command_test.py",
     ],
     main = "workflow_bazel_command_parser_test.py",
+    deps = ["@mkosi_pypi//pyyaml"],
 )
 
 py_test(
