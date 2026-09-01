@@ -245,6 +245,8 @@ def _mkosi_image_impl(ctx):
     arguments.add(debian_tools.extractor.path)
     arguments.add("--debian-tools-sha256")
     arguments.add(debian_tools.archive_sha256)
+    arguments.add("--kernel-preflight")
+    arguments.add(ctx.executable._kernel_preflight.path)
     if config_is_directory:
         for path in ctx.attr.config_tree[MkosiConfigTreeInfo].executable_paths:
             arguments.add("--executable-path")
@@ -295,11 +297,14 @@ def _mkosi_image_impl(ctx):
         executable = mkosi.python,
         arguments = [arguments],
         inputs = depset(
-            [config, mkosi.script, ctx.file._run_script, mkosi.pefile, debian_tools.tree, debian_tools.extractor] +
+            [config, mkosi.script, ctx.file._run_script, ctx.file._diagnostics, ctx.executable._kernel_preflight, mkosi.pefile, debian_tools.tree, debian_tools.extractor] +
             ([staging.tree, staging.manifest] if staging else []),
             transitive = [mkosi.runfiles_files, mkosi.python_runtime_files],
         ),
-        tools = [mkosi.python_files_to_run],
+        tools = [
+            mkosi.python_files_to_run,
+            ctx.attr._kernel_preflight[DefaultInfo].files_to_run,
+        ],
         outputs = [image],
         env = {
             "PATH": "",
@@ -385,6 +390,16 @@ its label basename, are copied to that key.
         "_run_script": attr.label(
             cfg = "exec",
             default = "//mkosi/private:run_mkosi.py",
+            allow_single_file = True,
+        ),
+        "_kernel_preflight": attr.label(
+            cfg = "exec",
+            default = "//mkosi/private:kernel_preflight",
+            executable = True,
+        ),
+        "_diagnostics": attr.label(
+            cfg = "exec",
+            default = "//mkosi/private:diagnostics.py",
             allow_single_file = True,
         ),
     },

@@ -107,7 +107,9 @@ class BootLifecycleTest(unittest.TestCase):
                             sleep=lambda _seconds: None,
                         )
             output = stderr.getvalue()
+            self.assertEqual(1, output.count("VM_FAILURE:"))
             self.assertIn(expected + ":", output)
+            self.assertIn("Action: inspect the preserved serial and QEMU logs", output)
             self.assertIn(serial.decode().splitlines()[0], output)
             self.assertIn("qemu diagnostic", output)
             self.assertFalse((root / "qmp.sock").exists())

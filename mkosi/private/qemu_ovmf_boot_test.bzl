@@ -63,6 +63,7 @@ def _qemu_ovmf_boot_config_impl(ctx):
         "firmware_code": qemu.ovmf_code.short_path,
         "firmware_vars": qemu.ovmf_vars.short_path,
         "image": image.short_path,
+        "kernel_preflight": ctx.executable._kernel_preflight.short_path,
         "qemu_args": ctx.attr.machine_args + [
             "-drive",
             "if=pflash,format=raw,readonly=on,file={firmware_code}",
@@ -88,10 +89,12 @@ def _qemu_ovmf_boot_config_impl(ctx):
             qemu.ovmf_vars,
             qemu.qemu_files_to_run.executable,
             qemu.system_data_anchor,
+            ctx.executable._kernel_preflight,
         ],
         transitive_files = depset(transitive = [
             qemu.qemu_runfiles.files,
             qemu.system_data_files,
+            ctx.attr._kernel_preflight[DefaultInfo].default_runfiles.files,
         ]),
     )
     return [
@@ -130,6 +133,11 @@ qemu_ovmf_boot_config = rule(
         "shutdown_timeout_seconds": attr.int(mandatory = True),
         "diagnostic_bytes": attr.int(mandatory = True),
         "test_timeout": attr.string(default = "moderate"),
+        "_kernel_preflight": attr.label(
+            cfg = "exec",
+            default = "//mkosi/private:kernel_preflight",
+            executable = True,
+        ),
     },
     toolchains = [_QEMU_TOOLCHAIN_TYPE],
 )
@@ -175,6 +183,7 @@ def qemu_ovmf_boot_test(
         args = ["$(rootpath :{})".format(config_name)],
         data = [
             "@rules_mkosi//mkosi/private:boot_test.py",
+            "@rules_mkosi//mkosi/private:diagnostics.py",
             ":{}".format(config_name),
         ],
         timeout = timeout,

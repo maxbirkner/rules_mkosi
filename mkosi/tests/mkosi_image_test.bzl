@@ -44,6 +44,8 @@ def _provider_test_impl(ctx):
     asserts.true(env, ctx.attr.expected_config in action_inputs)
     asserts.true(env, "flat.tar" in action_inputs)
     asserts.true(env, "extract_tree.py" in action_inputs)
+    asserts.true(env, "kernel_preflight" in action_inputs)
+    asserts.true(env, "diagnostics.py" in action_inputs)
     asserts.false(env, "tree_root_root" in action_inputs)
     asserts.true(env, "python3" in action_inputs, "managed Python is an action input")
     asserts.true(env, "libpython3.14.so.1.0" in action_inputs, "Python library is an action input")
@@ -69,7 +71,9 @@ def _provider_test_impl(ctx):
         "ebc174414d5291b2f06597dd72b8c210e99442dc316aad6a9e020590040c3fbb",
         argv[8],
     )
-    asserts.equals(env, "--", argv[9])
+    kernel_preflight = argv.index("--kernel-preflight")
+    asserts.true(env, argv[kernel_preflight + 1].endswith("/kernel_preflight"))
+    asserts.equals(env, "--", argv[kernel_preflight + 2])
     include = argv.index("-I")
     asserts.true(env, argv[include + 1].endswith(ctx.attr.expected_config))
     tools = argv.index("--tools-tree")
@@ -212,6 +216,7 @@ def _boot_config_test_impl(ctx):
         for file in target[DefaultInfo].default_runfiles.files.to_list()
     ]
     asserts.true(env, "code.fd" in runfile_names)
+    asserts.true(env, "kernel_preflight" in runfile_names)
     return analysistest.end(env)
 
 boot_config_test = analysistest.make(_boot_config_test_impl)

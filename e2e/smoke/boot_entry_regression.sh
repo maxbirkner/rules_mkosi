@@ -15,7 +15,7 @@ if [ "$status" -eq 0 ]; then
     exit 1
 fi
 case "$output" in
-    *"QEMU_EXEC_FAILURE:"*) ;;
+    *"VM_FAILURE: QEMU_EXEC_FAILURE:"*"Action: inspect the preserved serial and QEMU logs"*) ;;
     *)
         echo "$output" >&2
         echo "boot lifecycle entry did not report QEMU_EXEC_FAILURE" >&2

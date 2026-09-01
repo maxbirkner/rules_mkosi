@@ -4,10 +4,23 @@
 import importlib.util
 import json
 import os
-import runpy
 import shutil
+import subprocess
 import sys
 from pathlib import Path
+
+
+def _load_diagnostics():
+    path = Path(__file__).with_name("diagnostics.py")
+    spec = importlib.util.spec_from_file_location("mkosi_diagnostics", path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError("diagnostic formatter cannot be loaded: {}".format(path))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+diagnostics = _load_diagnostics()
 
 _EPOCH = (0, 0)
 sys.dont_write_bytecode = True
@@ -153,6 +166,35 @@ def _extract_debian_tools(archive, extractor_path, expected_digest, destination)
     extractor.extract(archive, destination, expected_digest)
 
 
+def _run_mkosi(script, arguments, runner=subprocess.run):
+    """Run mkosi and classify its process-boundary failure without masking it."""
+    try:
+        completed = runner(
+            [sys.executable, script] + arguments,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+    except OSError as error:
+        diagnostics.fail(
+            "TOOLCHAIN_FAILURE",
+            "mkosi executable cannot start {}: {}".format(script, error),
+        )
+    if completed.returncode:
+        diagnostics.fail(
+            diagnostics.classify_mkosi_output(completed.stdout + completed.stderr),
+            "mkosi image assembly exited with status {}".format(completed.returncode),
+            completed.stdout + completed.stderr,
+            exit_code=diagnostics.child_exit_code(completed.returncode),
+        )
+    for stream, content in ((sys.stdout, completed.stdout), (sys.stderr, completed.stderr)):
+        binary_stream = getattr(stream, "buffer", None)
+        if binary_stream is None:
+            stream.write(content.decode(errors="replace"))
+        else:
+            binary_stream.write(content)
+
+
 def main():
     if len(sys.argv) < 3:
         raise SystemExit("usage: run_mkosi.py MKOSI_SCRIPT [--executable-path PATH] -- [mkosi arguments]")
@@ -163,6 +205,7 @@ def main():
     debian_tools_archive = None
     debian_tools_extractor = None
     debian_tools_sha256 = None
+    kernel_preflight = None
     while preamble_end < len(sys.argv) and sys.argv[preamble_end] != "--":
         option = sys.argv[preamble_end]
         if option == "--executable-path" and preamble_end + 1 < len(sys.argv):
@@ -180,10 +223,15 @@ def main():
         elif option == "--debian-tools-sha256" and preamble_end + 1 < len(sys.argv):
             debian_tools_sha256 = sys.argv[preamble_end + 1]
             preamble_end += 2
+        elif option == "--kernel-preflight" and preamble_end + 1 < len(sys.argv):
+            kernel_preflight = os.path.abspath(sys.argv[preamble_end + 1])
+            preamble_end += 2
         else:
             raise SystemExit("invalid run_mkosi.py preamble")
     if preamble_end == len(sys.argv):
         raise SystemExit("run_mkosi.py preamble is missing --")
+    if not kernel_preflight:
+        raise SystemExit("run_mkosi.py requires --kernel-preflight")
     if os.environ.get("PYTHONPATH"):
         python_paths = os.environ["PYTHONPATH"].split(os.pathsep)
         os.environ["PYTHONPATH"] = os.pathsep.join(
@@ -195,6 +243,7 @@ def main():
             for path in sys.path
         ]
     arguments = _absolute_paths(sys.argv[preamble_end + 1 :])
+    diagnostics.run_kernel_preflight(kernel_preflight, "mkosi image assembly")
     debian_options = (
         debian_tools_archive,
         debian_tools_extractor,
@@ -227,8 +276,7 @@ def main():
             for index, argument in enumerate(arguments):
                 if argument.startswith(os.fspath(directory) + os.sep):
                     arguments[index] = os.fspath(materialized) + argument[len(os.fspath(directory)) :]
-    sys.argv[:] = [script] + arguments
-    runpy.run_path(script, run_name="__main__")
+    _run_mkosi(script, arguments)
 
 
 if __name__ == "__main__":

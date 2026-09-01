@@ -26,6 +26,16 @@ load(
     "raw_image_file",
 )
 
+py_test(
+    name = "diagnostic_contract_test",
+    srcs = ["diagnostic_contract_test.py"],
+    data = [
+        "//mkosi/private:diagnostics.py",
+        "//mkosi/private:run_mkosi.py",
+    ],
+    main = "diagnostic_contract_test.py",
+)
+
 debian_snapshot_provider_test(
     name = "debian_snapshot_provider_test",
     target_under_test = "@mkosi_debian_snapshot//:repository",
@@ -218,7 +228,10 @@ boot_config_test(
 py_test(
     name = "boot_lifecycle_test",
     srcs = ["boot_test_unit.py"],
-    data = ["//mkosi/private:boot_test.py"],
+    data = [
+        "//mkosi/private:boot_test.py",
+        "//mkosi/private:diagnostics.py",
+    ],
     main = "boot_test_unit.py",
 )
 
@@ -420,7 +433,10 @@ py_test(
     name = "run_mkosi_metadata_test",
     srcs = ["run_mkosi_metadata_test.py"],
     args = ["$(rootpath //mkosi/private:run_mkosi.py)"],
-    data = ["//mkosi/private:run_mkosi.py"],
+    data = [
+        "//mkosi/private:diagnostics.py",
+        "//mkosi/private:run_mkosi.py",
+    ],
     main = "run_mkosi_metadata_test.py",
 )
 

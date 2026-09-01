@@ -4,6 +4,7 @@
   "firmware_code": "launcher_contract.py",
   "firmware_vars": "launcher_contract.py",
   "image": "launcher_contract.py",
+  "kernel_preflight": "../rules_mkosi+/mkosi/private/kernel_preflight",
   "qemu": "launcher_contract.py",
   "qemu_args": [],
   "qmp_initialization_timeout_seconds": 1,

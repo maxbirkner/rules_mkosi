@@ -4,6 +4,7 @@ package(default_visibility = ["//visibility:private"])
 
 exports_files([
     "boot_test.py",
+    "diagnostics.py",
     "managed_python_bootstrap.py",
     "mkosi_image.bzl",
     "managed_python_test.bzl",
