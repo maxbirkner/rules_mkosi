@@ -171,6 +171,30 @@ def main():
             ),
             "kernel_modules_include_host is not supported",
         ),
+        (
+            types.SimpleNamespace(
+                seed=uuid.UUID(seed),
+                source_date_epoch=0,
+                kernel_modules_initrd_include_host=True,
+            ),
+            "kernel_modules_initrd_include_host is not supported",
+        ),
+        (
+            types.SimpleNamespace(
+                seed=uuid.UUID(seed),
+                source_date_epoch=0,
+                kernel_modules_include=["host"],
+            ),
+            "kernel_modules_include cannot include host modules",
+        ),
+        (
+            types.SimpleNamespace(
+                seed=uuid.UUID(seed),
+                source_date_epoch=0,
+                kernel_modules_initrd_include=["host"],
+            ),
+            "kernel_modules_initrd_include cannot include host modules",
+        ),
     ):
         try:
             wrapper._validate_release_configuration([configuration], seed, 0, [root])

@@ -278,6 +278,14 @@ def _validate_release_configuration(
                     release_source_date_epoch
                 )
             )
+        for name in (
+            "kernel_modules_include",
+            "kernel_modules_initrd_include",
+        ):
+            if "host" in getattr(config, name, ()):
+                raise SystemExit(
+                    "release configuration {} cannot include host modules".format(name)
+                )
         for name, value in vars(config).items():
             for path in _configuration_paths(value):
                 resolved = path.resolve()
@@ -303,6 +311,7 @@ def _validate_release_configuration(
             "extra_trees",
             "microcode_host",
             "kernel_modules_include_host",
+            "kernel_modules_initrd_include_host",
         ):
             if getattr(config, name, ()):
                 raise SystemExit(
