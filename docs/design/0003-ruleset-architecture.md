@@ -49,10 +49,14 @@ consumers must not assume it is a singleton. The action invokes the pinned mkosi
 tools tree through registered toolchains. The toolchain crosses Bazel's cache
 boundary as an authenticated regular tar artifact; the image wrapper extracts
 it into action-local workspace storage so merged-`/usr` symlinks never need to
-be replayed as a directory artifact. Target package acquisition is networked
-and the action's Linux namespace/mount requirements are execution-platform
-properties, so it is explicitly non-cacheable and not a remote- or
-offline-hermetic action. The tracer action forces disk/raw/uncompressed output
+be replayed as a directory artifact. The explicit `mode` API defaults to
+networked `"tracer"` mode, which is non-cacheable and not remote- or
+offline-hermetic. `"release"` mode requires `DebianSnapshotInfo`, materializes
+the authenticated local APT tree, blocks network access, and omits the
+tracer-only `no-cache` requirement. Release callers must pin `Seed=` and
+`SourceDateEpoch=` in their declared configuration before relying on cache
+reuse. The release action retains `no-remote-exec` pending execution-platform
+qualification, but may use local and remote action caches. The tracer action forces disk/raw/uncompressed output
 and disables split artifacts; configuration files cannot redirect the declared
 artifact or select a custom format. The legacy `config` attribute accepts
 exactly one file. Complete

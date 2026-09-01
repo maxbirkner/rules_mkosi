@@ -68,7 +68,7 @@ def _provider_test_impl(ctx):
     asserts.equals(env, "--debian-tools-sha256", argv[7])
     asserts.equals(
         env,
-        "ebc174414d5291b2f06597dd72b8c210e99442dc316aad6a9e020590040c3fbb",
+        "522f1ad5d2494f767092c1fe8051f0e0b053f9c6fafb97b7041bc28a652e359c",
         argv[8],
     )
     kernel_preflight = argv.index("--kernel-preflight")
@@ -175,7 +175,7 @@ def _debian_tools_provider_test_impl(ctx):
     asserts.equals(env, "13", info.release)
     asserts.equals(
         env,
-        "ebc174414d5291b2f06597dd72b8c210e99442dc316aad6a9e020590040c3fbb",
+        "522f1ad5d2494f767092c1fe8051f0e0b053f9c6fafb97b7041bc28a652e359c",
         info.archive_sha256,
     )
     asserts.equals(env, "trixie", info.codename)
@@ -183,7 +183,7 @@ def _debian_tools_provider_test_impl(ctx):
     asserts.equals(env, "20250814T000000Z", info.snapshot)
     asserts.equals(
         env,
-        "d92b93836d652799006045aec102c5487dec01b5b478f4e7e1e4e1018811d409",
+        "02828b2d265fc6ff59e6a41bd05168247bc6a575461eaca239df1ec9552839d8",
         info.lock_sha256,
     )
     asserts.equals(
@@ -339,6 +339,30 @@ raw_image_file = rule(
         ),
     },
 )
+
+def _release_provider_test_impl(ctx):
+    env = analysistest.begin(ctx)
+    target = analysistest.target_under_test(env)
+    actions = analysistest.target_actions(env)
+
+    asserts.true(env, MkosiImageInfo in target)
+    image_actions = [action for action in actions if action.mnemonic == "MkosiImage"]
+    asserts.equals(env, 1, len(image_actions))
+    image_action = image_actions[0]
+    inputs = [file.basename for file in image_action.inputs.to_list()]
+    asserts.true(env, "repository_repository" in inputs)
+    argv = image_action.argv
+    repository = argv.index("--debian-snapshot-repository")
+    asserts.true(env, argv[repository + 1].endswith("/repository_repository"))
+    info = target[MkosiImageInfo]
+    asserts.equals(env, "mkosi-image-v1", info.format_version)
+    asserts.equals(env, "release_subject.raw", info.raw_image.basename)
+    asserts.equals(env, info.raw_image, info.image)
+    asserts.equals(env, "release_subject.mkosi-image-info.json", info.build_metadata.basename)
+
+    return analysistest.end(env)
+
+_release_provider_test = analysistest.make(_release_provider_test_impl)
 
 def _tree_provider_test_impl(ctx):
     env = analysistest.begin(ctx)
@@ -626,6 +650,53 @@ def mkosi_image_test_suite(name):
             expect_build_metadata = build_metadata,
             target_under_test = ":" + fixture_name,
         )
+
+    mkosi_image(
+        name = "release_subject",
+        config = "testdata/minimal.conf",
+        debian_snapshot = "@mkosi_debian_snapshot//:repository",
+        mode = "release",
+    )
+    _release_provider_test(
+        name = "release_provider_test",
+        target_under_test = ":release_subject",
+    )
+
+    mkosi_image(
+        name = "release_without_snapshot_subject",
+        config = "testdata/minimal.conf",
+        mode = "release",
+        tags = ["manual"],
+    )
+    _invalid_tree_mapping_test(
+        name = "release_without_snapshot_test",
+        expected_error = "release mode requires debian_snapshot",
+        target_under_test = ":release_without_snapshot_subject",
+    )
+
+    mkosi_image(
+        name = "tracer_with_snapshot_subject",
+        config = "testdata/minimal.conf",
+        debian_snapshot = "@mkosi_debian_snapshot//:repository",
+        tags = ["manual"],
+    )
+    _invalid_tree_mapping_test(
+        name = "tracer_with_snapshot_test",
+        expected_error = "only supported in release mode",
+        target_under_test = ":tracer_with_snapshot_subject",
+    )
+
+    mkosi_image(
+        name = "invalid_mode_subject",
+        config = "testdata/minimal.conf",
+        mode = "unknown",
+        tags = ["manual"],
+    )
+    _invalid_tree_mapping_test(
+        name = "invalid_mode_test",
+        expected_error = "must be either 'tracer' or 'release'",
+        target_under_test = ":invalid_mode_subject",
+    )
 
     mkosi_image(
         name = "legacy_default_name_subject",
@@ -989,6 +1060,10 @@ def mkosi_image_test_suite(name):
             ":image_info_contract_29_test",
             ":image_info_contract_30_test",
             ":image_info_contract_31_test",
+            ":release_provider_test",
+            ":release_without_snapshot_test",
+            ":tracer_with_snapshot_test",
+            ":invalid_mode_test",
             ":config_tree_provider_test",
             ":legacy_default_name_test",
             ":legacy_alternate_name_test",

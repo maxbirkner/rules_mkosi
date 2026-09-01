@@ -7,8 +7,8 @@ import os
 import shutil
 import subprocess
 import sys
+from dataclasses import replace
 from pathlib import Path
-
 
 def _load_diagnostics():
     path = Path(__file__).with_name("diagnostics.py")
@@ -18,7 +18,6 @@ def _load_diagnostics():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
-
 
 diagnostics = _load_diagnostics()
 
@@ -38,6 +37,7 @@ _PATH_OPTIONS = {
     "--cache-directory",
     "--package-cache-directory",
     "--build-directory",
+    "--sandbox-tree",
 }
 
 
@@ -165,15 +165,14 @@ def _extract_debian_tools(archive, extractor_path, expected_digest, destination)
     extractor_spec.loader.exec_module(extractor)
     extractor.extract(archive, destination, expected_digest)
 
-
 def _run_mkosi(script, arguments, runner=subprocess.run):
     """Run mkosi and classify its process-boundary failure without masking it."""
     try:
         completed = runner(
             [sys.executable, script] + arguments,
-            check=False,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            check = False,
+            stdout = subprocess.PIPE,
+            stderr = subprocess.PIPE,
         )
     except OSError as error:
         diagnostics.fail(
@@ -185,14 +184,92 @@ def _run_mkosi(script, arguments, runner=subprocess.run):
             diagnostics.classify_mkosi_output(completed.stdout + completed.stderr),
             "mkosi image assembly exited with status {}".format(completed.returncode),
             completed.stdout + completed.stderr,
-            exit_code=diagnostics.child_exit_code(completed.returncode),
+            exit_code = diagnostics.child_exit_code(completed.returncode),
         )
     for stream, content in ((sys.stdout, completed.stdout), (sys.stderr, completed.stderr)):
         binary_stream = getattr(stream, "buffer", None)
         if binary_stream is None:
-            stream.write(content.decode(errors="replace"))
+            stream.write(content.decode(errors = "replace"))
         else:
             binary_stream.write(content)
+
+
+def _configure_release_mirror(source, workspace, arguments):
+    mirror = workspace / "debian-snapshot"
+    _materialize_tree(source, mirror)
+    sandbox_tree = workspace / "release-sandbox"
+    apt_config = sandbox_tree / "etc/apt/apt.conf.d/99rules-mkosi-release"
+    apt_config.parent.mkdir(parents=True)
+    apt_config.write_text('Acquire::Languages "none";\nAcquire::By-Hash "no";\n')
+    os.chmod(apt_config, 0o644)
+    os.utime(apt_config, _EPOCH)
+    arguments.extend(
+        [
+            "--local-mirror",
+            "file://" + os.fspath(mirror),
+            "--sandbox-tree",
+            os.fspath(sandbox_tree),
+        ]
+    )
+    return mirror
+
+
+def _activate_release_mirror(mirror):
+    """Mount a long Bazel path at mkosi's stable in-sandbox repository path."""
+    from pathlib import Path
+
+    from mkosi.context import Context
+    from mkosi.distribution.debian import Installer
+    from mkosi.installer import PackageManager
+
+    mirror = os.fspath(mirror)
+    source_url = "file://" + mirror
+    original_context_init = Context.__init__
+    original_mounts = PackageManager.mounts.__func__
+    original_repositories = Installer.repositories.__func__
+
+    def repositories(cls, context, for_image=False):
+        for repository in original_repositories(cls, context, for_image):
+            if repository.url == source_url:
+                yield replace(repository, url="file:///repository")
+            else:
+                yield repository
+
+    def mounts(cls, context):
+        result = original_mounts(cls, context)
+        for index in range(len(result) - 2):
+            if (
+                result[index] == "--bind"
+                and os.fspath(result[index + 1]) == mirror
+                and result[index + 2] == "/repository"
+            ):
+                result[index] = "--ro-bind"
+                break
+        else:
+            raise SystemExit("mkosi did not register the declared release mirror")
+        for index in range(len(result) - 2):
+            if (
+                result[index] == "--ro-bind"
+                and os.fspath(result[index + 1]) == mirror
+                and os.fspath(result[index + 2]) == mirror
+            ):
+                del result[index : index + 3]
+                break
+        return result
+
+    def context_init(self, *args, **kwargs):
+        original_context_init(self, *args, **kwargs)
+        self._rules_mkosi_release_mirror = True
+
+    def repository(self):
+        if not getattr(self, "_rules_mkosi_release_mirror", False):
+            return self.workspace / "repository"
+        return Path(mirror)
+
+    Context.__init__ = context_init
+    Installer.repositories = classmethod(repositories)
+    PackageManager.mounts = classmethod(mounts)
+    Context.repository = property(repository)
 
 
 def main():
@@ -206,6 +283,8 @@ def main():
     debian_tools_extractor = None
     debian_tools_sha256 = None
     kernel_preflight = None
+    debian_snapshot_repository = None
+    release_mirror = None
     while preamble_end < len(sys.argv) and sys.argv[preamble_end] != "--":
         option = sys.argv[preamble_end]
         if option == "--executable-path" and preamble_end + 1 < len(sys.argv):
@@ -225,6 +304,9 @@ def main():
             preamble_end += 2
         elif option == "--kernel-preflight" and preamble_end + 1 < len(sys.argv):
             kernel_preflight = os.path.abspath(sys.argv[preamble_end + 1])
+            preamble_end += 2
+        elif option == "--debian-snapshot-repository" and preamble_end + 1 < len(sys.argv):
+            debian_snapshot_repository = os.path.abspath(sys.argv[preamble_end + 1])
             preamble_end += 2
         else:
             raise SystemExit("invalid run_mkosi.py preamble")
@@ -264,6 +346,9 @@ def main():
             debian_tools_sha256,
             tools_root,
         )
+    if debian_snapshot_repository:
+        workspace = Path(arguments[arguments.index("--workspace-directory") + 1])
+        release_mirror = _configure_release_mirror(debian_snapshot_repository, workspace, arguments)
     if "-C" in arguments:
         directory = Path(arguments[arguments.index("-C") + 1])
         workspace = Path(arguments[arguments.index("--workspace-directory") + 1])
@@ -276,6 +361,8 @@ def main():
             for index, argument in enumerate(arguments):
                 if argument.startswith(os.fspath(directory) + os.sep):
                     arguments[index] = os.fspath(materialized) + argument[len(os.fspath(directory)) :]
+    if release_mirror:
+        _activate_release_mirror(os.fspath(release_mirror))
     _run_mkosi(script, arguments)
 
 

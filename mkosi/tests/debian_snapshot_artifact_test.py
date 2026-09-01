@@ -18,7 +18,7 @@ class DebianSnapshotArtifactTest(unittest.TestCase):
         ):
             self.assertTrue((repository / relative).is_file(), relative)
         packages = list((repository / "pool").rglob("*.deb"))
-        self.assertEqual(135, len(packages))
+        self.assertEqual(149, len(packages))
         self.assertTrue(all(package.stat().st_size > 0 for package in packages))
 
 

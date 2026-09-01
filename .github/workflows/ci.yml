@@ -153,6 +153,22 @@ jobs:
             *"ExecutionInfo: {no-cache: 1, no-remote-exec: 1, requires-network: 1}"*) ;;
             *) echo "mkosi image execution requirements are incomplete" >&2; exit 1 ;;
           esac
+          release_image_graph="$(run_bazel bazel aquery --lockfile_mode="${mode}" --config=qualified --output=text \
+            'mnemonic("MkosiImage", //mkosi/tests:release_subject)')"
+          case "$release_image_graph" in
+            *"repository_repository"*"--debian-snapshot-repository"*) ;;
+            *) echo "release image does not consume the authenticated Debian snapshot" >&2; exit 1 ;;
+          esac
+          case "$release_image_graph" in
+            *"ExecutionInfo: {block-network: 1, no-remote-exec: 1}"*) ;;
+            *) echo "release image execution requirements are incomplete" >&2; exit 1 ;;
+          esac
+          case "$release_image_graph" in
+            *"requires-network"*|*"no-cache"*)
+              echo "release image retained a tracer-only execution requirement" >&2
+              exit 1
+              ;;
+          esac
           case "$image_graph" in
             *"--format=disk"*"--output-extension=raw"*"--compress-output=none"*"--split-artifacts="*) ;;
             *) echo "mkosi image output contract overrides are missing" >&2; exit 1 ;;

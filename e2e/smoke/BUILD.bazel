@@ -70,6 +70,13 @@ mkosi_image(
     tags = ["requires-network"],
 )
 
+mkosi_image(
+    name = "release_demo",
+    config = "testdata/release.conf",
+    debian_snapshot = "@mkosi_debian_snapshot//:repository",
+    mode = "release",
+)
+
 mkosi_config_tree(
     name = "config_tree",
     src = "@rules_mkosi//mkosi/tests:testdata/config-tree",
@@ -91,6 +98,11 @@ build_test(
     name = "tree_demo_build_test",
     tags = ["requires-network"],
     targets = [":tree_demo"],
+)
+
+build_test(
+    name = "release_demo_build_test",
+    targets = [":release_demo"],
 )
 
 public_api_test(
@@ -249,6 +261,21 @@ sh_test(
     data = [
         "raw_image_validator.py",
         ":demo_raw",
+        "@mkosi_debian_python//:python",
+    ],
+)
+
+sh_test(
+    name = "release_demo_artifact_test",
+    srcs = ["raw_image_validator_test.sh"],
+    args = [
+        "$(rootpath :release_demo)",
+        "$(rootpath raw_image_validator.py)",
+        "$(rootpath @mkosi_debian_python//:python)",
+    ],
+    data = [
+        "raw_image_validator.py",
+        ":release_demo",
         "@mkosi_debian_python//:python",
     ],
 )

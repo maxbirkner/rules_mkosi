@@ -3714,6 +3714,304 @@
         "https://snapshot.debian.org/archive/debian/20250814T000000Z/pool/main/m/mtools/mtools_4.0.48-1_amd64.deb"
       ],
       "version": "4.0.48-1"
+    },
+    {
+      "arch": "amd64",
+      "dependencies": [],
+      "filename": "pool/main/b/base-files/base-files_13.8_amd64.deb",
+      "key": "base-files_13.8_amd64",
+      "name": "base-files",
+      "sha256": "31900c8f6010e5add9b6a2a1aa73f6b734d7e5d28783abfcf4c30a058e2adef1",
+      "size": 73168,
+      "urls": [
+        "https://snapshot.debian.org/archive/debian/20250814T000000Z/pool/main/b/base-files/base-files_13.8_amd64.deb"
+      ],
+      "version": "13.8"
+    },
+    {
+      "arch": "amd64",
+      "dependencies": [
+        {
+          "key": "libc6_2.41-12_amd64",
+          "name": "libc6",
+          "version": "2.41-12"
+        },
+        {
+          "key": "libtinfo6_6.5-plus20250216-2_amd64",
+          "name": "libtinfo6",
+          "version": "6.5+20250216-2"
+        },
+        {
+          "key": "base-files_13.8_amd64",
+          "name": "base-files",
+          "version": "13.8"
+        },
+        {
+          "key": "debianutils_5.23.2_amd64",
+          "name": "debianutils",
+          "version": "5.23.2"
+        }
+      ],
+      "filename": "pool/main/b/bash/bash_5.2.37-2+b5_amd64.deb",
+      "key": "bash_5.2.37-2-plusb5_amd64",
+      "name": "bash",
+      "sha256": "2970fb73f4fb08a5e3d2875fcc3403dca5b57a22fc8021e10281c9f0d97688b6",
+      "size": 1500068,
+      "urls": [
+        "https://snapshot.debian.org/archive/debian/20250814T000000Z/pool/main/b/bash/bash_5.2.37-2+b5_amd64.deb"
+      ],
+      "version": "5.2.37-2+b5"
+    },
+    {
+      "arch": "amd64",
+      "dependencies": [
+        {
+          "key": "libc6_2.41-12_amd64",
+          "name": "libc6",
+          "version": "2.41-12"
+        },
+        {
+          "key": "libsystemd0_257.7-1_amd64",
+          "name": "libsystemd0",
+          "version": "257.7-1"
+        }
+      ],
+      "filename": "pool/main/u/util-linux/bsdutils_2.41-5_amd64.deb",
+      "key": "bsdutils_1-2.41-5_amd64",
+      "name": "bsdutils",
+      "sha256": "4548718c2fd4152486be0de7cab16027caef5678e52e200e51ded265fca89629",
+      "size": 110260,
+      "urls": [
+        "https://snapshot.debian.org/archive/debian/20250814T000000Z/pool/main/u/util-linux/bsdutils_2.41-5_amd64.deb"
+      ],
+      "version": "1:2.41-5"
+    },
+    {
+      "arch": "amd64",
+      "dependencies": [
+        {
+          "key": "libc6_2.41-12_amd64",
+          "name": "libc6",
+          "version": "2.41-12"
+        },
+        {
+          "key": "libselinux1_3.8.1-1_amd64",
+          "name": "libselinux1",
+          "version": "3.8.1-1"
+        }
+      ],
+      "filename": "pool/main/f/findutils/findutils_4.10.0-3_amd64.deb",
+      "key": "findutils_4.10.0-3_amd64",
+      "name": "findutils",
+      "sha256": "3edf02b016456b6a98cefdbab99c5ce6f829b786f63affe970badea221aecfc7",
+      "size": 700008,
+      "urls": [
+        "https://snapshot.debian.org/archive/debian/20250814T000000Z/pool/main/f/findutils/findutils_4.10.0-3_amd64.deb"
+      ],
+      "version": "4.10.0-3"
+    },
+    {
+      "arch": "amd64",
+      "dependencies": [
+        {
+          "key": "libc6_2.41-12_amd64",
+          "name": "libc6",
+          "version": "2.41-12"
+        },
+        {
+          "key": "libpcre2-8-0_10.45-1_amd64",
+          "name": "libpcre2-8-0",
+          "version": "10.45-1"
+        }
+      ],
+      "filename": "pool/main/g/grep/grep_3.11-4_amd64.deb",
+      "key": "grep_3.11-4_amd64",
+      "name": "grep",
+      "sha256": "2d78ed07d86a530ebf538f05cb2415f37c8daf908596bc32fc2563cc7e88c55a",
+      "size": 431488,
+      "urls": [
+        "https://snapshot.debian.org/archive/debian/20250814T000000Z/pool/main/g/grep/grep_3.11-4_amd64.deb"
+      ],
+      "version": "3.11-4"
+    },
+    {
+      "arch": "amd64",
+      "dependencies": [
+        {
+          "key": "libc6_2.41-12_amd64",
+          "name": "libc6",
+          "version": "2.41-12"
+        }
+      ],
+      "filename": "pool/main/g/gzip/gzip_1.13-1_amd64.deb",
+      "key": "gzip_1.13-1_amd64",
+      "name": "gzip",
+      "sha256": "c98b1130f08ef6ac3932972c56be84cfc308ce1afa37105cb06aaf47ced2d078",
+      "size": 138408,
+      "urls": [
+        "https://snapshot.debian.org/archive/debian/20250814T000000Z/pool/main/g/gzip/gzip_1.13-1_amd64.deb"
+      ],
+      "version": "1.13-1"
+    },
+    {
+      "arch": "amd64",
+      "dependencies": [
+        {
+          "key": "libc6_2.41-12_amd64",
+          "name": "libc6",
+          "version": "2.41-12"
+        }
+      ],
+      "filename": "pool/main/h/hostname/hostname_3.25_amd64.deb",
+      "key": "hostname_3.25_amd64",
+      "name": "hostname",
+      "sha256": "9c2a27e5d4d87137211fe46631b05b2ee8892ec76aae926304e4485ba02e1015",
+      "size": 11024,
+      "urls": [
+        "https://snapshot.debian.org/archive/debian/20250814T000000Z/pool/main/h/hostname/hostname_3.25_amd64.deb"
+      ],
+      "version": "3.25"
+    },
+    {
+      "arch": "all",
+      "dependencies": [],
+      "filename": "pool/main/i/init-system-helpers/init-system-helpers_1.68_all.deb",
+      "key": "init-system-helpers_1.68_all",
+      "name": "init-system-helpers",
+      "sha256": "119713cf7ab3535ac141eea4a11d76ceb117b3326f237c87dc2d4ab9ecbd5620",
+      "size": 38704,
+      "urls": [
+        "https://snapshot.debian.org/archive/debian/20250814T000000Z/pool/main/i/init-system-helpers/init-system-helpers_1.68_all.deb"
+      ],
+      "version": "1.68"
+    },
+    {
+      "arch": "amd64",
+      "dependencies": [
+        {
+          "key": "libc6_2.41-12_amd64",
+          "name": "libc6",
+          "version": "2.41-12"
+        }
+      ],
+      "filename": "pool/main/m/mawk/mawk_1.3.4.20250131-1_amd64.deb",
+      "key": "mawk_1.3.4.20250131-1_amd64",
+      "name": "mawk",
+      "sha256": "ade14470c4dff8921bca6ca8b1ea20eadc0f2178b48caff3c74534b17a633292",
+      "size": 140808,
+      "urls": [
+        "https://snapshot.debian.org/archive/debian/20250814T000000Z/pool/main/m/mawk/mawk_1.3.4.20250131-1_amd64.deb"
+      ],
+      "version": "1.3.4.20250131-1"
+    },
+    {
+      "arch": "all",
+      "dependencies": [],
+      "filename": "pool/main/n/ncurses/ncurses-base_6.5+20250216-2_all.deb",
+      "key": "ncurses-base_6.5-plus20250216-2_all",
+      "name": "ncurses-base",
+      "sha256": "190e775260a38973c415a36ae99f33ad1b37ea6ca99929d7c5d53843fc23e914",
+      "size": 273216,
+      "urls": [
+        "https://snapshot.debian.org/archive/debian/20250814T000000Z/pool/main/n/ncurses/ncurses-base_6.5+20250216-2_all.deb"
+      ],
+      "version": "6.5+20250216-2"
+    },
+    {
+      "arch": "amd64",
+      "dependencies": [
+        {
+          "key": "libc6_2.41-12_amd64",
+          "name": "libc6",
+          "version": "2.41-12"
+        },
+        {
+          "key": "libtinfo6_6.5-plus20250216-2_amd64",
+          "name": "libtinfo6",
+          "version": "6.5+20250216-2"
+        }
+      ],
+      "filename": "pool/main/n/ncurses/ncurses-bin_6.5+20250216-2_amd64.deb",
+      "key": "ncurses-bin_6.5-plus20250216-2_amd64",
+      "name": "ncurses-bin",
+      "sha256": "40a525f4761e9ed4b8adcd1783cb9a6467ff8008215ae99b3597825bdefc61e4",
+      "size": 438372,
+      "urls": [
+        "https://snapshot.debian.org/archive/debian/20250814T000000Z/pool/main/n/ncurses/ncurses-bin_6.5+20250216-2_amd64.deb"
+      ],
+      "version": "6.5+20250216-2"
+    },
+    {
+      "arch": "amd64",
+      "dependencies": [
+        {
+          "key": "libc6_2.41-12_amd64",
+          "name": "libc6",
+          "version": "2.41-12"
+        },
+        {
+          "key": "libcrypt1_1-4.4.38-1_amd64",
+          "name": "libcrypt1",
+          "version": "1:4.4.38-1"
+        }
+      ],
+      "filename": "pool/main/p/perl/perl-base_5.40.1-6_amd64.deb",
+      "key": "perl-base_5.40.1-6_amd64",
+      "name": "perl-base",
+      "sha256": "94f1060613a666dc569026a8344bee202ba3b29ec124dc6ef30bfc72e735c78b",
+      "size": 1665744,
+      "urls": [
+        "https://snapshot.debian.org/archive/debian/20250814T000000Z/pool/main/p/perl/perl-base_5.40.1-6_amd64.deb"
+      ],
+      "version": "5.40.1-6"
+    },
+    {
+      "arch": "amd64",
+      "dependencies": [
+        {
+          "key": "libacl1_2.3.2-2-plusb1_amd64",
+          "name": "libacl1",
+          "version": "2.3.2-2+b1"
+        },
+        {
+          "key": "libc6_2.41-12_amd64",
+          "name": "libc6",
+          "version": "2.41-12"
+        },
+        {
+          "key": "libselinux1_3.8.1-1_amd64",
+          "name": "libselinux1",
+          "version": "3.8.1-1"
+        }
+      ],
+      "filename": "pool/main/s/sed/sed_4.9-2_amd64.deb",
+      "key": "sed_4.9-2_amd64",
+      "name": "sed",
+      "sha256": "50d175d968ee626b1210ef6e8c43c597b912ca30f249f686c0c219532d2a5354",
+      "size": 329212,
+      "urls": [
+        "https://snapshot.debian.org/archive/debian/20250814T000000Z/pool/main/s/sed/sed_4.9-2_amd64.deb"
+      ],
+      "version": "4.9-2"
+    },
+    {
+      "arch": "amd64",
+      "dependencies": [
+        {
+          "key": "libc6_2.41-12_amd64",
+          "name": "libc6",
+          "version": "2.41-12"
+        }
+      ],
+      "filename": "pool/main/s/sysvinit/sysvinit-utils_3.14-4_amd64.deb",
+      "key": "sysvinit-utils_3.14-4_amd64",
+      "name": "sysvinit-utils",
+      "sha256": "c7e957360dff89675b491e501b00047cf750695178cabab167c92fc260d358ec",
+      "size": 34060,
+      "urls": [
+        "https://snapshot.debian.org/archive/debian/20250814T000000Z/pool/main/s/sysvinit/sysvinit-utils_3.14-4_amd64.deb"
+      ],
+      "version": "3.14-4"
     }
   ],
   "repository": {

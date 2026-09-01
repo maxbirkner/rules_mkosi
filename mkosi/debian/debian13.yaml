@@ -1,7 +1,7 @@
 version: 1
 
 # Debian trixie snapshot used to resolve the build-time userspace.  This is
-# deliberately not the target image package mirror (see issue #14).
+# also contains the Debian essential packages needed by release images.
 sources:
   - channel: trixie main
     url: https://snapshot.debian.org/archive/debian/20250814T000000Z
@@ -48,3 +48,18 @@ packages:
   - media-types
   - netbase
   - tzdata
+  # Required to bootstrap an offline release image from the same mirror.
+  - base-files
+  - bash
+  - bsdutils
+  - findutils
+  - grep
+  - gzip
+  - hostname
+  - init-system-helpers
+  - mawk
+  - ncurses-base
+  - ncurses-bin
+  - perl-base
+  - sed
+  - sysvinit-utils

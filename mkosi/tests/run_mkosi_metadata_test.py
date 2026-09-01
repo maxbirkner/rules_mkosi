@@ -74,6 +74,23 @@ def main():
     wrapper._restore_manifest_links(restored, manifest)
     assert (restored / "link").is_symlink()
     assert (restored / "link").lstat().st_mtime == 0
+
+    repository = root / "repository"
+    (repository / "dists/trixie/main").mkdir(parents=True)
+    (repository / "dists/trixie/main/Release").write_text("locked metadata\n")
+    arguments = []
+    mirror = wrapper._configure_release_mirror(repository, root / "workspace", arguments)
+    assert arguments == [
+        "--local-mirror",
+        "file://" + os.fspath(mirror),
+        "--sandbox-tree",
+        os.fspath(root / "workspace/release-sandbox"),
+    ]
+    assert (mirror / "dists/trixie/main/Release").read_text() == "locked metadata\n"
+    assert mirror.stat().st_mtime == 0
+    assert (
+        root / "workspace/release-sandbox/etc/apt/apt.conf.d/99rules-mkosi-release"
+    ).read_text() == 'Acquire::Languages "none";\nAcquire::By-Hash "no";\n'
     print("materialized metadata and relative links are deterministic")
 
 
