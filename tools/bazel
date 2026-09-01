@@ -29,65 +29,24 @@ if [[ -z "$backend" ]]; then
     exit 1
 fi
 
-args=("$@")
-command_index=-1
-for ((index = 0; index < ${#args[@]}; index++)); do
-    argument=${args[index]}
-    if [[ "$argument" == -- ]]; then
-        break
-    fi
-    case "$argument" in
-        --bazelrc|--connect_timeout_secs|--digest_function|--host_jvm_args|\
-        --experimental_cgroup_parent|--extra_classpath|--failure_detail_out|\
-        --io_nice_level|--local_startup_timeout_secs|--macos_qos_class|\
-        --max_idle_secs|--output_base|--output_user_root|--server_javabase|\
-        --server_jvm_out)
-            ((index += 1))
-            ;;
-        -*)
-            ;;
-        *)
-            command_index=$index
-            break
-            ;;
-    esac
-done
-
-if ((command_index < 0)); then
-    exec "$backend" "${args[@]}"
-fi
-
-command=${args[command_index]}
-case "$command" in
-    aquery|build|coverage|cquery|fetch|info|mobile-install|print_action|\
-    query|run|sync|test)
-        ;;
-    *)
-        exec "$backend" "${args[@]}"
+case "${1:-}" in
+    -h|--help|--version)
+        exec "$backend" "$@"
         ;;
 esac
 
-disk_cache_supplied=0
-for ((index = command_index + 1; index < ${#args[@]}; index++)); do
-    argument=${args[index]}
-    [[ "$argument" == -- ]] && break
-    if [[ "$argument" == --disk_cache=* ]]; then
-        disk_cache_supplied=1
-        break
-    fi
-    if [[ "$argument" == --disk_cache ]] &&
-       ((index + 1 < ${#args[@]})); then
-        disk_cache_supplied=1
-        break
-    fi
-done
-
-if ((disk_cache_supplied)); then
-    exec "$backend" "${args[@]}"
-fi
-
 cache=$module_root/.cache/bazel-disk
-exec "$backend" \
-    "${args[@]:0:command_index + 1}" \
-    "--disk_cache=$cache" \
-    "${args[@]:command_index + 1}"
+rc_directory=$module_root/.cache
+rc=$rc_directory/bazel-wrapper.bazelrc
+mkdir -p "$rc_directory"
+rc_temporary=$rc.$BASHPID
+trap 'rm -f "$rc_temporary"' EXIT
+escaped_cache=${cache//\\/\\\\}
+escaped_cache=${escaped_cache//\"/\\\"}
+for command in build info query; do
+    printf '%s --disk_cache="%s"\n' "$command" "$escaped_cache"
+done >"$rc_temporary"
+mv -f "$rc_temporary" "$rc"
+trap - EXIT
+
+exec "$backend" "--bazelrc=$rc" "$@"

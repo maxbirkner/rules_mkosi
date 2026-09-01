@@ -24,19 +24,48 @@ _RUN_BLOCK = re.compile(
 )
 _RUN_INLINE = re.compile(r"^\s*run:\s*(?![|>])(.+)$")
 _SHELL_WRAPPERS = {"bash", "command", "env", "exec", "run_bazel", "sh", "sudo"}
+_SHELL_CONTROL_WORDS = {"!", "do", "elif", "else", "if", "then", "until", "while"}
 
 
-def _variable_is_command(tokens, index):
+def _variable_is_command(tokens, index, allow_control_words=False):
     """Recognize a variable in command position without flagging arguments."""
     if index == 0:
         return True
     prefix = tokens[:index]
     return all(
         value in _SHELL_WRAPPERS
+        or (allow_control_words and value in _SHELL_CONTROL_WORDS)
         or value.startswith("-")
         or "=" in value
         for value in prefix
     )
+
+
+def _decode_block_scalar(content, style, content_indent):
+    """Decode the line folding relevant to workflow shell command boundaries."""
+    decoded = []
+    lines = []
+    for line, indent in content:
+        if line.strip():
+            lines.append((line[content_indent:], indent > content_indent))
+        else:
+            lines.append(("", False))
+    for index, (line, more_indented) in enumerate(lines):
+        decoded.append(line)
+        if index + 1 == len(lines):
+            continue
+        next_line, next_more_indented = lines[index + 1]
+        if (
+            style == "|"
+            or not line
+            or not next_line
+            or more_indented
+            or next_more_indented
+        ):
+            decoded.append("\n")
+        else:
+            decoded.append(" ")
+    return "".join(decoded)
 
 
 def _yaml_shell_bodies(text):
@@ -61,8 +90,8 @@ def _yaml_shell_bodies(text):
         content_indent = None
         while index < len(lines):
             line = lines[index]
+            indent = len(line) - len(line.lstrip())
             if line.strip():
-                indent = len(line) - len(line.lstrip())
                 if indent <= base_indent:
                     break
                 if content_indent is None:
@@ -72,28 +101,18 @@ def _yaml_shell_bodies(text):
                         else indent
                     )
             elif content_indent is None:
-                content.append("")
+                content.append((line, indent))
                 index += 1
                 continue
             if content_indent is not None:
-                content.append(line[content_indent:])
+                content.append((line, indent))
             index += 1
-        if style == "|":
-            bodies.append("\n".join(content))
-        else:
-            folded = []
-            for line in content:
-                if not line:
-                    folded.append("\n")
-                elif folded and not folded[-1].endswith("\n"):
-                    folded.append(" " + line)
-                else:
-                    folded.append(line)
-            bodies.append("".join(folded))
+        bodies.append(_decode_block_scalar(content, style, content_indent or 0))
     return bodies
 
 
-def _command_segments(text):
+def _shell_command_segments(text):
+    """Yield shell command segments after normalizing GitHub expressions."""
     text = re.sub(
         r"\$\{\{.*?\}\}",
         "$GITHUB_EXPRESSION",
@@ -141,7 +160,7 @@ def validate_shell_sources(sources):
     for source_name, text, workflow in sources:
         bodies = _yaml_shell_bodies(text) if workflow else [text]
         for body in bodies:
-            for segment in _command_segments(body):
+            for segment in _shell_command_segments(body):
                 if not _LAUNCHER.search(segment) and not _VARIABLE.search(segment):
                     continue
                 try:
@@ -173,7 +192,11 @@ def validate_shell_sources(sources):
                         pass
                     elif token.startswith(
                         "$GITHUB_EXPRESSION"
-                    ) and _variable_is_command(tokens, index):
+                    ) and _variable_is_command(
+                        tokens,
+                        index,
+                        allow_control_words=True,
+                    ):
                         pass
                     elif _VARIABLE.fullmatch(token) and _variable_is_command(
                         tokens, index

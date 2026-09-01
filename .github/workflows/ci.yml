@@ -227,6 +227,15 @@ jobs:
             --nosystem_rc --nohome_rc \
             --bazelrc="$GITHUB_WORKSPACE/.bazelrc" \
             info --lockfile_mode="$cache_mode" workspace >/dev/null
+          override_cache="$GITHUB_WORKSPACE/.cache/wrapper-override"
+          rm -rf "$override_cache"
+          PATH="$GITHUB_WORKSPACE/tools:$PATH" run_bazel \
+            "$GITHUB_WORKSPACE/tools/bazel" \
+            --nosystem_rc --nohome_rc \
+            info --lockfile_mode="$cache_mode" \
+            --disk_cache="$override_cache" workspace >/dev/null
+          test -d "$override_cache"
+          rm -rf "$override_cache"
           (
             cd mkosi/tests
             PATH="$GITHUB_WORKSPACE/tools:$PATH" run_bazel \
@@ -256,6 +265,13 @@ jobs:
             test ! -L "$cache"
             git -C "$GITHUB_WORKSPACE" check-ignore -q "$cache"
             test "$(realpath "$cache")" = "$cache"
+          done
+          for module in "$GITHUB_WORKSPACE" "$GITHUB_WORKSPACE/e2e/smoke"
+          do
+            rc="$module/.cache/bazel-wrapper.bazelrc"
+            test -f "$rc"
+            grep -Fx \
+              "build --disk_cache=\"$module/.cache/bazel-disk\"" "$rc"
           done
           test ! -e "$GITHUB_WORKSPACE/mkosi/tests/.cache/bazel-disk"
           test ! -e "$GITHUB_WORKSPACE/e2e/.cache/bazel-disk"
@@ -317,6 +333,7 @@ jobs:
           python3 - debian-tools-aquery.json <<'PY'
           import json
           import sys
+          from ci.action_graph_validator import validate_action_environment
 
           graph = json.load(open(sys.argv[1], encoding="utf-8"))
           archive = []
@@ -426,31 +443,13 @@ jobs:
                       raise SystemExit(
                           "host compiler or shell in structured action graph"
                       )
-              for variable in action.get("environmentVariables", []):
-                  key = variable.get("key", "")
-                  value = variable.get("value", "")
-                  if (
-                      key == "PATH"
-                      and value == "/bin:/usr/bin:/usr/local/bin"
-                      and action["mnemonic"] in (
-                          "CcStrip",
-                          "CppCompile",
-                          "CppLink",
-                      )
-                  ):
-                      # Bazel 9 records the Zig toolchain's fixed PATH. The
-                      # argument and transitive-input checks above still prove
-                      # that these actions invoke only declared tools.
-                      continue
-                  if value.startswith("/") and value != "/proc/self/cwd":
-                      raise SystemExit(
-                          "host environment path in structured action graph: "
-                          + action["mnemonic"]
-                          + " "
-                          + key
-                          + "="
-                          + value
-                      )
+              try:
+                  validate_action_environment(action, inputs)
+              except ValueError as error:
+                  raise SystemExit(
+                      "host environment path in structured action graph: "
+                      + str(error)
+                  ) from error
               for artifact_id in input_artifact_ids(action):
                   path = artifact_paths[artifact_id]
                   if path.startswith("bazel-out/"):
@@ -679,6 +678,11 @@ jobs:
             BAZEL="$GITHUB_WORKSPACE/tools/bazel" \
             LOCKFILE_MODE=off \
             e2e/module_resolution/test.sh ${{ matrix.fixture }}
+          rc="$fixture_root/.cache/bazel-wrapper.bazelrc"
+          test -f "$rc"
+          grep -Fx \
+            "build --disk_cache=\"$fixture_root/.cache/bazel-disk\"" "$rc"
+          git -C "$GITHUB_WORKSPACE" check-ignore -q "$rc"
           case "${{ matrix.fixture }}" in
             default|explicit)
               cache="$fixture_root/.cache/bazel-disk"
@@ -687,7 +691,7 @@ jobs:
               git -C "$GITHUB_WORKSPACE" check-ignore -q "$cache"
               ;;
             *)
-              test ! -e "$fixture_root/.cache"
+              test ! -e "$fixture_root/.cache/bazel-disk"
               ;;
           esac
           rm -rf "$fixture_root/.cache"

@@ -3,6 +3,7 @@
 import os
 import pathlib
 import shutil
+import shlex
 import stat
 import subprocess
 import sys
@@ -12,25 +13,6 @@ import unittest
 _FAKE_BAZEL = r"""#!/usr/bin/env bash
 set -euo pipefail
 printf '%s\0' "$PWD" "${USE_BAZEL_VERSION:-}" "$@" >"$CAPTURE_FILE"
-cache=
-while (($#)); do
-    case "$1" in
-        --disk_cache=*)
-            cache=${1#--disk_cache=}
-            break
-            ;;
-        --disk_cache)
-            cache=${2:?missing disk cache value}
-            break
-            ;;
-        *)
-            shift
-            ;;
-    esac
-done
-if [[ -n "$cache" ]]; then
-    mkdir -p "$cache"
-fi
 """
 
 
@@ -94,8 +76,23 @@ class BazelWrapperTest(unittest.TestCase):
     def assert_invocation(self, actual, cwd, version, arguments):
         self.assertEqual(actual, [str(cwd), version, *arguments])
 
+    def rc_option(self, root):
+        rc = root / ".cache" / "bazel-wrapper.bazelrc"
+        self.assertTrue(rc.is_file())
+        self.assertEqual(
+            [
+                shlex.split(line)
+                for line in rc.read_text(encoding="utf-8").splitlines()
+            ],
+            [
+                [command, f"--disk_cache={root}/.cache/bazel-disk"]
+                for command in ("build", "info", "query")
+            ],
+        )
+        return f"--bazelrc={rc}"
+
     def test_root_and_nested_cwd_preserve_labels_and_argv(self):
-        root = self.module("module", bazelrc=True)
+        root = self.module("module with spaces", bazelrc=True)
         nested = root / "pkg" / "nested directory"
         nested.mkdir(parents=True)
         output_base = self.case / "output base"
@@ -107,8 +104,8 @@ class BazelWrapperTest(unittest.TestCase):
                     root,
                     version,
                     (
+                        self.rc_option(root),
                         "build",
-                        f"--disk_cache={root}/.cache/bazel-disk",
                         "//...",
                     ),
                 )
@@ -116,6 +113,16 @@ class BazelWrapperTest(unittest.TestCase):
                 actual = self.invoke(
                     nested,
                     version,
+                    "--command_port",
+                    "0",
+                    "--invocation_policy",
+                    '{"strategy": "test policy"}',
+                    "--host_jvm_profile",
+                    str(self.case / "profile with spaces"),
+                    "--install_base",
+                    str(self.case / "install base"),
+                    "--unix_digest_hash_attribute_name",
+                    "user.checksum",
                     "--output_base",
                     str(output_base),
                     "--failure_detail_out",
@@ -132,6 +139,17 @@ class BazelWrapperTest(unittest.TestCase):
                     nested,
                     version,
                     (
+                        self.rc_option(root),
+                        "--command_port",
+                        "0",
+                        "--invocation_policy",
+                        '{"strategy": "test policy"}',
+                        "--host_jvm_profile",
+                        str(self.case / "profile with spaces"),
+                        "--install_base",
+                        str(self.case / "install base"),
+                        "--unix_digest_hash_attribute_name",
+                        "user.checksum",
                         "--output_base",
                         str(output_base),
                         "--failure_detail_out",
@@ -139,13 +157,12 @@ class BazelWrapperTest(unittest.TestCase):
                         "--host_jvm_args",
                         "-Dmessage=value with spaces",
                         "test",
-                        f"--disk_cache={root}/.cache/bazel-disk",
                         "--test_env=VALUE=two words",
                         ":target",
                         ":target with spaces",
                     ),
                 )
-            self.assertTrue((root / ".cache" / "bazel-disk").is_dir())
+            self.assertFalse((root / ".cache" / "bazel-disk").exists())
             self.assertFalse((nested / ".cache").exists())
 
     def test_nearest_module_without_bazelrc_owns_cache(self):
@@ -166,12 +183,12 @@ class BazelWrapperTest(unittest.TestCase):
                     nested,
                     version,
                     (
+                        self.rc_option(fixture),
                         "query",
-                        f"--disk_cache={fixture}/.cache/bazel-disk",
                         ":local",
                     ),
                 )
-        self.assertTrue((fixture / ".cache" / "bazel-disk").is_dir())
+        self.assertFalse((fixture / ".cache" / "bazel-disk").exists())
         self.assertFalse((outer / ".cache").exists())
         self.assertFalse((nested / ".cache").exists())
 
@@ -189,10 +206,10 @@ class BazelWrapperTest(unittest.TestCase):
                     actual,
                     nested,
                     version,
-                    ("test", *option, ":target"),
+                    (self.rc_option(root), "test", *option, ":target"),
                 )
-        self.assertTrue((self.case / "user cache").is_dir())
-        self.assertFalse((root / ".cache").exists())
+        self.assertFalse((self.case / "user cache").exists())
+        self.assertFalse((root / ".cache" / "bazel-disk").exists())
         self.assertFalse((nested / ".cache").exists())
 
     def test_disk_cache_text_is_not_mistaken_for_an_override(self):
@@ -210,20 +227,38 @@ class BazelWrapperTest(unittest.TestCase):
             root,
             "9.2.0",
             (
+                self.rc_option(root),
                 "test",
-                f"--disk_cache={root}/.cache/bazel-disk",
                 "--define=message=--disk_cache=relative",
                 "--",
                 "--disk_cache=also-a-target",
             ),
         )
-        self.assertTrue((root / ".cache" / "bazel-disk").is_dir())
+        self.assertFalse((root / ".cache" / "bazel-disk").exists())
         self.assertFalse((root / "relative").exists())
 
     def test_non_build_command_remains_transparent(self):
         root = self.module("module")
         actual = self.invoke(root, "8.5.1", "mod", "deps")
-        self.assert_invocation(actual, root, "8.5.1", ("mod", "deps"))
+        self.assert_invocation(
+            actual,
+            root,
+            "8.5.1",
+            (self.rc_option(root), "mod", "deps"),
+        )
+        self.assertFalse((root / ".cache" / "bazel-disk").exists())
+
+    def test_client_information_modes_remain_transparent(self):
+        root = self.module("module")
+        for argument in ("-h", "--help", "--version"):
+            with self.subTest(argument=argument):
+                actual = self.invoke(root, "8.5.1", argument)
+                self.assert_invocation(
+                    actual,
+                    root,
+                    "8.5.1",
+                    (argument,),
+                )
         self.assertFalse((root / ".cache").exists())
 
     def test_path_containing_wrapper_does_not_recurse(self):
@@ -234,8 +269,8 @@ class BazelWrapperTest(unittest.TestCase):
             root,
             "9.2.0",
             (
+                self.rc_option(root),
                 "info",
-                f"--disk_cache={root}/.cache/bazel-disk",
                 "workspace",
             ),
         )

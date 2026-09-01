@@ -49,8 +49,12 @@ repository-relative substitutions in ordinary option values. Canonical
 commands run from a module root. From any nested directory, use the checked-in
 `tools/bazel` wrapper. It preserves the caller's directory and relative-label
 semantics, stops at the nearest `MODULE.bazel` (whether or not that module has
-a `.bazelrc`), and supplies that module's absolute `.cache/bazel-disk` path.
-An explicit command-line `--disk_cache` remains authoritative.
+a `.bazelrc`), and generates an ignored module-local rc containing that
+module's absolute `.cache/bazel-disk` path. The wrapper adds only the generated
+rc startup option and leaves the caller's arguments untouched, so Bazel parses
+all startup options itself. Bazel's rc inheritance applies the `build` cache
+setting to `test` and `run`; an explicit command-line `--disk_cache` remains
+authoritative.
 
 ```console
 bazel test //...

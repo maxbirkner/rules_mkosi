@@ -5,7 +5,11 @@ import sys
 import unittest
 
 sys.path.insert(0, str(pathlib.Path(__file__).parent))
-from workflow_bazel_command_test import validate_shell_sources
+from workflow_bazel_command_test import (
+    _shell_command_segments,
+    _yaml_shell_bodies,
+    validate_shell_sources,
+)
 
 
 class WorkflowBazelCommandParserTest(unittest.TestCase):
@@ -90,6 +94,19 @@ class WorkflowBazelCommandParserTest(unittest.TestCase):
                 "github-expression-command-prefix",
                 "run: |\n  ${{ github.workspace }}/bin/tool test //pkg:target\n",
             ),
+            (
+                "github-expression-after-if",
+                "run: |\n"
+                "  if ${{ matrix.bazel }} test //pkg:target; then\n"
+                "    echo unexpected\n"
+                "  fi\n",
+            ),
+            (
+                "github-expression-folded-more-indented",
+                "run: >-\n"
+                "  echo preparing\n"
+                "    ${{ matrix.bazel }} test //pkg:target\n",
+            ),
         ]
         for name, fixture in fixtures:
             with self.subTest(name=name):
@@ -112,6 +129,32 @@ class WorkflowBazelCommandParserTest(unittest.TestCase):
         self.assertEqual(
             validate_shell_sources([("fixture", fixture, True)]),
             [],
+        )
+
+    def test_folded_scalar_preserves_more_indented_line_break(self):
+        fixture = (
+            "run: >-\n"
+            "  echo preparing\n"
+            "    ${{ matrix.bazel }} test //pkg:target\n"
+        )
+        self.assertEqual(
+            _yaml_shell_bodies(fixture),
+            ["echo preparing\n  ${{ matrix.bazel }} test //pkg:target"],
+        )
+
+    def test_shell_segments_keep_control_word_command(self):
+        segments = list(
+            _shell_command_segments(
+                "if ${{ matrix.bazel }} test //pkg:target; then echo bad; fi"
+            )
+        )
+        self.assertEqual(
+            segments,
+            [
+                "if $GITHUB_EXPRESSION test //pkg:target",
+                " then echo bad",
+                " fi",
+            ],
         )
 
 

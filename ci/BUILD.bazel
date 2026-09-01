@@ -16,3 +16,12 @@ py_test(
     ],
     main = "workflow_bazel_command_parser_test.py",
 )
+
+py_test(
+    name = "action_graph_validator_test",
+    srcs = [
+        "action_graph_validator.py",
+        "action_graph_validator_test.py",
+    ],
+    main = "action_graph_validator_test.py",
+)
