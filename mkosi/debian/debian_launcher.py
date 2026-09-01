@@ -33,9 +33,6 @@ TOOLS = {
     "sqv": "/usr/bin/sqv",
 }
 
-_DETERMINISTIC_ENVIRONMENT = (
-    "SOURCE_DATE_EPOCH",
-)
 _MOUNT_ROOTS = ("/root", "/tmp", "/proc", "/dev", "/workspace", "/inputs", "/outputs")
 _RUNFILES = {
     "archive": "mkosi_debian_tools/flat.tar",
@@ -51,24 +48,6 @@ class RuntimeFiles(NamedTuple):
     archive_sha256: str
     extractor: str
     namespace_runner: str
-
-
-def _tool_environment():
-    environment = {"PATH": "", "HOME": "/root"}
-    for name in _DETERMINISTIC_ENVIRONMENT:
-        if name in os.environ:
-            environment[name] = os.environ[name]
-    return environment
-
-
-def _deterministic_tool_arguments(tool, arguments):
-    arguments = list(arguments)
-    if tool == "/usr/sbin/mkfs.ext4" and "-U" in arguments:
-        uuid_index = arguments.index("-U") + 1
-        if uuid_index >= len(arguments):
-            raise click.ClickException("mkfs.ext4 -U is missing its value")
-        arguments.extend(["-E", "hash_seed=" + arguments[uuid_index]])
-    return arguments
 
 
 def _inside_root(root, path):
@@ -388,7 +367,6 @@ def _run(
                     "dir" if bind[4] else "file",
                 ]
             )
-        arguments = _deterministic_tool_arguments(tool, arguments)
         command = [
             namespace_runner,
             root,
@@ -400,7 +378,7 @@ def _run(
         ] + mount_arguments + ["--"] + arguments
         return subprocess.run(
             command,
-            env=_tool_environment(),
+            env={"PATH": "", "HOME": "/root"},
         ).returncode
     finally:
         shutil.rmtree(runtime, ignore_errors=True)

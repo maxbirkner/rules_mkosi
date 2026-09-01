@@ -1,5 +1,4 @@
 import importlib.util
-import os
 import pathlib
 import unittest
 from unittest import mock
@@ -16,42 +15,6 @@ _SPEC.loader.exec_module(debian_launcher)
 
 
 class DebianLauncherCliTest(unittest.TestCase):
-    def test_tool_environment_preserves_only_determinism_controls(self):
-        with mock.patch.dict(
-            os.environ,
-            {
-                "HOST_SECRET": "excluded",
-                "SOURCE_DATE_EPOCH": "0",
-            },
-            clear=True,
-        ):
-            self.assertEqual(
-                {
-                    "HOME": "/root",
-                    "PATH": "",
-                    "SOURCE_DATE_EPOCH": "0",
-                },
-                debian_launcher._tool_environment(),
-            )
-
-    def test_ext4_hash_seed_is_derived_from_fixed_filesystem_uuid(self):
-        self.assertEqual(
-            ["-U", "fixed-uuid", "-E", "hash_seed=fixed-uuid"],
-            debian_launcher._deterministic_tool_arguments(
-                "/usr/sbin/mkfs.ext4",
-                ["-U", "fixed-uuid"],
-            ),
-        )
-
-    def test_other_tools_are_not_modified(self):
-        self.assertEqual(
-            ["-U", "fixed-uuid"],
-            debian_launcher._deterministic_tool_arguments(
-                "/usr/bin/systemd-repart",
-                ["-U", "fixed-uuid"],
-            ),
-        )
-
     def test_help_is_a_successful_cli_operation(self):
         result = CliRunner().invoke(debian_launcher.cli, ["--help"])
 

@@ -187,12 +187,10 @@ assumed to exist on the runner.
 The checked-in tracer configurations fix `Seed=` and `SourceDateEpoch=` to
 remove two known sources of variation. This does not claim full image
 reproducibility while target packages are acquired over the network.
-The Debian launcher derives the ext4 directory-index `hash_seed` from
-systemd-repart's fixed `-U` filesystem UUID; the formatter otherwise generates
-that superblock field randomly. Release mode also exports the matching
-`SOURCE_DATE_EPOCH`. The isolated launcher forwards only that epoch in addition
-to its fixed `PATH` and `HOME`; arbitrary host environment variables remain
-excluded.
+The deterministic release configurations pass a fixed ext4 directory-index
+`hash_seed` through mkosi's build environment; the formatter otherwise
+generates that superblock field randomly. Release mode also exports the
+matching `SOURCE_DATE_EPOCH`.
 
 ### Consumer module
 
