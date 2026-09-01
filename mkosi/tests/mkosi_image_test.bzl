@@ -32,6 +32,7 @@ def _reproducibility_manifest_test_impl(ctx):
     inputs = [file.basename for file in action.inputs.to_list()]
     asserts.true(env, "release_subject.raw" in inputs)
     asserts.true(env, "release_subject.mkosi-image-info.json" in inputs)
+    asserts.true(env, "release_subject.partitions.json" in inputs)
     asserts.true(env, "reproducibility_manifest.py" in inputs)
     return analysistest.end(env)
 

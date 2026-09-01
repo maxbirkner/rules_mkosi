@@ -19,6 +19,7 @@ class ProjectionTest(unittest.TestCase):
         root = pathlib.Path(os.environ["TEST_TMPDIR"])
         image = root / "image.raw"
         metadata = root / "metadata.json"
+        partitions = root / "partitions.json"
         raw = bytearray(1024 * 1024)
         raw[512:520] = b"EFI PART"
         disk_uuid = uuid.UUID("00000000-0000-4000-8000-000000000001")
@@ -39,7 +40,8 @@ class ProjectionTest(unittest.TestCase):
         raw[superblock + 236:superblock + 252] = hash_seed.bytes
         image.write_bytes(raw)
         metadata.write_text('{"z":2,"a":1}\n')
-        result = projection.project(image, metadata)
+        partitions.write_text('{"format_version":"mkosi-partitions-v1"}\n')
+        result = projection.project(image, metadata, partitions)
 
         self.assertEqual("mkosi-reproducibility-manifest-v1", result["format_version"])
         self.assertEqual(
@@ -67,6 +69,14 @@ class ProjectionTest(unittest.TestCase):
             result["normalized_manifests"]["raw_image"]["root_partition"][
                 "filesystem"
             ]["uuid"],
+        )
+        self.assertEqual(
+            {"format_version": "mkosi-partitions-v1"},
+            result["normalized_manifests"]["partition_metadata"],
+        )
+        self.assertEqual(
+            64,
+            len(result["immutable_artifacts"]["partition_metadata"]["sha256"]),
         )
 
 

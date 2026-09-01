@@ -59,9 +59,21 @@ def _raw_image_manifest(path):
         }
 
 
-def project(raw_image, build_metadata):
+def _metadata_projection(path):
+    content = path.read_bytes()
+    return (
+        {
+            "sha256": hashlib.sha256(content).hexdigest(),
+            "size": len(content),
+        },
+        json.loads(content),
+    )
+
+
+def project(raw_image, build_metadata, partition_metadata):
     metadata_bytes = build_metadata.read_bytes()
     metadata = json.loads(metadata_bytes)
+    partition_artifact, partitions = _metadata_projection(partition_metadata)
     return {
         "excluded_variable_fields": [
             {
@@ -118,9 +130,11 @@ def project(raw_image, build_metadata):
                 "sha256": hashlib.sha256(metadata_bytes).hexdigest(),
                 "size": len(metadata_bytes),
             },
+            "partition_metadata": partition_artifact,
         },
         "normalized_manifests": {
             "build_metadata": metadata,
+            "partition_metadata": partitions,
             "raw_image": _raw_image_manifest(raw_image),
         },
     }
@@ -130,11 +144,12 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--raw-image", type=Path, required=True)
     parser.add_argument("--build-metadata", type=Path, required=True)
+    parser.add_argument("--partition-metadata", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     args.output.write_text(
         json.dumps(
-            project(args.raw_image, args.build_metadata),
+            project(args.raw_image, args.build_metadata, args.partition_metadata),
             indent=2,
             sort_keys=True,
         )

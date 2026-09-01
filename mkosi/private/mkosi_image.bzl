@@ -80,8 +80,8 @@ mkosi_source_tree = rule(
 
 def _mkosi_reproducibility_manifest_impl(ctx):
     image = ctx.attr.image[MkosiImageInfo]
-    if image.raw_image == None or image.build_metadata == None:
-        fail("image must provide raw_image and build_metadata")
+    if image.raw_image == None or image.build_metadata == None or image.partition_metadata == None:
+        fail("image must provide raw_image, build_metadata, and partition_metadata")
 
     output = ctx.actions.declare_file(ctx.label.name + ".reproducibility.json")
     mkosi = ctx.toolchains["//mkosi/toolchain:toolchain_type"].mkosi
@@ -91,13 +91,15 @@ def _mkosi_reproducibility_manifest_impl(ctx):
     args.add(image.raw_image.path)
     args.add("--build-metadata")
     args.add(image.build_metadata.path)
+    args.add("--partition-metadata")
+    args.add(image.partition_metadata.path)
     args.add("--output")
     args.add(output.path)
     ctx.actions.run(
         executable = mkosi.python,
         arguments = [args],
         inputs = depset(
-            [image.raw_image, image.build_metadata, ctx.file._projector],
+            [image.raw_image, image.build_metadata, image.partition_metadata, ctx.file._projector],
             transitive = [mkosi.python_runtime_files],
         ),
         tools = [mkosi.python_files_to_run],

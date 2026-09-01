@@ -153,10 +153,11 @@ and compare those instead:
 - UKI sections and signatures.
 - Reproducibility across repeated builds.
 
-`mkosi_reproducibility_manifest` now projects normalized raw-image structure
-and build metadata into canonical JSON. It records the SHA-256 and byte size
-of immutable build metadata, embeds that parsed metadata with sorted JSON keys,
-and records the GPT disk and root-partition UUIDs, geometry, attributes, and
+`mkosi_reproducibility_manifest` now projects normalized raw-image structure,
+provider-selected partition metadata, and build metadata into canonical JSON.
+It records the SHA-256 and byte size of both immutable metadata artifacts,
+embeds their parsed content with sorted JSON keys, and records the GPT disk
+and root-partition UUIDs, geometry, attributes, and
 ext4 UUID, hash seed, geometry, and image size. CI compares this text across
 two Bazel 8 builds with distinct clean
 `output_user_root` directories and with local and remote action-result caches
