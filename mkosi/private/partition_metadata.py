@@ -3,6 +3,7 @@
 
 import argparse
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -63,13 +64,13 @@ def main():
     completed = subprocess.run(
         [
             args.launcher,
-            "--ro-bind={}".format(Path(args.image).resolve()) + ":/inputs/image",
+            "--ro-bind={}".format(os.path.abspath(args.image)) + ":/inputs/image",
             "sfdisk",
             "--json",
             "/inputs/image",
         ],
         check=True,
-        capture_output=True,
+        stdout=subprocess.PIPE,
         text=True,
     )
     metadata = project(json.loads(completed.stdout))
