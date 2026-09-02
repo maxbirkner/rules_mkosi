@@ -31,7 +31,7 @@ class BiosArtifactTest(unittest.TestCase):
         self.kernel = bytes((i * 13 + 5) & 255 for i in range(96))
         self.modules = {
             name: bytes(((i + index) * 11 + 7) & 255 for i in range(31 + index))
-            for index, name in enumerate(validator.REQUIRED_MODULES)
+            for index, name in enumerate(validator.CORE_REQUIRED_MODULES)
         }
         records = bytearray()
         for reference in self.modules.values():

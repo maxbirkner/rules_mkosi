@@ -26,6 +26,7 @@ BLOCKLIST_OFFSET = 0x1B0
 BLOCKLIST_LAST = 0x1F4
 BLOCKLIST_END = 0x200
 REQUIRED_MODULES = ("normal", "biosdisk", "part_gpt", "ext2", "linux")
+CORE_REQUIRED_MODULES = ("normal", "biosdisk", "part_gpt", "fat", "linux", "search", "search_fs_file")
 MAX_CORE_COMPRESSED = 16 * 1024 * 1024
 MAX_CORE_UNCOMPRESSED = 64 * 1024 * 1024
 MAX_ROOT_BYTES = 4 * 1024 * 1024 * 1024
@@ -157,7 +158,7 @@ def _validate_core(linked, decompressor_reference, kernel_reference, module_refe
         cursor += (record_size + 3) & ~3
     if cursor != offset + total:
         raise AssertionError("GRUB core module records have invalid alignment")
-    missing = set(REQUIRED_MODULES) - embedded
+    missing = set(CORE_REQUIRED_MODULES) - embedded
     if missing:
         raise AssertionError("GRUB core required embedded module is missing: " + sorted(missing)[0])
     if config is None or "search --no-floppy --set=root --file /grub/grub.cfg" not in config:
@@ -410,7 +411,7 @@ def main():
         _reference(archive, "diskboot.img", SECTOR),
         _reference(archive, "lzma_decompress.img"),
         _reference(archive, "kernel.img"),
-        {name: _reference(archive, name + ".mod") for name in REQUIRED_MODULES},
+        {name: _reference(archive, name + ".mod") for name in CORE_REQUIRED_MODULES},
     )
     root = pathlib.Path(os.environ["TEST_TMPDIR"]) / "root.ext4"
     esp = pathlib.Path(os.environ["TEST_TMPDIR"]) / "esp.fat"
