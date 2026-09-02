@@ -229,7 +229,7 @@ def _extract_root(image, metadata, destination):
 
 
 def _extract_esp(image, esp, destination):
-    if esp["size_bytes"] > 128 * 1024 * 1024:
+    if esp["size_bytes"] > 256 * 1024 * 1024:
         raise AssertionError("ESP exceeds inspection resource limit")
     with image.open("rb") as source, destination.open("wb") as output:
         position = esp["start_bytes"]

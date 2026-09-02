@@ -25,8 +25,8 @@ def main():
         "Format=vfat\n"
         "CopyFiles=/efi:/\n"
         "CopyFiles=/boot:/\n"
-        "SizeMinBytes=64M\n"
-        "SizeMaxBytes=64M\n",
+        "SizeMinBytes=192M\n"
+        "SizeMaxBytes=192M\n",
         encoding="utf-8",
     )
     root = output / "02-root.conf"
