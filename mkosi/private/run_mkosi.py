@@ -60,6 +60,7 @@ _PATH_OPTIONS = {
     "--package-cache-directory",
     "--build-directory",
     "--sandbox-tree",
+    "--repart-directory",
 }
 
 
