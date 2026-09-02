@@ -1,5 +1,6 @@
 id	surface	cases	behavior	tests
 BHV-IMAGE-MODE	attribute	positive,boundary,negative	tracer/release mode selection and invalid mode	analysis=//mkosi/tests:analysis_tests;artifact=//mkosi/tests:release_subject_build_metadata_test;consumer=//e2e/smoke:release_demo_build_metadata_test
+BHV-IMAGE-FIRMWARE	attribute	positive,boundary,negative	default UEFI and explicit release-only x86-64 BIOS selection	analysis=//mkosi/tests:analysis_tests;artifact=//mkosi/tests:bios_image_artifact_test;consumer=//e2e/smoke:bios_release_demo_build_test
 BHV-IMAGE-CONFIG	attribute	positive,boundary,negative	single config versus typed complete config tree	analysis=//mkosi/tests:analysis_tests;artifact=//mkosi/tests:mkosi_staging_artifact_test;consumer=//e2e/smoke:tree_demo_semantics_test
 BHV-IMAGE-SNAPSHOT	attribute	positive,boundary,negative	release-only authenticated snapshot	analysis=//mkosi/tests:analysis_tests;artifact=//mkosi/tests:debian_snapshot_artifact_test;consumer=//e2e/smoke:debian_snapshot_public_provider_test
 BHV-IMAGE-SEED	attribute	positive,boundary,negative	release seed presence and resolved-config equality	analysis=//mkosi/tests:analysis_tests;runtime=//mkosi/tests:release_image_artifact_test;consumer=//e2e/smoke:release_demo_build_test

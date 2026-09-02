@@ -380,7 +380,7 @@ class DebianToolsSecurityTest(unittest.TestCase):
             for directory, dirnames, names in os.walk(root)
             for name in dirnames + names
         )
-        self.assertEqual(810, links)
+        self.assertEqual(811, links)
 
     def test_mount_roles_canonical_paths_and_collisions(self):
         source = self.work / "input"

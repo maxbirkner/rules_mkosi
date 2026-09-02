@@ -22,12 +22,13 @@ def main() -> None:
         "uki": False,
     }
     assert metadata["mode"] == sys.argv[2]
+    assert metadata["firmware"] == (sys.argv[3] if len(sys.argv) > 3 else "uefi")
     if sys.argv[2] == "release":
         assert metadata["debian_snapshot"] == {
             "architecture": "amd64",
             "codename": "trixie",
             "format_version": "debian-snapshot-v1",
-            "lock_sha256": "02828b2d265fc6ff59e6a41bd05168247bc6a575461eaca239df1ec9552839d8",
+            "lock_sha256": "69ade031417000aff9027996e4c3fc99336aca1b1ca8563fa69d76817003fd34",
             "snapshot": "20250814T000000Z",
             "snapshot_url": "https://snapshot.debian.org/archive/debian/20250814T000000Z",
         }

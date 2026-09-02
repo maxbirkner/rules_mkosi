@@ -74,6 +74,7 @@ def _image_public_api_test_impl(ctx):
     asserts.equals(env, None, info.manifest)
     asserts.equals(env, None, info.partition_metadata)
     asserts.equals(env, None, info.uki)
+    asserts.equals(env, "uefi", info.firmware)
     asserts.equals(env, "demo.mkosi-image-info.json", info.build_metadata.basename)
     return analysistest.end(env)
 

@@ -18,6 +18,11 @@ input. These labels are intentionally not encoded as Bazel tags.
 `mkosi_image.mode` defaults to networked, non-cacheable `tracer`, accepts
 offline cacheable `release`, and rejects every other value.
 
+<!-- behavior:BHV-IMAGE-FIRMWARE -->
+`mkosi_image.firmware` defaults to `uefi`. Explicit `bios` is release-only,
+requires an amd64 snapshot, selects GRUB i386-pc, disables the UEFI bootloader,
+and rejects UKI and Secure Boot combinations.
+
 <!-- behavior:BHV-IMAGE-CONFIG -->
 Exactly one of `mkosi_image.config` and `config_tree` is required. `config`
 resolves to one file; release mode requires a typed complete tree.
@@ -86,7 +91,7 @@ user-site state and an empty child `PATH`.
 `MkosiImageInfo` fixes `format_version`, exposes `raw_image`, `manifest`,
 `partition_metadata`, `uki`, and `build_metadata` as `File` or `None`, keeps
 `image` as the exact raw-image alias, and projects every present artifact once
-through `DefaultInfo`.
+through `DefaultInfo`. Its `firmware` field exposes the selected tier directly.
 
 <!-- behavior:BHV-TREE-PROVIDERS -->
 `MkosiConfigTreeInfo` and `MkosiSourceTreeInfo` expose the declared `tree` and
@@ -118,7 +123,9 @@ deadlines, and the fixed cleanup margin.
 Release `MkosiImageInfo.partition_metadata` is a provider-composed normalized
 projection. It validates both GPT copies and their CRCs, requires identical
 partition arrays, preserves stable sparse slot numbers, and omits variable GPT
-disk and partition identities. Tracer mode continues to expose `None`.
+disk and partition identities. BIOS projections additionally require exactly
+one BIOS boot partition of at least 1 MiB and record the firmware tier. Tracer
+mode continues to expose `None`.
 
 <!-- behavior:BHV-REPRODUCIBILITY-PROJECTION -->
 `mkosi_reproducibility_manifest` selects raw image, build metadata, and

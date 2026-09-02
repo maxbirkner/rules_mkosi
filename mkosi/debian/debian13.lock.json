@@ -1745,6 +1745,19 @@
     {
       "arch": "amd64",
       "dependencies": [],
+      "filename": "pool/main/g/grub2/grub-pc-bin_2.12-9_amd64.deb",
+      "key": "grub-pc-bin_2.12-9_amd64",
+      "name": "grub-pc-bin",
+      "sha256": "ce335f0f3f39c42ff1d2b242b7b103ee58c6ab41a70e3ef90c0d4d5fa8974921",
+      "size": 1021096,
+      "urls": [
+        "https://snapshot.debian.org/archive/debian/20250814T000000Z/pool/main/g/grub2/grub-pc-bin_2.12-9_amd64.deb"
+      ],
+      "version": "2.12-9"
+    },
+    {
+      "arch": "amd64",
+      "dependencies": [],
       "filename": "pool/main/g/gettext/gettext-base_0.23.1-2_amd64.deb",
       "key": "gettext-base_0.23.1-2_amd64",
       "name": "gettext-base",

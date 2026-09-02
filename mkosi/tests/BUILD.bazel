@@ -82,6 +82,7 @@ behavior_targets(
         "//ci:verify-release-reproducibility.sh",
         "//ci:verify_reproducibility_execution_test",
         ":analysis_tests",
+        ":bios_image_artifact_test",
         ":boot_config_test",
         ":boot_lifecycle_test",
         ":conflicting_root_test",
@@ -124,6 +125,17 @@ py_test(
     args = ["$(rootpath @mkosi_debian_snapshot//:repository)"],
     data = ["@mkosi_debian_snapshot//:repository"],
     main = "debian_snapshot_artifact_test.py",
+)
+
+py_test(
+    name = "bios_image_artifact_test",
+    srcs = [
+        "bios_image_artifact_test.py",
+        "//mkosi/private:partition_metadata.py",
+    ],
+    args = ["$(rootpath :bios_release_raw_image)"],
+    data = [":bios_release_raw_image"],
+    main = "bios_image_artifact_test.py",
 )
 
 py_test(
@@ -207,6 +219,7 @@ debian_tools_preflight_test(
         "sfdisk",
         "parted",
         "grub-install",
+        "grub-bios-modules",
         "bootctl",
         "objcopy",
     ],

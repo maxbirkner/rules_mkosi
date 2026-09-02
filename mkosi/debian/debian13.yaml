@@ -25,6 +25,7 @@ packages:
   - e2fsprogs
   - fdisk
   - grub-efi-amd64-bin
+  - grub-pc-bin
   - grub2-common
   - libarchive-tools
   - libexpat1

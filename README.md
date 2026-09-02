@@ -208,6 +208,28 @@ mkosi_image(
 )
 ```
 
+Legacy BIOS is an explicit release-only x86-64 compatibility tier:
+
+```starlark
+mkosi_image(
+    name = "bios_release",
+    config_tree = ":release_config",
+    mode = "release",
+    firmware = "bios",
+    debian_snapshot = "@mkosi_debian_snapshot//:repository",
+    release_seed = "00000000-0000-4000-8000-000000000015",
+    release_source_date_epoch = 0,
+)
+```
+
+This selects mkosi v27's `BiosBootloader=grub`, uses the pinned GRUB i386-pc
+modules, and requires one GPT BIOS boot partition of at least 1 MiB. BIOS mode
+rejects non-amd64 snapshots and UKI or Secure Boot settings. It disables the
+UEFI bootloader for this explicitly selected tier.
+It does **not** provide the authenticated UKI/Secure Boot/measured-boot chain
+available to UEFI designs. Treat it as a weaker compatibility boundary; this
+mode does not claim SeaBIOS or physical-hardware qualification.
+
 The explicit `mode` attribute selects image-build policy. The default
 `"tracer"` mode preserves the existing networked behavior and is intentionally
 non-cacheable. A `"release"` image requires the authenticated snapshot target;
@@ -354,6 +376,7 @@ basename, or the contents of `DefaultInfo`.
 | Field | Type | Availability |
 | --- | --- | --- |
 | `format_version` | `string` | Always `mkosi-image-v1`. It identifies the stable provider contract. |
+| `firmware` | `string` | Explicit `uefi` (default) or `bios` tier; never inferred from filenames. |
 | `raw_image` | `File` or `None` | Present for the current disk/raw output mode. |
 | `manifest` | `File` or `None` | `None` until a mode explicitly requests mkosi manifest output. |
 | `partition_metadata` | `File` or `None` | Validated, normalized GPT JSON for release images; `None` in tracer mode. |

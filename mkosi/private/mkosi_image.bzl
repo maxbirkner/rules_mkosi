@@ -19,6 +19,7 @@ The image field is a compatibility alias for raw_image.
         "partition_metadata": "Normalized, validated GPT partition metadata File for release images, or None.",
         "uki": "The Unified Kernel Image File, or None when no UKI is generated.",
         "build_metadata": "Normalized JSON build-metadata File describing this contract's output modes.",
+        "firmware": "Selected firmware tier: uefi or bios.",
         "image": "Deprecated compatibility alias for raw_image; use raw_image in new consumers.",
     },
 )
@@ -368,8 +369,13 @@ def _mkosi_image_impl(ctx):
     mkosi = ctx.toolchains["//mkosi/toolchain:toolchain_type"].mkosi
     debian_tools = ctx.toolchains["//mkosi/toolchain:debian_tools_toolchain_type"].debian_tools
     release_mode = ctx.attr.mode == "release"
+    firmware = ctx.attr.firmware
     if ctx.attr.mode not in ("tracer", "release"):
         fail("mode must be either 'tracer' or 'release'")
+    if firmware not in ("uefi", "bios"):
+        fail("firmware must be either 'uefi' or 'bios'")
+    if firmware == "bios" and not release_mode:
+        fail("bios firmware requires release mode")
     if release_mode and not ctx.attr.debian_snapshot:
         fail("release mode requires debian_snapshot")
     if not release_mode and ctx.attr.debian_snapshot:
@@ -413,6 +419,15 @@ def _mkosi_image_impl(ctx):
     build_metadata = ctx.actions.declare_file(
         ctx.label.name + ".mkosi-image-info.json",
     )
+    bios_partition_definition = None
+    if firmware == "bios":
+        bios_partition_definition = ctx.actions.declare_file(
+            ctx.label.name + ".bios-repart/00-bios-boot.conf",
+        )
+        ctx.actions.write(
+            output = bios_partition_definition,
+            content = "[Partition]\nType=21686148-6449-6e6f-744e-656564454649\nSizeMinBytes=1M\nSizeMaxBytes=1M\n",
+        )
     output_name = image.basename[:-len(".raw")]
     workspace = image.dirname + "/." + ctx.label.name + "-mkosi"
     mkosi_root = mkosi.script.path[:-len("/mkosi/__main__.py")]
@@ -431,6 +446,8 @@ def _mkosi_image_impl(ctx):
     arguments.add(ctx.executable._kernel_preflight.path)
     if release_mode:
         snapshot = ctx.attr.debian_snapshot[DebianSnapshotInfo]
+        if firmware == "bios" and snapshot.architecture != "amd64":
+            fail("bios firmware requires an amd64 Debian snapshot")
         arguments.add("--debian-snapshot-repository")
         arguments.add(snapshot.repository.path)
         arguments.add("--release-seed")
@@ -443,6 +460,8 @@ def _mkosi_image_impl(ctx):
         arguments.add(snapshot.codename)
         arguments.add("--release-snapshot")
         arguments.add(snapshot.snapshot)
+        arguments.add("--release-firmware")
+        arguments.add(firmware)
     if config_is_directory:
         for path in ctx.attr.config_tree[MkosiConfigTreeInfo].executable_paths:
             arguments.add("--executable-path")
@@ -477,6 +496,13 @@ def _mkosi_image_impl(ctx):
     arguments.add("--output-extension=raw")
     arguments.add("--compress-output=none")
     arguments.add("--split-artifacts=")
+    if firmware == "bios":
+        arguments.add("--architecture=x86-64")
+        arguments.add("--bootable=yes")
+        arguments.add("--bootloader=none")
+        arguments.add("--bios-bootloader=grub")
+        arguments.add("--repart-directory")
+        arguments.add(bios_partition_definition.dirname)
     arguments.add("--output-directory")
     arguments.add(image.dirname)
     arguments.add("--output")
@@ -512,6 +538,7 @@ def _mkosi_image_impl(ctx):
         arguments = [arguments],
         inputs = depset(
             [config, mkosi.script, ctx.file._run_script, ctx.file._diagnostics, ctx.executable._kernel_preflight, mkosi.pefile, debian_tools.tree, debian_tools.extractor] +
+            ([bios_partition_definition] if bios_partition_definition else []) +
             (
                 [ctx.attr.debian_snapshot[DebianSnapshotInfo].repository] if release_mode else []
             ) +
@@ -536,6 +563,8 @@ def _mkosi_image_impl(ctx):
         partition_arguments.add(image.path)
         partition_arguments.add("--output")
         partition_arguments.add(partition_metadata.path)
+        partition_arguments.add("--firmware")
+        partition_arguments.add(firmware)
         ctx.actions.run(
             executable = mkosi.python,
             arguments = [partition_arguments],
@@ -574,6 +603,7 @@ def _mkosi_image_impl(ctx):
             "version": mkosi.version,
         },
         "mode": ctx.attr.mode,
+        "firmware": firmware,
     }
     if release_mode:
         snapshot = ctx.attr.debian_snapshot[DebianSnapshotInfo]
@@ -610,6 +640,7 @@ def _mkosi_image_impl(ctx):
             partition_metadata = partition_metadata,
             uki = None,
             build_metadata = build_metadata,
+            firmware = firmware,
             image = image,
         ),
     ]
@@ -623,6 +654,10 @@ mkosi_image = rule(
 
 Release mode remains local-execution-only until its Linux execution platform is qualified for remote execution.
 """,
+        ),
+        "firmware": attr.string(
+            default = "uefi",
+            doc = """Firmware tier. "uefi" preserves the default behavior; "bios" is an explicitly selected x86-64 release-only compatibility tier using GRUB i386-pc and a GPT BIOS boot partition.""",
         ),
         "debian_snapshot": attr.label(
             providers = [DebianSnapshotInfo],

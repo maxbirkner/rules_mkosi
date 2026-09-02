@@ -21,12 +21,12 @@ def _provider_test_impl(ctx):
     )
     asserts.equals(
         env,
-        "02828b2d265fc6ff59e6a41bd05168247bc6a575461eaca239df1ec9552839d8",
+        "69ade031417000aff9027996e4c3fc99336aca1b1ca8563fa69d76817003fd34",
         info.lock_sha256,
     )
     asserts.equals(env, "repository_repository", info.repository.basename)
     asserts.equals(env, "inrelease", info.inrelease.basename)
-    asserts.equals(env, 149, len(info.package_files.to_list()))
+    asserts.equals(env, 150, len(info.package_files.to_list()))
     actions = analysistest.target_actions(env)
     asserts.equals(env, 1, len(actions))
     asserts.equals(env, "StageDebianSnapshot", actions[0].mnemonic)

@@ -284,10 +284,18 @@ def _validate_release_configuration(
     release_snapshot,
     allowed_paths,
     allowed_extra_tree=None,
+    release_firmware="uefi",
 ):
     expected_seed = uuid.UUID(release_seed)
     allowed_roots = [Path(path).resolve() for path in allowed_paths]
     for config in images:
+        if release_firmware == "bios":
+            if getattr(config, "secure_boot", False):
+                raise SystemExit("bios firmware is incompatible with SecureBoot")
+            if getattr(getattr(config, "unified_kernel_images", None), "value", "no") == "yes":
+                raise SystemExit("bios firmware is incompatible with UnifiedKernelImages")
+            if getattr(getattr(config, "bootloader", None), "value", "none") != "none":
+                raise SystemExit("bios firmware is incompatible with a UEFI Bootloader")
         if getattr(config, "proxy_url", None):
             raise SystemExit("release configuration cannot use a proxy")
         if getattr(getattr(config, "incremental", None), "value", "no") != "no":
@@ -385,6 +393,7 @@ def _activate_release_mode(
     release_snapshot,
     allowed_paths,
     allowed_extra_tree,
+    release_firmware,
 ):
     """Mount a long Bazel path at mkosi's stable in-sandbox repository path."""
     from pathlib import Path
@@ -466,6 +475,7 @@ def _activate_release_mode(
                 release_snapshot,
                 allowed_paths,
                 allowed_extra_tree,
+                release_firmware,
             )
             validate_initial_configuration[0] = False
             return (parsed[0], parsed[1], images)
@@ -561,6 +571,7 @@ def main():
     release_distribution = None
     release_codename = None
     release_snapshot = None
+    release_firmware = None
     while preamble_end < len(sys.argv) and sys.argv[preamble_end] != "--":
         option = sys.argv[preamble_end]
         if option == "--executable-path" and preamble_end + 1 < len(sys.argv):
@@ -602,6 +613,9 @@ def main():
         elif option == "--release-snapshot" and preamble_end + 1 < len(sys.argv):
             release_snapshot = sys.argv[preamble_end + 1]
             preamble_end += 2
+        elif option == "--release-firmware" and preamble_end + 1 < len(sys.argv):
+            release_firmware = sys.argv[preamble_end + 1]
+            preamble_end += 2
         else:
             raise SystemExit("invalid run_mkosi.py preamble")
     if preamble_end == len(sys.argv):
@@ -634,6 +648,7 @@ def main():
         release_distribution,
         release_codename,
         release_snapshot,
+        release_firmware,
     )
     if any(option is not None for option in release_options) and not all(
         option is not None for option in release_options
@@ -683,6 +698,7 @@ def main():
             (materialized / "mkosi.extra").resolve()
             if (materialized / "mkosi.extra").is_dir()
             else None,
+            release_firmware,
         )
     if release_child:
         sys.argv[:] = [script] + arguments
