@@ -124,7 +124,15 @@ def _validate_core(linked, decompressor_reference, kernel_reference, module_refe
             )
         )
     if not expanded.startswith(kernel_reference):
-        raise AssertionError("GRUB core kernel invariant content differs")
+        differences = [
+            index
+            for index, (actual, reference) in enumerate(zip(expanded, kernel_reference))
+            if actual != reference
+        ]
+        raise AssertionError(
+            "GRUB core kernel invariant content differs: " +
+            ", ".join("0x{:x}".format(index) for index in differences[:16])
+        )
 
     offset = len(kernel_reference)
     if offset + 12 > len(expanded):
