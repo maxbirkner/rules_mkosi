@@ -1,16 +1,21 @@
 """Inspects typed payloads in the independent consumer's release rootfs."""
 
 import json
+import itertools
 import os
 import pathlib
 import re
 import subprocess
 import sys
 
+_REQUESTS = itertools.count()
+
 
 def debugfs(launcher, directory, request):
     environment = dict(os.environ)
-    environment["MKOSI_DEBIAN_TOOLS_SCRATCH"] = str(directory / "launcher")
+    environment["MKOSI_DEBIAN_TOOLS_SCRATCH"] = str(
+        directory / "launcher-{}".format(next(_REQUESTS))
+    )
     result = subprocess.run(
         [
             launcher,
