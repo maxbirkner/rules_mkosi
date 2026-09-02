@@ -93,7 +93,7 @@ def _provider_test_impl(ctx):
     asserts.equals(env, "--debian-tools-sha256", argv[7])
     asserts.equals(
         env,
-        "604d93f0a2a7eeb688742e4380b5a246a679ea679215fc9e469a683bcfc4212d",
+        "ee26a2ba23d1fadb89b0fc6b2329a44206682ca243b89fe495246e827009729f",
         argv[8],
     )
     kernel_preflight = argv.index("--kernel-preflight")
@@ -200,7 +200,7 @@ def _debian_tools_provider_test_impl(ctx):
     asserts.equals(env, "13", info.release)
     asserts.equals(
         env,
-        "604d93f0a2a7eeb688742e4380b5a246a679ea679215fc9e469a683bcfc4212d",
+        "ee26a2ba23d1fadb89b0fc6b2329a44206682ca243b89fe495246e827009729f",
         info.archive_sha256,
     )
     asserts.equals(env, "trixie", info.codename)
