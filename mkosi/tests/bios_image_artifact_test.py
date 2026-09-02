@@ -165,7 +165,27 @@ def _mtype(launcher, esp):
     )
     if result.returncode:
         raise AssertionError("GRUB ESP configuration inspection failed: " + result.stdout + result.stderr)
+    _mtype.esp = esp
     return result.stdout
+
+
+def _fat_regular(launcher, esp, path):
+    invocation = getattr(_debugfs, "invocation", 0)
+    _debugfs.invocation = invocation + 1
+    environment = {
+        n: os.environ[n]
+        for n in ("RUNFILES_DIR", "RUNFILES_MANIFEST_FILE", "RUNFILES_MANIFEST_ONLY")
+        if n in os.environ
+    }
+    environment.update({
+        "MKOSI_DEBIAN_TOOLS_SCRATCH": os.path.join(os.environ["TEST_TMPDIR"], "bios-fat-stat-{}".format(invocation)),
+        "PATH": "",
+    })
+    result = subprocess.run(
+        [launcher, "--ro-bind", "{}:/inputs/esp.fat".format(esp), "/usr/bin/mtype", "-i", "/inputs/esp.fat", "::" + path],
+        env=environment, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, check=False, text=True,
+    )
+    return "regular" if result.returncode == 0 else "missing"
 
 
 def _extract_root(image, metadata, destination):
@@ -286,9 +306,8 @@ def main():
         for index, partition in enumerate(p for p in metadata["partitions"] if p["type_guid"] == ESP):
             candidate = esp.with_name("esp-{}.fat".format(index))
             _extract_esp(image, partition, candidate)
-            try:
-                config = _mtype(launcher, candidate)
-            finally:
+            config = _mtype(launcher, candidate)
+            if config is None:
                 candidate.unlink(missing_ok=True)
             if config is not None:
                 break
@@ -297,7 +316,11 @@ def main():
         uncommented = "\n".join(line.split("#", 1)[0] for line in config.splitlines())
         menu_paths = set(re.findall(r"(?m)^\s*(?:linux|linux16|initrd|initrd16)\s+(\S+)", uncommented))
         entries = {
-            path: _stat_type(launcher, root, path if path.startswith("/boot/") else "/boot" + path)
+            path: (
+                _fat_regular(launcher, _mtype.esp, path)
+                if config is not None and hasattr(_mtype, "esp")
+                else _stat_type(launcher, root, path if path.startswith("/boot/") else "/boot" + path)
+            )
             for path in menu_paths
         }
         names = set(REQUIRED_MODULES)
@@ -307,6 +330,8 @@ def main():
     finally:
         root.unlink(missing_ok=True)
         esp.unlink(missing_ok=True)
+        for candidate in pathlib.Path(os.environ["TEST_TMPDIR"]).glob("esp-*.fat"):
+            candidate.unlink(missing_ok=True)
 
 
 if __name__ == "__main__":
