@@ -22,8 +22,8 @@ class BiosArtifactTest(unittest.TestCase):
         self.raw = bytearray(2 * 1048576)
         self.raw[:512] = self.boot
         self.raw[1048576:1049088] = self.diskboot
-        struct.pack_into("<QHH", self.raw, 1048576 + validator.BLOCKLIST_OFFSET, 2049, 2, 0x800)
-        struct.pack_into("<QHH", self.raw, 1048576 + validator.BLOCKLIST_OFFSET + 12, 0, 0, 0)
+        struct.pack_into("<QHH", self.raw, 1048576 + validator.BLOCKLIST_LAST, 2049, 2, 0x800)
+        struct.pack_into("<QHH", self.raw, 1048576 + validator.BLOCKLIST_LAST - 12, 0, 0, 0)
         self.raw[2049 * 512:2051 * 512] = bytes((i * 17 + 3) & 255 for i in range(1024))
         self.decompressor = bytes(self.raw[2049 * 512:2051 * 512])
         self.image.write_bytes(self.raw)
@@ -45,7 +45,7 @@ class BiosArtifactTest(unittest.TestCase):
         self.raw[1048576 + 20] ^= 1; self.image.write_bytes(self.raw); self.check("diskboot invariant")
 
     def test_out_of_bounds_blocklist(self):
-        struct.pack_into("<Q", self.raw, 1048576 + validator.BLOCKLIST_OFFSET, 4096)
+        struct.pack_into("<Q", self.raw, 1048576 + validator.BLOCKLIST_LAST, 4096)
         self.image.write_bytes(self.raw); self.check("leaves BIOS")
 
     def test_deeper_core_corruption(self):

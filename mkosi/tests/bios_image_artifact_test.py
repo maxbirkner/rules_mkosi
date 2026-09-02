@@ -18,10 +18,12 @@ SECTOR = 512
 # sector at 0x5c, boot drive at 0x64, and drive-check instruction at 0x66.
 BOOT_PATCHES = ((0x03, 0x5A), (0x5C, 0x65), (0x66, 0x68))
 # grub-core/boot/i386/pc/diskboot.S and include/grub/i386/pc/kernel.h:
-# the install-time blocklist is GRUB_BOOT_MACHINE_LIST_SIZE (12) byte entries,
-# beginning at GRUB_BOOT_MACHINE_LIST_OFFSET (0x1b0), through offset 0x1fc.
+# the install-time blocklist is GRUB_BOOT_MACHINE_LIST_SIZE (12) byte entries.
+# diskboot.S places firstlist at 0x200 - 12 (0x1f4); additional entries grow
+# downward and setup bounds them above the code ending before 0x1b0.
 BLOCKLIST_OFFSET = 0x1B0
-BLOCKLIST_END = 0x1FC
+BLOCKLIST_LAST = 0x1F4
+BLOCKLIST_END = 0x200
 REQUIRED_MODULES = ("normal", "biosdisk", "part_gpt", "ext2", "linux")
 MAX_ROOT_BYTES = 4 * 1024 * 1024 * 1024
 
@@ -79,7 +81,7 @@ def validate_boot_regions(image, metadata, boot_reference, diskboot_reference, d
 
         linked = bytearray()
         saw_terminator = False
-        for offset in range(BLOCKLIST_OFFSET, BLOCKLIST_END, 12):
+        for offset in range(BLOCKLIST_LAST, BLOCKLIST_OFFSET - 1, -12):
             sector, count, segment = struct.unpack_from("<QHH", diskboot, offset)
             if count == 0:
                 saw_terminator = True
