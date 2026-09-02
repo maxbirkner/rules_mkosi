@@ -167,7 +167,7 @@ def _mtype(launcher, esp):
         raise AssertionError("GRUB ESP configuration inspection failed: " + result.stdout + result.stderr)
     _mtype.esp = esp
     _mtype.entries = {
-        line.strip().removeprefix("::")
+        line.strip().removeprefix("::").lower()
         for line in listing.stdout.splitlines()
         if line.strip()
     }
@@ -322,7 +322,7 @@ def main():
         menu_paths = set(re.findall(r"(?m)^\s*(?:linux|linux16|initrd|initrd16)\s+(\S+)", uncommented))
         entries = {
             path: (
-                ("regular" if path in _mtype.entries else "missing")
+                ("regular" if path.lower() in _mtype.entries else "missing")
                 if config is not None and hasattr(_mtype, "esp")
                 else _stat_type(launcher, root, path if path.startswith("/boot/") else "/boot" + path)
             )
