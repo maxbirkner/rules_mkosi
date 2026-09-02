@@ -34,6 +34,7 @@ def main():
         "[Partition]\n"
         "Type=root-x86-64\n"
         "Format=ext4\n"
+        "CopyFiles=/usr/lib/grub:/usr/lib/grub\n"
         "SizeMinBytes=256M\n",
         encoding="utf-8",
     )
