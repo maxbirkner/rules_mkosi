@@ -145,7 +145,7 @@ def _mtype(launcher, esp):
         "PATH": "",
     })
     listing = subprocess.run(
-        [launcher, "--ro-bind", "{}:/inputs/esp.fat".format(esp), "/usr/bin/mdir", "-i", "/inputs/esp.fat", "-b", "-s", "::"],
+        [launcher, "--ro-bind", "{}:/inputs/esp.fat".format(esp), "/usr/bin/mdir", "-i", "/inputs/esp.fat", "-b", "-/", "::"],
         env=environment, capture_output=True, check=False, text=True,
     )
     configs = [line.strip() for line in listing.stdout.splitlines() if line.strip().lower().endswith("/grub.cfg")]
