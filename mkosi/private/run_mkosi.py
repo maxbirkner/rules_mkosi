@@ -423,6 +423,7 @@ def _activate_release_mode(
     original_repositories = Installer.repositories.__func__
     original_parse_config = mkosi.config.parse_config
     original_parse_ini = mkosi.config.parse_ini
+    original_run_finalize_scripts = mkosi.run_finalize_scripts
     validate_initial_configuration = [True]
     declared_roots = tuple(Path(path).resolve() for path in allowed_paths)
 
@@ -551,6 +552,30 @@ def _activate_release_mode(
                 if source.is_file() and source.suffix in (".list", ".sources"):
                     source.unlink()
 
+    def run_finalize_scripts(context):
+        original_run_finalize_scripts(context)
+        if release_firmware != "bios":
+            return
+        kernels = sorted(context.root.glob("boot/vmlinuz-*"))
+        pairs = []
+        for kernel in kernels:
+            version = kernel.name.removeprefix("vmlinuz-")
+            initrd = context.root / "boot" / ("initrd.img-" + version)
+            if kernel.is_file() and not kernel.is_symlink() and initrd.is_file() and not initrd.is_symlink():
+                pairs.append((kernel, initrd))
+        if len(pairs) != 1:
+            raise SystemExit("bios firmware requires exactly one matching regular kernel/initrd pair")
+        kernel, initrd = pairs[0]
+        grub = context.root / "grub"
+        grub.mkdir(mode=0o755, exist_ok=True)
+        (grub / "grub.cfg").write_text(
+            "set timeout=0\n"
+            "menuentry 'Debian BIOS' {\n"
+            " linux /boot/{}\n"
+            " initrd /boot/{}\n"
+            "}\n".format(kernel.name, initrd.name)
+        )
+
     Context.__init__ = context_init
     Installer.repositories = classmethod(repositories)
     PackageManager.mounts = classmethod(mounts)
@@ -559,6 +584,7 @@ def _activate_release_mode(
     mkosi.config.parse_ini = parse_ini
     mkosi.distribution.debian.install_apt_sources = install_apt_sources
     mkosi.install_sandbox_trees = install_sandbox_trees
+    mkosi.run_finalize_scripts = run_finalize_scripts
 
 
 def main():
