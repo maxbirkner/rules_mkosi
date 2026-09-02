@@ -187,7 +187,7 @@ def _fat_regular(launcher, esp, path):
         "PATH": "",
     })
     result = subprocess.run(
-        [launcher, "--ro-bind", "{}:/inputs/esp.fat".format(esp), "/usr/bin/mdir", "-i", "/inputs/esp.fat", "::" + path],
+        [launcher, "--ro-bind", "{}:/inputs/esp.fat".format(esp), "/usr/bin/mtype", "-i", "/inputs/esp.fat", "::" + path],
         env=environment, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, check=False, text=True,
     )
     return "regular" if result.returncode == 0 else "missing"
