@@ -116,7 +116,11 @@ def _validate_core(linked, decompressor_reference, kernel_reference, module_refe
     # EOS marker and Python deliberately leaves decoder.eof false. The exact
     # header output size and subsequent complete record parse are the boundary.
     if decoder.unused_data or len(expanded) != uncompressed_size:
-        raise AssertionError("GRUB core compressed stream integrity check failed")
+        raise AssertionError(
+            "GRUB core compressed stream integrity check failed: expected={}, actual={}, unused={}".format(
+                uncompressed_size, len(expanded), len(decoder.unused_data)
+            )
+        )
     if not expanded.startswith(kernel_reference):
         raise AssertionError("GRUB core kernel invariant content differs")
 
