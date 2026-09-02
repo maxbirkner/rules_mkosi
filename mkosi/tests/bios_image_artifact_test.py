@@ -26,6 +26,7 @@ BLOCKLIST_LAST = 0x1F4
 BLOCKLIST_END = 0x200
 REQUIRED_MODULES = ("normal", "biosdisk", "part_gpt", "ext2", "linux")
 MAX_ROOT_BYTES = 4 * 1024 * 1024 * 1024
+ESP = "c12a7328-f81f-11d2-ba4b-00a0c93ec93b"
 
 
 def _runfile(path):
@@ -131,6 +132,27 @@ def _debugfs(launcher, root, command):
     return result.stdout + result.stderr
 
 
+def _mtype(launcher, esp):
+    invocation = getattr(_debugfs, "invocation", 0)
+    _debugfs.invocation = invocation + 1
+    environment = {
+        n: os.environ[n]
+        for n in ("RUNFILES_DIR", "RUNFILES_MANIFEST_FILE", "RUNFILES_MANIFEST_ONLY")
+        if n in os.environ
+    }
+    environment.update({
+        "MKOSI_DEBIAN_TOOLS_SCRATCH": os.path.join(os.environ["TEST_TMPDIR"], "bios-mtype-{}".format(invocation)),
+        "PATH": "",
+    })
+    result = subprocess.run(
+        [launcher, "--ro-bind", "{}:/inputs/esp.fat".format(esp), "/usr/bin/mtype", "-i", "/inputs/esp.fat", "::/grub/grub.cfg"],
+        env=environment, capture_output=True, check=False, text=True,
+    )
+    if result.returncode:
+        raise AssertionError("GRUB ESP configuration inspection failed: " + result.stdout + result.stderr)
+    return result.stdout
+
+
 def _extract_root(image, metadata, destination):
     root = next(p for p in metadata["partitions"] if p["type_guid"] == partition_metadata.ROOT_X86_64)
     start, size = root["start_bytes"], root["size_bytes"]
@@ -166,6 +188,22 @@ def _extract_root(image, metadata, destination):
                 position += len(chunk)
 
 
+def _extract_esp(image, metadata, destination):
+    esp = next(p for p in metadata["partitions"] if p["type_guid"] == ESP)
+    if esp["size_bytes"] > 128 * 1024 * 1024:
+        raise AssertionError("ESP exceeds inspection resource limit")
+    with image.open("rb") as source, destination.open("wb") as output:
+        position = esp["start_bytes"]
+        remaining = esp["size_bytes"]
+        while remaining:
+            chunk = os.pread(source.fileno(), min(1024 * 1024, remaining), position)
+            if not chunk:
+                raise AssertionError("ESP is truncated")
+            output.write(chunk)
+            position += len(chunk)
+            remaining -= len(chunk)
+
+
 def _stat_type(launcher, root, path):
     output = _debugfs(launcher, root, "stat " + path)
     match = re.search(r"Type:\s+(\w+)", output)
@@ -198,8 +236,8 @@ def validate_boot_files(entries, modules, config):
     if not linux or not initrd:
         raise AssertionError("GRUB menuentry is missing linux/initrd commands")
     kernel_path, initrd_path = linux.group(1), initrd.group(1)
-    kernel_version = re.fullmatch(r"/boot/vmlinuz-(.+)", kernel_path)
-    initrd_version = re.fullmatch(r"/boot/initrd\.img-(.+)", initrd_path)
+    kernel_version = re.fullmatch(r"/(?:boot/)?vmlinuz-(.+)", kernel_path)
+    initrd_version = re.fullmatch(r"/(?:boot/)?initrd(?:\.img)?-(.+)", initrd_path)
     if not kernel_version or not initrd_version or kernel_version.group(1) != initrd_version.group(1):
         raise AssertionError("GRUB kernel and initrd versions do not match")
     for path in (kernel_path, initrd_path):
@@ -223,18 +261,24 @@ def main():
         _reference(archive, "lzma_decompress.img"),
     )
     root = pathlib.Path(os.environ["TEST_TMPDIR"]) / "root.ext4"
+    esp = pathlib.Path(os.environ["TEST_TMPDIR"]) / "esp.fat"
     try:
         _extract_root(image, metadata, root)
-        config = _debugfs(launcher, root, "cat /boot/grub/grub.cfg")
+        _extract_esp(image, metadata, esp)
+        config = _mtype(launcher, esp)
         uncommented = "\n".join(line.split("#", 1)[0] for line in config.splitlines())
         menu_paths = set(re.findall(r"(?m)^\s*(?:linux|linux16|initrd|initrd16)\s+(\S+)", uncommented))
-        entries = {path: _stat_type(launcher, root, path) for path in menu_paths}
+        entries = {
+            path: _stat_type(launcher, root, path if path.startswith("/boot/") else "/boot" + path)
+            for path in menu_paths
+        }
         names = set(REQUIRED_MODULES)
         names.update(re.findall(r"(?m)^\s*insmod\s+([A-Za-z0-9_]+)\s*$", uncommented))
         modules = {name: _stat_type(launcher, root, "/usr/lib/grub/i386-pc/" + name + ".mod") for name in names}
         validate_boot_files(entries, modules, config)
     finally:
         root.unlink(missing_ok=True)
+        esp.unlink(missing_ok=True)
 
 
 if __name__ == "__main__":
