@@ -30,6 +30,4 @@ jobs:
           bazelisk-cache: true
 
       - name: Probe Starlark LCOV capability
-        run: |-
-          test "$(bazel --version)" = "bazel ${{ matrix.bazel }}"
-          ./ci/check-starlark-coverage-support.sh
+        run: ./ci/check-starlark-coverage-support.sh

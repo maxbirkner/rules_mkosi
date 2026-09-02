@@ -16,23 +16,34 @@ The supported Bazel releases were tested from an exact `main` checkout at
 
 The probe loaded a temporary `.bzl` file defining a test rule. Its
 implementation executed a true branch and left the false branch unexecuted.
-For each version, `ci/check-starlark-coverage-support.sh` creates the isolated
-probe package, runs the equivalent of:
+For each version, `ci/check-starlark-coverage-support.sh` creates a
+permission-private, unique probe directory containing its module, reports, and
+`output_user_root`. The directory is adjacent to, not inside, the checkout so
+Bazel never treats its private caches as source content. Every Bazel invocation
+uses `--ignore_all_rc_files` and that output root. The script runs the
+equivalent of:
 
 ```console
 USE_BAZEL_VERSION=8.5.1 ./ci/check-starlark-coverage-support.sh
 (cd issue26_starlark_coverage_probe && \
-  USE_BAZEL_VERSION=8.5.1 bazel coverage \
+  USE_BAZEL_VERSION=8.5.1 bazel --ignore_all_rc_files \
+    --output_user_root=/fresh/probe/output-user-root coverage \
     --lockfile_mode=off --combined_report=lcov //:probe)
 
 USE_BAZEL_VERSION=9.2.0 ./ci/check-starlark-coverage-support.sh
 (cd issue26_starlark_coverage_probe && \
-  USE_BAZEL_VERSION=9.2.0 bazel coverage \
+  USE_BAZEL_VERSION=9.2.0 bazel --ignore_all_rc_files \
+    --output_user_root=/fresh/probe/output-user-root coverage \
     --lockfile_mode=off --combined_report=lcov //:probe)
 ```
 
-When `bazel help` advertises `--starlark_coverage_report`, the script also
-runs the same `//:probe` target with that flag and inspects its real report.
+When isolated `bazel help` advertises `--starlark_coverage_report`, the script
+deletes and recreates the private reports directory, runs the same `//:probe`
+target with that flag, and inspects the report only after that invocation
+succeeds and freshly creates it. An advertised flag that fails or creates no
+report is itself an actionable failure. The script also verifies that the
+isolated Bazel version equals `USE_BAZEL_VERSION`. Cleanup shuts down the
+private Bazel server and removes the entire probe directory.
 
 Both ordinary coverage runs reported `There was no coverage found.` Their
 `bazel-out/_coverage/_coverage_report.dat` files had zero bytes. Neither
