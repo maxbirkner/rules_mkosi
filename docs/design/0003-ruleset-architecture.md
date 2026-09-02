@@ -313,7 +313,8 @@ Until then, behavioral coverage is enforced through analysis tests for every
 public rule mode, executed tests of reviewable artifact projections, the
 independent consumer module, and later OVMF/SeaBIOS boot tests. Adding an empty
 coverage job or a zero-information visualization would create a misleading
-quality signal.
+quality signal. See [Starlark coverage status](../starlark-coverage.md) for
+exact Bazel 8.5.1 and 9.2.0 evidence and the reevaluation procedure.
 
 ## BCR publication
 
