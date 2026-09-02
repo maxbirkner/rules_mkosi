@@ -39,7 +39,7 @@ class BiosArtifactTest(unittest.TestCase):
         self.raw[510] ^= 1; self.image.write_bytes(self.raw); self.check("MBR signature")
 
     def test_random_bootstrap(self):
-        self.raw[20] ^= 1; self.image.write_bytes(self.raw); self.check("MBR invariant")
+        self.raw[0x70] ^= 1; self.image.write_bytes(self.raw); self.check("MBR invariant")
 
     def test_invariant_patch_corruption(self):
         self.raw[1048576 + 20] ^= 1; self.image.write_bytes(self.raw); self.check("diskboot invariant")
