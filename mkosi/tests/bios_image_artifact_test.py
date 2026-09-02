@@ -46,8 +46,13 @@ def _same_except(actual, reference, patches, diagnostic):
     mutable = set()
     for start, end in patches:
         mutable.update(range(start, end))
-    if any(actual[i] != reference[i] for i in range(len(reference)) if i not in mutable):
-        raise AssertionError(diagnostic)
+    differences = [i for i in range(len(reference)) if i not in mutable and actual[i] != reference[i]]
+    if differences:
+        detail = ", ".join(
+            "0x{:x}={:02x}/{:02x}".format(i, actual[i], reference[i])
+            for i in differences[:16]
+        )
+        raise AssertionError("{}: {}".format(diagnostic, detail))
 
 
 def validate_boot_regions(image, metadata, boot_reference, diskboot_reference, decompressor_reference):
