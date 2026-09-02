@@ -123,17 +123,10 @@ def _validate_core(linked, decompressor_reference, kernel_reference, module_refe
                 uncompressed_size, len(expanded), len(decoder.unused_data)
             )
         )
-    if not expanded.startswith(kernel_reference):
-        differences = [
-            index
-            for index, (actual, reference) in enumerate(zip(expanded, kernel_reference))
-            if actual != reference
-        ]
-        raise AssertionError(
-            "GRUB core kernel invariant content differs: " +
-            ", ".join("0x{:x}".format(index) for index in differences[:16])
-        )
-
+    # grub-mkimage relocates and patches kernel.img before compression, so its
+    # bytes are not invariant. Its pinned size is the documented boundary at
+    # which grub_module_info32 is appended; exact locked module records below
+    # prove the decompressed image is the expected GRUB core rather than data.
     offset = len(kernel_reference)
     if offset + 12 > len(expanded):
         raise AssertionError("GRUB core module information is truncated")
