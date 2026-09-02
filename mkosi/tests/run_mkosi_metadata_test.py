@@ -158,6 +158,7 @@ def main():
                 "trixie",
                 "20250814T000000Z",
                 [root],
+                None,
                 "bios",
             )
         except SystemExit as error:
