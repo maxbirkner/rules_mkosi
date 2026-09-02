@@ -290,8 +290,12 @@ def _validate_release_configuration(
 ):
     expected_seed = uuid.UUID(release_seed)
     allowed_roots = [Path(path).resolve() for path in allowed_paths]
-    for config in images:
-        if release_firmware == "bios":
+    images = tuple(images)
+    for index, config in enumerate(images):
+        # mkosi appends the requested image after generated dependency images
+        # such as mkosi-initrd. Firmware selection constrains that primary
+        # image, not bootloaders used internally by those dependencies.
+        if release_firmware == "bios" and index == len(images) - 1:
             if getattr(config, "secure_boot", False):
                 raise SystemExit("bios firmware is incompatible with SecureBoot")
             if getattr(getattr(config, "unified_kernel_images", None), "value", "no") == "yes":
