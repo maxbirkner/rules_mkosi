@@ -170,7 +170,9 @@ def _stat_type(launcher, root, path):
     output = _debugfs(launcher, root, "stat " + path)
     match = re.search(r"Type:\s+(\w+)", output)
     if not match:
-        raise AssertionError("cannot parse debugfs stat for " + path)
+        if "not found" in output.lower():
+            return "missing"
+        raise AssertionError("cannot parse debugfs stat for {}: {}".format(path, output.strip()))
     return match.group(1)
 
 
