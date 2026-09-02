@@ -23,6 +23,7 @@ def main():
         "[Partition]\n"
         "Type=esp\n"
         "Format=vfat\n"
+        "CopyFiles=/efi:/\n"
         "SizeMinBytes=64M\n"
         "SizeMaxBytes=64M\n",
         encoding="utf-8",
