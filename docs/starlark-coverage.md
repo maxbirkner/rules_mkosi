@@ -16,21 +16,23 @@ The supported Bazel releases were tested from an exact `main` checkout at
 
 The probe loaded a temporary `.bzl` file defining a test rule. Its
 implementation executed a true branch and left the false branch unexecuted.
-For each version, the following representative commands ran:
+For each version, `ci/check-starlark-coverage-support.sh` creates the isolated
+probe package, runs the equivalent of:
 
 ```console
-USE_BAZEL_VERSION=8.5.1 bazel coverage \
-  --lockfile_mode=off --combined_report=lcov //issue26_probe:probe
-USE_BAZEL_VERSION=8.5.1 bazel test --lockfile_mode=off \
-  --starlark_coverage_report="$PWD/starlark.lcov" //issue26_probe:probe
+USE_BAZEL_VERSION=8.5.1 ./ci/check-starlark-coverage-support.sh
+(cd issue26_starlark_coverage_probe && \
+  USE_BAZEL_VERSION=8.5.1 bazel coverage \
+    --lockfile_mode=off --combined_report=lcov //:probe)
 
-USE_BAZEL_VERSION=9.2.0 bazel --ignore_all_rc_files coverage \
-  --enable_bzlmod --lockfile_mode=off --combined_report=lcov \
-  //issue26_probe:probe
-USE_BAZEL_VERSION=9.2.0 bazel --ignore_all_rc_files test \
-  --enable_bzlmod --lockfile_mode=off \
-  --starlark_coverage_report="$PWD/starlark.lcov" //issue26_probe:probe
+USE_BAZEL_VERSION=9.2.0 ./ci/check-starlark-coverage-support.sh
+(cd issue26_starlark_coverage_probe && \
+  USE_BAZEL_VERSION=9.2.0 bazel coverage \
+    --lockfile_mode=off --combined_report=lcov //:probe)
 ```
+
+When `bazel help` advertises `--starlark_coverage_report`, the script also
+runs the same `//:probe` target with that flag and inspects its real report.
 
 Both ordinary coverage runs reported `There was no coverage found.` Their
 `bazel-out/_coverage/_coverage_report.dat` files had zero bytes. Neither
@@ -46,11 +48,18 @@ the pull request was most recently updated on 2026-07-03.
 
 ## Reevaluation
 
-The existing weekly and manual CI triggers run
-`ci/check-starlark-coverage-support.sh` for both pinned Bazel versions. The
-check only inspects Bazel's help, so it does not duplicate the root or consumer
-test suites. It fails when the proposed flag first appears, forcing a human to
-repeat the branch-sensitive probe above before changing coverage CI.
+The dedicated `Starlark coverage capability` workflow runs monthly and on
+manual dispatch for both pinned Bazel versions. It checks out the repository,
+sets up Bazel, and runs only `ci/check-starlark-coverage-support.sh`; it does
+not run or alter the root, manifest, or consumer qualification suites in the
+`CI` workflow.
+
+The script runs one generated Starlark test rule under `bazel coverage`, tries
+the proposed flag when Bazel advertises it, and removes its package and report.
+Continued missing, empty, or non-Starlark LCOV succeeds with an explicit job
+summary. A report counts as meaningful only when the probe's `.bzl` source has
+both a positive `DA` execution count and a zero `DA` count. That result fails
+the job loudly with an instruction to resume issue #26.
 
 Flag presence alone is not activation evidence. Coveragemap may be added only
 after real LCOV contains `.bzl` source and line records that distinguish the
