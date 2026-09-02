@@ -78,9 +78,8 @@ def main():
         "/usr/lib/tmpfiles.d/example.conf": (
             "d /home/example 0755 example example -\n"
         ),
-        "/etc/skel/.config/example/config": (
-            "generated TreeArtifact home configuration\n"
-        ),
+        "/etc/skel/.config/example/config": "declarative skel home configuration\n",
+        "/opt/generated/config": "generated TreeArtifact configuration\n",
     }
     for path, expected in expected_content.items():
         content = debugfs(launcher, directory, "cat {}".format(path))
@@ -98,7 +97,7 @@ def main():
     link = debugfs(
         launcher,
         directory,
-        "stat /etc/skel/.config/example/config-link",
+        "stat /opt/generated/config-link",
     )
     if 'Fast link dest: "config"' not in link:
         raise AssertionError("relative payload symlink is invalid: {}".format(link))

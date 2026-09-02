@@ -6,10 +6,9 @@ import sys
 
 root = pathlib.Path(sys.argv[1])
 root.mkdir(parents=True, exist_ok=True)
-config = root / ".config/example/config"
-config.parent.mkdir(parents=True)
-config.write_text("generated TreeArtifact home configuration\n")
-link = root / ".config/example/config-link"
+config = root / "config"
+config.write_text("generated TreeArtifact configuration\n")
+link = root / "config-link"
 link.symlink_to("config")
 os.chmod(config, 0o644)
 os.utime(config, (0, 0))

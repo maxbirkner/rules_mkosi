@@ -151,6 +151,7 @@ mkosi_image(
     release_source_date_epoch = 0,
     rootfs_payloads = [
         ":payload_binary",
+        ":payload_home_config",
         ":payload_home_tree",
         ":payload_service",
         ":payload_sysusers",
@@ -197,7 +198,13 @@ mkosi_rootfs_payload(
 mkosi_rootfs_payload(
     name = "payload_home_tree",
     src = ":generated_payload_tree",
-    destination = "/etc/skel",
+    destination = "/opt/generated",
+)
+
+mkosi_rootfs_payload(
+    name = "payload_home_config",
+    src = "testdata/payload/home-config",
+    destination = "/etc/skel/.config/example/config",
 )
 
 mkosi_config_tree(
