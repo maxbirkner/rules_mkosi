@@ -14,6 +14,15 @@ def main():
         "SizeMaxBytes=1M\n",
         encoding="utf-8",
     )
+    # mkosi v27's GRUB BIOS installer also requires an ESP as the location for
+    # the generated GRUB configuration, even though firmware never executes it.
+    (output / "01-esp.conf").write_text(
+        "[Partition]\n"
+        "Type=esp\n"
+        "SizeMinBytes=64M\n"
+        "SizeMaxBytes=64M\n",
+        encoding="utf-8",
+    )
 
 
 if __name__ == "__main__":
