@@ -25,7 +25,9 @@ class BiosArtifactTest(unittest.TestCase):
         self.raw = bytearray(2 * 1048576)
         self.raw[:512] = self.boot
         self.raw[1048576:1049088] = self.diskboot
-        self.decompressor = bytes((i * 17 + 3) & 255 for i in range(64))
+        decompressor = bytearray((i * 17 + 3) & 255 for i in range(64))
+        struct.pack_into("<H", decompressor, 0x14, 32)
+        self.decompressor = bytes(decompressor)
         self.kernel = bytes((i * 13 + 5) & 255 for i in range(96))
         self.modules = {
             name: bytes(((i + index) * 11 + 7) & 255 for i in range(31 + index))
@@ -50,7 +52,6 @@ class BiosArtifactTest(unittest.TestCase):
         redundancy = linked_size - len(self.decompressor) - len(compressed)
         linked = bytearray(self.decompressor)
         struct.pack_into("<III", linked, 8, len(compressed), len(expanded), redundancy)
-        struct.pack_into("<H", linked, 0x14, len(self.decompressor))
         linked.extend(compressed)
         linked.extend(bytes(redundancy))
         count = len(linked) // 512

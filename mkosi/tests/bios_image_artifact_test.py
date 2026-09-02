@@ -87,7 +87,7 @@ def _validate_core(linked, decompressor_reference, kernel_reference, module_refe
     _same_except(
         linked[: len(decompressor_reference)],
         decompressor_reference,
-        ((0x08, 0x1C),),
+        ((0x08, 0x14), (0x18, 0x1C)),
         "GRUB linked core decompressor invariant bytes differ",
     )
     compressed_size, uncompressed_size, redundancy = struct.unpack_from("<III", linked, 0x08)
@@ -100,7 +100,7 @@ def _validate_core(linked, decompressor_reference, kernel_reference, module_refe
     payload_end = payload_start + compressed_size
     if payload_end > len(linked):
         raise AssertionError("GRUB core compressed stream is truncated")
-    if no_rs_length != payload_start:
+    if no_rs_length == 0 or no_rs_length >= payload_start:
         raise AssertionError("GRUB core Reed-Solomon boundary is invalid")
     if payload_end + redundancy != len(linked):
         raise AssertionError("GRUB core payload has ambiguous trailing bytes")
