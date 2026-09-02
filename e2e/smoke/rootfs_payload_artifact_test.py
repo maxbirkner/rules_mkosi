@@ -65,8 +65,9 @@ def main():
         "/usr/lib/tmpfiles.d/example.conf": (
             "d /home/example 0755 example example -\n"
         ),
-        "/etc/skel/.config/example/config": "source-tree home configuration\n",
-        "/opt/generated/generated.txt": "generated TreeArtifact payload\n",
+        "/etc/skel/.config/example/config": (
+            "generated TreeArtifact home configuration\n"
+        ),
     }
     for path, expected in expected_content.items():
         content = debugfs(launcher, directory, "cat {}".format(path))

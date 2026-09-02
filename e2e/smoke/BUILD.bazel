@@ -152,7 +152,6 @@ mkosi_image(
     rootfs_payloads = [
         ":payload_binary",
         ":payload_home_tree",
-        ":payload_generated_tree",
         ":payload_service",
         ":payload_sysusers",
         ":payload_tmpfiles",
@@ -196,14 +195,8 @@ mkosi_rootfs_payload(
 )
 
 mkosi_rootfs_payload(
-    name = "payload_generated_tree",
-    src = ":generated_payload_tree",
-    destination = "/opt/generated",
-)
-
-mkosi_rootfs_payload(
     name = "payload_home_tree",
-    src = "testdata/payload/skel",
+    src = ":generated_payload_tree",
     destination = "/etc/skel",
 )
 
