@@ -28,6 +28,7 @@ packages:
   - grub-pc-bin
   - grub2-common
   - libarchive-tools
+  - linux-image-amd64
   - libexpat1
   - libc-bin
   - libpython3.13-stdlib

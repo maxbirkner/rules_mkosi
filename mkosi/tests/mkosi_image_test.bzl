@@ -208,7 +208,7 @@ def _debian_tools_provider_test_impl(ctx):
     asserts.equals(env, "20250814T000000Z", info.snapshot)
     asserts.equals(
         env,
-        "69ade031417000aff9027996e4c3fc99336aca1b1ca8563fa69d76817003fd34",
+        "4feda33b82e94493cf6b80bac6ea1bdbc904afbea6b85bce7820d60f6e233401",
         info.lock_sha256,
     )
     asserts.equals(
@@ -438,7 +438,7 @@ def _bios_provider_test_impl(ctx):
     asserts.true(env, "--bootable=yes" in image_action.argv)
     asserts.true(env, "--bios-bootloader=grub" in image_action.argv)
     asserts.true(env, "--initrd=" in image_action.argv)
-    for package in ("grub-pc-bin", "grub-common", "grub2-common"):
+    for package in ("grub-pc-bin", "grub-common", "grub2-common", "linux-image-amd64"):
         asserts.true(env, "--package=" + package in image_action.argv)
     repart = image_action.argv.index("--repart-directory")
     asserts.true(env, image_action.argv[repart + 1].endswith(".bios-repart"))

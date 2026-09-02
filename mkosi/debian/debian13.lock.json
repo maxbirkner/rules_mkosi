@@ -4025,6 +4025,255 @@
         "https://snapshot.debian.org/archive/debian/20250814T000000Z/pool/main/s/sysvinit/sysvinit-utils_3.14-4_amd64.deb"
       ],
       "version": "3.14-4"
+    },
+    {
+      "arch": "all",
+      "dependencies": [
+        {
+          "key": "debconf_1.5.91_all",
+          "name": "debconf",
+          "version": "1.5.91"
+        }
+      ],
+      "filename": "pool/main/l/linux-base/linux-base_4.12_all.deb",
+      "key": "linux-base_4.12_all",
+      "name": "linux-base",
+      "sha256": "b21a3b81dedf2290959a988ae3eb5e72f464bf2a0df687f4eead9c767c8f70d2",
+      "size": 25452,
+      "urls": [
+        "https://snapshot.debian.org/archive/debian/20250814T000000Z/pool/main/l/linux-base/linux-base_4.12_all.deb"
+      ],
+      "version": "4.12"
+    },
+    {
+      "arch": "amd64",
+      "dependencies": [
+        {
+          "key": "libc6_2.41-12_amd64",
+          "name": "libc6",
+          "version": "2.41-12"
+        },
+        {
+          "key": "libssl3t64_3.5.1-1_amd64",
+          "name": "libssl3t64",
+          "version": "3.5.1-1"
+        },
+        {
+          "key": "libkmod2_34.2-2_amd64",
+          "name": "libkmod2",
+          "version": "34.2-2"
+        }
+      ],
+      "filename": "pool/main/k/kmod/kmod_34.2-2_amd64.deb",
+      "key": "kmod_34.2-2_amd64",
+      "name": "kmod",
+      "sha256": "d56f9311beb17cd15447d11d91fd4de94d23a47d4619e8806b1b807b40c72e53",
+      "size": 95704,
+      "urls": [
+        "https://snapshot.debian.org/archive/debian/20250814T000000Z/pool/main/k/kmod/kmod_34.2-2_amd64.deb"
+      ],
+      "version": "34.2-2"
+    },
+    {
+      "arch": "amd64",
+      "dependencies": [
+        {
+          "key": "libc6_2.41-12_amd64",
+          "name": "libc6",
+          "version": "2.41-12"
+        },
+        {
+          "key": "libkmod2_34.2-2_amd64",
+          "name": "libkmod2",
+          "version": "34.2-2"
+        }
+      ],
+      "filename": "pool/main/d/dracut/dracut-install_106-6_amd64.deb",
+      "key": "dracut-install_106-6_amd64",
+      "name": "dracut-install",
+      "sha256": "5ef87c15510db933d4ec7617b88012b436b0ebfc248e4c7d3b6baf9aa5acbc76",
+      "size": 37784,
+      "urls": [
+        "https://snapshot.debian.org/archive/debian/20250814T000000Z/pool/main/d/dracut/dracut-install_106-6_amd64.deb"
+      ],
+      "version": "106-6"
+    },
+    {
+      "arch": "amd64",
+      "dependencies": [
+        {
+          "key": "libc6_2.41-12_amd64",
+          "name": "libc6",
+          "version": "2.41-12"
+        }
+      ],
+      "filename": "pool/main/i/initramfs-tools/initramfs-tools-bin_0.148.3_amd64.deb",
+      "key": "initramfs-tools-bin_0.148.3_amd64",
+      "name": "initramfs-tools-bin",
+      "sha256": "e572e9419946503a17ff895f23ec8177167575f48be853cf71b77377a735922b",
+      "size": 17336,
+      "urls": [
+        "https://snapshot.debian.org/archive/debian/20250814T000000Z/pool/main/i/initramfs-tools/initramfs-tools-bin_0.148.3_amd64.deb"
+      ],
+      "version": "0.148.3"
+    },
+    {
+      "arch": "amd64",
+      "dependencies": [],
+      "filename": "pool/main/k/klibc/libklibc_2.0.14-1_amd64.deb",
+      "key": "libklibc_2.0.14-1_amd64",
+      "name": "libklibc",
+      "sha256": "8c71660ca790ef06f46a4e64febc6ad515499a7364aa9aa98c88b5655f9c5bda",
+      "size": 44760,
+      "urls": [
+        "https://snapshot.debian.org/archive/debian/20250814T000000Z/pool/main/k/klibc/libklibc_2.0.14-1_amd64.deb"
+      ],
+      "version": "2.0.14-1"
+    },
+    {
+      "arch": "amd64",
+      "dependencies": [
+        {
+          "key": "libklibc_2.0.14-1_amd64",
+          "name": "libklibc",
+          "version": "2.0.14-1"
+        }
+      ],
+      "filename": "pool/main/k/klibc/klibc-utils_2.0.14-1_amd64.deb",
+      "key": "klibc-utils_2.0.14-1_amd64",
+      "name": "klibc-utils",
+      "sha256": "6d4d6b154f3147771709e47ac2fca84c38d9bd57407cf0bc1f806f9fc082b9fc",
+      "size": 95068,
+      "urls": [
+        "https://snapshot.debian.org/archive/debian/20250814T000000Z/pool/main/k/klibc/klibc-utils_2.0.14-1_amd64.deb"
+      ],
+      "version": "2.0.14-1"
+    },
+    {
+      "arch": "all",
+      "dependencies": [
+        {
+          "key": "coreutils_9.7-3_amd64",
+          "name": "coreutils",
+          "version": "9.7-3"
+        },
+        {
+          "key": "cpio_2.15-plusdfsg-2_amd64",
+          "name": "cpio",
+          "version": "2.15+dfsg-2"
+        },
+        {
+          "key": "dracut-install_106-6_amd64",
+          "name": "dracut-install",
+          "version": "106-6"
+        },
+        {
+          "key": "initramfs-tools-bin_0.148.3_amd64",
+          "name": "initramfs-tools-bin",
+          "version": "0.148.3"
+        },
+        {
+          "key": "klibc-utils_2.0.14-1_amd64",
+          "name": "klibc-utils",
+          "version": "2.0.14-1"
+        },
+        {
+          "key": "kmod_34.2-2_amd64",
+          "name": "kmod",
+          "version": "34.2-2"
+        },
+        {
+          "key": "logsave_1.47.2-3-plusb3_amd64",
+          "name": "logsave",
+          "version": "1.47.2-3+b3"
+        },
+        {
+          "key": "udev_257.7-1_amd64",
+          "name": "udev",
+          "version": "257.7-1"
+        }
+      ],
+      "filename": "pool/main/i/initramfs-tools/initramfs-tools-core_0.148.3_all.deb",
+      "key": "initramfs-tools-core_0.148.3_all",
+      "name": "initramfs-tools-core",
+      "sha256": "2e95e9219246c97af97f0da95d2fb73b0d103af8465312e27385185d168f164d",
+      "size": 50524,
+      "urls": [
+        "https://snapshot.debian.org/archive/debian/20250814T000000Z/pool/main/i/initramfs-tools/initramfs-tools-core_0.148.3_all.deb"
+      ],
+      "version": "0.148.3"
+    },
+    {
+      "arch": "all",
+      "dependencies": [
+        {
+          "key": "initramfs-tools-core_0.148.3_all",
+          "name": "initramfs-tools-core",
+          "version": "0.148.3"
+        },
+        {
+          "key": "linux-base_4.12_all",
+          "name": "linux-base",
+          "version": "4.12"
+        }
+      ],
+      "filename": "pool/main/i/initramfs-tools/initramfs-tools_0.148.3_all.deb",
+      "key": "initramfs-tools_0.148.3_all",
+      "name": "initramfs-tools",
+      "sha256": "2a5e26c0ccf56e117f8dc850e8bf36f3a89dfe468449356eaad70390bbce9e2c",
+      "size": 17256,
+      "urls": [
+        "https://snapshot.debian.org/archive/debian/20250814T000000Z/pool/main/i/initramfs-tools/initramfs-tools_0.148.3_all.deb"
+      ],
+      "version": "0.148.3"
+    },
+    {
+      "arch": "amd64",
+      "dependencies": [
+        {
+          "key": "linux-base_4.12_all",
+          "name": "linux-base",
+          "version": "4.12"
+        },
+        {
+          "key": "kmod_34.2-2_amd64",
+          "name": "kmod",
+          "version": "34.2-2"
+        },
+        {
+          "key": "initramfs-tools_0.148.3_all",
+          "name": "initramfs-tools",
+          "version": "0.148.3"
+        }
+      ],
+      "filename": "pool/main/l/linux-signed-amd64/linux-image-6.12.38+deb13-amd64_6.12.38-1_amd64.deb",
+      "key": "linux-image-6.12.38-p-deb13-amd64_6.12.38-1_amd64",
+      "name": "linux-image-6.12.38+deb13-amd64",
+      "sha256": "b26d5dfa9086543ff5f29c4513faf7912a3f6e56418c4a35ce4b2e098a61f5df",
+      "size": 109173996,
+      "urls": [
+        "https://snapshot.debian.org/archive/debian/20250814T000000Z/pool/main/l/linux-signed-amd64/linux-image-6.12.38+deb13-amd64_6.12.38-1_amd64.deb"
+      ],
+      "version": "6.12.38-1"
+    },
+    {
+      "arch": "amd64",
+      "dependencies": [
+        {
+          "key": "linux-image-6.12.38-p-deb13-amd64_6.12.38-1_amd64",
+          "name": "linux-image-6.12.38+deb13-amd64",
+          "version": "6.12.38-1"
+        }
+      ],
+      "filename": "pool/main/l/linux-signed-amd64/linux-image-amd64_6.12.38-1_amd64.deb",
+      "key": "linux-image-amd64_6.12.38-1_amd64",
+      "name": "linux-image-amd64",
+      "sha256": "29740d3426a77a485d5d0f472dfd50897e89b4108a5e81a66456b621081e864e",
+      "size": 1476,
+      "urls": [
+        "https://snapshot.debian.org/archive/debian/20250814T000000Z/pool/main/l/linux-signed-amd64/linux-image-amd64_6.12.38-1_amd64.deb"
+      ],
+      "version": "6.12.38-1"
     }
   ],
   "repository": {
