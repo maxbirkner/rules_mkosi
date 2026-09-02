@@ -5,6 +5,7 @@ import argparse
 import json
 import os
 import pathlib
+import posixpath
 import shutil
 
 _EPOCH = (0, 0)
@@ -21,15 +22,25 @@ def _normalise_relative(path):
 
 def _check_link(source_path, root):
     link_target = os.readlink(source_path)
-    if os.path.isabs(link_target):
-        raise ValueError("absolute symlink in declared tree: {}".format(source_path))
+    if (
+        not link_target
+        or "\\" in link_target
+        or link_target.startswith("/")
+        or link_target.endswith("/")
+        or posixpath.normpath(link_target) != link_target
+    ):
+        raise ValueError(
+            "symlink target is not canonical POSIX relative syntax: {}".format(
+                source_path
+            )
+        )
     resolved = (source_path.parent / link_target).resolve()
     if not resolved.is_relative_to(root) or not resolved.exists():
         raise ValueError("symlink escapes or is dangling in declared tree: {}".format(source_path))
     return link_target
 
 
-def _tree_entries(source, destination, owner):
+def _tree_entries(source, destination, owner, generated=False):
     """Returns every entry in a declared tree before touching the output."""
     source = source.resolve()
     if not source.is_dir():
@@ -45,8 +56,18 @@ def _tree_entries(source, destination, owner):
             source_path = pathlib.Path(item.path)
             child = "/".join(part for part in (destination, relative, item.name) if part)
             if item.is_symlink():
-                link_target = _check_link(source_path, source)
-                entries[child] = (owner, "symlink", source_path, link_target)
+                link_target = os.readlink(source_path)
+                if generated and os.path.isabs(link_target):
+                    if not source_path.resolve().is_file():
+                        raise ValueError(
+                            "generated tree transport link is not a file: {}".format(
+                                source_path
+                            )
+                        )
+                    entries[child] = (owner, "file", source_path.resolve(), None)
+                else:
+                    link_target = _check_link(source_path, source)
+                    entries[child] = (owner, "symlink", source_path, link_target)
             elif item.is_dir(follow_symlinks=False):
                 entries[child] = (owner, "directory", source_path, None)
                 visit(source_path, "/".join(part for part in (relative, item.name) if part))
@@ -82,12 +103,17 @@ def _manifest(mappings):
         canonical_sources[canonical] = source
         destination = "" if destination_string == "." else _normalise_relative(destination_string)
         owner = "{} -> {}".format(source, destination or ".")
-        if role == "tree" and not source.is_dir():
+        if role in ("tree", "generated-tree") and not source.is_dir():
             raise ValueError("source-tree mapping must be a directory: {}".format(source))
         if role == "file" and not source.is_file():
             raise ValueError("file mapping must be a regular file: {}".format(source))
-        if role == "tree":
-            current = _tree_entries(source, destination, owner)
+        if role in ("tree", "generated-tree"):
+            current = _tree_entries(
+                source,
+                destination,
+                owner,
+                generated=role == "generated-tree",
+            )
         elif role == "file":
             path = destination
             if not path:
@@ -106,6 +132,13 @@ def _manifest(mappings):
         # This catches file/dir collisions even when one side is empty.
         for prior_path, prior in entries.items():
             if prior[0] == owner or not destination or not prior_path:
+                continue
+            config_directory_contains_mapping = (
+                destination.startswith(prior_path + "/")
+                and prior[1] == "directory"
+                and prior[0].endswith(" -> .")
+            )
+            if config_directory_contains_mapping:
                 continue
             if (
                 destination == prior_path
@@ -134,7 +167,9 @@ def _manifest(mappings):
                 raise ValueError("staged symlink escapes output root: {}".format(path))
             target_path = "/".join(normalised.parts)
             target_entry = entries.get(target_path)
-            if target_entry is not None and target_entry[0] != entry[0]:
+            if target_entry is None:
+                raise ValueError("staged symlink is dangling at '{}'".format(path))
+            if target_entry[0] != entry[0]:
                 raise ValueError("staged symlink aliases another mapping at '{}'".format(path))
     return entries
 

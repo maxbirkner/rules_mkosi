@@ -39,6 +39,11 @@ release mode; runtime validates it against resolved `SourceDateEpoch=`.
 preserves valid roles, and rejects traversal, aliases, collisions, and
 untyped values.
 
+<!-- behavior:BHV-IMAGE-ROOTFS-PAYLOADS -->
+`rootfs_payloads` installs typed Bazel files and trees at normalized absolute
+image paths, preserves declared executable and relative-symlink intent, and
+rejects aliases, collisions, traversal, and unsafe links.
+
 <!-- behavior:BHV-TREE-SRC -->
 `mkosi_config_tree.src` and `mkosi_source_tree.src` each resolve to exactly one
 declared file or directory artifact and produce their typed provider.

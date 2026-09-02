@@ -140,12 +140,18 @@ def _materialize_tree(source, destination, executable_paths=()):
     copy_tree(source_root, destination, Path())
 
 
-def _restore_manifest_links(destination, manifest_path):
+def _restore_manifest_links(destination, manifest_path, path_prefix=""):
     entries = json.loads(Path(manifest_path).read_text())
     for entry in entries:
         if entry["kind"] != "symlink":
             continue
-        relative = Path(entry["path"])
+        entry_path = entry["path"]
+        if path_prefix:
+            prefix = path_prefix.rstrip("/") + "/"
+            if not entry_path.startswith(prefix):
+                continue
+            entry_path = entry_path[len(prefix) :]
+        relative = Path(entry_path)
         if relative.is_absolute() or ".." in relative.parts:
             raise SystemExit("invalid staging manifest path")
         target = destination / relative
@@ -277,6 +283,7 @@ def _validate_release_configuration(
     release_codename,
     release_snapshot,
     allowed_paths,
+    allowed_extra_tree=None,
 ):
     expected_seed = uuid.UUID(release_seed)
     allowed_roots = [Path(path).resolve() for path in allowed_paths]
@@ -307,6 +314,15 @@ def _validate_release_configuration(
                     release_source_date_epoch
                 )
             )
+        extra_trees = getattr(config, "extra_trees", ())
+        if extra_trees and (
+            allowed_extra_tree is None
+            or any(
+                Path(tree.source).resolve() != allowed_extra_tree
+                for tree in extra_trees
+            )
+        ):
+            raise SystemExit("release configuration extra_trees is not supported")
         for name in (
             "kernel_modules_include",
             "kernel_modules_initrd_include",
@@ -337,7 +353,6 @@ def _validate_release_configuration(
             "postoutput_scripts",
             "configure_scripts",
             "clean_scripts",
-            "extra_trees",
             "microcode_host",
             "kernel_modules_include_host",
             "kernel_modules_initrd_include_host",
@@ -369,6 +384,7 @@ def _activate_release_mode(
     release_codename,
     release_snapshot,
     allowed_paths,
+    allowed_extra_tree,
 ):
     """Mount a long Bazel path at mkosi's stable in-sandbox repository path."""
     from pathlib import Path
@@ -449,6 +465,7 @@ def _activate_release_mode(
                 release_codename,
                 release_snapshot,
                 allowed_paths,
+                allowed_extra_tree,
             )
             validate_initial_configuration[0] = False
             return (parsed[0], parsed[1], images)
@@ -663,6 +680,9 @@ def main():
             release_codename,
             release_snapshot,
             allowed_paths,
+            (materialized / "mkosi.extra").resolve()
+            if (materialized / "mkosi.extra").is_dir()
+            else None,
         )
     if release_child:
         sys.argv[:] = [script] + arguments

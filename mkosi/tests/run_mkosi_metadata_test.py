@@ -122,6 +122,23 @@ def main():
         "20250814T000000Z",
         [root],
     )
+    safe_extra = root / "mkosi.extra"
+    wrapper._validate_release_configuration(
+        [
+            types.SimpleNamespace(
+                seed=uuid.UUID(seed),
+                source_date_epoch=0,
+                extra_trees=[types.SimpleNamespace(source=safe_extra)],
+            )
+        ],
+        seed,
+        0,
+        "debian",
+        "trixie",
+        "20250814T000000Z",
+        [root],
+        safe_extra,
+    )
     for configuration, message in (
         (types.SimpleNamespace(seed=uuid.uuid4(), source_date_epoch=0), "Seed"),
         (types.SimpleNamespace(seed=uuid.UUID(seed), source_date_epoch=None), "SourceDateEpoch"),

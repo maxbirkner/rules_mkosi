@@ -1,0 +1,5 @@
+[Unit]
+Description=Payload example
+
+[Service]
+ExecStart=/usr/local/bin/example

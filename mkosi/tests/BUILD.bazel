@@ -449,9 +449,11 @@ sh_test(
         "$(rootpath //mkosi/private:stage_inputs.py)",
         "$(rootpath testdata/config-tree)",
         "$(rootpath testdata/source-tree)",
+        "$(rootpath testdata/rootfs-payload)",
     ],
     data = [
         "testdata/config-tree",
+        "testdata/rootfs-payload",
         "testdata/source-tree",
         "//mkosi/private:stage_inputs.py",
         "@mkosi_toolchains//:mkosi_python",
