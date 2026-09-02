@@ -2,6 +2,7 @@
 
 import os
 import errno
+import lzma
 import pathlib
 import re
 import struct
@@ -25,6 +26,8 @@ BLOCKLIST_OFFSET = 0x1B0
 BLOCKLIST_LAST = 0x1F4
 BLOCKLIST_END = 0x200
 REQUIRED_MODULES = ("normal", "biosdisk", "part_gpt", "ext2", "linux")
+MAX_CORE_COMPRESSED = 16 * 1024 * 1024
+MAX_CORE_UNCOMPRESSED = 64 * 1024 * 1024
 MAX_ROOT_BYTES = 4 * 1024 * 1024 * 1024
 ESP = "c12a7328-f81f-11d2-ba4b-00a0c93ec93b"
 
@@ -58,7 +61,98 @@ def _same_except(actual, reference, patches, diagnostic):
         raise AssertionError("{}: {}".format(diagnostic, detail))
 
 
-def validate_boot_regions(image, metadata, boot_reference, diskboot_reference, decompressor_reference):
+def _validate_protective_mbr(mbr, last_lba):
+    entries = [struct.unpack_from("<B3sB3sII", mbr, 0x1BE + index * 16) for index in range(4)]
+    protective = [entry for entry in entries if entry[2] == 0xEE]
+    if len(protective) != 1:
+        raise AssertionError("MBR must contain exactly one protective GPT entry")
+    status, _, _, _, start, count = protective[0]
+    if status != 0:
+        raise AssertionError("protective GPT entry must not be active")
+    if start != 1:
+        raise AssertionError("protective GPT entry must start at LBA 1")
+    expected = min(last_lba, 0xFFFFFFFF)
+    if count != expected:
+        raise AssertionError("protective GPT entry does not cover the disk")
+    for entry in entries:
+        if entry is protective[0]:
+            continue
+        if entry != (0, b"\0\0\0", 0, b"\0\0\0", 0, 0):
+            raise AssertionError("hybrid MBR partition entries are not allowed")
+
+
+def _validate_core(linked, decompressor_reference, kernel_reference, module_references):
+    if len(linked) < len(decompressor_reference):
+        raise AssertionError("GRUB linked core image is shorter than its decompressor")
+    _same_except(
+        linked[: len(decompressor_reference)],
+        decompressor_reference,
+        ((0x08, 0x1C),),
+        "GRUB linked core decompressor invariant bytes differ",
+    )
+    compressed_size, uncompressed_size, redundancy = struct.unpack_from("<III", linked, 0x08)
+    no_rs_length = struct.unpack_from("<H", linked, 0x14)[0]
+    if not 0 < compressed_size <= MAX_CORE_COMPRESSED:
+        raise AssertionError("GRUB core compressed payload size is invalid")
+    if not 0 < uncompressed_size <= MAX_CORE_UNCOMPRESSED:
+        raise AssertionError("GRUB core uncompressed payload size is invalid")
+    payload_start = len(decompressor_reference)
+    payload_end = payload_start + compressed_size
+    if payload_end > len(linked):
+        raise AssertionError("GRUB core compressed stream is truncated")
+    if no_rs_length != payload_start:
+        raise AssertionError("GRUB core Reed-Solomon boundary is invalid")
+    if payload_end + redundancy != len(linked):
+        raise AssertionError("GRUB core payload has ambiguous trailing bytes")
+    try:
+        decoder = lzma.LZMADecompressor(
+            format=lzma.FORMAT_RAW,
+            filters=[{"id": lzma.FILTER_LZMA1, "dict_size": 1 << 16, "lc": 3, "lp": 0, "pb": 2}],
+        )
+        expanded = decoder.decompress(bytes(linked[payload_start:payload_end]), max_length=uncompressed_size + 1)
+    except lzma.LZMAError as error:
+        raise AssertionError("GRUB core compressed stream is invalid") from error
+    if not decoder.eof or decoder.unused_data or len(expanded) != uncompressed_size:
+        raise AssertionError("GRUB core compressed stream integrity check failed")
+    if not expanded.startswith(kernel_reference):
+        raise AssertionError("GRUB core kernel invariant content differs")
+
+    offset = len(kernel_reference)
+    if offset + 12 > len(expanded):
+        raise AssertionError("GRUB core module information is truncated")
+    magic, first, total = struct.unpack_from("<III", expanded, offset)
+    if magic != 0x676D696D or first != 12 or total != len(expanded) - offset:
+        raise AssertionError("GRUB core module information is invalid")
+    cursor = offset + first
+    embedded = set()
+    config = None
+    while cursor < offset + total:
+        if cursor + 8 > len(expanded):
+            raise AssertionError("GRUB core module record is truncated")
+        kind, record_size = struct.unpack_from("<II", expanded, cursor)
+        if record_size < 8 or record_size > offset + total - cursor:
+            raise AssertionError("GRUB core module record size is invalid")
+        content = expanded[cursor + 8:cursor + record_size]
+        if kind == 0:
+            for name, reference in module_references.items():
+                if content[:len(reference)] == reference and not any(content[len(reference):]):
+                    embedded.add(name)
+                    break
+        elif kind == 2:
+            if config is not None:
+                raise AssertionError("GRUB core contains multiple embedded configurations")
+            config = content.rstrip(b"\0").decode("utf-8", "strict")
+        cursor += (record_size + 3) & ~3
+    if cursor != offset + total:
+        raise AssertionError("GRUB core module records have invalid alignment")
+    missing = set(REQUIRED_MODULES) - embedded
+    if missing:
+        raise AssertionError("GRUB core required embedded module is missing: " + sorted(missing)[0])
+    if config is None or "search --no-floppy --set=root --file /grub/grub.cfg" not in config:
+        raise AssertionError("GRUB core embedded configuration is missing or invalid")
+
+
+def validate_boot_regions(image, metadata, boot_reference, diskboot_reference, decompressor_reference, kernel_reference, module_references):
     bios = [p for p in metadata["partitions"] if p["type_guid"] == partition_metadata.BIOS_BOOT]
     if len(bios) != 1:
         raise AssertionError("unique GPT BIOS boot partition is missing")
@@ -73,7 +167,15 @@ def validate_boot_regions(image, metadata, boot_reference, diskboot_reference, d
         mbr = source.read(SECTOR)
         if len(mbr) != SECTOR or mbr[510:512] != b"\x55\xaa":
             raise AssertionError("BIOS MBR signature is missing")
-        _same_except(mbr, boot_reference, BOOT_PATCHES + ((0x1B8, SECTOR),), "GRUB MBR invariant bytes differ from pinned boot.img")
+        source.seek(0, os.SEEK_END)
+        last_lba = source.tell() // SECTOR - 1
+        _validate_protective_mbr(mbr, last_lba)
+        _same_except(
+            mbr,
+            boot_reference,
+            BOOT_PATCHES + ((0x1B8, 0x1BE), (0x1BE, 0x1FE)),
+            "GRUB MBR invariant bytes differ from pinned boot.img",
+        )
         source.seek(start)
         diskboot = source.read(SECTOR)
         if len(diskboot) != SECTOR:
@@ -101,18 +203,7 @@ def validate_boot_regions(image, metadata, boot_reference, diskboot_reference, d
             linked.extend(data)
         if not saw_terminator or not linked:
             raise AssertionError("GRUB diskboot blocklist is empty or unterminated")
-        # grub-core/boot/i386/pc/startup_raw.S and include/grub/offsets.h:
-        # mkimage patches compressed/uncompressed sizes at 0x08/0x0c,
-        # Reed-Solomon sizes at 0x10/0x14, and boot device at 0x18. These
-        # GRUB 2.12 offsets are declared in include/grub/offsets.h.
-        if len(linked) < len(decompressor_reference):
-            raise AssertionError("GRUB linked core image is shorter than its decompressor")
-        _same_except(
-            linked[: len(decompressor_reference)],
-            decompressor_reference,
-            ((0x08, 0x1C),),
-            "GRUB linked core decompressor invariant bytes differ",
-        )
+        _validate_core(linked, decompressor_reference, kernel_reference, module_references)
 
 
 def _debugfs(launcher, root, command):
@@ -306,6 +397,8 @@ def main():
         _reference(archive, "boot.img", SECTOR),
         _reference(archive, "diskboot.img", SECTOR),
         _reference(archive, "lzma_decompress.img"),
+        _reference(archive, "kernel.img"),
+        {name: _reference(archive, name + ".mod") for name in REQUIRED_MODULES},
     )
     root = pathlib.Path(os.environ["TEST_TMPDIR"]) / "root.ext4"
     esp = pathlib.Path(os.environ["TEST_TMPDIR"]) / "esp.fat"
