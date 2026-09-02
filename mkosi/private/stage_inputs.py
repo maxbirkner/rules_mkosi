@@ -5,6 +5,7 @@ import argparse
 import json
 import os
 import pathlib
+import posixpath
 import shutil
 
 _EPOCH = (0, 0)
@@ -21,8 +22,18 @@ def _normalise_relative(path):
 
 def _check_link(source_path, root):
     link_target = os.readlink(source_path)
-    if os.path.isabs(link_target):
-        raise ValueError("absolute symlink in declared tree: {}".format(source_path))
+    if (
+        not link_target
+        or "\\" in link_target
+        or link_target.startswith("/")
+        or link_target.endswith("/")
+        or posixpath.normpath(link_target) != link_target
+    ):
+        raise ValueError(
+            "symlink target is not canonical POSIX relative syntax: {}".format(
+                source_path
+            )
+        )
     resolved = (source_path.parent / link_target).resolve()
     if not resolved.is_relative_to(root) or not resolved.exists():
         raise ValueError("symlink escapes or is dangling in declared tree: {}".format(source_path))

@@ -89,6 +89,29 @@ def _rootfs_payload_public_api_test_impl(ctx):
 
 rootfs_payload_public_api_test = analysistest.make(_rootfs_payload_public_api_test_impl)
 
+def _generated_payload_tree_impl(ctx):
+    output = ctx.actions.declare_directory(ctx.label.name)
+    ctx.actions.run(
+        executable = ctx.executable.generator,
+        arguments = [output.path],
+        inputs = ctx.attr.generator[DefaultInfo].default_runfiles.files,
+        tools = [ctx.attr.generator[DefaultInfo].files_to_run],
+        outputs = [output],
+        mnemonic = "GenerateConsumerPayloadTree",
+    )
+    return [DefaultInfo(files = depset([output]))]
+
+generated_payload_tree = rule(
+    implementation = _generated_payload_tree_impl,
+    attrs = {
+        "generator": attr.label(
+            mandatory = True,
+            cfg = "exec",
+            executable = True,
+        ),
+    },
+)
+
 def _image_build_metadata_file_impl(ctx):
     """Selects metadata through MkosiImageInfo rather than output names."""
     metadata = ctx.attr.image[MkosiImageInfo].build_metadata

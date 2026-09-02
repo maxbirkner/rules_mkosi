@@ -11,11 +11,12 @@ load(
     "qemu_ovmf_boot_test",
     "qemu_ovmf_smoke_test",
 )
-load("@rules_python//python:defs.bzl", "py_runtime", "py_runtime_pair", "py_test")
+load("@rules_python//python:defs.bzl", "py_binary", "py_runtime", "py_runtime_pair", "py_test")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
 load(
     ":public_api_test.bzl",
     "behavior_targets",
+    "generated_payload_tree",
     "image_build_metadata_file",
     "image_partition_metadata_file",
     "image_public_api_test",
@@ -51,7 +52,7 @@ behavior_targets(
         ":release_demo_build_test",
         ":release_demo_partition_metadata_test",
         ":release_demo_reproducibility_test",
-        ":rootfs_payload_public_api_test",
+        ":release_demo_rootfs_payload_test",
         ":tree_demo_build_test",
         ":tree_demo_semantics_test",
     ],
@@ -148,6 +149,55 @@ mkosi_image(
     mode = "release",
     release_seed = "00000000-0000-4000-8000-000000000015",
     release_source_date_epoch = 0,
+    rootfs_payloads = [
+        ":payload_binary",
+        ":payload_home_tree",
+        ":payload_service",
+        ":payload_sysusers",
+        ":payload_tmpfiles",
+    ],
+)
+
+py_binary(
+    name = "payload_tree_generator",
+    srcs = ["generate_payload_tree.py"],
+    main = "generate_payload_tree.py",
+)
+
+generated_payload_tree(
+    name = "generated_payload_tree",
+    generator = ":payload_tree_generator",
+)
+
+mkosi_rootfs_payload(
+    name = "payload_binary",
+    src = "testdata/payload/example",
+    destination = "/usr/local/bin/example",
+    executable_paths = [""],
+)
+
+mkosi_rootfs_payload(
+    name = "payload_service",
+    src = "testdata/payload/example.service",
+    destination = "/usr/lib/systemd/system/example.service",
+)
+
+mkosi_rootfs_payload(
+    name = "payload_sysusers",
+    src = "testdata/payload/example.sysusers",
+    destination = "/usr/lib/sysusers.d/example.conf",
+)
+
+mkosi_rootfs_payload(
+    name = "payload_tmpfiles",
+    src = "testdata/payload/example.tmpfiles",
+    destination = "/usr/lib/tmpfiles.d/example.conf",
+)
+
+mkosi_rootfs_payload(
+    name = "payload_home_tree",
+    src = ":generated_payload_tree",
+    destination = "/etc/skel",
 )
 
 mkosi_config_tree(
@@ -393,6 +443,22 @@ sh_test(
         ":release_demo_raw",
         "@mkosi_debian_python//:python",
     ],
+)
+
+py_test(
+    name = "release_demo_rootfs_payload_test",
+    srcs = ["rootfs_payload_artifact_test.py"],
+    args = [
+        "$(rootpath :release_demo_raw)",
+        "$(rootpath :release_demo_partition_metadata)",
+        "$(rootpath @mkosi_debian_tools//:launcher)",
+    ],
+    data = [
+        ":release_demo_partition_metadata",
+        ":release_demo_raw",
+        "@mkosi_debian_tools//:launcher",
+    ],
+    main = "rootfs_payload_artifact_test.py",
 )
 
 sh_test(

@@ -37,6 +37,22 @@ expect_failure "$root/escape" \
     --mapping "$root/source" src tree
 rm "$root/source/escape"
 
+for alias_target in "subdir/../file" "subdir//file" "./file" "subdir/" 'subdir\file'
+do
+    ln -s "$alias_target" "$root/source/noncanonical"
+    expect_failure "$root/noncanonical" \
+        --mapping "$root/config" . tree \
+        --mapping "$root/source" src tree
+    rm "$root/source/noncanonical"
+done
+
+mkdir "$root/source/subdir"
+ln -s ../file "$root/source/subdir/sibling"
+"$python" "$stage_script" --output "$root/canonical-parent" \
+    --mapping "$root/config" . tree \
+    --mapping "$root/source" src tree
+test "$(readlink "$root/canonical-parent/src/subdir/sibling")" = ../file
+
 ln -s sub/file "$root/config/alias"
 expect_failure "$root/alias-prefix" \
     --mapping "$root/config" . tree \
