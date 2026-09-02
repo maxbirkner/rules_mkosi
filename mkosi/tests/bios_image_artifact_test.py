@@ -149,8 +149,12 @@ def _mtype(launcher, esp):
         env=environment, capture_output=True, check=False, text=True,
     )
     configs = [line.strip() for line in listing.stdout.splitlines() if line.strip().lower().endswith("/grub.cfg")]
-    if listing.returncode or len(configs) != 1:
-        raise AssertionError("GRUB ESP must contain one grub.cfg: " + listing.stdout + listing.stderr)
+    if listing.returncode:
+        raise AssertionError("GRUB ESP listing failed: " + listing.stdout + listing.stderr)
+    if not configs:
+        return None
+    if len(configs) != 1:
+        raise AssertionError("GRUB ESP contains multiple grub.cfg files: " + listing.stdout)
     invocation += 1
     environment["MKOSI_DEBIAN_TOOLS_SCRATCH"] = os.path.join(
         os.environ["TEST_TMPDIR"], "bios-mtype-{}".format(invocation)
@@ -199,8 +203,7 @@ def _extract_root(image, metadata, destination):
                 position += len(chunk)
 
 
-def _extract_esp(image, metadata, destination):
-    esp = next(p for p in metadata["partitions"] if p["type_guid"] == ESP)
+def _extract_esp(image, esp, destination):
     if esp["size_bytes"] > 128 * 1024 * 1024:
         raise AssertionError("ESP exceeds inspection resource limit")
     with image.open("rb") as source, destination.open("wb") as output:
@@ -275,7 +278,18 @@ def main():
     esp = pathlib.Path(os.environ["TEST_TMPDIR"]) / "esp.fat"
     try:
         _extract_root(image, metadata, root)
-        config = _debugfs(launcher, root, "cat /efi/grub/grub.cfg")
+        config = None
+        for index, partition in enumerate(p for p in metadata["partitions"] if p["type_guid"] == ESP):
+            candidate = esp.with_name("esp-{}.fat".format(index))
+            _extract_esp(image, partition, candidate)
+            try:
+                config = _mtype(launcher, candidate)
+            finally:
+                candidate.unlink(missing_ok=True)
+            if config is not None:
+                break
+        if config is None:
+            config = _debugfs(launcher, root, "cat /efi/grub/grub.cfg")
         uncommented = "\n".join(line.split("#", 1)[0] for line in config.splitlines())
         menu_paths = set(re.findall(r"(?m)^\s*(?:linux|linux16|initrd|initrd16)\s+(\S+)", uncommented))
         entries = {
