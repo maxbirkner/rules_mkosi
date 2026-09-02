@@ -144,8 +144,19 @@ def _mtype(launcher, esp):
         "MKOSI_DEBIAN_TOOLS_SCRATCH": os.path.join(os.environ["TEST_TMPDIR"], "bios-mtype-{}".format(invocation)),
         "PATH": "",
     })
+    listing = subprocess.run(
+        [launcher, "--ro-bind", "{}:/inputs/esp.fat".format(esp), "/usr/bin/mdir", "-i", "/inputs/esp.fat", "-b", "-s", "::"],
+        env=environment, capture_output=True, check=False, text=True,
+    )
+    configs = [line.strip() for line in listing.stdout.splitlines() if line.strip().lower().endswith("/grub.cfg")]
+    if listing.returncode or len(configs) != 1:
+        raise AssertionError("GRUB ESP must contain one grub.cfg: " + listing.stdout + listing.stderr)
+    invocation += 1
+    environment["MKOSI_DEBIAN_TOOLS_SCRATCH"] = os.path.join(
+        os.environ["TEST_TMPDIR"], "bios-mtype-{}".format(invocation)
+    )
     result = subprocess.run(
-        [launcher, "--ro-bind", "{}:/inputs/esp.fat".format(esp), "/usr/bin/mtype", "-i", "/inputs/esp.fat", "::/grub/grub.cfg"],
+        [launcher, "--ro-bind", "{}:/inputs/esp.fat".format(esp), "/usr/bin/mtype", "-i", "/inputs/esp.fat", configs[0]],
         env=environment, capture_output=True, check=False, text=True,
     )
     if result.returncode:
