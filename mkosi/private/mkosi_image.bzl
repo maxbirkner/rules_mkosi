@@ -28,6 +28,7 @@ MkosiConfigTreeInfo = provider(
     fields = {
         "tree": "The declared configuration directory artifact.",
         "executable_paths": "Relative paths that must retain executable mode.",
+        "is_generated": "Whether the tree is a generated TreeArtifact.",
     },
 )
 
@@ -36,6 +37,7 @@ MkosiSourceTreeInfo = provider(
     fields = {
         "tree": "The declared source directory artifact.",
         "executable_paths": "Relative paths that must retain executable mode.",
+        "is_generated": "Whether the tree is a generated TreeArtifact.",
     },
 )
 
@@ -46,6 +48,7 @@ MkosiRootfsPayloadInfo = provider(
         "destination": "Normalized absolute destination inside the image root.",
         "executable_paths": "Relative tree paths, or an empty string for a file, that must be executable.",
         "is_tree": "Whether artifact is a directory whose contents are installed at destination.",
+        "is_generated": "Whether artifact is generated rather than a source artifact.",
     },
 )
 
@@ -55,7 +58,11 @@ def _tree_target_impl(ctx, info):
         fail("{} must resolve to exactly one directory artifact".format(ctx.label))
     return [
         DefaultInfo(files = depset(files)),
-        info(tree = files[0], executable_paths = ctx.attr.executable_paths),
+        info(
+            tree = files[0],
+            executable_paths = ctx.attr.executable_paths,
+            is_generated = not files[0].is_source,
+        ),
     ]
 
 mkosi_config_tree = rule(
@@ -104,6 +111,7 @@ def _rootfs_payload_impl(ctx):
             artifact = artifact,
             destination = destination,
             executable_paths = executable_paths,
+            is_generated = not artifact.is_source,
             is_tree = is_tree,
         ),
     ]
@@ -235,17 +243,27 @@ def _stage_inputs(ctx, config, config_is_directory, source_trees, rootfs_payload
     mappings = []
 
     if config_is_directory:
-        mappings.append((config.path, ".", "tree"))
+        mappings.append((
+            config.path,
+            ".",
+            "generated-tree" if ctx.attr.config_tree[MkosiConfigTreeInfo].is_generated else "tree",
+        ))
     else:
         mappings.append((config.path, config.basename, "file"))
 
     for destination in sorted(source_trees):
-        mappings.append((source_trees[destination].tree.path, destination, "tree"))
+        mappings.append((
+            source_trees[destination].tree.path,
+            destination,
+            "generated-tree" if source_trees[destination].is_generated else "tree",
+        ))
     for payload in rootfs_payloads:
         mappings.append((
             payload.artifact.path,
             "mkosi.extra" + payload.destination,
-            "tree" if payload.is_tree else "file",
+            (
+                "generated-tree" if payload.is_tree and payload.is_generated else "tree" if payload.is_tree else "file"
+            ),
         ))
 
     executable_paths = []

@@ -40,7 +40,7 @@ def _check_link(source_path, root):
     return link_target
 
 
-def _tree_entries(source, destination, owner):
+def _tree_entries(source, destination, owner, generated=False):
     """Returns every entry in a declared tree before touching the output."""
     source = source.resolve()
     if not source.is_dir():
@@ -56,8 +56,18 @@ def _tree_entries(source, destination, owner):
             source_path = pathlib.Path(item.path)
             child = "/".join(part for part in (destination, relative, item.name) if part)
             if item.is_symlink():
-                link_target = _check_link(source_path, source)
-                entries[child] = (owner, "symlink", source_path, link_target)
+                link_target = os.readlink(source_path)
+                if generated and os.path.isabs(link_target):
+                    if not source_path.resolve().is_file():
+                        raise ValueError(
+                            "generated tree transport link is not a file: {}".format(
+                                source_path
+                            )
+                        )
+                    entries[child] = (owner, "file", source_path.resolve(), None)
+                else:
+                    link_target = _check_link(source_path, source)
+                    entries[child] = (owner, "symlink", source_path, link_target)
             elif item.is_dir(follow_symlinks=False):
                 entries[child] = (owner, "directory", source_path, None)
                 visit(source_path, "/".join(part for part in (relative, item.name) if part))
@@ -93,12 +103,17 @@ def _manifest(mappings):
         canonical_sources[canonical] = source
         destination = "" if destination_string == "." else _normalise_relative(destination_string)
         owner = "{} -> {}".format(source, destination or ".")
-        if role == "tree" and not source.is_dir():
+        if role in ("tree", "generated-tree") and not source.is_dir():
             raise ValueError("source-tree mapping must be a directory: {}".format(source))
         if role == "file" and not source.is_file():
             raise ValueError("file mapping must be a regular file: {}".format(source))
-        if role == "tree":
-            current = _tree_entries(source, destination, owner)
+        if role in ("tree", "generated-tree"):
+            current = _tree_entries(
+                source,
+                destination,
+                owner,
+                generated=role == "generated-tree",
+            )
         elif role == "file":
             path = destination
             if not path:
