@@ -109,7 +109,9 @@ def _validate_core(linked, decompressor_reference, kernel_reference, module_refe
             format=lzma.FORMAT_RAW,
             filters=[{"id": lzma.FILTER_LZMA1, "dict_size": 1 << 16, "lc": 3, "lp": 0, "pb": 2}],
         )
-        expanded = decoder.decompress(bytes(linked[payload_start:payload_end]), max_length=uncompressed_size + 1)
+        # GRUB passes this exact size to its raw decoder; without an EOS marker
+        # LZMA may otherwise expose padding as one additional output byte.
+        expanded = decoder.decompress(bytes(linked[payload_start:payload_end]), max_length=uncompressed_size)
     except lzma.LZMAError as error:
         raise AssertionError("GRUB core compressed stream is invalid") from error
     # GRUB's LzmaEncode call sets writeEndMark=0, so a valid raw stream has no
