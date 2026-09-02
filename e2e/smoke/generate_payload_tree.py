@@ -6,7 +6,7 @@ import sys
 
 root = pathlib.Path(sys.argv[1])
 generated = root / "generated.txt"
-root.mkdir(parents=True)
+root.mkdir(parents=True, exist_ok=True)
 generated.write_text("generated TreeArtifact payload\n")
 os.chmod(generated, 0o644)
 os.utime(generated, (0, 0))
