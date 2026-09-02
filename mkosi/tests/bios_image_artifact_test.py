@@ -14,8 +14,9 @@ from python.runfiles import runfiles
 
 SECTOR = 512
 # grub-core/boot/i386/pc/boot.S and include/grub/i386/pc/boot.h (GRUB 2.12):
-# setup patches the 64-bit kernel sector at 0x5c and boot drive at 0x64.
-BOOT_PATCHES = ((0x5C, 0x64), (0x64, 0x65))
+# setup patches the 64-bit kernel sector at 0x5c, boot drive at 0x64, and
+# GRUB_BOOT_MACHINE_FORCE_LBA at 0x65.
+BOOT_PATCHES = ((0x5C, 0x66),)
 # grub-core/boot/i386/pc/diskboot.S and include/grub/i386/pc/kernel.h:
 # the install-time blocklist is GRUB_BOOT_MACHINE_LIST_SIZE (12) byte entries,
 # beginning at GRUB_BOOT_MACHINE_LIST_OFFSET (0x1b0), through offset 0x1fc.
