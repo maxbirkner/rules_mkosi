@@ -405,6 +405,7 @@ def _activate_release_mode(
     original_parse_config = mkosi.config.parse_config
     original_parse_ini = mkosi.config.parse_ini
     original_install_extra_trees = mkosi.install_extra_trees
+    original_run_finalize_scripts = mkosi.run_finalize_scripts
     validate_initial_configuration = [True]
 
     def repositories(cls, context, for_image=False):
@@ -487,6 +488,15 @@ def _activate_release_mode(
                 path_prefix="mkosi.extra",
             )
 
+    def run_finalize_scripts(context):
+        original_run_finalize_scripts(context)
+        if staging_manifest:
+            _restore_manifest_links(
+                context.root,
+                staging_manifest,
+                path_prefix="mkosi.extra",
+            )
+
     def install_sandbox_trees(config, dst):
         (dst / "etc").mkdir(exist_ok=True)
 
@@ -541,6 +551,7 @@ def _activate_release_mode(
     mkosi.config.parse_config = parse_config
     mkosi.config.parse_ini = parse_ini
     mkosi.install_extra_trees = install_extra_trees
+    mkosi.run_finalize_scripts = run_finalize_scripts
     mkosi.distribution.debian.install_apt_sources = install_apt_sources
     mkosi.install_sandbox_trees = install_sandbox_trees
 
