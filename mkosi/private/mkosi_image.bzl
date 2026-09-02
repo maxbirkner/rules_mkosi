@@ -8,16 +8,24 @@ MkosiImageInfo = provider(
 Consumers select artifacts through these fields, never by inspecting
 DefaultInfo filenames. Every artifact field is either a File or None. The
 raw_image and build_metadata fields are present for every currently supported
-mkosi_image target; release images also provide partition_metadata. DefaultInfo
+mkosi_image target; release images also provide partition_metadata. Immutable
+UEFI release images additionally expose their UKI, split verity artifacts, and
+normalized metadata. DefaultInfo
 contains every non-None artifact field once.
 The image field is a compatibility alias for raw_image.
 """,
     fields = {
-        "format_version": "Stable MkosiImageInfo contract version, currently mkosi-image-v1.",
+        "format_version": "Stable MkosiImageInfo contract version, currently mkosi-image-v2.",
         "raw_image": "The raw disk image File, or None when an output mode does not produce one.",
         "manifest": "The mkosi manifest File, or None when manifest generation is disabled.",
         "partition_metadata": "Normalized, validated GPT partition metadata File for release images, or None.",
         "uki": "The Unified Kernel Image File, or None when no UKI is generated.",
+        "root_image": "Split root filesystem image, or None.",
+        "root_hash": "ASCII dm-verity root hash, or None.",
+        "root_hash_image": "Split dm-verity hash partition, or None.",
+        "root_hash_signature": "Split dm-verity signature partition, or None.",
+        "uki_metadata": "Normalized UKI section metadata, or None.",
+        "verity_metadata": "Normalized dm-verity linkage metadata, or None.",
         "build_metadata": "Normalized JSON build-metadata File describing this contract's output modes.",
         "firmware": "Selected firmware tier: uefi or bios.",
         "image": "Deprecated compatibility alias for raw_image; use raw_image in new consumers.",
@@ -151,13 +159,27 @@ def _mkosi_reproducibility_manifest_impl(ctx):
     args.add(image.build_metadata.path)
     args.add("--partition-metadata")
     args.add(image.partition_metadata.path)
+    split_artifacts = [
+        ("root_image", image.root_image),
+        ("root_hash", image.root_hash),
+        ("root_hash_image", image.root_hash_image),
+        ("uki", image.uki),
+        ("uki_metadata", image.uki_metadata),
+        ("verity_metadata", image.verity_metadata),
+    ]
+    for role, artifact in split_artifacts:
+        if artifact != None:
+            args.add("--artifact")
+            args.add(role)
+            args.add(artifact.path)
     args.add("--output")
     args.add(output.path)
     ctx.actions.run(
         executable = mkosi.python,
         arguments = [args],
         inputs = depset(
-            [image.raw_image, image.build_metadata, image.partition_metadata, ctx.file._partition_projector, ctx.file._projector],
+            [image.raw_image, image.build_metadata, image.partition_metadata, ctx.file._partition_projector, ctx.file._projector] +
+            [artifact for _, artifact in split_artifacts if artifact != None],
             transitive = [mkosi.python_runtime_files],
         ),
         tools = [mkosi.python_files_to_run],
@@ -222,6 +244,12 @@ def _image_default_info(
         manifest,
         partition_metadata,
         uki,
+        root_image,
+        root_hash,
+        root_hash_image,
+        root_hash_signature,
+        uki_metadata,
+        verity_metadata,
         build_metadata):
     """Returns the DefaultInfo projection of the MkosiImageInfo artifacts."""
     return DefaultInfo(
@@ -232,6 +260,12 @@ def _image_default_info(
                 manifest,
                 partition_metadata,
                 uki,
+                root_image,
+                root_hash,
+                root_hash_image,
+                root_hash_signature,
+                uki_metadata,
+                verity_metadata,
                 build_metadata,
             ]
             if artifact != None
@@ -370,12 +404,24 @@ def _mkosi_image_impl(ctx):
     debian_tools = ctx.toolchains["//mkosi/toolchain:debian_tools_toolchain_type"].debian_tools
     release_mode = ctx.attr.mode == "release"
     firmware = ctx.attr.firmware
+    uki_enabled = ctx.attr.unified_kernel_image == "unsigned"
+    verity_enabled = ctx.attr.verity == "hash"
     if ctx.attr.mode not in ("tracer", "release"):
         fail("mode must be either 'tracer' or 'release'")
     if firmware not in ("uefi", "bios"):
         fail("firmware must be either 'uefi' or 'bios'")
     if firmware == "bios" and not release_mode:
         fail("bios firmware requires release mode")
+    if firmware == "bios" and (uki_enabled or verity_enabled):
+        fail("UKI and dm-verity outputs require uefi firmware")
+    if ctx.attr.unified_kernel_image not in ("none", "unsigned"):
+        fail("unified_kernel_image must be 'none' or 'unsigned'; signing is tracked by #23")
+    if ctx.attr.verity not in ("none", "hash"):
+        fail("verity must be 'none' or 'hash'; signing is tracked by #23")
+    if (uki_enabled or verity_enabled) and not release_mode:
+        fail("UKI and dm-verity outputs are only supported in release mode")
+    if verity_enabled and not uki_enabled:
+        fail("verity='hash' requires unified_kernel_image='unsigned' so the root hash is linked into the UKI")
     if release_mode and not ctx.attr.debian_snapshot:
         fail("release mode requires debian_snapshot")
     if not release_mode and ctx.attr.debian_snapshot:
@@ -413,6 +459,13 @@ def _mkosi_image_impl(ctx):
         staging = _stage_inputs(ctx, config, config_is_directory, source_trees, rootfs_payloads)
 
     image = ctx.actions.declare_file(ctx.label.name + ".raw")
+    uki = ctx.actions.declare_file(ctx.label.name + ".efi") if uki_enabled else None
+    root_image = ctx.actions.declare_file(ctx.label.name + ".root.raw") if verity_enabled else None
+    root_hash = ctx.actions.declare_file(ctx.label.name + ".roothash") if verity_enabled else None
+    root_hash_image = ctx.actions.declare_file(ctx.label.name + ".root-verity.raw") if verity_enabled else None
+    root_hash_signature = None
+    uki_metadata = ctx.actions.declare_file(ctx.label.name + ".uki.json") if uki_enabled else None
+    verity_metadata = ctx.actions.declare_file(ctx.label.name + ".verity.json") if verity_enabled else None
     partition_metadata = (
         ctx.actions.declare_file(ctx.label.name + ".partitions.json") if release_mode else None
     )
@@ -506,7 +559,11 @@ def _mkosi_image_impl(ctx):
     arguments.add("--format=disk")
     arguments.add("--output-extension=raw")
     arguments.add("--compress-output=none")
-    arguments.add("--split-artifacts=")
+    arguments.add("--split-artifacts={}".format(
+        "uki,partitions,roothash" if verity_enabled else "uki" if uki_enabled else "",
+    ))
+    if uki_enabled:
+        arguments.add("--unified-kernel-images=unsigned")
     if firmware == "bios":
         arguments.add("--architecture=x86-64")
         arguments.add("--bootable=yes")
@@ -532,6 +589,8 @@ def _mkosi_image_impl(ctx):
     if not source_trees:
         arguments.add("--build-sources=")
     arguments.add("--no-pager")
+    if uki_enabled:
+        arguments.add("--debug")
     arguments.add("build")
 
     environment = {
@@ -563,7 +622,11 @@ def _mkosi_image_impl(ctx):
             mkosi.python_files_to_run,
             ctx.attr._kernel_preflight[DefaultInfo].files_to_run,
         ],
-        outputs = [image],
+        outputs = [image] + (
+            [uki] if uki_enabled else []
+        ) + (
+            [root_image, root_hash, root_hash_image] if verity_enabled else []
+        ),
         env = environment,
         execution_requirements = _execution_requirements(release_mode),
         mnemonic = "MkosiImage",
@@ -599,6 +662,59 @@ def _mkosi_image_impl(ctx):
             progress_message = "Projecting GPT metadata for %{label}",
         )
 
+    if uki_enabled:
+        uki_arguments = ctx.actions.args()
+        uki_arguments.add(ctx.file._uki_metadata.path)
+        uki_arguments.add("--uki")
+        uki_arguments.add(uki.path)
+        if root_hash:
+            uki_arguments.add("--root-hash")
+            uki_arguments.add(root_hash.path)
+        uki_arguments.add("--output")
+        uki_arguments.add(uki_metadata.path)
+        ctx.actions.run(
+            executable = mkosi.python,
+            arguments = [uki_arguments],
+            inputs = depset(
+                [ctx.file._uki_metadata, mkosi.pefile, uki] + ([root_hash] if root_hash else []),
+                transitive = [mkosi.python_runtime_files, mkosi.runfiles_files],
+            ),
+            tools = [mkosi.python_files_to_run],
+            outputs = [uki_metadata],
+            env = {
+                "PATH": "",
+                "PYTHONNOUSERSITE": "1",
+                "PYTHONPATH": pefile_root,
+            },
+            mnemonic = "MkosiUkiMetadata",
+        )
+
+    if verity_enabled:
+        verity_arguments = ctx.actions.args()
+        verity_arguments.add(ctx.file._verity_metadata.path)
+        verity_arguments.add("--root-hash")
+        verity_arguments.add(root_hash.path)
+        verity_arguments.add("--partition-metadata")
+        verity_arguments.add(partition_metadata.path)
+        verity_arguments.add("--root-image")
+        verity_arguments.add(root_image.path)
+        verity_arguments.add("--hash-image")
+        verity_arguments.add(root_hash_image.path)
+        verity_arguments.add("--output")
+        verity_arguments.add(verity_metadata.path)
+        ctx.actions.run(
+            executable = mkosi.python,
+            arguments = [verity_arguments],
+            inputs = depset(
+                [ctx.file._verity_metadata, root_hash, partition_metadata, root_image, root_hash_image],
+                transitive = [mkosi.python_runtime_files],
+            ),
+            tools = [mkosi.python_files_to_run],
+            outputs = [verity_metadata],
+            env = {"PATH": "", "PYTHONNOUSERSITE": "1"},
+            mnemonic = "MkosiVerityMetadata",
+        )
+
     # This projection deliberately records output roles and normalized mkosi
     # settings rather than deriving meaning from output filenames or binaries.
     metadata = {
@@ -607,13 +723,19 @@ def _mkosi_image_impl(ctx):
             "manifest": False,
             "partition_metadata": release_mode,
             "raw_image": True,
-            "uki": False,
+            "uki": uki_enabled,
+            "root_image": verity_enabled,
+            "root_hash": verity_enabled,
+            "root_hash_image": verity_enabled,
+            "root_hash_signature": False,
+            "uki_metadata": uki_enabled,
+            "verity_metadata": verity_enabled,
         },
         "format_version": "mkosi-image-build-metadata-v2",
         "mkosi": {
             "compression": "none",
             "format": "disk",
-            "split_artifacts": False,
+            "split_artifacts": verity_enabled or uki_enabled,
             "version": mkosi.version,
         },
         "mode": ctx.attr.mode,
@@ -644,15 +766,27 @@ def _mkosi_image_impl(ctx):
             raw_image = image,
             manifest = None,
             partition_metadata = partition_metadata,
-            uki = None,
+            uki = uki,
+            root_image = root_image,
+            root_hash = root_hash,
+            root_hash_image = root_hash_image,
+            root_hash_signature = root_hash_signature,
+            uki_metadata = uki_metadata,
+            verity_metadata = verity_metadata,
             build_metadata = build_metadata,
         ),
         MkosiImageInfo(
-            format_version = "mkosi-image-v1",
+            format_version = "mkosi-image-v2",
             raw_image = image,
             manifest = None,
             partition_metadata = partition_metadata,
-            uki = None,
+            uki = uki,
+            root_image = root_image,
+            root_hash = root_hash,
+            root_hash_image = root_hash_image,
+            root_hash_signature = root_hash_signature,
+            uki_metadata = uki_metadata,
+            verity_metadata = verity_metadata,
             build_metadata = build_metadata,
             firmware = firmware,
             image = image,
@@ -683,6 +817,14 @@ Release mode remains local-execution-only until its Linux execution platform is 
         "release_source_date_epoch": attr.int(
             default = -1,
             doc = "Required non-negative value that must match the release configuration's resolved SourceDateEpoch=.",
+        ),
+        "unified_kernel_image": attr.string(
+            default = "none",
+            doc = "UKI mode: 'none' (default) or unsigned 'unsigned'. Signing is outside this rule.",
+        ),
+        "verity": attr.string(
+            default = "none",
+            doc = "dm-verity mode: 'none' (default) or unsigned 'hash'.",
         ),
         "config": attr.label(
             allow_files = True,
@@ -729,6 +871,16 @@ its label basename, are copied to that key.
         "_partition_metadata": attr.label(
             cfg = "exec",
             default = "//mkosi/private:partition_metadata.py",
+            allow_single_file = True,
+        ),
+        "_uki_metadata": attr.label(
+            cfg = "exec",
+            default = "//mkosi/private:uki_metadata.py",
+            allow_single_file = True,
+        ),
+        "_verity_metadata": attr.label(
+            cfg = "exec",
+            default = "//mkosi/private:verity_metadata.py",
             allow_single_file = True,
         ),
         "_diagnostics": attr.label(

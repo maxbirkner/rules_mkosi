@@ -68,13 +68,19 @@ def _image_public_api_test_impl(ctx):
     target = analysistest.target_under_test(env)
     asserts.true(env, MkosiImageInfo in target)
     info = target[MkosiImageInfo]
-    asserts.equals(env, "mkosi-image-v1", info.format_version)
+    asserts.equals(env, "mkosi-image-v2", info.format_version)
     asserts.equals(env, "demo.raw", info.raw_image.basename)
     asserts.equals(env, info.raw_image, info.image)
     asserts.equals(env, None, info.manifest)
     asserts.equals(env, None, info.partition_metadata)
     asserts.equals(env, None, info.uki)
     asserts.equals(env, "uefi", info.firmware)
+    asserts.equals(env, None, info.root_image)
+    asserts.equals(env, None, info.root_hash)
+    asserts.equals(env, None, info.root_hash_image)
+    asserts.equals(env, None, info.root_hash_signature)
+    asserts.equals(env, None, info.uki_metadata)
+    asserts.equals(env, None, info.verity_metadata)
     asserts.equals(env, "demo.mkosi-image-info.json", info.build_metadata.basename)
     return analysistest.end(env)
 
@@ -109,6 +115,59 @@ generated_payload_tree = rule(
             mandatory = True,
             cfg = "exec",
             executable = True,
+        ),
+    },
+)
+
+def _verity_corrupted_image_impl(ctx):
+    info = ctx.attr.image[MkosiImageInfo]
+    if info.raw_image == None or info.partition_metadata == None:
+        fail("image must expose raw_image and partition_metadata")
+    output = ctx.actions.declare_file(ctx.label.name + ".raw")
+    args = ctx.actions.args()
+    args.add(ctx.file._corruptor)
+    args.add("--image", info.raw_image)
+    args.add("--partitions", info.partition_metadata)
+    args.add("--output", output)
+    ctx.actions.run(
+        executable = ctx.file._python,
+        arguments = [args],
+        inputs = [ctx.file._corruptor, info.raw_image, info.partition_metadata],
+        outputs = [output],
+        mnemonic = "CorruptVerityRoot",
+    )
+    return [
+        DefaultInfo(files = depset([output])),
+        MkosiImageInfo(
+            format_version = "mkosi-image-v2",
+            raw_image = output,
+            manifest = None,
+            partition_metadata = info.partition_metadata,
+            uki = info.uki,
+            root_image = None,
+            root_hash = info.root_hash,
+            root_hash_image = info.root_hash_image,
+            root_hash_signature = None,
+            uki_metadata = info.uki_metadata,
+            verity_metadata = info.verity_metadata,
+            build_metadata = info.build_metadata,
+            firmware = info.firmware,
+            image = output,
+        ),
+    ]
+
+verity_corrupted_image = rule(
+    implementation = _verity_corrupted_image_impl,
+    attrs = {
+        "image": attr.label(mandatory = True, providers = [MkosiImageInfo]),
+        "_corruptor": attr.label(
+            default = "//:corrupt_verity_root.py",
+            allow_single_file = True,
+        ),
+        "_python": attr.label(
+            default = "@mkosi_debian_python//:python",
+            cfg = "exec",
+            allow_single_file = True,
         ),
     },
 )

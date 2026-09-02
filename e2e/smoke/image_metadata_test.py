@@ -8,10 +8,11 @@ import sys
 def main() -> None:
     metadata = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
     assert metadata["format_version"] == "mkosi-image-build-metadata-v2"
+    immutable = len(sys.argv) > 3 and sys.argv[3] == "immutable"
     assert metadata["mkosi"] == {
         "compression": "none",
         "format": "disk",
-        "split_artifacts": False,
+        "split_artifacts": immutable,
         "version": "27",
     }
     assert metadata["artifacts"] == {
@@ -19,16 +20,22 @@ def main() -> None:
         "manifest": False,
         "partition_metadata": sys.argv[2] == "release",
         "raw_image": True,
-        "uki": False,
+        "uki": immutable,
+        "root_image": immutable,
+        "root_hash": immutable,
+        "root_hash_image": immutable,
+        "root_hash_signature": False,
+        "uki_metadata": immutable,
+        "verity_metadata": immutable,
     }
     assert metadata["mode"] == sys.argv[2]
-    assert metadata["firmware"] == (sys.argv[3] if len(sys.argv) > 3 else "uefi")
     if sys.argv[2] == "release":
+        assert metadata["artifacts"]["uki"] is immutable
         assert metadata["debian_snapshot"] == {
             "architecture": "amd64",
             "codename": "trixie",
             "format_version": "debian-snapshot-v1",
-            "lock_sha256": "4feda33b82e94493cf6b80bac6ea1bdbc904afbea6b85bce7820d60f6e233401",
+            "lock_sha256": "fa4e9f106cf6fb20b8b2c2b9206375e4af25abb7fd885fbfd9613ecb7bb191ce",
             "snapshot": "20250814T000000Z",
             "snapshot_url": "https://snapshot.debian.org/archive/debian/20250814T000000Z",
         }
