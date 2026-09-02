@@ -22,6 +22,7 @@ def main():
     esp.write_text(
         "[Partition]\n"
         "Type=esp\n"
+        "Format=vfat\n"
         "SizeMinBytes=64M\n"
         "SizeMaxBytes=64M\n",
         encoding="utf-8",
