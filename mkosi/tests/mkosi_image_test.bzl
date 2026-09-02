@@ -260,12 +260,11 @@ def _rootfs_payload_test_impl(ctx):
     actions = analysistest.target_actions(env)
     stage = [action for action in actions if action.mnemonic == "MkosiStageInputs"][0]
     argv = stage.argv
-    mapping = argv.index("--mapping", argv.index("--mapping") + 1)
-    asserts.true(env, argv[mapping + 1].endswith("/minimal.conf"))
-    asserts.equals(env, "mkosi.extra/usr/local/bin/payload", argv[mapping + 2])
-    asserts.equals(env, "file", argv[mapping + 3])
-    executable = argv.index("--executable")
-    asserts.equals(env, "mkosi.extra/usr/local/bin/payload", argv[executable + 1])
+    destination = argv.index("mkosi.extra/usr/local/bin/payload")
+    asserts.true(env, argv[destination - 1].endswith("/minimal.conf"))
+    asserts.equals(env, "--mapping", argv[destination - 2])
+    asserts.equals(env, "file", argv[destination + 1])
+    asserts.equals(env, "mkosi.extra/usr/local/bin/payload", argv[-1])
     asserts.true(env, "minimal.conf" in [file.basename for file in stage.inputs.to_list()])
     image = [action for action in actions if action.mnemonic == "MkosiImage"][0]
     asserts.true(env, "rootfs_payload_subject.mkosi" in [file.basename for file in image.inputs.to_list()])
@@ -605,6 +604,7 @@ def mkosi_image_test_suite(name):
         name = "rootfs_payload_subject",
         config_tree = ":config_tree",
         rootfs_payloads = [":rootfs_payload"],
+        source_trees = {"src": ":source_tree"},
         tags = ["requires-network"],
     )
     _rootfs_payload_test(
