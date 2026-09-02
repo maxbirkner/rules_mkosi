@@ -569,10 +569,10 @@ def _activate_release_mode(
         grub.mkdir(mode=0o755, exist_ok=True)
         (grub / "grub.cfg").write_text(
             "set timeout=0\n"
-            "menuentry 'Debian BIOS' {\n"
+            "menuentry 'Debian BIOS' {{\n"
             " linux /boot/{}\n"
             " initrd /boot/{}\n"
-            "}\n".format(kernel.name, initrd.name)
+            "}}\n".format(kernel.name, initrd.name)
         )
 
     Context.__init__ = context_init
