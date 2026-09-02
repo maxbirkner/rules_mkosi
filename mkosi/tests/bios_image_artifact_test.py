@@ -292,7 +292,9 @@ def validate_boot_files(entries, modules, config):
     referenced.update(re.findall(r"(?m)^\s*insmod\s+([A-Za-z0-9_]+)\s*$", body))
     for module in sorted(referenced):
         if modules.get(module) != "regular":
-            raise AssertionError("required GRUB i386-pc module is missing: " + module)
+            raise AssertionError(
+                "required GRUB i386-pc module is missing: {} ({})".format(module, modules.get(module))
+            )
 
 
 def main():
