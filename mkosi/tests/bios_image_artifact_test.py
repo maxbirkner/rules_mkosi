@@ -123,16 +123,18 @@ def _validate_core(linked, decompressor_reference, kernel_reference, module_refe
                 uncompressed_size, len(expanded), len(decoder.unused_data)
             )
         )
-    # grub-mkimage relocates and patches kernel.img before compression, so its
-    # bytes are not invariant. Its pinned size is the documented boundary at
-    # which grub_module_info32 is appended; exact locked module records below
-    # prove the decompressed image is the expected GRUB core rather than data.
-    offset = len(kernel_reference)
-    if offset + 12 > len(expanded):
-        raise AssertionError("GRUB core module information is truncated")
-    magic, first, total = struct.unpack_from("<III", expanded, offset)
-    if magic != 0x676D696D or first != 12 or total != len(expanded) - offset:
+    # grub-mkimage relocates kernel.img and appends grub_module_info32 at
+    # layout.kernel_size (util/mkimage.c). Locate the unique aligned "mimg"
+    # header whose declared module extent reaches the exact expanded boundary.
+    candidates = []
+    for offset in range(0, min(len(kernel_reference), len(expanded) - 12) + 1, 4):
+        magic, first, total = struct.unpack_from("<III", expanded, offset)
+        if magic == 0x676D696D and first == 12 and total == len(expanded) - offset:
+            candidates.append(offset)
+    if len(candidates) != 1:
         raise AssertionError("GRUB core module information is invalid")
+    offset = candidates[0]
+    _, first, total = struct.unpack_from("<III", expanded, offset)
     cursor = offset + first
     embedded = set()
     config = None
