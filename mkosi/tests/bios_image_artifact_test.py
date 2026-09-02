@@ -240,7 +240,7 @@ def validate_boot_files(entries, modules, config):
         if depth == 0:
             break
     if not found or depth != 0:
-        raise AssertionError("GRUB configuration has no genuine menuentry body")
+        raise AssertionError("GRUB configuration has no genuine menuentry body: {!r}".format(config[:2048]))
     body = "\n".join(body_lines)
     linux = re.search(r"(?m)^\s*linux\S*\s+(\S+)", body)
     initrd = re.search(r"(?m)^\s*initrd\S*\s+(\S+)", body)
