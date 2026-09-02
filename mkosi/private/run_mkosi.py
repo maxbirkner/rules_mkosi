@@ -423,7 +423,7 @@ def _activate_release_mode(
     original_repositories = Installer.repositories.__func__
     original_parse_config = mkosi.config.parse_config
     original_parse_ini = mkosi.config.parse_ini
-    original_run_finalize_scripts = mkosi.run_finalize_scripts
+    original_install_type1 = mkosi.install_type1
     validate_initial_configuration = [True]
     declared_roots = tuple(Path(path).resolve() for path in allowed_paths)
 
@@ -552,41 +552,13 @@ def _activate_release_mode(
                 if source.is_file() and source.suffix in (".list", ".sources"):
                     source.unlink()
 
-    def run_finalize_scripts(context):
-        original_run_finalize_scripts(context)
-        if release_firmware != "bios":
-            return
-        kernels = sorted(context.root.glob("boot/vmlinuz-*"))
-        pairs = []
-        for kernel in kernels:
-            version = kernel.name.removeprefix("vmlinuz-")
-            initrd = context.root / "boot" / ("initrd.img-" + version)
-            if kernel.is_file() and initrd.is_file():
-                pairs.append((kernel, initrd))
-        if len(pairs) != 1:
-            raise SystemExit(
-                "bios firmware requires exactly one matching kernel/initrd pair; boot entries={}".format(
-                    sorted(path.name for path in (context.root / "boot").iterdir())
-                )
-            )
-        kernel, initrd = pairs[0]
-        for path in (kernel, initrd):
-            if path.is_symlink():
-                target = path.resolve(strict=True)
-                if not _inside_root(context.root, target):
-                    raise SystemExit("bios kernel/initrd symlink escapes image root")
-                materialized = path.with_name(path.name + ".materialized")
-                shutil.copyfile(target, materialized)
-                materialized.replace(path)
-        grub = context.root / "grub"
-        grub.mkdir(mode=0o755, exist_ok=True)
-        (grub / "grub.cfg").write_text(
-            "set timeout=0\n"
-            "menuentry 'Debian BIOS' {\n"
-            " linux /boot/{}\n"
-            " initrd /boot/{}\n"
-            "}\n".format(kernel.name, initrd.name)
-        )
+    def install_type1(context, *args, **kwargs):
+        original_install_type1(context, *args, **kwargs)
+        if release_firmware == "bios":
+            source = context.root / "efi/grub/grub.cfg"
+            grub = context.root / "grub"
+            grub.mkdir(mode=0o755, exist_ok=True)
+            shutil.copyfile(source, grub / "grub.cfg")
 
     Context.__init__ = context_init
     Installer.repositories = classmethod(repositories)
@@ -596,7 +568,7 @@ def _activate_release_mode(
     mkosi.config.parse_ini = parse_ini
     mkosi.distribution.debian.install_apt_sources = install_apt_sources
     mkosi.install_sandbox_trees = install_sandbox_trees
-    mkosi.run_finalize_scripts = run_finalize_scripts
+    mkosi.install_type1 = install_type1
 
 
 def main():

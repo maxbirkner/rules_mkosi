@@ -251,7 +251,11 @@ def validate_boot_files(entries, modules, config):
         raise AssertionError("GRUB menuentry is missing linux/initrd commands")
     kernel_path, initrd_path = linux.group(1), initrd.group(1)
     kernel_version = re.fullmatch(r"/(?:boot/)?vmlinuz-(.+)", kernel_path)
+    if not kernel_version:
+        kernel_version = re.fullmatch(r"/(?:boot/)?[^/]+/([^/]+)/vmlinuz", kernel_path)
     initrd_version = re.fullmatch(r"/(?:boot/)?initrd(?:\.img)?-(.+)", initrd_path)
+    if not initrd_version:
+        initrd_version = re.fullmatch(r"/(?:boot/)?[^/]+/([^/]+)/kernel-modules\.initrd", initrd_path)
     if not kernel_version or not initrd_version or kernel_version.group(1) != initrd_version.group(1):
         raise AssertionError("GRUB kernel and initrd versions do not match")
     for path in (kernel_path, initrd_path):
