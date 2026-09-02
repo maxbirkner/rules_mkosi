@@ -140,12 +140,18 @@ def _materialize_tree(source, destination, executable_paths=()):
     copy_tree(source_root, destination, Path())
 
 
-def _restore_manifest_links(destination, manifest_path):
+def _restore_manifest_links(destination, manifest_path, path_prefix=""):
     entries = json.loads(Path(manifest_path).read_text())
     for entry in entries:
         if entry["kind"] != "symlink":
             continue
-        relative = Path(entry["path"])
+        entry_path = entry["path"]
+        if path_prefix:
+            prefix = path_prefix.rstrip("/") + "/"
+            if not entry_path.startswith(prefix):
+                continue
+            entry_path = entry_path[len(prefix) :]
+        relative = Path(entry_path)
         if relative.is_absolute() or ".." in relative.parts:
             raise SystemExit("invalid staging manifest path")
         target = destination / relative
@@ -379,6 +385,7 @@ def _activate_release_mode(
     release_snapshot,
     allowed_paths,
     allowed_extra_tree,
+    staging_manifest,
 ):
     """Mount a long Bazel path at mkosi's stable in-sandbox repository path."""
     from pathlib import Path
@@ -397,6 +404,7 @@ def _activate_release_mode(
     original_repositories = Installer.repositories.__func__
     original_parse_config = mkosi.config.parse_config
     original_parse_ini = mkosi.config.parse_ini
+    original_install_extra_trees = mkosi.install_extra_trees
     validate_initial_configuration = [True]
 
     def repositories(cls, context, for_image=False):
@@ -470,6 +478,15 @@ def _activate_release_mode(
             _validate_release_ini_entry(section)
             yield section, setting, value
 
+    def install_extra_trees(context):
+        original_install_extra_trees(context)
+        if staging_manifest:
+            _restore_manifest_links(
+                context.root,
+                staging_manifest,
+                path_prefix="mkosi.extra",
+            )
+
     def install_sandbox_trees(config, dst):
         (dst / "etc").mkdir(exist_ok=True)
 
@@ -523,6 +540,7 @@ def _activate_release_mode(
     Context.repository = property(repository)
     mkosi.config.parse_config = parse_config
     mkosi.config.parse_ini = parse_ini
+    mkosi.install_extra_trees = install_extra_trees
     mkosi.distribution.debian.install_apt_sources = install_apt_sources
     mkosi.install_sandbox_trees = install_sandbox_trees
 
@@ -677,6 +695,7 @@ def main():
             (materialized / "mkosi.extra").resolve()
             if (materialized / "mkosi.extra").is_dir()
             else None,
+            staging_manifest,
         )
     if release_child:
         sys.argv[:] = [script] + arguments
