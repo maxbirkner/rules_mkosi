@@ -296,7 +296,9 @@ def _validate_release_configuration(
                 raise SystemExit("bios firmware is incompatible with SecureBoot")
             if getattr(getattr(config, "unified_kernel_images", None), "value", "no") == "yes":
                 raise SystemExit("bios firmware is incompatible with UnifiedKernelImages")
-            if getattr(getattr(config, "bootloader", None), "value", "none") != "none":
+            bootloader = getattr(config, "bootloader", None)
+            bootloader_name = getattr(bootloader, "name", str(bootloader or "none")).lower()
+            if bootloader_name != "none":
                 raise SystemExit("bios firmware is incompatible with a UEFI Bootloader")
         if getattr(config, "proxy_url", None):
             raise SystemExit("release configuration cannot use a proxy")
