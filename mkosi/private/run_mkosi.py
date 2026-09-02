@@ -561,11 +561,23 @@ def _activate_release_mode(
         for kernel in kernels:
             version = kernel.name.removeprefix("vmlinuz-")
             initrd = context.root / "boot" / ("initrd.img-" + version)
-            if kernel.is_file() and not kernel.is_symlink() and initrd.is_file() and not initrd.is_symlink():
+            if kernel.is_file() and initrd.is_file():
                 pairs.append((kernel, initrd))
         if len(pairs) != 1:
-            raise SystemExit("bios firmware requires exactly one matching regular kernel/initrd pair")
+            raise SystemExit(
+                "bios firmware requires exactly one matching kernel/initrd pair; boot entries={}".format(
+                    sorted(path.name for path in (context.root / "boot").iterdir())
+                )
+            )
         kernel, initrd = pairs[0]
+        for path in (kernel, initrd):
+            if path.is_symlink():
+                target = path.resolve(strict=True)
+                if not _inside_root(context.root, target):
+                    raise SystemExit("bios kernel/initrd symlink escapes image root")
+                materialized = path.with_name(path.name + ".materialized")
+                shutil.copyfile(target, materialized)
+                materialized.replace(path)
         grub = context.root / "grub"
         grub.mkdir(mode=0o755, exist_ok=True)
         (grub / "grub.cfg").write_text(
