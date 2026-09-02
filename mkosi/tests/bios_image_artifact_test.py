@@ -158,7 +158,7 @@ def _extract_root(image, metadata, destination):
             else:
                 hole = start + size
             while position < hole:
-                chunk = source.read(min(1024 * 1024, hole - position))
+                chunk = os.pread(source.fileno(), min(1024 * 1024, hole - position), position)
                 if not chunk:
                     raise AssertionError("Linux root partition is truncated")
                 output.seek(position - start)
