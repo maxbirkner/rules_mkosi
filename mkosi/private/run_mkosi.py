@@ -423,7 +423,7 @@ def _activate_release_mode(
     original_repositories = Installer.repositories.__func__
     original_parse_config = mkosi.config.parse_config
     original_parse_ini = mkosi.config.parse_ini
-    original_install_type1 = mkosi.install_type1
+    original_run_finalize_scripts = mkosi.run_finalize_scripts
     validate_initial_configuration = [True]
     declared_roots = tuple(Path(path).resolve() for path in allowed_paths)
 
@@ -552,13 +552,28 @@ def _activate_release_mode(
                 if source.is_file() and source.suffix in (".list", ".sources"):
                     source.unlink()
 
-    def install_type1(context, *args, **kwargs):
-        original_install_type1(context, *args, **kwargs)
-        if release_firmware == "bios":
-            source = context.root / "efi/grub/grub.cfg"
-            grub = context.root / "grub"
-            grub.mkdir(mode=0o755, exist_ok=True)
-            shutil.copyfile(source, grub / "grub.cfg")
+    def run_finalize_scripts(context):
+        original_run_finalize_scripts(context)
+        if release_firmware != "bios":
+            return
+        kernels = list(mkosi.gen_kernel_images(context))
+        if len(kernels) != 1:
+            raise SystemExit("bios firmware requires exactly one kernel image")
+        version, kernel_source = kernels[0]
+        kernel = context.root / "boot" / ("vmlinuz-" + version)
+        if kernel_source != kernel:
+            shutil.copyfile(context.root / kernel_source, kernel)
+        initrd = context.root / "boot" / ("initrd.img-" + version)
+        shutil.copyfile(mkosi.build_kernel_modules_initrd(context, version), initrd)
+        grub = context.root / "grub"
+        grub.mkdir(mode=0o755, exist_ok=True)
+        (grub / "grub.cfg").write_text(
+            "set timeout=0\n"
+            "menuentry 'Debian BIOS' {\n"
+            " linux /boot/{}\n"
+            " initrd /boot/{}\n"
+            "}\n".format(kernel.name, initrd.name)
+        )
 
     Context.__init__ = context_init
     Installer.repositories = classmethod(repositories)
@@ -568,7 +583,7 @@ def _activate_release_mode(
     mkosi.config.parse_ini = parse_ini
     mkosi.distribution.debian.install_apt_sources = install_apt_sources
     mkosi.install_sandbox_trees = install_sandbox_trees
-    mkosi.install_type1 = install_type1
+    mkosi.run_finalize_scripts = run_finalize_scripts
 
 
 def main():
