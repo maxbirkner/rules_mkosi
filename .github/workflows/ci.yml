@@ -53,6 +53,10 @@ jobs:
           echo "$actual"
           test "$actual" = "bazel ${{ matrix.bazel }}"
 
+      - name: Reevaluate Starlark coverage support
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        run: ./ci/check-starlark-coverage-support.sh
+
       - name: Qualify host kernel, then run complete root and e2e suites
         run: |
           run_bazel() {

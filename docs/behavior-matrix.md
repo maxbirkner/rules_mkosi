@@ -185,4 +185,5 @@ visualize absence, not coverage. Empty LCOV, synthetic counters, workflow
 syntax checks, and target counts are therefore explicitly excluded. This
 behavioral catalog remains the maintained coverage contract until Bazel
 provides Starlark coverage or relevant logic moves into an instrumentable
-helper.
+helper. Exact supported-version evidence and the periodic reevaluation
+procedure are recorded in [Starlark coverage status](starlark-coverage.md).
