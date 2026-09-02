@@ -133,9 +133,27 @@ py_test(
         "bios_image_artifact_test.py",
         "//mkosi/private:partition_metadata.py",
     ],
-    args = ["$(rootpath :bios_release_raw_image)"],
-    data = [":bios_release_raw_image"],
+    args = [
+        "$(rootpath :bios_release_raw_image)",
+        "$(rootpath @mkosi_debian_tools//:launcher)",
+    ],
+    data = [
+        ":bios_release_raw_image",
+        "@mkosi_debian_tools//:launcher",
+    ],
     main = "bios_image_artifact_test.py",
+    deps = ["@rules_python//python/runfiles"],
+)
+
+py_test(
+    name = "bios_image_artifact_unit_test",
+    srcs = [
+        "bios_image_artifact_test.py",
+        "bios_image_artifact_unit_test.py",
+        "//mkosi/private:partition_metadata.py",
+    ],
+    main = "bios_image_artifact_unit_test.py",
+    deps = ["@rules_python//python/runfiles"],
 )
 
 py_test(
