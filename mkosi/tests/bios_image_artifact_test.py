@@ -275,8 +275,7 @@ def main():
     esp = pathlib.Path(os.environ["TEST_TMPDIR"]) / "esp.fat"
     try:
         _extract_root(image, metadata, root)
-        _extract_esp(image, metadata, esp)
-        config = _mtype(launcher, esp)
+        config = _debugfs(launcher, root, "cat /efi/grub/grub.cfg")
         uncommented = "\n".join(line.split("#", 1)[0] for line in config.splitlines())
         menu_paths = set(re.findall(r"(?m)^\s*(?:linux|linux16|initrd|initrd16)\s+(\S+)", uncommented))
         entries = {
