@@ -294,8 +294,11 @@ def _validate_release_configuration(
     for index, config in enumerate(images):
         # mkosi appends the requested image after generated dependency images
         # such as mkosi-initrd. Firmware selection constrains that primary
-        # image, not bootloaders used internally by those dependencies.
-        if release_firmware == "bios" and index == len(images) - 1:
+        # image. Generated dependency defaults are pinned mkosi resources, not
+        # caller configuration, and may intentionally use distinct seeds.
+        if index != len(images) - 1:
+            continue
+        if release_firmware == "bios":
             if getattr(config, "secure_boot", False):
                 raise SystemExit("bios firmware is incompatible with SecureBoot")
             if getattr(getattr(config, "unified_kernel_images", None), "value", "no") == "yes":
