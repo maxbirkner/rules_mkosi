@@ -385,7 +385,6 @@ def _activate_release_mode(
     release_snapshot,
     allowed_paths,
     allowed_extra_tree,
-    staging_manifest,
 ):
     """Mount a long Bazel path at mkosi's stable in-sandbox repository path."""
     from pathlib import Path
@@ -404,8 +403,6 @@ def _activate_release_mode(
     original_repositories = Installer.repositories.__func__
     original_parse_config = mkosi.config.parse_config
     original_parse_ini = mkosi.config.parse_ini
-    original_install_extra_trees = mkosi.install_extra_trees
-    original_run_finalize_scripts = mkosi.run_finalize_scripts
     validate_initial_configuration = [True]
 
     def repositories(cls, context, for_image=False):
@@ -479,24 +476,6 @@ def _activate_release_mode(
             _validate_release_ini_entry(section)
             yield section, setting, value
 
-    def install_extra_trees(context):
-        original_install_extra_trees(context)
-        if staging_manifest:
-            _restore_manifest_links(
-                context.root,
-                staging_manifest,
-                path_prefix="mkosi.extra",
-            )
-
-    def run_finalize_scripts(context):
-        original_run_finalize_scripts(context)
-        if staging_manifest:
-            _restore_manifest_links(
-                context.root,
-                staging_manifest,
-                path_prefix="mkosi.extra",
-            )
-
     def install_sandbox_trees(config, dst):
         (dst / "etc").mkdir(exist_ok=True)
 
@@ -550,8 +529,6 @@ def _activate_release_mode(
     Context.repository = property(repository)
     mkosi.config.parse_config = parse_config
     mkosi.config.parse_ini = parse_ini
-    mkosi.install_extra_trees = install_extra_trees
-    mkosi.run_finalize_scripts = run_finalize_scripts
     mkosi.distribution.debian.install_apt_sources = install_apt_sources
     mkosi.install_sandbox_trees = install_sandbox_trees
 
@@ -706,7 +683,6 @@ def main():
             (materialized / "mkosi.extra").resolve()
             if (materialized / "mkosi.extra").is_dir()
             else None,
-            staging_manifest,
         )
     if release_child:
         sys.argv[:] = [script] + arguments

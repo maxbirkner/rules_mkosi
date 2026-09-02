@@ -77,6 +77,7 @@ def main():
         ),
         "/usr/lib/tmpfiles.d/example.conf": (
             "d /home/example 0755 example example -\n"
+            "L+ /opt/generated/config-link - - - - config\n"
         ),
         "/etc/skel/.config/example/config": "declarative skel home configuration\n",
         "/opt/generated/config": "generated TreeArtifact configuration\n",
