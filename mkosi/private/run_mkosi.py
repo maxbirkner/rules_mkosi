@@ -415,6 +415,7 @@ def _activate_release_mode(
     original_parse_config = mkosi.config.parse_config
     original_parse_ini = mkosi.config.parse_ini
     validate_initial_configuration = [True]
+    declared_roots = tuple(Path(path).resolve() for path in allowed_paths)
 
     def repositories(cls, context, for_image=False):
         if for_image:
@@ -484,8 +485,14 @@ def _activate_release_mode(
         return parsed
 
     def parse_ini(*args, **kwargs):
+        path = Path(args[0]).resolve() if args else None
+        declared = path is not None and any(
+            path == root or root in path.parents
+            for root in declared_roots
+        )
         for section, setting, value in original_parse_ini(*args, **kwargs):
-            _validate_release_ini_entry(section)
+            if declared:
+                _validate_release_ini_entry(section)
             yield section, setting, value
 
     def install_sandbox_trees(config, dst):
