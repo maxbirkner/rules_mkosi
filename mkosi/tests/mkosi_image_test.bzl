@@ -439,7 +439,9 @@ def _bios_provider_test_impl(ctx):
     asserts.true(env, "--bios-bootloader=grub" in image_action.argv)
     repart = image_action.argv.index("--repart-directory")
     asserts.true(env, image_action.argv[repart + 1].endswith(".bios-repart"))
-    asserts.true(env, any([f.basename == "00-bios-boot.conf" for f in image_action.inputs.to_list()]))
+    asserts.true(env, any([f.basename.endswith(".bios-repart") for f in image_action.inputs.to_list()]))
+    repart_action = [a for a in analysistest.target_actions(env) if a.mnemonic == "MkosiBiosRepart"][0]
+    asserts.true(env, any([f.basename.endswith(".bios-repart") for f in repart_action.outputs.to_list()]))
     firmware = image_action.argv.index("--release-firmware")
     asserts.equals(env, "bios", image_action.argv[firmware + 1])
     partition_action = [a for a in analysistest.target_actions(env) if a.mnemonic == "MkosiPartitionMetadata"][0]

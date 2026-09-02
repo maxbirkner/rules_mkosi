@@ -421,12 +421,23 @@ def _mkosi_image_impl(ctx):
     )
     bios_partition_definition = None
     if firmware == "bios":
-        bios_partition_definition = ctx.actions.declare_file(
-            ctx.label.name + ".bios-repart/00-bios-boot.conf",
+        bios_partition_definition = ctx.actions.declare_directory(
+            ctx.label.name + ".bios-repart",
         )
-        ctx.actions.write(
-            output = bios_partition_definition,
-            content = "[Partition]\nType=21686148-6449-6e6f-744e-656564454649\nSizeMinBytes=1M\nSizeMaxBytes=1M\n",
+        ctx.actions.run(
+            executable = mkosi.python,
+            arguments = [ctx.file._write_bios_repart.path, bios_partition_definition.path],
+            inputs = depset(
+                [ctx.file._write_bios_repart],
+                transitive = [mkosi.python_runtime_files],
+            ),
+            tools = [mkosi.python_files_to_run],
+            outputs = [bios_partition_definition],
+            mnemonic = "MkosiBiosRepart",
+            env = {
+                "PATH": "",
+                "PYTHONNOUSERSITE": "1",
+            },
         )
     output_name = image.basename[:-len(".raw")]
     workspace = image.dirname + "/." + ctx.label.name + "-mkosi"
@@ -502,7 +513,7 @@ def _mkosi_image_impl(ctx):
         arguments.add("--bootloader=none")
         arguments.add("--bios-bootloader=grub")
         arguments.add("--repart-directory")
-        arguments.add(bios_partition_definition.dirname)
+        arguments.add(bios_partition_definition.path)
     arguments.add("--output-directory")
     arguments.add(image.dirname)
     arguments.add("--output")
@@ -695,6 +706,11 @@ its label basename, are copied to that key.
         "_stage_script": attr.label(
             cfg = "exec",
             default = "//mkosi/private:stage_inputs.py",
+            allow_single_file = True,
+        ),
+        "_write_bios_repart": attr.label(
+            cfg = "exec",
+            default = "//mkosi/private:write_bios_repart.py",
             allow_single_file = True,
         ),
         "_run_script": attr.label(
