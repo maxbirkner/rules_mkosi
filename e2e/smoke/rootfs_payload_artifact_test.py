@@ -15,11 +15,11 @@ def debugfs(launcher, directory, request):
         [
             launcher,
             "--ro-bind",
-            "{}:/inputs".format(directory),
+            "{}:/inputs/payload-test".format(directory),
             "/usr/sbin/debugfs",
             "-R",
             request,
-            "/inputs/rootfs.ext4",
+            "/inputs/payload-test/rootfs.ext4",
         ],
         check=False,
         text=True,
