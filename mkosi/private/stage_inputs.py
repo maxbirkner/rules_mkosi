@@ -107,6 +107,13 @@ def _manifest(mappings):
         for prior_path, prior in entries.items():
             if prior[0] == owner or not destination or not prior_path:
                 continue
+            config_directory_contains_mapping = (
+                destination.startswith(prior_path + "/")
+                and prior[1] == "directory"
+                and prior[0].endswith(" -> .")
+            )
+            if config_directory_contains_mapping:
+                continue
             if (
                 destination == prior_path
                 or destination.startswith(prior_path + "/")
@@ -134,7 +141,9 @@ def _manifest(mappings):
                 raise ValueError("staged symlink escapes output root: {}".format(path))
             target_path = "/".join(normalised.parts)
             target_entry = entries.get(target_path)
-            if target_entry is not None and target_entry[0] != entry[0]:
+            if target_entry is None:
+                raise ValueError("staged symlink is dangling at '{}'".format(path))
+            if target_entry[0] != entry[0]:
                 raise ValueError("staged symlink aliases another mapping at '{}'".format(path))
     return entries
 

@@ -292,6 +292,44 @@ external repositories and avoids relying on repository-relative runfiles paths.
 A single-file `config` remains supported unchanged; when source trees are
 supplied, that file is staged at its basename and selected with `-I`.
 
+Image content that is not build source belongs in a typed rootfs payload:
+
+```starlark
+load("@rules_mkosi//mkosi:defs.bzl", "mkosi_rootfs_payload")
+
+mkosi_rootfs_payload(
+    name = "app",
+    src = ":generated_appimage",
+    destination = "/usr/local/bin/app",
+    executable_paths = [""],
+)
+mkosi_rootfs_payload(
+    name = "site",
+    src = ":generated_site_tree",
+    destination = "/opt/site",
+    executable_paths = ["bin/start"],
+)
+# Add both labels to mkosi_image(rootfs_payloads = [...]).
+```
+
+Destinations are normalized absolute image paths; they never name host paths.
+Payload files and tree contents are staged under `mkosi.extra`, so they compose
+with static configuration content while duplicate, ancestor/descendant,
+file/directory, source-alias, traversal, dangling-link, and escaping-link
+conflicts fail closed. Files become root-owned mode 0644 (0755 only when
+declared executable), directories mode 0755, and timestamps epoch zero.
+Relative symlinks contained in trees are retained. Arbitrary ownership is not
+currently modeled, so payloads must not claim non-root ownership.
+
+Common declarative payloads map a unit to
+`/usr/lib/systemd/system/example.service`, an executable binary or AppImage to
+`/usr/local/bin/example`, sysusers and tmpfiles definitions to
+`/usr/lib/sysusers.d/example.conf` and `/usr/lib/tmpfiles.d/example.conf`,
+an `/etc/skel` tree to `/etc/skel`, and user defaults to a subdirectory such
+as `/etc/skel/.config/example`. Use sysusers plus tmpfiles to create users and
+home directories. Do not put credentials or secrets in payloads, and do not
+replace these declarations with release lifecycle scripts.
+
 Development and test commands are documented once in
 [CONTRIBUTING.md](CONTRIBUTING.md). The independent consumer module is
 described in [`e2e/README.md`](e2e/README.md).

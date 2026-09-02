@@ -22,10 +22,12 @@ load(
     "//mkosi/private:mkosi_image.bzl",
     _MkosiConfigTreeInfo = "MkosiConfigTreeInfo",
     _MkosiImageInfo = "MkosiImageInfo",
+    _MkosiRootfsPayloadInfo = "MkosiRootfsPayloadInfo",
     _MkosiSourceTreeInfo = "MkosiSourceTreeInfo",
     _mkosi_config_tree = "mkosi_config_tree",
     _mkosi_image = "mkosi_image",
     _mkosi_reproducibility_manifest = "mkosi_reproducibility_manifest",
+    _mkosi_rootfs_payload = "mkosi_rootfs_payload",
     _mkosi_source_tree = "mkosi_source_tree",
 )
 load(
@@ -42,6 +44,7 @@ load(
 MkosiImageInfo = _MkosiImageInfo
 MkosiConfigTreeInfo = _MkosiConfigTreeInfo
 MkosiSourceTreeInfo = _MkosiSourceTreeInfo
+MkosiRootfsPayloadInfo = _MkosiRootfsPayloadInfo
 MkosiQemuToolchainInfo = _MkosiQemuToolchainInfo
 MkosiToolchainInfo = _MkosiToolchainInfo
 DebianToolsInfo = _DebianToolsInfo
@@ -53,6 +56,7 @@ mkosi_reproducibility_manifest = _mkosi_reproducibility_manifest
 debian_snapshot = _debian_snapshot
 mkosi_config_tree = _mkosi_config_tree
 mkosi_source_tree = _mkosi_source_tree
+mkosi_rootfs_payload = _mkosi_rootfs_payload
 qemu_ovmf_smoke_test = _qemu_ovmf_smoke_test
 qemu_ovmf_boot_test = _qemu_ovmf_boot_test
 qemu_ovmf_boot_config = _qemu_ovmf_boot_config

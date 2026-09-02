@@ -10,6 +10,7 @@ load(
     "mkosi_config_tree",
     "mkosi_image",
     "mkosi_reproducibility_manifest",
+    "mkosi_rootfs_payload",
     "mkosi_source_tree",
     "qemu_ovmf_boot_config",
     "qemu_ovmf_boot_test",
@@ -253,6 +254,24 @@ _provider_test = analysistest.make(
         "expected_output": attr.string(mandatory = True),
     },
 )
+
+def _rootfs_payload_test_impl(ctx):
+    env = analysistest.begin(ctx)
+    actions = analysistest.target_actions(env)
+    stage = [action for action in actions if action.mnemonic == "MkosiStageInputs"][0]
+    argv = stage.argv
+    mapping = argv.index("--mapping", argv.index("--mapping") + 1)
+    asserts.true(env, argv[mapping + 1].endswith("/minimal.conf"))
+    asserts.equals(env, "mkosi.extra/usr/local/bin/payload", argv[mapping + 2])
+    asserts.equals(env, "file", argv[mapping + 3])
+    executable = argv.index("--executable")
+    asserts.equals(env, "mkosi.extra/usr/local/bin/payload", argv[executable + 1])
+    asserts.true(env, "minimal.conf" in [file.basename for file in stage.inputs.to_list()])
+    image = [action for action in actions if action.mnemonic == "MkosiImage"][0]
+    asserts.true(env, "rootfs_payload_subject.mkosi" in [file.basename for file in image.inputs.to_list()])
+    return analysistest.end(env)
+
+_rootfs_payload_test = analysistest.make(_rootfs_payload_test_impl)
 
 def _image_info_fixture_impl(ctx):
     """Creates analysis-only MkosiImageInfo output combinations."""
@@ -576,6 +595,40 @@ def mkosi_image_test_suite(name):
         executable_paths = ["mkosi.build"],
         src = "testdata/source-tree",
     )
+    mkosi_rootfs_payload(
+        name = "rootfs_payload",
+        src = "testdata/minimal.conf",
+        destination = "/usr/local/bin/payload",
+        executable_paths = [""],
+    )
+    mkosi_image(
+        name = "rootfs_payload_subject",
+        config_tree = ":config_tree",
+        rootfs_payloads = [":rootfs_payload"],
+        tags = ["requires-network"],
+    )
+    _rootfs_payload_test(
+        name = "rootfs_payload_test",
+        target_under_test = ":rootfs_payload_subject",
+    )
+
+    for invalid_name, invalid_destination, expected_error in [
+        ("relative", "usr/bin/tool", "must be an absolute path"),
+        ("root", "/", "must be an absolute path below /"),
+        ("traversal", "/usr/../bin/tool", "not a normalized relative path"),
+        ("alias", "/usr//bin/tool", "not a normalized relative path"),
+    ]:
+        mkosi_rootfs_payload(
+            name = "invalid_rootfs_payload_" + invalid_name,
+            src = "testdata/minimal.conf",
+            destination = invalid_destination,
+            tags = ["manual"],
+        )
+        _invalid_tree_mapping_test(
+            name = "invalid_rootfs_payload_{}_test".format(invalid_name),
+            expected_error = expected_error,
+            target_under_test = ":invalid_rootfs_payload_" + invalid_name,
+        )
     mkosi_source_tree(
         name = "source_tree_two",
         src = "testdata/source-tree-two",
@@ -1179,6 +1232,11 @@ def mkosi_image_test_suite(name):
             ":release_without_epoch_test",
             ":release_single_config_test",
             ":config_tree_provider_test",
+            ":rootfs_payload_test",
+            ":invalid_rootfs_payload_relative_test",
+            ":invalid_rootfs_payload_root_test",
+            ":invalid_rootfs_payload_traversal_test",
+            ":invalid_rootfs_payload_alias_test",
             ":legacy_default_name_test",
             ":legacy_alternate_name_test",
             ":traversal_tree_mapping_test",

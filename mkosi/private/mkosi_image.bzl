@@ -39,6 +39,16 @@ MkosiSourceTreeInfo = provider(
     },
 )
 
+MkosiRootfsPayloadInfo = provider(
+    doc = "Typed file or tree installed into an explicit image-root destination.",
+    fields = {
+        "artifact": "The declared file or directory artifact.",
+        "destination": "Normalized absolute destination inside the image root.",
+        "executable_paths": "Relative tree paths, or an empty string for a file, that must be executable.",
+        "is_tree": "Whether artifact is a directory whose contents are installed at destination.",
+    },
+)
+
 def _tree_target_impl(ctx, info):
     files = ctx.files.src
     if len(files) != 1:
@@ -76,6 +86,45 @@ mkosi_source_tree = rule(
         ),
     },
     doc = "Marks a label as an mkosi BuildSources tree.",
+)
+
+def _rootfs_payload_impl(ctx):
+    artifact = _single_input(ctx.attr.src, "src")
+    destination = _normalise_image_destination(ctx.attr.destination)
+    is_tree = artifact.is_directory
+    executable_paths = ctx.attr.executable_paths
+    if not is_tree and executable_paths not in ([], [""]):
+        fail("file rootfs payload executable_paths must be empty or ['']")
+    for path in executable_paths:
+        if path:
+            _normalise_destination(path, "executable_paths")
+    return [
+        DefaultInfo(files = depset([artifact])),
+        MkosiRootfsPayloadInfo(
+            artifact = artifact,
+            destination = destination,
+            executable_paths = executable_paths,
+            is_tree = is_tree,
+        ),
+    ]
+
+mkosi_rootfs_payload = rule(
+    implementation = _rootfs_payload_impl,
+    attrs = {
+        "src": attr.label(
+            mandatory = True,
+            allow_files = True,
+            doc = "A single source or generated Bazel file or directory artifact.",
+        ),
+        "destination": attr.string(
+            mandatory = True,
+            doc = "Normalized absolute path at which to install the file or tree.",
+        ),
+        "executable_paths": attr.string_list(
+            doc = "Relative file paths to make executable; use [''] for a file payload.",
+        ),
+    },
+    doc = "Declares a deterministic root-owned payload for installation into an image.",
 )
 
 def _mkosi_reproducibility_manifest_impl(ctx):
@@ -148,6 +197,11 @@ def _normalise_destination(destination, attribute):
         fail("{} destination '{}' is not a normalized relative path".format(attribute, destination))
     return "/".join(parts)
 
+def _normalise_image_destination(destination):
+    if not destination.startswith("/") or destination == "/":
+        fail("rootfs payload destination '{}' must be an absolute path below /".format(destination))
+    return "/" + _normalise_destination(destination[1:], "rootfs payload")
+
 def _single_input(target, attribute):
     files = target.files.to_list()
     if len(files) != 1:
@@ -175,7 +229,7 @@ def _image_default_info(
         ]),
     )
 
-def _stage_inputs(ctx, config, config_is_directory, source_trees):
+def _stage_inputs(ctx, config, config_is_directory, source_trees, rootfs_payloads):
     staging = ctx.actions.declare_directory(ctx.label.name + ".mkosi")
     manifest = ctx.actions.declare_file(ctx.label.name + ".mkosi.manifest")
     mappings = []
@@ -187,6 +241,12 @@ def _stage_inputs(ctx, config, config_is_directory, source_trees):
 
     for destination in sorted(source_trees):
         mappings.append((source_trees[destination].tree.path, destination, "tree"))
+    for payload in rootfs_payloads:
+        mappings.append((
+            payload.artifact.path,
+            "mkosi.extra" + payload.destination,
+            "tree" if payload.is_tree else "file",
+        ))
 
     executable_paths = []
     if config_is_directory:
@@ -195,6 +255,12 @@ def _stage_inputs(ctx, config, config_is_directory, source_trees):
         executable_paths += [
             destination + "/" + path
             for path in source_trees[destination].executable_paths
+        ]
+    for payload in rootfs_payloads:
+        prefix = "mkosi.extra" + payload.destination
+        executable_paths += [
+            prefix + (("/" + path) if path else "")
+            for path in payload.executable_paths
         ]
     executable_paths = [
         _normalise_destination(path, "executable_paths")
@@ -207,7 +273,7 @@ def _stage_inputs(ctx, config, config_is_directory, source_trees):
         if destination == ".":
             destination = ""
         elif destination:
-            destination = _normalise_destination(destination, "source_trees")
+            destination = _normalise_destination(destination, "staged inputs")
 
         if destination in destinations:
             fail("duplicate staged destination '{}' from {} and {}".format(
@@ -253,7 +319,8 @@ def _stage_inputs(ctx, config, config_is_directory, source_trees):
         arguments = [stage_args],
         inputs = depset(
             [config, ctx.file._stage_script] +
-            [source_trees[destination].tree for destination in sorted(source_trees)],
+            [source_trees[destination].tree for destination in sorted(source_trees)] +
+            [payload.artifact for payload in rootfs_payloads],
             transitive = [mkosi.python_runtime_files],
         ),
         tools = [mkosi.python_files_to_run],
@@ -312,10 +379,14 @@ def _mkosi_image_impl(ctx):
     source_trees = {}
     for destination, target in ctx.attr.source_trees.items():
         source_trees[destination] = target[MkosiSourceTreeInfo]
+    rootfs_payloads = [
+        target[MkosiRootfsPayloadInfo]
+        for target in ctx.attr.rootfs_payloads
+    ]
 
     staging = None
-    if config_is_directory or source_trees:
-        staging = _stage_inputs(ctx, config, config_is_directory, source_trees)
+    if config_is_directory or source_trees or rootfs_payloads:
+        staging = _stage_inputs(ctx, config, config_is_directory, source_trees, rootfs_payloads)
 
     image = ctx.actions.declare_file(ctx.label.name + ".raw")
     partition_metadata = (
@@ -362,6 +433,11 @@ def _mkosi_image_impl(ctx):
         for path in source_trees[destination].executable_paths:
             arguments.add("--executable-path")
             arguments.add(destination + "/" + path)
+    for payload in rootfs_payloads:
+        prefix = "mkosi.extra" + payload.destination
+        for path in payload.executable_paths:
+            arguments.add("--executable-path")
+            arguments.add(prefix + (("/" + path) if path else ""))
     if staging:
         arguments.add("--staging-manifest")
         arguments.add(staging.manifest.path)
@@ -558,6 +634,10 @@ The keys are normalized relative paths such as "src". Each value must resolve
 to an explicitly typed directory tree. The directory contents, rather than
 its label basename, are copied to that key.
 """,
+        ),
+        "rootfs_payloads": attr.label_list(
+            providers = [MkosiRootfsPayloadInfo],
+            doc = "Typed payloads installed at explicit image-root destinations through mkosi.extra.",
         ),
         "_stage_script": attr.label(
             cfg = "exec",

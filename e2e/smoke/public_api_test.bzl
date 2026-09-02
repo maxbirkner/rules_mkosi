@@ -6,6 +6,7 @@ load(
     "DebianSnapshotInfo",
     "DebianToolsInfo",
     "MkosiImageInfo",
+    "MkosiRootfsPayloadInfo",
 )
 
 def _behavior_targets_impl(ctx):
@@ -77,6 +78,16 @@ def _image_public_api_test_impl(ctx):
     return analysistest.end(env)
 
 image_public_api_test = analysistest.make(_image_public_api_test_impl)
+
+def _rootfs_payload_public_api_test_impl(ctx):
+    env = analysistest.begin(ctx)
+    info = analysistest.target_under_test(env)[MkosiRootfsPayloadInfo]
+    asserts.equals(env, "/usr/local/bin/consumer-tool", info.destination)
+    asserts.equals(env, [""], info.executable_paths)
+    asserts.false(env, info.is_tree)
+    return analysistest.end(env)
+
+rootfs_payload_public_api_test = analysistest.make(_rootfs_payload_public_api_test_impl)
 
 def _image_build_metadata_file_impl(ctx):
     """Selects metadata through MkosiImageInfo rather than output names."""
