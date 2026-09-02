@@ -187,7 +187,7 @@ def _fat_regular(launcher, esp, path):
         "PATH": "",
     })
     result = subprocess.run(
-        [launcher, "--ro-bind", "{}:/inputs/esp.fat".format(esp), "/usr/bin/mtype", "-i", "/inputs/esp.fat", "::" + path],
+        [launcher, "--ro-bind", "{}:/inputs/esp.fat".format(esp), "/usr/bin/mdir", "-i", "/inputs/esp.fat", "::" + path],
         env=environment, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, check=False, text=True,
     )
     return "regular" if result.returncode == 0 else "missing"
@@ -285,7 +285,9 @@ def validate_boot_files(entries, modules, config):
         raise AssertionError("GRUB kernel and initrd versions do not match")
     for path in (kernel_path, initrd_path):
         if entries.get(path) != "regular":
-            raise AssertionError("GRUB menuentry references missing non-regular file: " + path)
+            raise AssertionError(
+                "GRUB menuentry references missing non-regular file: {} ({})".format(path, entries.get(path))
+            )
     referenced = set(REQUIRED_MODULES)
     referenced.update(re.findall(r"(?m)^\s*insmod\s+([A-Za-z0-9_]+)\s*$", body))
     for module in sorted(referenced):
@@ -322,7 +324,7 @@ def main():
         menu_paths = set(re.findall(r"(?m)^\s*(?:linux|linux16|initrd|initrd16)\s+(\S+)", uncommented))
         entries = {
             path: (
-                ("regular" if path.lower() in _mtype.entries else "missing")
+                _fat_regular(launcher, _mtype.esp, path)
                 if config is not None and hasattr(_mtype, "esp")
                 else _stat_type(launcher, root, path if path.startswith("/boot/") else "/boot" + path)
             )
