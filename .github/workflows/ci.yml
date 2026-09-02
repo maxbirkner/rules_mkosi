@@ -8,6 +8,12 @@ on:
   schedule:
     - cron: "17 4 * * 1"
   workflow_dispatch:
+    inputs:
+      upload_artifacts:
+        description: Upload the generated disk and metadata for manual testing
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -103,6 +109,63 @@ jobs:
           if [ "${{ matrix.bazel }}" = "8.5.1" ]; then
             run_bazel ./ci/verify-release-reproducibility.sh
           fi
+
+      - name: Stage image artifacts for manual testing
+        if: >-
+          github.event_name == 'workflow_dispatch' &&
+          inputs.upload_artifacts &&
+          matrix.bazel == '8.5.1'
+        run: |
+          run_bazel() {
+            sudo -n setpriv --reuid="$(id -u)" --regid="$(id -g)" \
+              --clear-groups env HOME="$HOME" PATH="$PATH" \
+              USE_BAZEL_VERSION="$USE_BAZEL_VERSION" "$@"
+          }
+          artifact_dir="$RUNNER_TEMP/mkosi-manual-test"
+          mkdir -p "$artifact_dir"
+          targets=(
+            //mkosi/tests:release_subject
+            //mkosi/tests:release_reproducibility
+          )
+          run_bazel bazel build --config=qualified "${targets[@]}"
+          while IFS= read -r output; do
+            destination="$artifact_dir/$(basename "$output")"
+            if [ -e "$destination" ]; then
+              echo "duplicate artifact basename: $destination" >&2
+              exit 1
+            fi
+            cp --reflink=auto "$output" "$destination"
+          done < <(
+            run_bazel bazel cquery --config=qualified --output=files \
+              "set(${targets[*]})"
+          )
+          expected=(
+            release_subject.raw
+            release_subject.mkosi-image-info.json
+            release_subject.partitions.json
+            release_reproducibility.reproducibility.json
+          )
+          for output in "${expected[@]}"; do
+            test -s "$artifact_dir/$output"
+          done
+          test "$(find "$artifact_dir" -maxdepth 1 -type f | wc -l)" -eq 4
+          (
+            cd "$artifact_dir"
+            sha256sum -- * > SHA256SUMS
+          )
+
+      - name: Upload image artifacts for manual testing
+        if: >-
+          github.event_name == 'workflow_dispatch' &&
+          inputs.upload_artifacts &&
+          matrix.bazel == '8.5.1'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: mkosi-manual-test-${{ github.sha }}
+          path: ${{ runner.temp }}/mkosi-manual-test
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
 
       - name: Audit Debian tools action graph
         run: |
