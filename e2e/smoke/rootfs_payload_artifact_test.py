@@ -21,12 +21,20 @@ def debugfs(launcher, directory, request):
             request,
             "/inputs/rootfs.ext4",
         ],
-        check=True,
+        check=False,
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         env=environment,
     )
+    if result.returncode:
+        raise AssertionError(
+            "debugfs request {!r} failed with {}: {}".format(
+                request,
+                result.returncode,
+                result.stdout,
+            )
+        )
     return result.stdout
 
 
