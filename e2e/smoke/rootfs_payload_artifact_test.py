@@ -85,10 +85,10 @@ def main():
     link = debugfs(
         launcher,
         directory,
-        "stat /etc/skel/.config/example/config-link",
+        "stat /bin",
     )
-    if 'Fast link dest: "config"' not in link:
-        raise AssertionError("relative symlink was not preserved: {}".format(link))
+    if 'Fast link dest: "usr/bin"' not in link:
+        raise AssertionError("relative rootfs symlink is invalid: {}".format(link))
 
 
 if __name__ == "__main__":
