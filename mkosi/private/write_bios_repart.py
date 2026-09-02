@@ -6,7 +6,7 @@ import sys
 
 def main():
     output = pathlib.Path(sys.argv[1])
-    output.mkdir()
+    output.mkdir(exist_ok=True)
     (output / "00-bios-boot.conf").write_text(
         "[Partition]\n"
         "Type=21686148-6449-6e6f-744e-656564454649\n"
