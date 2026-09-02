@@ -8,6 +8,7 @@ import runpy
 import shutil
 import subprocess
 import sys
+import traceback
 import uuid
 from dataclasses import replace
 from pathlib import Path
@@ -703,7 +704,19 @@ def main():
         )
     if release_child:
         sys.argv[:] = [script] + arguments
-        runpy.run_path(script, run_name="__main__")
+        try:
+            runpy.run_path(script, run_name="__main__")
+        except SystemExit as error:
+            if error.code not in (None, 0):
+                print(
+                    "rules_mkosi release child failed: status={!r}; command={!r}".format(
+                        error.code,
+                        sys.argv,
+                    ),
+                    file=sys.stderr,
+                )
+                traceback.print_exc(file=sys.stderr)
+            raise
     else:
         _run_mkosi(script, arguments)
 
