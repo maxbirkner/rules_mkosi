@@ -512,6 +512,7 @@ def _mkosi_image_impl(ctx):
         arguments.add("--bootable=yes")
         arguments.add("--bootloader=none")
         arguments.add("--bios-bootloader=grub")
+        arguments.add("--initrd=")
         arguments.add("--repart-directory")
         arguments.add(bios_partition_definition.path)
     arguments.add("--output-directory")

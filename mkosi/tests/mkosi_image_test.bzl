@@ -437,6 +437,7 @@ def _bios_provider_test_impl(ctx):
     asserts.true(env, "--architecture=x86-64" in image_action.argv)
     asserts.true(env, "--bootable=yes" in image_action.argv)
     asserts.true(env, "--bios-bootloader=grub" in image_action.argv)
+    asserts.true(env, "--initrd=" in image_action.argv)
     repart = image_action.argv.index("--repart-directory")
     asserts.true(env, image_action.argv[repart + 1].endswith(".bios-repart"))
     asserts.true(env, any([f.basename.endswith(".bios-repart") for f in image_action.inputs.to_list()]))
