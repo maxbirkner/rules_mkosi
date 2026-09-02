@@ -115,8 +115,13 @@ def validate_boot_regions(image, metadata, boot_reference, diskboot_reference, d
 
 
 def _debugfs(launcher, root, command):
+    invocation = getattr(_debugfs, "invocation", 0)
+    _debugfs.invocation = invocation + 1
     environment = {n: os.environ[n] for n in ("RUNFILES_DIR", "RUNFILES_MANIFEST_FILE", "RUNFILES_MANIFEST_ONLY") if n in os.environ}
-    environment.update({"MKOSI_DEBIAN_TOOLS_SCRATCH": os.path.join(os.environ["TEST_TMPDIR"], "bios-debugfs"), "PATH": ""})
+    environment.update({
+        "MKOSI_DEBIAN_TOOLS_SCRATCH": os.path.join(os.environ["TEST_TMPDIR"], "bios-debugfs-{}".format(invocation)),
+        "PATH": "",
+    })
     result = subprocess.run(
         [launcher, "--ro-bind", "{}:/inputs/root.ext4".format(root), "/usr/sbin/debugfs", "-R", command, "/inputs/root.ext4"],
         env=environment, capture_output=True, check=False, text=True,
