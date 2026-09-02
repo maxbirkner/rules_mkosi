@@ -112,7 +112,10 @@ def _validate_core(linked, decompressor_reference, kernel_reference, module_refe
         expanded = decoder.decompress(bytes(linked[payload_start:payload_end]), max_length=uncompressed_size + 1)
     except lzma.LZMAError as error:
         raise AssertionError("GRUB core compressed stream is invalid") from error
-    if not decoder.eof or decoder.unused_data or len(expanded) != uncompressed_size:
+    # GRUB's LzmaEncode call sets writeEndMark=0, so a valid raw stream has no
+    # EOS marker and Python deliberately leaves decoder.eof false. The exact
+    # header output size and subsequent complete record parse are the boundary.
+    if decoder.unused_data or len(expanded) != uncompressed_size:
         raise AssertionError("GRUB core compressed stream integrity check failed")
     if not expanded.startswith(kernel_reference):
         raise AssertionError("GRUB core kernel invariant content differs")
