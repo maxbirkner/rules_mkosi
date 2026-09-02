@@ -60,7 +60,7 @@ def main():
             "[Service]\nExecStart=/usr/local/bin/example\n"
         ),
         "/usr/lib/sysusers.d/example.conf": (
-            'u example - "Consumer payload user" /home/example\n'
+            'u example 61184 "Consumer payload user" /home/example\n'
         ),
         "/usr/lib/tmpfiles.d/example.conf": (
             "d /home/example 0755 example example -\n"
