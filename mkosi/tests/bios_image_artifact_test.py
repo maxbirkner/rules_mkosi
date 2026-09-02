@@ -101,14 +101,15 @@ def validate_boot_regions(image, metadata, boot_reference, diskboot_reference, d
         if not saw_terminator or not linked:
             raise AssertionError("GRUB diskboot blocklist is empty or unterminated")
         # grub-core/boot/i386/pc/startup_raw.S and include/grub/offsets.h:
-        # mkimage patches the decompressor's compressed/uncompressed sizes in
-        # its 16-byte header; the remaining lzma_decompress.img is invariant.
+        # mkimage patches compressed/uncompressed sizes at 0x08/0x0c,
+        # Reed-Solomon sizes at 0x10/0x14, and boot device at 0x18. These
+        # GRUB 2.12 offsets are declared in include/grub/offsets.h.
         if len(linked) < len(decompressor_reference):
             raise AssertionError("GRUB linked core image is shorter than its decompressor")
         _same_except(
             linked[: len(decompressor_reference)],
             decompressor_reference,
-            ((0, 16),),
+            ((0x08, 0x1C),),
             "GRUB linked core decompressor invariant bytes differ",
         )
 
