@@ -229,6 +229,11 @@ UEFI bootloader for this explicitly selected tier.
 It does **not** provide the authenticated UKI/Secure Boot/measured-boot chain
 available to UEFI designs. Treat it as a weaker compatibility boundary; this
 mode does not claim SeaBIOS or physical-hardware qualification.
+Artifact tests deliberately stop at installation evidence: protective MBR/GPT
+layout, pinned GRUB bootstrap/diskboot invariants, populated BIOS partition,
+and exact referenced boot files and modules. They do not duplicate GRUB's
+compressor, relocation, or executable-core semantics. Issue #22 owns execution
+of the installed core and guest boot under SeaBIOS.
 
 The explicit `mode` attribute selects image-build policy. The default
 `"tracer"` mode preserves the existing networked behavior and is intentionally

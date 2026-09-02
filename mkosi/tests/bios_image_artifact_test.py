@@ -1,8 +1,7 @@
-"""Validate rules_mkosi's installed GRUB BIOS artifact semantics."""
+"""Validate repository-owned GRUB BIOS installation evidence."""
 
 import os
 import errno
-import lzma
 import pathlib
 import re
 import struct
@@ -26,9 +25,6 @@ BLOCKLIST_OFFSET = 0x1B0
 BLOCKLIST_LAST = 0x1F4
 BLOCKLIST_END = 0x200
 REQUIRED_MODULES = ("normal", "biosdisk", "part_gpt", "ext2", "linux")
-CORE_REQUIRED_MODULES = ("normal", "biosdisk", "part_gpt", "fat", "linux", "search", "search_fs_file")
-MAX_CORE_COMPRESSED = 16 * 1024 * 1024
-MAX_CORE_UNCOMPRESSED = 64 * 1024 * 1024
 MAX_ROOT_BYTES = 4 * 1024 * 1024 * 1024
 ESP = "c12a7328-f81f-11d2-ba4b-00a0c93ec93b"
 
@@ -82,90 +78,7 @@ def _validate_protective_mbr(mbr, last_lba):
             raise AssertionError("hybrid MBR partition entries are not allowed")
 
 
-def _validate_core(linked, decompressor_reference, kernel_reference, module_references):
-    if len(linked) < len(decompressor_reference):
-        raise AssertionError("GRUB linked core image is shorter than its decompressor")
-    _same_except(
-        linked[: len(decompressor_reference)],
-        decompressor_reference,
-        ((0x08, 0x14), (0x18, 0x1C)),
-        "GRUB linked core decompressor invariant bytes differ",
-    )
-    compressed_size, uncompressed_size, redundancy = struct.unpack_from("<III", linked, 0x08)
-    no_rs_length = struct.unpack_from("<H", linked, 0x14)[0]
-    if not 0 < compressed_size <= MAX_CORE_COMPRESSED:
-        raise AssertionError("GRUB core compressed payload size is invalid")
-    if not 0 < uncompressed_size <= MAX_CORE_UNCOMPRESSED:
-        raise AssertionError("GRUB core uncompressed payload size is invalid")
-    payload_start = len(decompressor_reference)
-    payload_end = payload_start + compressed_size
-    if payload_end > len(linked):
-        raise AssertionError("GRUB core compressed stream is truncated")
-    if no_rs_length == 0 or no_rs_length >= payload_start:
-        raise AssertionError("GRUB core Reed-Solomon boundary is invalid")
-    if payload_end + redundancy != len(linked):
-        raise AssertionError("GRUB core payload has ambiguous trailing bytes")
-    try:
-        decoder = lzma.LZMADecompressor(
-            format=lzma.FORMAT_RAW,
-            filters=[{"id": lzma.FILTER_LZMA1, "dict_size": 1 << 16, "lc": 3, "lp": 0, "pb": 2}],
-        )
-        # GRUB passes this exact size to its raw decoder; without an EOS marker
-        # LZMA may otherwise expose padding as one additional output byte.
-        expanded = decoder.decompress(bytes(linked[payload_start:payload_end]), max_length=uncompressed_size)
-    except lzma.LZMAError as error:
-        raise AssertionError("GRUB core compressed stream is invalid") from error
-    # GRUB's LzmaEncode call sets writeEndMark=0, so a valid raw stream has no
-    # EOS marker and Python deliberately leaves decoder.eof false. The exact
-    # header output size and subsequent complete record parse are the boundary.
-    if decoder.unused_data or len(expanded) != uncompressed_size:
-        raise AssertionError(
-            "GRUB core compressed stream integrity check failed: expected={}, actual={}, unused={}".format(
-                uncompressed_size, len(expanded), len(decoder.unused_data)
-            )
-        )
-    # grub-mkimage relocates kernel.img and appends grub_module_info32 at
-    # layout.kernel_size (util/mkimage.c). Locate the unique aligned "mimg"
-    # header whose declared module extent reaches the exact expanded boundary.
-    candidates = []
-    for offset in range(0, min(len(kernel_reference), len(expanded) - 12) + 1, 4):
-        magic, first, total = struct.unpack_from("<III", expanded, offset)
-        if magic == 0x676D696D and first == 12 and total == len(expanded) - offset:
-            candidates.append(offset)
-    if len(candidates) != 1:
-        raise AssertionError("GRUB core module information is invalid")
-    offset = candidates[0]
-    _, first, total = struct.unpack_from("<III", expanded, offset)
-    cursor = offset + first
-    embedded = set()
-    config = None
-    while cursor < offset + total:
-        if cursor + 8 > len(expanded):
-            raise AssertionError("GRUB core module record is truncated")
-        kind, record_size = struct.unpack_from("<II", expanded, cursor)
-        if record_size < 8 or record_size > offset + total - cursor:
-            raise AssertionError("GRUB core module record size is invalid")
-        content = expanded[cursor + 8:cursor + record_size]
-        if kind == 0:
-            for name, reference in module_references.items():
-                if content[:len(reference)] == reference and not any(content[len(reference):]):
-                    embedded.add(name)
-                    break
-        elif kind == 2:
-            if config is not None:
-                raise AssertionError("GRUB core contains multiple embedded configurations")
-            config = content.rstrip(b"\0").decode("utf-8", "strict")
-        cursor += (record_size + 3) & ~3
-    if cursor != offset + total:
-        raise AssertionError("GRUB core module records have invalid alignment")
-    missing = set(CORE_REQUIRED_MODULES) - embedded
-    if missing:
-        raise AssertionError("GRUB core required embedded module is missing: " + sorted(missing)[0])
-    if config is None or "search --no-floppy --set=root --file /grub/grub.cfg" not in config:
-        raise AssertionError("GRUB core embedded configuration is missing or invalid")
-
-
-def validate_boot_regions(image, metadata, boot_reference, diskboot_reference, decompressor_reference, kernel_reference, module_references):
+def validate_boot_regions(image, metadata, boot_reference, diskboot_reference):
     bios = [p for p in metadata["partitions"] if p["type_guid"] == partition_metadata.BIOS_BOOT]
     if len(bios) != 1:
         raise AssertionError("unique GPT BIOS boot partition is missing")
@@ -173,50 +86,33 @@ def validate_boot_regions(image, metadata, boot_reference, diskboot_reference, d
     start, size = partition["start_bytes"], partition["size_bytes"]
     if start % partition_metadata.ALIGNMENT or size < partition_metadata.ALIGNMENT:
         raise AssertionError("GPT BIOS boot partition has invalid alignment or size")
-    if start % SECTOR or size % SECTOR:
-        raise AssertionError("GPT BIOS boot partition is not sector aligned")
+    if start % SECTOR or size % SECTOR or size > 16 * 1024 * 1024:
+        raise AssertionError("GPT BIOS boot partition has invalid bounded sector extent")
 
     with image.open("rb") as source:
         mbr = source.read(SECTOR)
         if len(mbr) != SECTOR or mbr[510:512] != b"\x55\xaa":
             raise AssertionError("BIOS MBR signature is missing")
         source.seek(0, os.SEEK_END)
-        last_lba = source.tell() // SECTOR - 1
-        _validate_protective_mbr(mbr, last_lba)
+        _validate_protective_mbr(mbr, source.tell() // SECTOR - 1)
         _same_except(
             mbr,
             boot_reference,
             BOOT_PATCHES + ((0x1B8, 0x1BE), (0x1BE, 0x1FE)),
-            "GRUB MBR invariant bytes differ from pinned boot.img",
+            "GRUB installation MBR invariant differs from pinned boot.img",
         )
         source.seek(start)
-        diskboot = source.read(SECTOR)
-        if len(diskboot) != SECTOR:
-            raise AssertionError("GRUB diskboot sector is truncated")
-        _same_except(diskboot, diskboot_reference, ((BLOCKLIST_OFFSET, BLOCKLIST_END),), "GRUB diskboot invariant bytes differ from pinned diskboot.img")
-
-        linked = bytearray()
-        saw_terminator = False
-        for offset in range(BLOCKLIST_LAST, BLOCKLIST_OFFSET - 1, -12):
-            sector, count, segment = struct.unpack_from("<QHH", diskboot, offset)
-            if count == 0:
-                saw_terminator = True
-                break
-            byte_start, byte_count = sector * SECTOR, count * SECTOR
-            if sector > (sys.maxsize // SECTOR) or count > (size // SECTOR):
-                raise AssertionError("GRUB diskboot blocklist arithmetic is invalid")
-            if byte_start < start or byte_start + byte_count > start + size:
-                raise AssertionError("GRUB diskboot blocklist leaves BIOS boot partition")
-            if segment < 0x800 or segment + count * 0x20 > 0xA000:
-                raise AssertionError("GRUB diskboot blocklist load segment is invalid")
-            source.seek(byte_start)
-            data = source.read(byte_count)
-            if len(data) != byte_count:
-                raise AssertionError("GRUB linked core image is truncated")
-            linked.extend(data)
-        if not saw_terminator or not linked:
-            raise AssertionError("GRUB diskboot blocklist is empty or unterminated")
-        _validate_core(linked, decompressor_reference, kernel_reference, module_references)
+        installed = source.read(size)
+    if len(installed) != size:
+        raise AssertionError("BIOS boot partition is truncated")
+    _same_except(
+        installed[:SECTOR],
+        diskboot_reference,
+        ((BLOCKLIST_OFFSET, BLOCKLIST_END),),
+        "GRUB installation diskboot invariant differs from pinned diskboot.img",
+    )
+    if not any(installed[SECTOR:]):
+        raise AssertionError("GRUB installation payload in BIOS boot partition is empty")
 
 
 def _debugfs(launcher, root, command):
@@ -409,9 +305,6 @@ def main():
         metadata,
         _reference(archive, "boot.img", SECTOR),
         _reference(archive, "diskboot.img", SECTOR),
-        _reference(archive, "lzma_decompress.img"),
-        _reference(archive, "kernel.img"),
-        {name: _reference(archive, name + ".mod") for name in CORE_REQUIRED_MODULES},
     )
     root = pathlib.Path(os.environ["TEST_TMPDIR"]) / "root.ext4"
     esp = pathlib.Path(os.environ["TEST_TMPDIR"]) / "esp.fat"
