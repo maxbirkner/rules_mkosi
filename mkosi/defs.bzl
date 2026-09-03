@@ -45,6 +45,7 @@ load(
     _qemu_seabios_boot_config = "qemu_seabios_boot_config",
     _qemu_seabios_boot_test = "qemu_seabios_boot_test",
 )
+load("//mkosi/private:qemu_sysupdate_test.bzl", _qemu_sysupdate_test = "qemu_sysupdate_test")
 load(
     "//mkosi/private:secure_boot.bzl",
     _SecureBootEphemeralTestFixtureInfo = "SecureBootEphemeralTestFixtureInfo",
@@ -85,6 +86,7 @@ qemu_seabios_boot_config = _qemu_seabios_boot_config
 managed_python_test = _managed_python_test
 qemu_executable = _qemu_executable
 qemu_ovmf_toolchain = _qemu_ovmf_toolchain
+qemu_sysupdate_test = _qemu_sysupdate_test
 SecureBootSigningRequestInfo = _SecureBootSigningRequestInfo
 SecureBootSignedUkiInfo = _SecureBootSignedUkiInfo
 SecureBootEphemeralTestFixtureInfo = _SecureBootEphemeralTestFixtureInfo

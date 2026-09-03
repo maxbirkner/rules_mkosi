@@ -1,0 +1,7 @@
+[Unit]
+Description=Commit and report successful slot B boot
+After=multi-user.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/rules-mkosi-slot-b-success

@@ -11,6 +11,7 @@ load(
     "qemu_ovmf_boot_test",
     "qemu_ovmf_smoke_test",
     "qemu_seabios_boot_test",
+    "qemu_sysupdate_test",
     "sysupdate_ab",
     "sysupdate_update_payload",
 )
@@ -63,6 +64,7 @@ behavior_targets(
         ":release_demo_verity_corruption_boot_test",
         ":sysupdate_public_api_test",
         ":sysupdate_phase1_mutation_test",
+        ":sysupdate_success_lifecycle_test",
         ":release_demo_partition_metadata_test",
         ":release_demo_reproducibility_test",
         ":release_demo_rootfs_payload_test",
@@ -325,6 +327,11 @@ qemu_ovmf_boot_test(
     ],
     readiness_marker = "RULES_MKOSI_SYSUPDATE_APPLIED_VERSION=2",
     shutdown_timeout_seconds = 60,
+)
+
+qemu_sysupdate_test(
+    name = "sysupdate_success_lifecycle_test",
+    image = ":sysupdate_a_image",
 )
 
 mkosi_config_tree(
