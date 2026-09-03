@@ -49,6 +49,7 @@ packages:
   - mount
   - procps
   - systemd-cryptsetup
+  - systemd-container
   - libtss2-esys-3.0.2-0t64
   - libtss2-mu-4.0.1-0t64
   - libtss2-rc0t64

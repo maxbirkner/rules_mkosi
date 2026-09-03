@@ -279,6 +279,7 @@ debian_tools_preflight_test(
         "apt-get",
         "dpkg",
         "systemd-repart",
+        "systemd-sysupdate",
         "mkfs.ext4",
         "mkfs.fat",
         "mkfs.btrfs",
