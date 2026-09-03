@@ -10,3 +10,5 @@ grub-install|/usr/sbin/grub-install|grub2-common
 grub-bios-modules|/usr/lib/grub/i386-pc/boot.img|grub-pc-bin
 bootctl|/usr/bin/bootctl|systemd-boot
 objcopy|/usr/bin/objcopy|binutils
+openssl|/usr/bin/openssl|openssl
+systemd-sbsign|/usr/lib/systemd/systemd-sbsign|systemd-ukify

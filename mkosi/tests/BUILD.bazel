@@ -30,6 +30,21 @@ load(
 )
 
 py_test(
+    name = "secure_boot_boundary_test",
+    timeout = "long",
+    srcs = ["secure_boot_boundary_test.py"],
+    args = [
+        "$(rootpath //mkosi/private:secure_boot.py)",
+        "$(rootpath @mkosi_debian_tools//:launcher)",
+    ],
+    data = [
+        "//mkosi/private:secure_boot.py",
+        "@mkosi_debian_tools//:launcher",
+    ],
+    main = "secure_boot_boundary_test.py",
+)
+
+py_test(
     name = "reproducibility_manifest_test",
     srcs = ["reproducibility_manifest_test.py"],
     args = ["$(rootpath //mkosi/private:reproducibility_manifest.py)"],
@@ -124,6 +139,8 @@ behavior_targets(
         ":release_subject_build_metadata_test",
         ":reproducibility_manifest_test",
         ":root_dependency_test",
+        ":secure_boot_boundary_test",
+        ":secure_boot_fixture_action_test",
         ":unsupported_version_test",
         ":verity_metadata_test",
     ],
@@ -257,6 +274,8 @@ debian_tools_preflight_test(
         "grub-bios-modules",
         "bootctl",
         "objcopy",
+        "openssl",
+        "systemd-sbsign",
     ],
     tree = "@mkosi_debian_tools//:tree_root",
 )

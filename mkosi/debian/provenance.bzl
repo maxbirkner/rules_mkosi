@@ -27,6 +27,8 @@ DEBIAN_TOOLS_REQUIRED_COMPONENTS = [
     "grub-bios-modules",
     "bootctl",
     "objcopy",
+    "openssl",
+    "systemd-sbsign",
 ]
 
 DEBIAN_TOOLS_COMPONENT_MANIFEST = "@rules_mkosi//mkosi/debian:components.txt"
