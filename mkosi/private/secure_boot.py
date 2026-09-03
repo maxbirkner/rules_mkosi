@@ -191,7 +191,7 @@ def verify(args):
     run_tool(
         args.openssl,
         "/usr/bin/openssl",
-        "cms",
+        "smime",
         "-verify",
         "-inform",
         "DER",
@@ -207,8 +207,7 @@ def verify(args):
     printed = run_tool(
         args.openssl,
         "/usr/bin/openssl",
-        "cms",
-        "-cmsout",
+        "pkcs7",
         "-print",
         "-inform",
         "DER",
