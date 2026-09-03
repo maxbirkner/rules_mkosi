@@ -14,7 +14,7 @@ def main() -> None:
         "architecture": "amd64",
         "codename": "trixie",
         "format_version": "debian-snapshot-v1",
-        "lock_sha256": "fa4e9f106cf6fb20b8b2c2b9206375e4af25abb7fd885fbfd9613ecb7bb191ce",
+        "lock_sha256": "815a4413a0780d14631be34078bceb929ccae29754a911aecadc6fca108123eb",
         "snapshot": "20250814T000000Z",
         "snapshot_url": "https://snapshot.debian.org/archive/debian/20250814T000000Z",
     }
