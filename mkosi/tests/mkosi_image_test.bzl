@@ -14,10 +14,12 @@ load(
     "mkosi_source_tree",
     "qemu_ovmf_boot_config",
     "qemu_ovmf_boot_test",
+    "qemu_seabios_boot_config",
 )
 load("//mkosi/debian:toolchain.bzl", "DebianToolsInfo")
 
 _qemu_ovmf_boot_config = qemu_ovmf_boot_config
+_qemu_seabios_boot_config = qemu_seabios_boot_config
 
 def _reproducibility_manifest_test_impl(ctx):
     env = analysistest.begin(ctx)
@@ -175,6 +177,16 @@ def _qemu_toolchain_provider_test_impl(ctx):
     asserts.equals(env, "edk2-stable202605-r1", info.ovmf_version)
     asserts.equals(
         env,
+        "rel-1.17.0-0-gb52ca86e094d-prebuilt.qemu.org",
+        info.seabios_version,
+    )
+    asserts.equals(
+        env,
+        "ae6f6aa973aaccc143f57aa960fb035fd9de4daee4ad0cd713322f8c259e7650",
+        info.seabios_sha256,
+    )
+    asserts.equals(
+        env,
         "b84d359893a0a1d565f368adb8290933ef9c99431acd98cff0fc4c9b35de3d22",
         info.qemu_sha256,
     )
@@ -187,6 +199,7 @@ def _qemu_toolchain_provider_test_impl(ctx):
     asserts.true(env, info.qemu_files_to_run.executable != None)
     asserts.true(env, info.ovmf_code.basename == "code.fd")
     asserts.true(env, info.ovmf_vars.basename == "vars.fd")
+    asserts.equals(env, "seabios.bin", info.seabios.basename)
     return analysistest.end(env)
 
 def _debian_tools_provider_test_impl(ctx):
@@ -245,6 +258,31 @@ def _boot_config_test_impl(ctx):
     return analysistest.end(env)
 
 boot_config_test = analysistest.make(_boot_config_test_impl)
+
+def _seabios_boot_config_test_impl(ctx):
+    env = analysistest.begin(ctx)
+    target = analysistest.target_under_test(env)
+    output = target[DefaultInfo].files.to_list()[0]
+    asserts.equals(env, "analysis_bios_boot_test_config.json", output.basename)
+    runfile_names = [
+        file.basename
+        for file in target[DefaultInfo].default_runfiles.files.to_list()
+    ]
+    asserts.true(env, "seabios.bin" in runfile_names)
+    asserts.true(env, "kernel_preflight" in runfile_names)
+    return analysistest.end(env)
+
+seabios_boot_config_test = analysistest.make(_seabios_boot_config_test_impl)
+
+def _seabios_firmware_mismatch_test_impl(ctx):
+    env = analysistest.begin(ctx)
+    asserts.expect_failure(env, "require an image with firmware = \"bios\"")
+    return analysistest.end(env)
+
+_seabios_firmware_mismatch_test = analysistest.make(
+    _seabios_firmware_mismatch_test_impl,
+    expect_failure = True,
+)
 
 _provider_test = analysistest.make(
     _provider_test_impl,
@@ -443,8 +481,8 @@ def _bios_provider_test_impl(ctx):
     asserts.true(env, "--architecture=x86-64" in image_action.argv)
     asserts.true(env, "--bootable=yes" in image_action.argv)
     asserts.true(env, "--bios-bootloader=grub" in image_action.argv)
-    asserts.true(env, "--initrd=" in image_action.argv)
-    for package in ("grub-pc-bin", "grub-common", "grub2-common", "linux-image-amd64"):
+    asserts.false(env, "--initrd=" in image_action.argv)
+    for package in ("grub-pc-bin", "grub-common", "grub2-common", "initramfs-tools", "linux-image-amd64", "systemd-sysv"):
         asserts.true(env, "--package=" + package in image_action.argv)
     repart = image_action.argv.index("--repart-directory")
     asserts.true(env, image_action.argv[repart + 1].endswith(".bios-repart"))
@@ -814,12 +852,29 @@ def mkosi_image_test_suite(name):
     )
     mkosi_image(
         name = "bios_release_subject",
-        config_tree = ":release_config_tree",
+        config_tree = ":bios_release_config_tree",
         debian_snapshot = "@mkosi_debian_snapshot//:repository",
         firmware = "bios",
         mode = "release",
         release_seed = "00000000-0000-4000-8000-000000000007",
         release_source_date_epoch = 0,
+    )
+    _qemu_seabios_boot_config(
+        name = "seabios_uefi_subject",
+        image = ":release_subject",
+        readiness_marker = "READY",
+        shutdown_markers = ["POWERED_OFF"],
+        machine_args = ["-machine", "pc"],
+        boot_timeout_seconds = 1,
+        qmp_initialization_timeout_seconds = 1,
+        shutdown_timeout_seconds = 1,
+        diagnostic_bytes = 1,
+        test_timeout = "short",
+        tags = ["manual"],
+    )
+    _seabios_firmware_mismatch_test(
+        name = "seabios_firmware_mismatch_test",
+        target_under_test = ":seabios_uefi_subject",
     )
     _bios_provider_test(
         name = "bios_release_provider_test",
@@ -878,6 +933,10 @@ def mkosi_image_test_suite(name):
     build_metadata_file(
         name = "release_subject_build_metadata",
         image = ":release_subject",
+    )
+    mkosi_config_tree(
+        name = "bios_release_config_tree",
+        src = "testdata/bios-release-config",
     )
     mkosi_config_tree(
         name = "release_config_tree",
@@ -1370,6 +1429,7 @@ def mkosi_image_test_suite(name):
             ":image_info_contract_31_test",
             ":release_provider_test",
             ":bios_release_provider_test",
+            ":seabios_firmware_mismatch_test",
             ":bios_tracer_test",
             ":release_without_snapshot_test",
             ":tracer_with_snapshot_test",

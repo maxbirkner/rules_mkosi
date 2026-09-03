@@ -3,8 +3,9 @@
 Bazel rules for assembling bootable Linux OS images with
 [mkosi](https://github.com/systemd/mkosi).
 
-The ruleset provides checksum-pinned mkosi v27, QEMU 11.0.0.1, and OVMF
-`edk2-stable202605-r1` toolchains. QEMU binaries are supplied by
+The ruleset provides checksum-pinned mkosi v27, QEMU 11.0.0.1, OVMF
+`edk2-stable202605-r1`, and SeaBIOS
+`rel-1.17.0-0-gb52ca86e094d-prebuilt.qemu.org` toolchains. QEMU binaries are supplied by
 [rules_qemu](https://github.com/hermeticbuild/rules_qemu); this ruleset adds
 the OVMF artifact and a small QEMU/OVMF provider and smoke-test wrapper.
 The supported Bazel baseline is 8.5.1. The project follows a rolling policy
@@ -25,7 +26,7 @@ register_toolchains("@mkosi_toolchains//:all")
 `@mkosi_toolchains//:qemu_linux_x86_64` is constrained to Linux x86-64 and
 provides `MkosiQemuToolchainInfo` through the
 `//mkosi/toolchain:qemu_toolchain_type` toolchain. Its QEMU executable,
-`qemu-img`, QEMU system data, `OVMF_CODE`, and `OVMF_VARS` are all runfiles;
+`qemu-img`, QEMU system data, `OVMF_CODE`, `OVMF_VARS`, and SeaBIOS are all runfiles;
 tests do not use host QEMU or firmware. The extension also requires
 `rules_qemu` and its QEMU extension:
 
@@ -228,12 +229,11 @@ rejects non-amd64 snapshots and UKI or Secure Boot settings. It disables the
 UEFI bootloader for this explicitly selected tier.
 It does **not** provide the authenticated UKI/Secure Boot/measured-boot chain
 available to UEFI designs. Treat it as a weaker compatibility boundary; this
-mode does not claim SeaBIOS or physical-hardware qualification.
-Artifact tests deliberately stop at installation evidence: protective MBR/GPT
-layout, pinned GRUB bootstrap/diskboot invariants, populated BIOS partition,
-and exact referenced boot files and modules. They do not duplicate GRUB's
-compressor, relocation, or executable-core semantics. Issue #22 owns execution
-of the installed core and guest boot under SeaBIOS.
+mode does not claim physical-hardware qualification. Artifact tests retain
+protective MBR/GPT, pinned GRUB bootstrap/diskboot, populated BIOS partition,
+and referenced-file evidence. The independently named `bios_boot_test` then
+boots the complete root filesystem through pinned SeaBIOS and observes
+userspace readiness plus clean shutdown.
 
 The explicit `mode` attribute selects image-build policy. The default
 `"tracer"` mode preserves the existing networked behavior and is intentionally
@@ -423,15 +423,20 @@ advanced from v1 to v2 to make cache-relevant release provenance explicit.
 Consumers must select the metadata artifact through `build_metadata` and use
 its schema version when parsing its contents.
 
-`qemu_ovmf_boot_test` is the reusable public boot-test adapter:
+The public boot adapters share one reusable serial/QMP lifecycle:
 
 ```starlark
-load("@rules_mkosi//mkosi:defs.bzl", "qemu_ovmf_boot_test")
+load("@rules_mkosi//mkosi:defs.bzl", "qemu_ovmf_boot_test", "qemu_seabios_boot_test")
 
 qemu_ovmf_boot_test(
-    name = "demo_boot_test",
+    name = "uefi_boot_test",
     image = ":demo",
     readiness_marker = "systemd[1]: Hostname set to <demo>.",
+)
+
+qemu_seabios_boot_test(
+    name = "bios_boot_test",
+    image = ":bios_release",
 )
 ```
 
@@ -441,10 +446,12 @@ registered toolchain, runs QEMU with TCG,
 no default devices, and a read-only snapshot of the image, then requires exact
 serial readiness and guest shutdown markers. QMP, launch, firmware, guest,
 readiness-timeout, and shutdown failures are reported separately with bounded
-deadlines and retained serial/QEMU diagnostics. The state machine is
-firmware-neutral; only this adapter supplies OVMF flash arguments. Machine
-arguments and all deadlines/diagnostic retention are attributes so a future
-SeaBIOS adapter can reuse the lifecycle. The `timeout` argument is a finite
+deadlines and retained serial, firmware, and QEMU diagnostics. OVMF supplies
+flash arguments; SeaBIOS supplies its pinned ROM and debug console. Observable
+SeaBIOS failures distinguish a missing boot sector, GRUB/core failure, and a
+kernel/initrd/config guest failure. Machine arguments and all
+deadlines/diagnostic retention remain adapter attributes. The `timeout`
+argument is a finite
 Bazel test-timeout category (`"short"`, `"moderate"`, or `"long"`), defaulting
 to `"moderate"` (300 seconds); `"eternal"` is deliberately rejected. The QMP,
 boot, and shutdown deadlines must be positive and, together with a reserved

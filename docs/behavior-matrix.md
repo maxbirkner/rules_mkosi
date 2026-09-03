@@ -67,15 +67,16 @@ Both tree rules accept normalized `executable_paths`; staging preserves those
 bits and rejects escaping paths.
 
 <!-- behavior:BHV-BOOT-IMAGE -->
-`qemu_ovmf_boot_config.image` requires `MkosiImageInfo.raw_image`.
+Both boot adapters require `MkosiImageInfo.raw_image`; the SeaBIOS adapter
+additionally rejects images whose provider firmware tier is not `bios`.
 
 <!-- behavior:BHV-BOOT-MARKERS -->
 `readiness_marker` is nonempty and `shutdown_markers` contains only nonempty
 markers; exact markers gate runtime readiness and clean shutdown.
 
 <!-- behavior:BHV-BOOT-MACHINE -->
-`machine_args` is passed before adapter-owned OVMF flash arguments, including
-the empty-list boundary.
+`machine_args` is passed before adapter-owned firmware arguments. OVMF owns
+its flash drives; SeaBIOS owns the pinned ROM and debug-console capture.
 
 <!-- behavior:BHV-BOOT-DEADLINES -->
 `boot_timeout_seconds`, `qmp_initialization_timeout_seconds`, and
@@ -122,8 +123,8 @@ components, and required-component inventory.
 `pefile`, and the selected compatible managed Python 3.14 runtime.
 
 <!-- behavior:BHV-QEMU-TOOLCHAIN-PROVIDER -->
-`MkosiQemuToolchainInfo` exposes pinned QEMU/system-data and OVMF files plus
-their immutable provenance.
+`MkosiQemuToolchainInfo` exposes pinned QEMU/system-data, OVMF files, and the
+typed SeaBIOS ROM plus their immutable provenance.
 
 <!-- behavior:BHV-BOOT-PROVIDER -->
 `QemuOvmfBootConfigInfo` exposes validated timeout category, QMP/boot/shutdown
@@ -186,7 +187,10 @@ maintained `e2e/module_resolution/nonroot_name` fixture.
 <!-- behavior:BHV-ACTION-FAILURES -->
 Executed failures preserve tool output and classify kernel capability,
 toolchain, network, assembly, and VM boundaries with one actionable
-remediation.
+remediation. SeaBIOS failures distinguish an absent boot sector, observable
+GRUB/core failure, kernel/initrd/config guest failure, readiness timeout, and
+post-readiness shutdown failure while retaining firmware, serial, and QEMU
+logs.
 
 <!-- behavior:BHV-STAGING-FAILURES -->
 Staging rejects collisions, duplicate sources, absolute/traversing

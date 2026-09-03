@@ -271,19 +271,24 @@ def validate_boot_files(entries, modules, config):
         raise AssertionError("GRUB configuration has no genuine menuentry body: {!r}".format(config[:2048]))
     body = "\n".join(body_lines)
     linux = re.search(r"(?m)^\s*linux\S*\s+(\S+)", body)
-    initrd = re.search(r"(?m)^\s*initrd\S*\s+(\S+)", body)
+    initrd = re.search(r"(?m)^\s*initrd\S*\s+(.+)$", body)
     if not linux or not initrd:
         raise AssertionError("GRUB menuentry is missing linux/initrd commands")
-    kernel_path, initrd_path = linux.group(1), initrd.group(1)
+    kernel_path = linux.group(1)
+    initrd_paths = initrd.group(1).split()
     kernel_version = re.fullmatch(r"/(?:boot/)?vmlinuz-(.+)", kernel_path)
     if not kernel_version:
         kernel_version = re.fullmatch(r"/(?:boot/)?[^/]+/([^/]+)/vmlinuz", kernel_path)
-    initrd_version = re.fullmatch(r"/(?:boot/)?initrd(?:\.img)?-(.+)", initrd_path)
-    if not initrd_version:
-        initrd_version = re.fullmatch(r"/(?:boot/)?[^/]+/([^/]+)/kernel-modules\.initrd", initrd_path)
-    if not kernel_version or not initrd_version or kernel_version.group(1) != initrd_version.group(1):
+    initrd_versions = []
+    for initrd_path in initrd_paths:
+        match = re.fullmatch(r"/(?:boot/)?initrd(?:\.img)?-(.+)", initrd_path)
+        if not match:
+            match = re.fullmatch(r"/(?:boot/)?[^/]+/([^/]+)/kernel-modules\.initrd", initrd_path)
+        if match:
+            initrd_versions.append(match.group(1))
+    if not kernel_version or kernel_version.group(1) not in initrd_versions:
         raise AssertionError("GRUB kernel and initrd versions do not match")
-    for path in (kernel_path, initrd_path):
+    for path in [kernel_path] + initrd_paths:
         if entries.get(path) != "regular":
             raise AssertionError(
                 "GRUB menuentry references missing non-regular file: {} ({})".format(path, entries.get(path))
@@ -322,7 +327,9 @@ def main():
         if config is None:
             config = _debugfs(launcher, root, "cat /grub/grub.cfg")
         uncommented = "\n".join(line.split("#", 1)[0] for line in config.splitlines())
-        menu_paths = set(re.findall(r"(?m)^\s*(?:linux|linux16|initrd|initrd16)\s+(\S+)", uncommented))
+        menu_paths = set(re.findall(r"(?m)^\s*(?:linux|linux16)\s+(\S+)", uncommented))
+        for paths in re.findall(r"(?m)^\s*(?:initrd|initrd16)\s+(.+)$", uncommented):
+            menu_paths.update(paths.split())
         entries = {
             path: (
                 _fat_regular(launcher, _mtype.esp, path)

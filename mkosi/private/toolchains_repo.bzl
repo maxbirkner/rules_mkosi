@@ -6,6 +6,10 @@ def _toolchains_repo_impl(repository_ctx):
         sha256 = repository_ctx.attr.source_sha256,
         stripPrefix = repository_ctx.attr.strip_prefix,
     )
+    repository_ctx.symlink(
+        repository_ctx.path(repository_ctx.attr.seabios_source).get_child("bios-256k.bin"),
+        "seabios.bin",
+    )
     repository_ctx.download_and_extract(
         url = repository_ctx.attr.ovmf_source_url,
         sha256 = repository_ctx.attr.ovmf_sha256,
@@ -90,6 +94,9 @@ qemu_ovmf_toolchain(
     qemu_img = {qemu_img},
     system_data = {system_data},
     system_data_anchor = {system_data},
+    seabios_version = {seabios_version},
+    seabios = ":seabios",
+    seabios_sha256 = {seabios_sha256},
     ovmf_version = {ovmf_version},
     ovmf_source_url = {ovmf_source_url},
     ovmf_sha256 = {ovmf_sha256},
@@ -100,6 +107,11 @@ qemu_ovmf_toolchain(
     ovmf_code_sha256 = {ovmf_code_sha256},
     ovmf_vars_sha256 = {ovmf_vars_sha256},
     ovmf_shell_sha256 = {ovmf_shell_sha256},
+)
+
+filegroup(
+    name = "seabios",
+    srcs = ["seabios.bin"],
 )
 
 filegroup(
@@ -130,6 +142,8 @@ toolchain(
         qemu_system = repr(repository_ctx.attr.qemu_system),
         qemu_img = repr(repository_ctx.attr.qemu_img),
         system_data = repr(repository_ctx.attr.system_data),
+        seabios_version = repr(repository_ctx.attr.seabios_version),
+        seabios_sha256 = repr(repository_ctx.attr.seabios_sha256),
         qemu_version = repr(repository_ctx.attr.qemu_version),
         qemu_source_url = repr(repository_ctx.attr.qemu_source_url),
         qemu_sha256 = repr(repository_ctx.attr.qemu_sha256),
@@ -163,6 +177,9 @@ toolchains_repo = repository_rule(
         "qemu_system": attr.string(mandatory = True),
         "qemu_img": attr.string(mandatory = True),
         "system_data": attr.string(mandatory = True),
+        "seabios_version": attr.string(mandatory = True),
+        "seabios_source": attr.label(mandatory = True),
+        "seabios_sha256": attr.string(mandatory = True),
         "qemu_version": attr.string(mandatory = True),
         "qemu_source_url": attr.string(mandatory = True),
         "qemu_sha256": attr.string(mandatory = True),

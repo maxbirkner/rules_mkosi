@@ -111,7 +111,7 @@ class BootLifecycleTest(unittest.TestCase):
             output = stderr.getvalue()
             self.assertEqual(1, output.count("VM_FAILURE:"))
             self.assertIn(expected + ":", output)
-            self.assertIn("Action: inspect the preserved serial and QEMU logs", output)
+            self.assertIn("Action: inspect the preserved serial, firmware, and QEMU logs", output)
             self.assertIn(serial.decode().splitlines()[0], output)
             self.assertIn("qemu diagnostic", output)
             self.assertFalse((root / "qmp.sock").exists())
@@ -182,6 +182,36 @@ class BootLifecycleTest(unittest.TestCase):
 
     def test_firmware_exit_before_readiness(self):
         self._run("FIRMWARE_FAILURE", process=_Process(polls=(1,)))
+
+    def test_seabios_missing_boot_sector_is_distinct(self):
+        self.assertEqual(
+            "MISSING_BOOT_SECTOR",
+            boot_test._classify_pre_readiness_failure(
+                b"",
+                b"Boot failed: not a bootable disk\nNo bootable device.\n",
+                "seabios",
+            ),
+        )
+
+    def test_seabios_grub_failure_is_distinct(self):
+        self.assertEqual(
+            "GRUB_FAILURE",
+            boot_test._classify_pre_readiness_failure(
+                b"GRUB loading.\nerror: file `/boot/grub/i386-pc/normal.mod' not found.\n",
+                b"SeaBIOS (version rel-1.17.0)\n",
+                "seabios",
+            ),
+        )
+
+    def test_seabios_kernel_config_failure_is_guest_failure(self):
+        self.assertEqual(
+            "GUEST_FAILURE",
+            boot_test._classify_pre_readiness_failure(
+                b"Linux version 6.12\nKernel panic - not syncing: VFS: Unable to mount root fs\n",
+                b"SeaBIOS (version rel-1.17.0)\n",
+                "seabios",
+            ),
+        )
 
     def test_guest_exit_before_readiness(self):
         self._run(

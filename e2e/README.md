@@ -48,7 +48,7 @@ or raw image from a filename or `DefaultInfo` ordering. The current image mode
 provides `raw_image` and `build_metadata`; manifest, partition metadata, and
 UKI fields are explicitly absent until their producing modes exist.
 
-`demo_boot_test` is the dedicated UEFI tracer test. It consumes `demo` through
+`uefi_boot_test` is the dedicated UEFI tracer test. It consumes `demo` through
 the public `qemu_ovmf_boot_test` macro, boots it with the registered QEMU/OVMF
 artifacts and TCG, waits for the exact systemd hostname marker on the guest
 serial stream, and verifies the guest's clean `Powering off` shutdown. It runs
@@ -70,6 +70,11 @@ diagnostic, and cleanup transitions. The macro forwards Bazel's finite
 `short`, `moderate`, or `long` timeout category and rejects deadlines that do
 not fit inside that category's lifecycle and cleanup budget; `eternal` is not
 supported.
+
+`bios_boot_test` is independently named and boots `bios_release_demo`, the
+offline GRUB image, through public `qemu_seabios_boot_test`. It uses the pinned
+SeaBIOS ROM and the same bounded serial/QMP lifecycle, then proves real-root
+readiness and clean poweroff.
 
 The BCR presubmit has separate Bazel 8 and Bazel 9 tasks. The Bazel 8 task
 uses the committed `e2e/smoke/MODULE.bazel.lock` strictly. The Bazel 9 task

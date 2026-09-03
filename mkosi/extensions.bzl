@@ -14,6 +14,8 @@ load(
     "QEMU_SYSTEM_SHA256",
     "QEMU_SYSTEM_URL",
     "QEMU_VERSION",
+    "SEABIOS_SHA256",
+    "SEABIOS_VERSION",
 )
 load("//mkosi:versions.bzl", "DEFAULT_MKOSI_VERSION", "MKOSI_VERSIONS")
 load("//mkosi/private:toolchains_repo.bzl", "toolchains_repo")
@@ -121,6 +123,9 @@ def _mkosi_impl(module_ctx):
         qemu_system = "@qemu_system_bin_prebuilt_linux_amd64_x86_64_softmmu//:qemu-system-x86_64",
         qemu_img = "@qemu_img_prebuilt_linux_amd64//:qemu-img",
         system_data = "@qemu_system_data_prebuilt_linux_amd64//:qemu-system-data",
+        seabios_source = "@qemu_system_data_prebuilt_linux_amd64//:share/qemu",
+        seabios_version = SEABIOS_VERSION,
+        seabios_sha256 = SEABIOS_SHA256,
         qemu_version = QEMU_VERSION,
         qemu_source_url = QEMU_SYSTEM_URL,
         qemu_sha256 = QEMU_SYSTEM_SHA256,

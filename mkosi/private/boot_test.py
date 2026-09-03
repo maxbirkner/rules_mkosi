@@ -64,9 +64,20 @@ def _read_log(path):
         return b"<log unavailable>\n"
 
 
-def _diagnose(kind, message, serial_log, qemu_log, diagnostic_bytes):
+def _diagnose(
+    kind,
+    message,
+    serial_log,
+    qemu_log,
+    diagnostic_bytes,
+    firmware_log=None,
+):
     diagnostics.report("VM_FAILURE", "{}: {}".format(kind, message))
-    for title, path in (("serial log", serial_log), ("QEMU log", qemu_log)):
+    logs = [("serial log", serial_log)]
+    if firmware_log:
+        logs.append(("firmware log", firmware_log))
+    logs.append(("QEMU log", qemu_log))
+    for title, path in logs:
         print("%s (%s):" % (title, path), file=sys.stderr)
         print(
             _read_log(path)[-diagnostic_bytes:].decode(errors="replace"),
@@ -134,13 +145,36 @@ def _guest_started(serial):
     return b"Linux version" in serial or b"systemd[" in serial
 
 
-def _classify_process_exit(qemu_initialized, serial, returncode):
+def _classify_pre_readiness_failure(serial, firmware, firmware_kind):
+    combined = serial + b"\n" + firmware
+    if _guest_started(serial):
+        return "GUEST_FAILURE"
+    if firmware_kind == "seabios":
+        if any(
+            marker in combined
+            for marker in (
+                b"Boot failed: not a bootable disk",
+                b"No bootable device",
+                b"Could not read from Boot Medium",
+            )
+        ):
+            return "MISSING_BOOT_SECTOR"
+        if b"GRUB" in combined:
+            return "GRUB_FAILURE"
+    return "FIRMWARE_FAILURE"
+
+
+def _classify_process_exit(
+    qemu_initialized,
+    serial,
+    returncode,
+    firmware=b"",
+    firmware_kind="",
+):
     del returncode
     if not qemu_initialized:
         return "QEMU_INITIALIZATION_FAILURE"
-    if _guest_started(serial):
-        return "GUEST_FAILURE"
-    return "FIRMWARE_FAILURE"
+    return _classify_pre_readiness_failure(serial, firmware, firmware_kind)
 
 
 def _qemu_environment(scratch):
@@ -182,6 +216,9 @@ def _boot(
     machine_args=(),
     firmware_code=None,
     firmware_vars=None,
+    firmware=None,
+    firmware_kind="",
+    disk_interface="virtio",
     kernel_preflight=None,
     readiness_marker="",
     expected_failure_marker="",
@@ -205,9 +242,12 @@ def _boot(
         firmware_code = os.path.abspath(firmware_code)
     if firmware_vars:
         firmware_vars = os.path.abspath(firmware_vars)
+    if firmware:
+        firmware = os.path.abspath(firmware)
     vars_copy = scratch / "firmware-vars.fd"
     serial_log = scratch / "guest-serial.log"
     qemu_log = scratch / "qemu.log"
+    firmware_log = scratch / "firmware.log"
     qmp_socket = "qmp.sock"
     qmp_socket_file = scratch / qmp_socket
     process = None
@@ -218,10 +258,10 @@ def _boot(
             shutil.copyfile(firmware_vars, vars_copy)
             vars_copy.chmod(0o600)
         expanded_qemu_args = [
-            argument.replace("{firmware_code}", firmware_code or "").replace(
-                "{firmware_vars}",
-                str(vars_copy),
-            )
+            argument.replace("{firmware_code}", firmware_code or "")
+            .replace("{firmware_vars}", str(vars_copy))
+            .replace("{firmware}", firmware or "")
+            .replace("{firmware_log}", str(firmware_log))
             for argument in (qemu_args or machine_args)
         ]
         command = [
@@ -243,7 +283,7 @@ def _boot(
             "-qmp",
             "unix:%s,server=on,wait=off" % qmp_socket,
             "-drive",
-            "if=virtio,format=raw,snapshot=on,file=%s" % image,
+            "if=%s,format=raw,snapshot=on,file=%s" % (disk_interface, image),
         ]
         environment = _qemu_environment(scratch)
         with open(qemu_log, "wb") as output:
@@ -262,6 +302,7 @@ def _boot(
                     serial_log,
                     qemu_log,
                     diagnostic_bytes,
+                    firmware_log,
                 )
 
             try:
@@ -283,6 +324,7 @@ def _boot(
                             serial_log,
                             qemu_log,
                             diagnostic_bytes,
+                            firmware_log,
                         )
                 finally:
                     os.fchdir(original_cwd)
@@ -291,6 +333,7 @@ def _boot(
                 deadline = monotonic() + boot_timeout_seconds
                 while monotonic() < deadline:
                     serial = _read_log(serial_log)
+                    firmware_output = _read_log(firmware_log)
                     readiness_offset = serial.find(readiness_marker.encode())
                     failure_offset = (
                         serial.find(expected_failure_marker.encode())
@@ -328,20 +371,38 @@ def _boot(
                         break
                     if process.poll() is not None:
                         _diagnose(
-                            _classify_process_exit(True, serial, process.returncode),
+                            _classify_process_exit(
+                                True,
+                                serial,
+                                process.returncode,
+                                firmware_output,
+                                firmware_kind,
+                            ),
                             "QEMU exited before readiness",
                             serial_log,
                             qemu_log,
                             diagnostic_bytes,
+                            firmware_log,
                         )
                     sleep(0.1)
                 else:
+                    firmware_output = _read_log(firmware_log)
+                    timeout_kind = "READINESS_TIMEOUT"
+                    if not expected_failure_marker:
+                        timeout_kind = _classify_pre_readiness_failure(
+                            serial,
+                            firmware_output,
+                            firmware_kind,
+                        )
+                        if timeout_kind == "FIRMWARE_FAILURE":
+                            timeout_kind = "READINESS_TIMEOUT"
                     _diagnose(
-                        "READINESS_TIMEOUT",
+                        timeout_kind,
                         "did not observe exact serial marker %r" % readiness_marker,
                         serial_log,
                         qemu_log,
                         diagnostic_bytes,
+                        firmware_log,
                     )
 
                 try:
@@ -354,6 +415,7 @@ def _boot(
                         serial_log,
                         qemu_log,
                         diagnostic_bytes,
+                        firmware_log,
                     )
                 if process.returncode != 0:
                     _diagnose(
@@ -362,6 +424,7 @@ def _boot(
                         serial_log,
                         qemu_log,
                         diagnostic_bytes,
+                        firmware_log,
                     )
                 if not _has_clean_shutdown(serial_log, shutdown_markers):
                     _diagnose(
@@ -370,8 +433,16 @@ def _boot(
                         serial_log,
                         qemu_log,
                         diagnostic_bytes,
+                        firmware_log,
                     )
-                print("guest readiness and clean shutdown verified")
+                print(
+                    "guest readiness and clean shutdown verified: "
+                    "firmware={} readiness={!r} shutdown={!r}".format(
+                        firmware_kind,
+                        readiness_marker,
+                        list(shutdown_markers),
+                    ),
+                )
             finally:
                 if process.poll() is None:
                     if not _stop_process(process):
@@ -381,6 +452,7 @@ def _boot(
                             serial_log,
                             qemu_log,
                             diagnostic_bytes,
+                            firmware_log,
                         )
     finally:
         try:
@@ -398,8 +470,23 @@ def main():
         _resolve_runfile(config["qemu"]),
         _resolve_runfile(config["system_data"]),
         qemu_args=config["qemu_args"],
-        firmware_code=_resolve_runfile(config["firmware_code"]),
-        firmware_vars=_resolve_runfile(config["firmware_vars"]),
+        firmware_code=(
+            _resolve_runfile(config["firmware_code"])
+            if config.get("firmware_code")
+            else None
+        ),
+        firmware_vars=(
+            _resolve_runfile(config["firmware_vars"])
+            if config.get("firmware_vars")
+            else None
+        ),
+        firmware=(
+            _resolve_runfile(config["firmware"])
+            if config.get("firmware")
+            else None
+        ),
+        firmware_kind=config.get("firmware_kind", "ovmf"),
+        disk_interface=config.get("disk_interface", "virtio"),
         kernel_preflight=_resolve_runfile(config["kernel_preflight"]),
         readiness_marker=config["readiness_marker"],
         expected_failure_marker=config.get("expected_failure_marker", ""),

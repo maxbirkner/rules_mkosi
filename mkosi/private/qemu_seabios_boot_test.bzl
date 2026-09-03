@@ -1,39 +1,27 @@
-"""Reusable OVMF adapter for the generic serial boot lifecycle."""
+"""SeaBIOS adapter for the reusable serial boot lifecycle."""
 
 load(":managed_python_test.bzl", "managed_python_test")
 load(":mkosi_image.bzl", "MkosiImageInfo")
+load(":qemu_ovmf_boot_test.bzl", "QemuOvmfBootConfigInfo")
 
 _QEMU_TOOLCHAIN_TYPE = "//mkosi/toolchain:qemu_toolchain_type"
-_TEST_TIMEOUT_SECONDS = {
-    "short": 60,
-    "moderate": 300,
-    "long": 900,
-}
+_TEST_TIMEOUT_SECONDS = {"short": 60, "moderate": 300, "long": 900}
 _CLEANUP_MARGIN_SECONDS = 30
 
-QemuOvmfBootConfigInfo = provider(
-    "Validated lifecycle deadlines and Bazel timeout category.",
-    fields = [
-        "test_timeout",
-        "qmp_initialization_timeout_seconds",
-        "boot_timeout_seconds",
-        "shutdown_timeout_seconds",
-        "cleanup_margin_seconds",
-    ],
-)
-
-def _qemu_ovmf_boot_config_impl(ctx):
-    image = ctx.attr.image[MkosiImageInfo].raw_image
-    if image == None:
-        fail("image must provide MkosiImageInfo.raw_image for the OVMF raw-disk adapter")
-    if ctx.attr.boot_timeout_seconds <= 0:
-        fail("boot_timeout_seconds must be positive")
-    if ctx.attr.qmp_initialization_timeout_seconds <= 0:
-        fail("qmp_initialization_timeout_seconds must be positive")
-    if ctx.attr.shutdown_timeout_seconds <= 0:
-        fail("shutdown_timeout_seconds must be positive")
-    if ctx.attr.diagnostic_bytes <= 0:
-        fail("diagnostic_bytes must be positive")
+def _qemu_seabios_boot_config_impl(ctx):
+    image = ctx.attr.image[MkosiImageInfo]
+    if image.raw_image == None:
+        fail("image must provide MkosiImageInfo.raw_image for the SeaBIOS raw-disk adapter")
+    if image.firmware != "bios":
+        fail("SeaBIOS boot tests require an image with firmware = \"bios\"")
+    for value, message in (
+        (ctx.attr.boot_timeout_seconds, "boot_timeout_seconds"),
+        (ctx.attr.qmp_initialization_timeout_seconds, "qmp_initialization_timeout_seconds"),
+        (ctx.attr.shutdown_timeout_seconds, "shutdown_timeout_seconds"),
+        (ctx.attr.diagnostic_bytes, "diagnostic_bytes"),
+    ):
+        if value <= 0:
+            fail(message + " must be positive")
     if not ctx.attr.readiness_marker:
         fail("readiness_marker must not be empty")
     if not ctx.attr.shutdown_markers or any([not marker for marker in ctx.attr.shutdown_markers]):
@@ -47,48 +35,39 @@ def _qemu_ovmf_boot_config_impl(ctx):
         _CLEANUP_MARGIN_SECONDS
     )
     if lifecycle_seconds > _TEST_TIMEOUT_SECONDS[ctx.attr.test_timeout]:
-        fail(
-            ("boot lifecycle deadlines (%d seconds including cleanup margin) " +
-             "exceed the %s test timeout category (%d seconds)") % (
-                lifecycle_seconds,
-                ctx.attr.test_timeout,
-                _TEST_TIMEOUT_SECONDS[ctx.attr.test_timeout],
-            ),
-        )
+        fail("boot lifecycle deadlines exceed the Bazel test timeout category")
+
     qemu = ctx.toolchains[_QEMU_TOOLCHAIN_TYPE].qemu
     output = ctx.actions.declare_file(ctx.label.name + ".json")
     config = {
         "boot_timeout_seconds": ctx.attr.boot_timeout_seconds,
         "diagnostic_bytes": ctx.attr.diagnostic_bytes,
-        "firmware_code": qemu.ovmf_code.short_path,
-        "firmware_vars": qemu.ovmf_vars.short_path,
-        "image": image.short_path,
+        "disk_interface": "virtio",
+        "firmware": qemu.seabios.short_path,
+        "firmware_kind": "seabios",
+        "image": image.raw_image.short_path,
         "kernel_preflight": ctx.executable._kernel_preflight.short_path,
-        "qemu_args": ctx.attr.machine_args + [
-            "-drive",
-            "if=pflash,format=raw,readonly=on,file={firmware_code}",
-            "-drive",
-            "if=pflash,format=raw,file={firmware_vars}",
-        ],
         "qemu": qemu.qemu_files_to_run.executable.short_path,
+        "qemu_args": ctx.attr.machine_args + [
+            "-bios",
+            "{firmware}",
+            "-chardev",
+            "file,id=firmware,path={firmware_log}",
+            "-device",
+            "isa-debugcon,iobase=0x402,chardev=firmware",
+        ],
         "qmp_initialization_timeout_seconds": ctx.attr.qmp_initialization_timeout_seconds,
         "readiness_marker": ctx.attr.readiness_marker,
-        "expected_failure_marker": ctx.attr.expected_failure_marker,
-        "stop_after_readiness": ctx.attr.stop_after_readiness,
         "shutdown_markers": ctx.attr.shutdown_markers,
         "shutdown_timeout_seconds": ctx.attr.shutdown_timeout_seconds,
         "system_data": qemu.system_data_anchor.short_path,
         "test_timeout": ctx.attr.test_timeout,
     }
-    ctx.actions.write(
-        output = output,
-        content = json.encode(config) + "\n",
-    )
+    ctx.actions.write(output = output, content = json.encode(config) + "\n")
     runfiles = ctx.runfiles(
         files = [
-            image,
-            qemu.ovmf_code,
-            qemu.ovmf_vars,
+            image.raw_image,
+            qemu.seabios,
             qemu.qemu_files_to_run.executable,
             qemu.system_data_anchor,
             ctx.executable._kernel_preflight,
@@ -110,32 +89,13 @@ def _qemu_ovmf_boot_config_impl(ctx):
         ),
     ]
 
-qemu_ovmf_boot_config = rule(
-    implementation = _qemu_ovmf_boot_config_impl,
+qemu_seabios_boot_config = rule(
+    implementation = _qemu_seabios_boot_config_impl,
     attrs = {
-        "image": attr.label(
-            mandatory = True,
-            providers = [MkosiImageInfo],
-            doc = "mkosi_image target whose MkosiImageInfo.raw_image is booted read-only through a snapshot.",
-        ),
-        "readiness_marker": attr.string(
-            mandatory = True,
-            doc = "Exact serial marker proving guest userspace readiness.",
-        ),
-        "expected_failure_marker": attr.string(
-            doc = "Exact serial marker that makes an intentional negative boot pass before readiness.",
-        ),
-        "stop_after_readiness": attr.bool(
-            doc = "Terminate QEMU successfully as soon as readiness is observed.",
-        ),
-        "shutdown_markers": attr.string_list(
-            mandatory = True,
-            doc = "Exact serial markers proving guest-initiated clean shutdown.",
-        ),
-        "machine_args": attr.string_list(
-            mandatory = True,
-            doc = "QEMU machine and memory arguments for the OVMF adapter.",
-        ),
+        "image": attr.label(mandatory = True, providers = [MkosiImageInfo]),
+        "readiness_marker": attr.string(mandatory = True),
+        "shutdown_markers": attr.string_list(mandatory = True),
+        "machine_args": attr.string_list(mandatory = True),
         "boot_timeout_seconds": attr.int(mandatory = True),
         "qmp_initialization_timeout_seconds": attr.int(mandatory = True),
         "shutdown_timeout_seconds": attr.int(mandatory = True),
@@ -150,36 +110,24 @@ qemu_ovmf_boot_config = rule(
     toolchains = [_QEMU_TOOLCHAIN_TYPE],
 )
 
-def qemu_ovmf_boot_test(
+def qemu_seabios_boot_test(
         name,
         image,
-        readiness_marker = "systemd[1]: Hostname set to <rules-mkosi-tracer>.",
-        expected_failure_marker = "",
-        stop_after_readiness = False,
-        shutdown_markers = [
-            "systemd-shutdown[1]: Powering off.",
-            "reboot: Power down",
-        ],
-        machine_args = ["-machine", "q35", "-m", "512M"],
+        readiness_marker = "systemd[1]: Hostname set to <rules-mkosi-bios>.",
+        shutdown_markers = ["systemd-shutdown[1]: Powering off.", "reboot: Power down"],
+        machine_args = ["-machine", "pc", "-m", "512M"],
         boot_timeout_seconds = 180,
         qmp_initialization_timeout_seconds = 15,
         shutdown_timeout_seconds = 30,
         diagnostic_bytes = 65536,
         timeout = "moderate",
         tags = []):
-    """Boots an image with OVMF and verifies exact serial lifecycle markers.
-
-    The adapter owns only OVMF firmware and QEMU command construction. The
-    serial state machine is firmware-neutral and is also used by the SeaBIOS
-    adapter.
-    """
+    """Boots a BIOS image with pinned SeaBIOS and verifies its serial lifecycle."""
     config_name = name + "_config"
-    qemu_ovmf_boot_config(
+    qemu_seabios_boot_config(
         name = config_name,
         image = image,
         readiness_marker = readiness_marker,
-        expected_failure_marker = expected_failure_marker,
-        stop_after_readiness = stop_after_readiness,
         shutdown_markers = shutdown_markers,
         machine_args = machine_args,
         boot_timeout_seconds = boot_timeout_seconds,

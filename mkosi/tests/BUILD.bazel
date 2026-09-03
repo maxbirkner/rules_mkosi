@@ -7,6 +7,7 @@ load(
     "mkosi_source_tree",
     "qemu_ovmf_boot_test",
     "qemu_ovmf_smoke_test",
+    "qemu_seabios_boot_test",
 )
 load("//mkosi/debian:toolchain.bzl", "debian_tools_launcher_probe", "debian_tools_preflight", "debian_tools_preflight_test")
 load(":behavior_targets.bzl", "behavior_targets")
@@ -25,6 +26,7 @@ load(
     "boot_config_test",
     "mkosi_image_test_suite",
     "raw_image_file",
+    "seabios_boot_config_test",
 )
 
 py_test(
@@ -92,8 +94,10 @@ behavior_targets(
         "//ci:verify_reproducibility_execution_test",
         ":analysis_tests",
         ":bios_image_artifact_test",
+        ":bios_boot_test",
         ":boot_config_test",
         ":boot_lifecycle_test",
+        ":seabios_boot_config_test",
         ":conflicting_root_test",
         ":debian_snapshot_artifact_test",
         ":debian_snapshot_provider_test",
@@ -357,6 +361,22 @@ boot_config_test(
     target_under_test = ":analysis_boot_test_config",
 )
 
+qemu_seabios_boot_test(
+    name = "analysis_bios_boot_test",
+    image = ":bios_release_subject",
+    tags = ["manual"],
+)
+
+seabios_boot_config_test(
+    name = "seabios_boot_config_test",
+    target_under_test = ":analysis_bios_boot_test_config",
+)
+
+qemu_seabios_boot_test(
+    name = "bios_boot_test",
+    image = ":bios_release_subject",
+)
+
 py_test(
     name = "boot_lifecycle_test",
     srcs = ["boot_test_unit.py"],
@@ -496,6 +516,7 @@ sh_test(
         "$(rootpath testdata/rootfs-payload)",
     ],
     data = [
+        "testdata/bios-release-config",
         "testdata/config-tree",
         "testdata/rootfs-payload",
         "testdata/source-tree",

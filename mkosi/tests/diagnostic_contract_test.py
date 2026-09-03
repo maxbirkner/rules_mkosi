@@ -30,7 +30,7 @@ class DiagnosticContractTest(unittest.TestCase):
             "TOOLCHAIN_FAILURE": "register the required Bazel toolchain",
             "NETWORK_FAILURE": "allow the declared package network access",
             "ASSEMBLY_FAILURE": "inspect the preserved mkosi output",
-            "VM_FAILURE": "inspect the preserved serial and QEMU logs",
+            "VM_FAILURE": "inspect the preserved serial, firmware, and QEMU logs",
         }
         for category, action in cases.items():
             output = io.StringIO()
