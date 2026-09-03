@@ -210,6 +210,8 @@ class SecureBootBoundaryTest(unittest.TestCase):
             self.assertIn("certificate", result.stderr)
 
     def test_der_rejects_noncanonical_lengths_and_oids_with_bounds(self):
+        canonical, _ = SECURE_BOOT.der_read(b"\x06\x09\x2a\x86\x48\x86\xf7\x0d\x01\x07\x02")
+        self.assertEqual(SECURE_BOOT.der_oid(canonical), "1.2.840.113549.1.7.2")
         for encoded in [
             b"\x04\x81\x01x",
             b"\x04\x80",

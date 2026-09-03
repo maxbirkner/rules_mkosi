@@ -297,11 +297,11 @@ def der_oid(item):
         raise ValueError("truncated DER object identifier")
     first = subidentifiers[0]
     if first < 40:
-        values = [0, first]
+        values = [0, first] + subidentifiers[1:]
     elif first < 80:
-        values = [1, first - 40]
+        values = [1, first - 40] + subidentifiers[1:]
     else:
-        values = [2, first - 80]
+        values = [2, first - 80] + subidentifiers[1:]
     return ".".join(map(str, values))
 
 
