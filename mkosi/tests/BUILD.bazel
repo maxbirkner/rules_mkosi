@@ -31,6 +31,7 @@ load(
 
 py_test(
     name = "secure_boot_boundary_test",
+    timeout = "long",
     srcs = ["secure_boot_boundary_test.py"],
     args = [
         "$(rootpath //mkosi/private:secure_boot.py)",
