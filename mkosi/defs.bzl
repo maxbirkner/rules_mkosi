@@ -45,6 +45,17 @@ load(
     _qemu_seabios_boot_config = "qemu_seabios_boot_config",
     _qemu_seabios_boot_test = "qemu_seabios_boot_test",
 )
+load(
+    "//mkosi/private:secure_boot.bzl",
+    _SecureBootSignedUkiInfo = "SecureBootSignedUkiInfo",
+    _SecureBootSigningRequestInfo = "SecureBootSigningRequestInfo",
+    _SecureBootTestKeyInfo = "SecureBootTestKeyInfo",
+    _SecureBootTestResponseInfo = "SecureBootTestResponseInfo",
+    _secure_boot_ephemeral_test_key = "secure_boot_ephemeral_test_key",
+    _secure_boot_ephemeral_test_response = "secure_boot_ephemeral_test_response",
+    _secure_boot_import_response = "secure_boot_import_response",
+    _secure_boot_signing_request = "secure_boot_signing_request",
+)
 
 MkosiImageInfo = _MkosiImageInfo
 MkosiConfigTreeInfo = _MkosiConfigTreeInfo
@@ -70,3 +81,11 @@ qemu_seabios_boot_config = _qemu_seabios_boot_config
 managed_python_test = _managed_python_test
 qemu_executable = _qemu_executable
 qemu_ovmf_toolchain = _qemu_ovmf_toolchain
+SecureBootSigningRequestInfo = _SecureBootSigningRequestInfo
+SecureBootSignedUkiInfo = _SecureBootSignedUkiInfo
+SecureBootTestKeyInfo = _SecureBootTestKeyInfo
+SecureBootTestResponseInfo = _SecureBootTestResponseInfo
+secure_boot_signing_request = _secure_boot_signing_request
+secure_boot_import_response = _secure_boot_import_response
+secure_boot_ephemeral_test_key = _secure_boot_ephemeral_test_key
+secure_boot_ephemeral_test_response = _secure_boot_ephemeral_test_response

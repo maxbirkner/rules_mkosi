@@ -97,6 +97,14 @@ user-site state and an empty child `PATH`.
 
 ## Provider contracts
 
+<!-- behavior:BHV-SECURE-BOOT-OFFLINE -->
+Secure Boot defaults to no key. Typed v1 providers separate deterministic
+unsigned UKI creation, a digest-and-certificate-bound signing request, an
+external response, and verified signed assembly without filename inference.
+Production keys never enter Bazel; ephemeral test signing is explicitly
+local, no-remote, and no-cache. Import rejects request, UKI, signature, and
+certificate substitution. Signed external responses are not reproducible.
+
 <!-- behavior:BHV-IMAGE-PROVIDER -->
 `MkosiImageInfo` fixes `format_version`, exposes `raw_image`, `manifest`,
 `partition_metadata`, `uki`, split root/hash/signature roles, normalized UKI

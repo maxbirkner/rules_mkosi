@@ -236,7 +236,7 @@ def _debian_tools_provider_test_impl(ctx):
     asserts.equals(env, "python", info.python.basename)
     asserts.true(env, info.launcher.executable != None)
     asserts.true(env, info.tree_files_to_run.executable == None)
-    asserts.equals(env, 12, len(info.required_components))
+    asserts.equals(env, 13, len(info.required_components))
     asserts.true(env, info.provenance.basename == "provenance.bzl")
     return analysistest.end(env)
 

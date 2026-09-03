@@ -403,7 +403,8 @@ old singleton `DefaultInfo` projection: consumers that assumed its sole file
 was the raw disk must migrate to `MkosiImageInfo.raw_image`. The retained
 `image` field preserves source compatibility for existing provider consumers.
 `unified_kernel_image = "unsigned"` and `verity = "hash"` are release-only.
-Signed modes fail analysis and remain scoped to #23. Existing targets retain
+Signing uses the request/response interface documented in
+[`docs/secure-boot.md`](docs/secure-boot.md). Existing targets retain
 the `none` defaults and their artifact projection.
 The verity projection parses the generated format-1 superblock, recomputes
 every data and hash-tree level, rejects nonzero padding or ambiguous trailing
