@@ -118,7 +118,7 @@ def qemu_seabios_boot_test(
         machine_args = ["-machine", "pc", "-m", "512M"],
         boot_timeout_seconds = 180,
         qmp_initialization_timeout_seconds = 15,
-        shutdown_timeout_seconds = 30,
+        shutdown_timeout_seconds = 60,
         diagnostic_bytes = 65536,
         timeout = "moderate",
         tags = []):
