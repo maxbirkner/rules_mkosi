@@ -138,7 +138,7 @@ class SecureBootBoundaryTest(unittest.TestCase):
         document = json.loads(self.request.read_text())
         document["signature_algorithm"] = "authenticode-sha1"
         altered.write_text(json.dumps(document))
-        self.assertIn("context or algorithm", self.verify(request=altered).stderr)
+        self.assertIn("request digest", self.verify(request=altered).stderr)
 
     @staticmethod
     def _directory_offset(data):

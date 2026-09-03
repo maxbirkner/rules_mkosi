@@ -100,7 +100,7 @@ def authenticode_payload(signed_data, certificate_offset, certificate_size):
             raise ValueError("WIN_CERTIFICATE is out of bounds")
         if revision != 0x200 or certificate_type != 2:
             raise ValueError("unsupported WIN_CERTIFICATE structure")
-        certificates.append(signed_data[cursor + 8:cursor + length])
+        certificates.append(_der_object(signed_data[cursor + 8:cursor + length]))
         aligned = (length + 7) & ~7
         if cursor + aligned > end or any(signed_data[cursor + length:cursor + aligned]):
             raise ValueError("invalid WIN_CERTIFICATE padding")
@@ -108,6 +108,25 @@ def authenticode_payload(signed_data, certificate_offset, certificate_size):
     if cursor != end or len(certificates) != 1:
         raise ValueError("ambiguous or duplicate Authenticode certificate table")
     return certificates[0]
+
+
+def _der_object(payload):
+    if len(payload) < 2 or payload[0] != 0x30:
+        raise ValueError("Authenticode payload is not DER SignedData")
+    first_length = payload[1]
+    if first_length < 0x80:
+        header = 2
+        body_length = first_length
+    else:
+        length_bytes = first_length & 0x7F
+        if not length_bytes or length_bytes > 4 or 2 + length_bytes > len(payload):
+            raise ValueError("invalid Authenticode DER length")
+        header = 2 + length_bytes
+        body_length = int.from_bytes(payload[2:header], "big")
+    end = header + body_length
+    if end > len(payload) or any(payload[end:]):
+        raise ValueError("invalid Authenticode DER bounds or padding")
+    return payload[:end]
 
 
 def prove_equivalence(unsigned_data, signed_data):
