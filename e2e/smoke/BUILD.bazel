@@ -319,32 +319,32 @@ sysupdate_update_payload(
 
 mkosi_rootfs_payload(
     name = "sysupdate_a_os_release",
-    src = "testdata/sysupdate-a-config/mkosi.extra/usr/lib/os-release",
+    src = "testdata/sysupdate-runtime/os-release",
     destination = "/usr/lib/os-release",
 )
 
 mkosi_rootfs_payload(
     name = "sysupdate_a_apply_script",
-    src = "testdata/sysupdate-a-config/mkosi.extra/usr/lib/rules-mkosi-apply-update",
+    src = "testdata/sysupdate-runtime/apply-update",
     destination = "/usr/lib/rules-mkosi-apply-update",
     executable_paths = [""],
 )
 
 mkosi_rootfs_payload(
     name = "sysupdate_a_apply_service",
-    src = "testdata/sysupdate-a-config/mkosi.extra/usr/lib/systemd/system/rules-mkosi-apply-update.service",
+    src = "testdata/sysupdate-runtime/apply-update.service",
     destination = "/usr/lib/systemd/system/rules-mkosi-apply-update.service",
 )
 
 mkosi_rootfs_payload(
     name = "sysupdate_a_apply_wants",
-    src = "testdata/sysupdate-a-config/mkosi.extra/etc/systemd/system/multi-user.target.wants/rules-mkosi-apply-update.service",
+    src = "testdata/sysupdate-runtime/apply-update-wants",
     destination = "/etc/systemd/system/multi-user.target.wants/rules-mkosi-apply-update.service",
 )
 
 mkosi_rootfs_payload(
     name = "sysupdate_a_repart_definitions",
-    src = "testdata/sysupdate-a-config/mkosi.extra/usr/lib/rules-mkosi-repart.d",
+    src = "testdata/sysupdate-runtime/repart.d",
     destination = "/usr/lib/rules-mkosi-repart.d",
 )
 
