@@ -343,9 +343,15 @@ mkosi_rootfs_payload(
 )
 
 mkosi_rootfs_payload(
-    name = "sysupdate_a_repart_definitions",
-    src = "testdata/sysupdate-runtime/repart.d",
-    destination = "/usr/lib/rules-mkosi-repart.d",
+    name = "sysupdate_a_root_repart",
+    src = "testdata/sysupdate-runtime/repart.d/30-root-b.conf",
+    destination = "/usr/lib/rules-mkosi-repart.d/30-root-b.conf",
+)
+
+mkosi_rootfs_payload(
+    name = "sysupdate_a_verity_repart",
+    src = "testdata/sysupdate-runtime/repart.d/40-root-verity-b.conf",
+    destination = "/usr/lib/rules-mkosi-repart.d/40-root-verity-b.conf",
 )
 
 sysupdate_update_payload(
@@ -367,7 +373,8 @@ mkosi_image(
         ":sysupdate_a_apply_service",
         ":sysupdate_a_apply_wants",
         ":sysupdate_a_os_release",
-        ":sysupdate_a_repart_definitions",
+        ":sysupdate_a_root_repart",
+        ":sysupdate_a_verity_repart",
     ],
     unified_kernel_image = "unsigned",
     verity = "hash",
@@ -385,7 +392,8 @@ mkosi_image(
         ":sysupdate_a_apply_service",
         ":sysupdate_a_apply_wants",
         ":sysupdate_a_os_release",
-        ":sysupdate_a_repart_definitions",
+        ":sysupdate_a_root_repart",
+        ":sysupdate_a_verity_repart",
     ],
     unified_kernel_image = "unsigned",
     verity = "hash",
