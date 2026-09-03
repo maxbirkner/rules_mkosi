@@ -54,6 +54,7 @@ jobs:
           test "$actual" = "bazel ${{ matrix.bazel }}"
 
       - name: Qualify host kernel, then run complete root and e2e suites
+        id: qualification
         run: |
           run_bazel() {
             sudo -n setpriv --reuid="$(id -u)" --regid="$(id -g)" \
@@ -111,6 +112,10 @@ jobs:
           fi
 
       - name: Surface retained boot evidence
+        id: boot_evidence
+        if: always()
+        env:
+          QUALIFICATION_OUTCOME: ${{ steps.qualification.outcome }}
         run: |
           run_bazel() {
             sudo -n setpriv --reuid="$(id -u)" --regid="$(id -g)" \
@@ -119,6 +124,7 @@ jobs:
           }
           evidence_dir="$RUNNER_TEMP/boot-evidence-${{ matrix.bazel }}"
           mkdir -p "$evidence_dir"
+          echo "has_evidence=false" >> "$GITHUB_OUTPUT"
           info_configs=()
           if [ "${{ matrix.bazel }}" = "9.2.0" ]; then
             info_configs=(--config=bazel9)
@@ -126,33 +132,79 @@ jobs:
           collect_module() {
             module="$1"
             testlogs="$2"
+            if [ ! -d "$testlogs" ]; then
+              echo "No $module Bazel testlogs directory was created: $testlogs"
+              return
+            fi
             while IFS= read -r evidence; do
               relative="${evidence#"$testlogs"/}"
               target_dir="${relative%/test.outputs/boot-evidence.log}"
               destination="$evidence_dir/$module/$target_dir"
               mkdir -p "$destination/test.outputs"
-              cp "$evidence" "$destination/test.outputs/boot-evidence.log"
+              cp -- "$evidence" \
+                "$destination/test.outputs/boot-evidence.log"
               for log in firmware.log guest-serial.log qemu.log; do
-                cp "${evidence%boot-evidence.log}$log" \
-                  "$destination/test.outputs/$log"
+                source="${evidence%boot-evidence.log}$log"
+                if [ -f "$source" ]; then
+                  cp -- "$source" "$destination/test.outputs/$log"
+                fi
               done
-              cp "${evidence%/test.outputs/boot-evidence.log}/test.log" \
-                "$destination/test.log"
+              test_log="${evidence%/test.outputs/boot-evidence.log}/test.log"
+              if [ -f "$test_log" ]; then
+                cp -- "$test_log" "$destination/test.log"
+              fi
               echo "===== $module/$target_dir ====="
-              cat "$evidence"
+              cat -- "$evidence"
+              has_evidence=true
+              case "$target_dir" in
+                *bios_boot_test)
+                  if grep -Fq "SeaBIOS (version " "$evidence" &&
+                    grep -Fq "Booting from Hard Disk" "$evidence" &&
+                    grep -Fq "GRUB" "$evidence" &&
+                    grep -Fq "Linux version" "$evidence" &&
+                    grep -Fq "Hostname set to <rules-mkosi-bios>" "$evidence" &&
+                    grep -Fq "systemd-shutdown[1]: Powering off." "$evidence" &&
+                    grep -Fq "reboot: Power down" "$evidence"; then
+                    has_bios_evidence=true
+                  fi
+                  ;;
+              esac
             done < <(find "$testlogs" -type f \
               -path '*/test.outputs/boot-evidence.log' -print)
           }
-          collect_module root "$(
+          has_evidence=false
+          has_bios_evidence=false
+          if root_testlogs="$(
             run_bazel bazel info "${info_configs[@]}" bazel-testlogs
-          )"
-          collect_module consumer "$(
+          )"; then
+            collect_module root "$root_testlogs"
+          else
+            echo "Root Bazel testlogs path is unavailable."
+          fi
+          if consumer_testlogs="$(
             cd e2e/smoke
             run_bazel bazel info "${info_configs[@]}" bazel-testlogs
-          )"
-          test -n "$(find "$evidence_dir" -name boot-evidence.log -print -quit)"
+          )"; then
+            collect_module consumer "$consumer_testlogs"
+          else
+            echo "Consumer Bazel testlogs path is unavailable."
+          fi
+          if $has_evidence; then
+            echo "has_evidence=true" >> "$GITHUB_OUTPUT"
+          fi
+          if [ "$QUALIFICATION_OUTCOME" = "success" ]; then
+            if ! $has_bios_evidence; then
+              echo "Successful qualification produced no complete BIOS boot evidence." >&2
+              exit 1
+            fi
+          elif ! $has_evidence; then
+            echo "Qualification failed before bounded boot evidence was created."
+          fi
 
       - name: Upload retained boot evidence
+        if: >-
+          always() &&
+          steps.boot_evidence.outputs.has_evidence == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: boot-evidence-bazel-${{ matrix.bazel }}-${{ github.sha }}
