@@ -43,10 +43,7 @@ def main():
         encoding="ascii",
     )
 
-    common = """[Transfer]
-ProtectVersion=%A
-
-[Source]
+    common = """[Source]
 Type=regular-file
 Path=.
 PathRelativeTo=explicit
@@ -95,6 +92,7 @@ TriesDone=0""",
     script.write_text(
         """#!/bin/sh
 set -eu
+/usr/bin/systemd-repart --dry-run=no --definitions=/usr/lib/rules-mkosi-repart.d /dev/vda
 cd /opt/rules-mkosi/source
 sha256sum -c SHA256SUMS
 echo RULES_MKOSI_UPDATE_DIGESTS_VERIFIED

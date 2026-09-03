@@ -77,12 +77,20 @@ def main():
     state = pathlib.Path(os.environ["TEST_TMPDIR"])
     disk = state / "release-ab.raw"
     shutil.copyfile(boot._resolve_runfile(config["image"]), disk)
+    with open(disk, "ab") as image:
+        image.truncate(image.tell() + 1280 * 1024 * 1024)
     disk.chmod(0o600)
     before = _partition_digests(disk)
     _run(config, disk, state / "update-boot", "RULES_MKOSI_SYSUPDATE_APPLIED_VERSION=2")
     after = _partition_digests(disk)
 
-    changed = [key for key in before if before[key]["sha256"] != after[key]["sha256"]]
+    changed = [
+        key
+        for key in sorted(set(before) | set(after))
+        if key not in before
+        or key not in after
+        or before[key]["sha256"] != after[key]["sha256"]
+    ]
     changed_labels = {after[key]["label"] for key in changed}
     if "root-2" not in changed_labels or "verity-2" not in changed_labels:
         raise RuntimeError(

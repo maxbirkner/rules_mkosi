@@ -63,7 +63,6 @@ behavior_targets(
         ":release_demo_verity_boot_test",
         ":release_demo_verity_corruption_boot_test",
         ":sysupdate_public_api_test",
-        ":sysupdate_phase1_mutation_test",
         ":sysupdate_success_lifecycle_test",
         ":sysupdate_rollback_lifecycle_test",
         ":release_demo_partition_metadata_test",
@@ -361,20 +360,6 @@ mkosi_image(
     rootfs_payloads = [":sysupdate_b_fail_payload"],
     unified_kernel_image = "unsigned",
     verity = "hash",
-)
-
-qemu_ovmf_boot_test(
-    name = "sysupdate_phase1_mutation_test",
-    timeout = "long",
-    image = ":sysupdate_a_image",
-    machine_args = [
-        "-machine",
-        "q35",
-        "-m",
-        "2048M",
-    ],
-    readiness_marker = "RULES_MKOSI_SYSUPDATE_APPLIED_VERSION=2",
-    shutdown_timeout_seconds = 60,
 )
 
 qemu_sysupdate_test(
