@@ -179,12 +179,24 @@ def project(root_hash_path, partition_metadata_path, root_image_path, hash_image
     by_type = {}
     for partition in partitions:
         by_type.setdefault(partition["type_guid"], []).append(partition)
-    if len(by_type.get(ROOT, [])) != 1 or len(by_type.get(ROOT_VERITY, [])) != 1:
-        raise ValueError("exactly one x86-64 root data and verity hash partition is required")
+    roots = by_type.get(ROOT, [])
+    hashes = by_type.get(ROOT_VERITY, [])
+    if len(roots) not in (1, 2) or len(hashes) not in (1, 2):
+        raise ValueError("one or two x86-64 root data and verity hash partitions are required")
     if by_type.get(ROOT_VERITY_SIG):
         raise ValueError("verity signature partitions require signing support tracked by #23")
-    root_partition = by_type[ROOT][0]
-    hash_partition = by_type[ROOT_VERITY][0]
+    root_partition = (
+        roots[0]
+        if len(roots) == 1
+        else next((item for item in roots if item.get("label") != "_empty"), None)
+    )
+    hash_partition = (
+        hashes[0]
+        if len(hashes) == 1
+        else next((item for item in hashes if item.get("label") != "_empty"), None)
+    )
+    if root_partition is None or hash_partition is None:
+        raise ValueError("A/B layout must retain one populated root and verity partition")
     root_size = os.path.getsize(root_image_path)
     hash_size = os.path.getsize(hash_image_path)
     if root_size > MAX_ARTIFACT_BYTES or hash_size > MAX_ARTIFACT_BYTES:
