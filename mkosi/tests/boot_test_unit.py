@@ -65,6 +65,7 @@ class BootLifecycleTest(unittest.TestCase):
     ):
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
+            outputs = root / "outputs"
             (root / "vars.fd").write_bytes(b"vars")
             (root / "guest-serial.log").write_bytes(serial)
             process = process or _Process()
@@ -91,7 +92,10 @@ class BootLifecycleTest(unittest.TestCase):
                 with self.assertRaises(SystemExit):
                     with mock.patch.dict(
                         "os.environ",
-                        {"TEST_TMPDIR": directory},
+                        {
+                            "TEST_TMPDIR": directory,
+                            "TEST_UNDECLARED_OUTPUTS_DIR": str(outputs),
+                        },
                         clear=False,
                     ):
                         boot_test._boot(
@@ -111,10 +115,20 @@ class BootLifecycleTest(unittest.TestCase):
             output = stderr.getvalue()
             self.assertEqual(1, output.count("VM_FAILURE:"))
             self.assertIn(expected + ":", output)
-            self.assertIn("Action: inspect the preserved serial and QEMU logs", output)
+            self.assertIn("Action: inspect the preserved serial, firmware, and QEMU logs", output)
             self.assertIn(serial.decode().splitlines()[0], output)
             self.assertIn("qemu diagnostic", output)
             self.assertFalse((root / "qmp.sock").exists())
+            self.assertEqual(
+                {
+                    "boot-evidence.log",
+                    "firmware.log",
+                    "guest-serial.log",
+                    "qemu.log",
+                },
+                {path.name for path in outputs.iterdir()},
+            )
+            self.assertIn(serial[:16], (outputs / "guest-serial.log").read_bytes())
             return process
 
     def _expected_failure_passes(self, serial):
@@ -182,6 +196,36 @@ class BootLifecycleTest(unittest.TestCase):
 
     def test_firmware_exit_before_readiness(self):
         self._run("FIRMWARE_FAILURE", process=_Process(polls=(1,)))
+
+    def test_seabios_missing_boot_sector_is_distinct(self):
+        self.assertEqual(
+            "MISSING_BOOT_SECTOR",
+            boot_test._classify_pre_readiness_failure(
+                b"",
+                b"Boot failed: not a bootable disk\nNo bootable device.\n",
+                "seabios",
+            ),
+        )
+
+    def test_seabios_grub_failure_is_distinct(self):
+        self.assertEqual(
+            "GRUB_FAILURE",
+            boot_test._classify_pre_readiness_failure(
+                b"GRUB loading.\nerror: file `/boot/grub/i386-pc/normal.mod' not found.\n",
+                b"SeaBIOS (version rel-1.17.0)\n",
+                "seabios",
+            ),
+        )
+
+    def test_seabios_kernel_config_failure_is_guest_failure(self):
+        self.assertEqual(
+            "GUEST_FAILURE",
+            boot_test._classify_pre_readiness_failure(
+                b"Linux version 6.12\nKernel panic - not syncing: VFS: Unable to mount root fs\n",
+                b"SeaBIOS (version rel-1.17.0)\n",
+                "seabios",
+            ),
+        )
 
     def test_guest_exit_before_readiness(self):
         self._run(
@@ -268,6 +312,92 @@ class BootLifecycleTest(unittest.TestCase):
             self.assertEqual(str(root), observed["env"]["TMPDIR"])
             self.assertEqual("", observed["env"]["PATH"])
             self.assertFalse((root / "qmp.sock").exists())
+
+    def test_success_exports_and_prints_actual_observed_evidence(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            outputs = root / "outputs"
+            (root / "vars.fd").write_bytes(b"vars")
+            (root / "guest-serial.log").write_bytes(
+                b"GRUB loading.\n"
+                b"Linux version 6.12\n"
+                b"systemd[1]: Hostname set to <actual-guest>.\n"
+                b"systemd-shutdown[1]: Powering off.\n"
+                b"reboot: Power down\n",
+            )
+            process = _Process()
+
+            def factory(_command, stdout, **_kwargs):
+                (root / "firmware.log").write_bytes(
+                    b"SeaBIOS (version actual-build)\n"
+                    b"Booting from Hard Disk...\n",
+                )
+                stdout.write(b"actual qemu output\n")
+                return process
+
+            stdout = io.StringIO()
+            with contextlib.redirect_stdout(stdout):
+                with mock.patch.dict(
+                    "os.environ",
+                    {
+                        "TEST_TMPDIR": directory,
+                        "TEST_UNDECLARED_OUTPUTS_DIR": str(outputs),
+                    },
+                    clear=False,
+                ):
+                    boot_test._boot(
+                        "image.raw",
+                        "qemu",
+                        "qemu-data",
+                        firmware_code="code.fd",
+                        firmware_vars=str(root / "vars.fd"),
+                        firmware_kind="seabios",
+                        readiness_marker="actual-guest",
+                        shutdown_markers=("Powering off.", "reboot: Power down"),
+                        process_factory=factory,
+                        qmp_handshake=lambda *_args: None,
+                        sleep=lambda _seconds: None,
+                    )
+
+            evidence = stdout.getvalue()
+            self.assertIn("SeaBIOS (version actual-build)", evidence)
+            self.assertIn("GRUB loading.", evidence)
+            self.assertIn("Linux version 6.12", evidence)
+            self.assertIn("Hostname set to <actual-guest>", evidence)
+            self.assertIn("systemd-shutdown[1]: Powering off.", evidence)
+            self.assertIn("reboot: Power down", evidence)
+            self.assertNotIn("readiness='", evidence)
+            self.assertEqual(
+                (outputs / "boot-evidence.log").read_text(),
+                evidence.split("actual observed boot evidence:\n", 1)[1].split(
+                    "guest readiness and clean shutdown verified",
+                    1,
+                )[0],
+            )
+
+    def test_success_without_undeclared_outputs_directory_is_safe(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            (root / "vars.fd").write_bytes(b"vars")
+            (root / "guest-serial.log").write_bytes(b"READY\n")
+            process = _Process()
+            with mock.patch.dict(
+                "os.environ",
+                {"TEST_TMPDIR": directory},
+                clear=True,
+            ):
+                boot_test._boot(
+                    "image.raw",
+                    "qemu",
+                    "qemu-data",
+                    firmware_code="code.fd",
+                    firmware_vars=str(root / "vars.fd"),
+                    readiness_marker="READY",
+                    shutdown_markers=(),
+                    process_factory=lambda *_args, **_kwargs: process,
+                    qmp_handshake=lambda *_args: None,
+                    sleep=lambda _seconds: None,
+                )
 
     def test_qmp_malformed_and_eof_are_bounded_errors(self):
         for payload in (b"not-json\n", b""):

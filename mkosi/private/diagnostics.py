@@ -9,7 +9,7 @@ _ACTIONS = {
     "TOOLCHAIN_FAILURE": "register the required Bazel toolchain",
     "NETWORK_FAILURE": "allow the declared package network access",
     "ASSEMBLY_FAILURE": "inspect the preserved mkosi output",
-    "VM_FAILURE": "inspect the preserved serial and QEMU logs",
+    "VM_FAILURE": "inspect the preserved serial, firmware, and QEMU logs",
 }
 _MIN_EXIT_STATUS = 1
 _MAX_EXIT_STATUS = 255

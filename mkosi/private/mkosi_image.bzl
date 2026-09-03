@@ -569,8 +569,7 @@ def _mkosi_image_impl(ctx):
         arguments.add("--bootable=yes")
         arguments.add("--bootloader=none")
         arguments.add("--bios-bootloader=grub")
-        arguments.add("--initrd=")
-        for package in ("grub-pc-bin", "grub-common", "grub2-common", "linux-image-amd64"):
+        for package in ("grub-pc-bin", "grub-common", "grub2-common", "initramfs-tools", "linux-image-amd64", "systemd-sysv"):
             arguments.add("--package=" + package)
         arguments.add("--repart-directory")
         arguments.add(bios_partition_definition.path)

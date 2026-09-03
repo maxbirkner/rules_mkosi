@@ -12,6 +12,8 @@ QEMU_IMG_URL = "https://github.com/hermeticbuild/qemu-prebuilt/releases/download
 QEMU_IMG_SHA256 = "b58c4eb7e8e13a100dba36f4b871cfa7848fdbfece08bad8bbc9ec57cfeaca13"
 QEMU_SYSTEM_DATA_URL = "https://github.com/hermeticbuild/qemu-prebuilt/releases/download/11.0.0.1/qemu-system-data-linux-amd64-11.0.0.1.tar.zst"
 QEMU_SYSTEM_DATA_SHA256 = "2525218347b647962bed5d0b37d3093e434b8c83e5fd78de910d43bec6154fff"
+SEABIOS_VERSION = "rel-1.17.0-0-gb52ca86e094d-prebuilt.qemu.org"
+SEABIOS_SHA256 = "ae6f6aa973aaccc143f57aa960fb035fd9de4daee4ad0cd713322f8c259e7650"
 
 OVMF_VERSION = "edk2-stable202605-r1"
 OVMF_STRIP_PREFIX = "edk2-stable202605-r1-bin"

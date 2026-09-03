@@ -13,6 +13,7 @@ exports_files([
     "verity_metadata.py",
     "managed_python_test.bzl",
     "qemu_ovmf_boot_test.bzl",
+    "qemu_seabios_boot_test.bzl",
     "run_mkosi.py",
     "stage_inputs.py",
     "write_bios_repart.py",

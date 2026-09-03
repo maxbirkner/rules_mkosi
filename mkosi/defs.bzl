@@ -40,6 +40,11 @@ load(
     "//mkosi/private:qemu_ovmf_smoke_test.bzl",
     _qemu_ovmf_smoke_test = "qemu_ovmf_smoke_test",
 )
+load(
+    "//mkosi/private:qemu_seabios_boot_test.bzl",
+    _qemu_seabios_boot_config = "qemu_seabios_boot_config",
+    _qemu_seabios_boot_test = "qemu_seabios_boot_test",
+)
 
 MkosiImageInfo = _MkosiImageInfo
 MkosiConfigTreeInfo = _MkosiConfigTreeInfo
@@ -60,6 +65,8 @@ mkosi_rootfs_payload = _mkosi_rootfs_payload
 qemu_ovmf_smoke_test = _qemu_ovmf_smoke_test
 qemu_ovmf_boot_test = _qemu_ovmf_boot_test
 qemu_ovmf_boot_config = _qemu_ovmf_boot_config
+qemu_seabios_boot_test = _qemu_seabios_boot_test
+qemu_seabios_boot_config = _qemu_seabios_boot_config
 managed_python_test = _managed_python_test
 qemu_executable = _qemu_executable
 qemu_ovmf_toolchain = _qemu_ovmf_toolchain

@@ -10,6 +10,7 @@ load(
     "qemu_ovmf_boot_config",
     "qemu_ovmf_boot_test",
     "qemu_ovmf_smoke_test",
+    "qemu_seabios_boot_test",
 )
 load("@rules_python//python:defs.bzl", "py_binary", "py_runtime", "py_runtime_pair", "py_test")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
@@ -43,10 +44,11 @@ behavior_targets(
         ":boot_launcher_contract_test",
         ":boot_preflight_contract_test",
         ":bios_release_demo_build_test",
+        ":bios_boot_test",
         ":debian_snapshot_public_provider_test",
         ":debian_tools_public_provider_test",
         ":demo_artifact_test",
-        ":demo_boot_test",
+        ":uefi_boot_test",
         ":image_public_provider_test",
         ":mkosi_python_override_test",
         ":release_demo_artifact_test",
@@ -213,7 +215,7 @@ mkosi_rootfs_payload(
 
 mkosi_image(
     name = "bios_release_demo",
-    config_tree = ":release_config_tree",
+    config_tree = ":bios_release_config_tree",
     debian_snapshot = "@mkosi_debian_snapshot//:repository",
     firmware = "bios",
     mode = "release",
@@ -230,6 +232,11 @@ mkosi_image(
     release_source_date_epoch = 0,
     unified_kernel_image = "unsigned",
     verity = "hash",
+)
+
+mkosi_config_tree(
+    name = "bios_release_config_tree",
+    src = "testdata/bios-release-config",
 )
 
 mkosi_config_tree(
@@ -393,13 +400,19 @@ py_test(
 )
 
 qemu_ovmf_boot_test(
-    name = "demo_boot_test",
+    name = "uefi_boot_test",
     image = ":demo",
     shutdown_timeout_seconds = 60,
     tags = [
         "manifest",
         "requires-network",
     ],
+)
+
+qemu_seabios_boot_test(
+    name = "bios_boot_test",
+    image = ":bios_release_demo",
+    tags = ["no-cache"],
 )
 
 qemu_ovmf_boot_config(

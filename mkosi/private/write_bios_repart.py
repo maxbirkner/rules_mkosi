@@ -34,8 +34,8 @@ def main():
         "[Partition]\n"
         "Type=root-x86-64\n"
         "Format=ext4\n"
-        "CopyFiles=/usr/lib/grub:/usr/lib/grub\n"
-        "SizeMinBytes=256M\n",
+        "CopyFiles=/:/\n"
+        "SizeMinBytes=512M\n",
         encoding="utf-8",
     )
     for path in (bios, esp, root):

@@ -217,9 +217,9 @@ consumer-owned rule and validates the resulting JSON, rather than depending on
 its filename or default output ordering. The consumer must remain in release archives because BCR runs it as
 the module's test project.
 
-### Future boot tests
+### Boot tests
 
-Issue 8 now provides one UEFI/OVMF TCG boot test for the Debian tracer. Issue
+Issue 8 provides one UEFI/OVMF TCG boot test for the Debian tracer. Issue
 19 extracts it as the public `qemu_ovmf_boot_test` adapter. It consumes the
 public image through Bazel dependency edges, waits for a deterministic systemd
 hostname marker on guest serial output, and requires the guest's clean
@@ -232,16 +232,19 @@ capabilities handshake, so QEMU
 initialization/argument failures are distinct from firmware and guest
 failures. The lifecycle accepts machine arguments, exact markers, deadlines,
 and diagnostic retention as attributes and contains no UEFI logic; OVMF flash
-arguments belong only to the adapter.
+arguments belong only to that adapter. The SeaBIOS adapter uses the same
+lifecycle with the toolchain's typed, checksum-pinned ROM and a firmware debug
+console. Its independently named runtime boots the offline GRUB image, reaches
+the complete root filesystem, and powers off cleanly. The BIOS image therefore
+includes a real initrd, `/sbin/init`, and the full root payload rather than
+only the GRUB installation evidence.
 
 The production test hierarchy will later add:
 
 1. Content tests against mounted or userspace-inspected filesystems.
-2. Separate OVMF and SeaBIOS QEMU boots.
-3. A serial-console readiness protocol with deterministic timeout and shutdown.
-4. Update, failed-health-check, and automatic rollback tests.
-5. Power interruption tests outside ordinary BCR workers.
-6. Representative physical-hardware qualification.
+2. Update, failed-health-check, and automatic rollback tests.
+3. Power interruption tests outside ordinary BCR workers.
+4. Representative physical-hardware qualification.
 
 QEMU, firmware, and inspection tools must be resolved as Bazel toolchains.
 Real image jobs may require dedicated Linux runners even when the tools
