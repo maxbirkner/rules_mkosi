@@ -42,6 +42,7 @@ jobs:
         uses: bazel-contrib/setup-bazel@c5acdfb288317d0b5c0bbd7a396a3dc868bb0f86 # v0.19.0
         with:
           bazelisk-cache: true
+          bazelisk-version: 1.28.0
           cache-save: ${{ github.event_name != 'pull_request' }}
           disk-cache: rules-mkosi-${{ matrix.bazel }}
           external-cache: true
@@ -49,6 +50,7 @@ jobs:
 
       - name: Verify pinned Bazel version
         run: |
+          bazel version 2>&1 | grep -Fx "Bazelisk version: v1.28.0"
           actual="$(bazel --version)"
           echo "$actual"
           test "$actual" = "bazel ${{ matrix.bazel }}"
@@ -596,6 +598,7 @@ jobs:
         uses: bazel-contrib/setup-bazel@c5acdfb288317d0b5c0bbd7a396a3dc868bb0f86 # v0.19.0
         with:
           bazelisk-cache: true
+          bazelisk-version: 1.28.0
           cache-save: ${{ github.event_name != 'pull_request' }}
           external-cache: true
           repository-cache: true
@@ -636,6 +639,7 @@ jobs:
         uses: bazel-contrib/setup-bazel@c5acdfb288317d0b5c0bbd7a396a3dc868bb0f86 # v0.19.0
         with:
           bazelisk-cache: true
+          bazelisk-version: 1.28.0
           cache-save: ${{ github.event_name != 'pull_request' }}
           repository-cache: true
 
@@ -680,6 +684,7 @@ jobs:
         uses: bazel-contrib/setup-bazel@c5acdfb288317d0b5c0bbd7a396a3dc868bb0f86 # v0.19.0
         with:
           bazelisk-cache: true
+          bazelisk-version: 1.28.0
           cache-save: ${{ github.event_name != 'pull_request' }}
           disk-cache: rules-mkosi-module-${{ matrix.bazel }}-${{ matrix.fixture }}
           repository-cache: true
@@ -738,6 +743,7 @@ jobs:
         uses: bazel-contrib/setup-bazel@c5acdfb288317d0b5c0bbd7a396a3dc868bb0f86 # v0.19.0
         with:
           bazelisk-cache: true
+          bazelisk-version: 1.28.0
           cache-save: ${{ github.event_name != 'pull_request' }}
           external-cache: true
           repository-cache: true
