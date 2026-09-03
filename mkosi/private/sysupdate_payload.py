@@ -61,6 +61,7 @@ MatchPattern={source}
 Path=auto
 MatchPattern=root-@v
 MatchPartitionType=root-x86-64
+PartitionNoAuto=no
 ReadOnly=yes""",
         ),
         encoding="ascii",
@@ -72,6 +73,7 @@ ReadOnly=yes""",
 Path=auto
 MatchPattern=verity-@v
 MatchPartitionType=root-x86-64-verity
+PartitionNoAuto=no
 ReadOnly=yes""",
         ),
         encoding="ascii",
