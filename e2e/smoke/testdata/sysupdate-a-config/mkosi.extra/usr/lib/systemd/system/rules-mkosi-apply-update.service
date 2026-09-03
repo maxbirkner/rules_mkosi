@@ -1,0 +1,10 @@
+[Unit]
+Description=Apply declared offline A/B update
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/rules-mkosi/apply-update
+
+[Install]
+WantedBy=multi-user.target

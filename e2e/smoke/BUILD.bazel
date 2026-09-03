@@ -12,6 +12,7 @@ load(
     "qemu_ovmf_smoke_test",
     "qemu_seabios_boot_test",
     "sysupdate_ab",
+    "sysupdate_update_payload",
 )
 load("@rules_python//python:defs.bzl", "py_binary", "py_runtime", "py_runtime_pair", "py_test")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
@@ -22,6 +23,7 @@ load(
     "image_build_metadata_file",
     "image_partition_metadata_file",
     "image_public_api_test",
+    "image_uki_fixture",
     "mkosi_python_override_test",
     "public_api_test",
     "raw_image_file",
@@ -60,6 +62,7 @@ behavior_targets(
         ":release_demo_verity_boot_test",
         ":release_demo_verity_corruption_boot_test",
         ":sysupdate_public_api_test",
+        ":sysupdate_phase1_mutation_test",
         ":release_demo_partition_metadata_test",
         ":release_demo_reproducibility_test",
         ":release_demo_rootfs_payload_test",
@@ -256,6 +259,72 @@ mkosi_image(
     release_source_date_epoch = 0,
     unified_kernel_image = "unsigned",
     verity = "hash",
+)
+
+mkosi_config_tree(
+    name = "sysupdate_a_config_tree",
+    src = "testdata/sysupdate-a-config",
+)
+
+mkosi_config_tree(
+    name = "sysupdate_b_config_tree",
+    src = "testdata/sysupdate-b-config",
+)
+
+mkosi_image(
+    name = "sysupdate_b_image",
+    config_tree = ":sysupdate_b_config_tree",
+    debian_snapshot = "@mkosi_debian_snapshot//:repository",
+    mode = "release",
+    release_seed = "00000000-0000-4000-8000-000000000025",
+    release_source_date_epoch = 0,
+    unified_kernel_image = "unsigned",
+    verity = "hash",
+)
+
+image_uki_fixture(
+    name = "sysupdate_b_uki",
+    image = ":sysupdate_b_image",
+)
+
+sysupdate_update_payload(
+    name = "sysupdate_b_payload_tree",
+    image = ":sysupdate_b_image",
+    signed_uki = ":sysupdate_b_uki",
+    version = "2",
+)
+
+mkosi_rootfs_payload(
+    name = "sysupdate_b_payload",
+    src = ":sysupdate_b_payload_tree",
+    destination = "/opt/rules-mkosi",
+    executable_paths = ["apply-update"],
+)
+
+mkosi_image(
+    name = "sysupdate_a_image",
+    config_tree = ":sysupdate_a_config_tree",
+    debian_snapshot = "@mkosi_debian_snapshot//:repository",
+    mode = "release",
+    release_seed = "00000000-0000-4000-8000-000000000025",
+    release_source_date_epoch = 0,
+    rootfs_payloads = [":sysupdate_b_payload"],
+    unified_kernel_image = "unsigned",
+    verity = "hash",
+)
+
+qemu_ovmf_boot_test(
+    name = "sysupdate_phase1_mutation_test",
+    timeout = "long",
+    image = ":sysupdate_a_image",
+    machine_args = [
+        "-machine",
+        "q35",
+        "-m",
+        "2048M",
+    ],
+    readiness_marker = "RULES_MKOSI_SYSUPDATE_APPLIED_VERSION=2",
+    shutdown_timeout_seconds = 60,
 )
 
 mkosi_config_tree(

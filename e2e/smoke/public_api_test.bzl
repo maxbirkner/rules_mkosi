@@ -103,6 +103,25 @@ def _signed_uki_fixture_impl(ctx):
 
 signed_uki_fixture = rule(implementation = _signed_uki_fixture_impl)
 
+def _image_uki_fixture_impl(ctx):
+    image = ctx.attr.image[MkosiImageInfo]
+    if image.uki == None:
+        fail("image must provide a UKI")
+    return [
+        DefaultInfo(files = depset([image.uki])),
+        SecureBootSignedUkiInfo(
+            format_version = "mkosi-secure-boot-signed-uki-v2",
+            request = None,
+            signed_uki = image.uki,
+            verification_metadata = image.uki_metadata,
+        ),
+    ]
+
+image_uki_fixture = rule(
+    implementation = _image_uki_fixture_impl,
+    attrs = {"image": attr.label(mandatory = True, providers = [MkosiImageInfo])},
+)
+
 def _sysupdate_public_api_test_impl(ctx):
     env = analysistest.begin(ctx)
     info = analysistest.target_under_test(env)[SysupdateAbInfo]

@@ -59,6 +59,7 @@ load(
     _SysupdateAbInfo = "SysupdateAbInfo",
     _sysupdate_ab = "sysupdate_ab",
 )
+load("//mkosi/private:sysupdate_payload.bzl", _sysupdate_update_payload = "sysupdate_update_payload")
 
 MkosiImageInfo = _MkosiImageInfo
 MkosiConfigTreeInfo = _MkosiConfigTreeInfo
@@ -89,6 +90,7 @@ SecureBootSignedUkiInfo = _SecureBootSignedUkiInfo
 SecureBootEphemeralTestFixtureInfo = _SecureBootEphemeralTestFixtureInfo
 SysupdateAbInfo = _SysupdateAbInfo
 sysupdate_ab = _sysupdate_ab
+sysupdate_update_payload = _sysupdate_update_payload
 secure_boot_signing_request = _secure_boot_signing_request
 secure_boot_import_response = _secure_boot_import_response
 secure_boot_ephemeral_test_fixture = _secure_boot_ephemeral_test_fixture
