@@ -28,6 +28,18 @@ load(
     "raw_image_file",
     "seabios_boot_config_test",
 )
+load(":sysupdate_ab_rule_test.bzl", "sysupdate_ab_test_suite")
+
+py_test(
+    name = "sysupdate_ab_test",
+    srcs = [
+        "sysupdate_ab_test.py",
+        "//mkosi/private:sysupdate_ab.py",
+    ],
+    main = "sysupdate_ab_test.py",
+)
+
+sysupdate_ab_test_suite(name = "sysupdate_ab")
 
 py_test(
     name = "secure_boot_boundary_test",
@@ -141,6 +153,8 @@ behavior_targets(
         ":root_dependency_test",
         ":secure_boot_boundary_test",
         ":secure_boot_fixture_action_test",
+        ":sysupdate_ab_provider_test",
+        ":sysupdate_ab_test",
         ":unsupported_version_test",
         ":verity_metadata_test",
     ],

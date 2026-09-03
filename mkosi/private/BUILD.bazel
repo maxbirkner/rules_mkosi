@@ -18,6 +18,8 @@ exports_files([
     "secure_boot.bzl",
     "secure_boot.py",
     "stage_inputs.py",
+    "sysupdate_ab.bzl",
+    "sysupdate_ab.py",
     "write_bios_repart.py",
     "qemu_ovmf_validate.sh",
     "qemu_ovmf_smoke_test.bzl",

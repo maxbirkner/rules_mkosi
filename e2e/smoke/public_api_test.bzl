@@ -7,6 +7,8 @@ load(
     "DebianToolsInfo",
     "MkosiImageInfo",
     "MkosiRootfsPayloadInfo",
+    "SecureBootSignedUkiInfo",
+    "SysupdateAbInfo",
 )
 
 def _behavior_targets_impl(ctx):
@@ -85,6 +87,33 @@ def _image_public_api_test_impl(ctx):
     return analysistest.end(env)
 
 image_public_api_test = analysistest.make(_image_public_api_test_impl)
+
+def _signed_uki_fixture_impl(ctx):
+    output = ctx.actions.declare_file(ctx.label.name + ".efi")
+    ctx.actions.write(output, "consumer signed UKI")
+    return [
+        DefaultInfo(files = depset([output])),
+        SecureBootSignedUkiInfo(
+            format_version = "mkosi-secure-boot-signed-uki-v2",
+            request = None,
+            signed_uki = output,
+            verification_metadata = None,
+        ),
+    ]
+
+signed_uki_fixture = rule(implementation = _signed_uki_fixture_impl)
+
+def _sysupdate_public_api_test_impl(ctx):
+    env = analysistest.begin(ctx)
+    info = analysistest.target_under_test(env)[SysupdateAbInfo]
+    asserts.equals(env, "rules-mkosi-sysupdate-ab-v1", info.format_version)
+    asserts.equals(env, "uefi", info.firmware)
+    asserts.equals(env, "old", info.slot_a.version)
+    asserts.equals(env, "new", info.slot_b.version)
+    asserts.true(env, info.layout != None)
+    return analysistest.end(env)
+
+sysupdate_public_api_test = analysistest.make(_sysupdate_public_api_test_impl)
 
 def _rootfs_payload_public_api_test_impl(ctx):
     env = analysistest.begin(ctx)
