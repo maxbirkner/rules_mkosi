@@ -70,6 +70,7 @@ def _request_impl(ctx):
     if image.uki == None:
         fail("image must provide an unsigned UKI")
     certificate = _certificate(ctx.attr.certificate)
+    normalized_certificate = ctx.actions.declare_file(ctx.label.name + ".certificate.pem")
     request = ctx.actions.declare_file(ctx.label.name + ".secure-boot-request.json")
     request_digest = ctx.actions.declare_file(ctx.label.name + ".secure-boot-request.sha256")
     args = ctx.actions.args()
@@ -78,14 +79,15 @@ def _request_impl(ctx):
     args.add("--openssl", ctx.executable._debian_tools.path)
     args.add("--unsigned-uki", image.uki.path)
     args.add("--certificate", certificate.path)
+    args.add("--normalized-certificate", normalized_certificate.path)
     args.add("--algorithm", ctx.attr.signature_algorithm)
     args.add("--output", request.path)
     args.add("--digest-output", request_digest.path)
-    _run(ctx, args, [ctx.file._tool, ctx.executable._debian_tools, image.uki, certificate], [request, request_digest], "SecureBootSigningRequest")
+    _run(ctx, args, [ctx.file._tool, ctx.executable._debian_tools, image.uki, certificate], [request, request_digest, normalized_certificate], "SecureBootSigningRequest")
     return [
-        DefaultInfo(files = depset([request, request_digest, image.uki, certificate])),
+        DefaultInfo(files = depset([request, request_digest, image.uki, normalized_certificate])),
         SecureBootSigningRequestInfo(
-            certificate = certificate,
+            certificate = normalized_certificate,
             format_version = "mkosi-secure-boot-signing-request-v2",
             request = request,
             request_digest = request_digest,
@@ -114,6 +116,7 @@ def _import_impl(ctx):
     metadata = ctx.actions.declare_file(ctx.label.name + ".secure-boot-verification.json")
     pkcs7 = ctx.actions.declare_file(ctx.label.name + ".authenticode.der")
     content = ctx.actions.declare_file(ctx.label.name + ".authenticode-content")
+    verified_signer = ctx.actions.declare_file(ctx.label.name + ".verified-signer.pem")
     args = ctx.actions.args()
     args.add(ctx.file._tool.path)
     args.add("verify")
@@ -125,13 +128,14 @@ def _import_impl(ctx):
     args.add("--certificate", request.certificate.path)
     args.add("--pkcs7", pkcs7.path)
     args.add("--content", content.path)
+    args.add("--verified-signer", verified_signer.path)
     args.add("--output", output.path)
     args.add("--metadata", metadata.path)
     _run(
         ctx,
         args,
         [ctx.file._tool, ctx.executable._debian_tools, request.request, request.request_digest, request.unsigned_uki, request.certificate, signed_input],
-        [output, metadata, pkcs7, content],
+        [output, metadata, pkcs7, content, verified_signer],
         "SecureBootImportAuthenticode",
     )
     return [

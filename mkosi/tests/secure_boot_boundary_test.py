@@ -1,6 +1,7 @@
 """Boundary tests for embedded Authenticode import."""
 
 import json
+import importlib.util
 import pathlib
 import struct
 import subprocess
@@ -9,6 +10,9 @@ import unittest
 
 
 TOOL, DEBIAN_TOOLS = sys.argv[1:3]
+SPEC = importlib.util.spec_from_file_location("secure_boot", TOOL)
+SECURE_BOOT = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(SECURE_BOOT)
 
 
 def minimal_pe(marker=b"requested UKI"):
@@ -50,6 +54,7 @@ class SecureBootBoundaryTest(unittest.TestCase):
             "--sbsign", DEBIAN_TOOLS,
             "--unsigned-uki", self.unsigned,
             "--certificate", self.cert,
+            "--normalized-certificate", self.work / "normalized-certificate.der",
             "--signed-uki", self.signed,
             "--scratch", self.work / "private-scratch",
             "--other-unsigned", self.other_unsigned,
@@ -88,6 +93,7 @@ class SecureBootBoundaryTest(unittest.TestCase):
             "--certificate", certificate or self.cert,
             "--pkcs7", self.work / "signature.der",
             "--content", self.work / "content.bin",
+            "--verified-signer", self.work / "verified-signer.pem",
             "--output", self.work / "verified.efi",
             "--metadata", self.work / "verification.json",
             check=False,
@@ -139,6 +145,7 @@ class SecureBootBoundaryTest(unittest.TestCase):
                 "--openssl", DEBIAN_TOOLS,
                 "--unsigned-uki", path,
                 "--certificate", self.cert,
+                "--normalized-certificate", self.work / (name + ".der"),
                 "--algorithm", "authenticode-sha256",
                 "--output", self.work / (name + ".json"),
                 "--digest-output", self.work / (name + ".sha256"),
@@ -167,6 +174,60 @@ class SecureBootBoundaryTest(unittest.TestCase):
         document["signature_algorithm"] = "authenticode-sha1"
         altered.write_text(json.dumps(document))
         self.assertIn("request digest", self.verify(request=altered).stderr)
+
+    def test_certificate_bundles_duplicates_reversal_and_trailing_data_are_rejected(self):
+        other_cert = self.work / "bundle-other.pem"
+        self.run_tool(
+            "ephemeral-fixture",
+            "--openssl", DEBIAN_TOOLS,
+            "--sbsign", DEBIAN_TOOLS,
+            "--unsigned-uki", self.other_unsigned,
+            "--certificate", other_cert,
+            "--signed-uki", self.work / "bundle-other-signed.efi",
+            "--scratch", self.work / "bundle-other-private",
+        )
+        first = self.cert.read_bytes()
+        second = other_cert.read_bytes()
+        for name, certificate in {
+            "bundle": first + second,
+            "reversed": second + first,
+            "duplicate": first + first,
+            "trailing": first + b"not whitespace",
+        }.items():
+            path = self.work / (name + ".pem")
+            path.write_bytes(certificate)
+            result = self.run_tool(
+                "request",
+                "--openssl", DEBIAN_TOOLS,
+                "--unsigned-uki", self.unsigned,
+                "--certificate", path,
+                "--normalized-certificate", self.work / (name + ".der"),
+                "--algorithm", "authenticode-sha256",
+                "--output", self.work / (name + ".json"),
+                "--digest-output", self.work / (name + ".sha256"),
+                check=False,
+            )
+            self.assertIn("certificate", result.stderr)
+
+    def test_der_rejects_noncanonical_lengths_and_oids_with_bounds(self):
+        for encoded in [
+            b"\x04\x81\x01x",
+            b"\x04\x80",
+            b"\x04\x82\x00\x80" + b"x" * 128,
+            b"\x04\x85\x01\x00\x00\x00\x00",
+        ]:
+            with self.assertRaises(ValueError):
+                SECURE_BOOT.der_read(encoded)
+        for encoded in [
+            b"\x06\x02\x80\x01",
+            b"\x06\x01\x80",
+            b"\x06\x03\x2a\x80\x00",
+            b"\x06\x41" + b"\x01" * 65,
+            b"\x06\x82\x01\x01" + b"\x01" * 257,
+        ]:
+            with self.assertRaises(ValueError):
+                item, _ = SECURE_BOOT.der_read(encoded)
+                SECURE_BOOT.der_oid(item)
 
     def test_transplanted_trusted_certificate_table_is_rejected(self):
         original = bytearray(self.signed.read_bytes())

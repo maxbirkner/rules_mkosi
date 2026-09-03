@@ -2,6 +2,8 @@
 """Create and verify offline Authenticode Secure Boot artifacts."""
 
 import argparse
+import base64
+import binascii
 import hashlib
 import json
 import os
@@ -19,6 +21,9 @@ OID_SPC_INDIRECT_DATA = "1.3.6.1.4.1.311.2.1.4"
 OID_SHA256 = "2.16.840.1.101.3.4.2.1"
 OID_RSA = {"1.2.840.113549.1.1.1", "1.2.840.113549.1.1.11"}
 _counter = 0
+MAX_DER_BYTES = 16 * 1024 * 1024
+MAX_DER_DEPTH = 32
+MAX_DER_CHILDREN = 4096
 
 
 def sha256(path):
@@ -51,9 +56,31 @@ def run_tool(tool, *arguments, capture=False):
     return subprocess.run(command, check=True, capture_output=capture, env=env)
 
 
-def certificate_sha256(openssl, certificate):
-    result = run_tool(openssl, "/usr/bin/openssl", "x509", "-in", certificate, "-outform", "DER", capture=True)
-    return hashlib.sha256(result.stdout).hexdigest()
+def certificate_der(path):
+    data = Path(path).read_bytes()
+    begin = b"-----BEGIN CERTIFICATE-----"
+    end_marker = b"-----END CERTIFICATE-----"
+    if begin in data or end_marker in data:
+        if data.count(begin) != 1 or data.count(end_marker) != 1:
+            raise ValueError("expected exactly one PEM certificate")
+        prefix, remainder = data.split(begin, 1)
+        body, suffix = remainder.split(end_marker, 1)
+        if prefix.strip() or suffix.strip() or b"-----" in body:
+            raise ValueError("certificate input has trailing or additional PEM data")
+        try:
+            data = base64.b64decode(b"".join(body.split()), validate=True)
+        except binascii.Error as error:
+            raise ValueError("certificate PEM has invalid base64") from error
+    item, consumed = der_read(data)
+    if item.tag != 0x30 or consumed != len(data):
+        raise ValueError("certificate must contain exactly one DER X.509 object")
+    return data
+
+
+def certificate_pem(data):
+    body = base64.b64encode(data)
+    lines = [body[index:index + 64] for index in range(0, len(body), 64)]
+    return b"-----BEGIN CERTIFICATE-----\n" + b"\n".join(lines) + b"\n-----END CERTIFICATE-----\n"
 
 
 def write_json(path, document):
@@ -153,20 +180,10 @@ def authenticode_payload(signed_data, certificate_offset, certificate_size):
 
 
 def _der_object(payload):
-    if len(payload) < 2 or payload[0] != 0x30:
+    item, end = der_read(payload)
+    if item.tag != 0x30:
         raise ValueError("Authenticode payload is not DER SignedData")
-    first_length = payload[1]
-    if first_length < 0x80:
-        header = 2
-        body_length = first_length
-    else:
-        length_bytes = first_length & 0x7F
-        if not length_bytes or length_bytes > 4 or 2 + length_bytes > len(payload):
-            raise ValueError("invalid Authenticode DER length")
-        header = 2 + length_bytes
-        body_length = int.from_bytes(payload[2:header], "big")
-    end = header + body_length
-    if end > len(payload) or any(payload[end:]):
+    if any(payload[end:]):
         raise ValueError("invalid Authenticode DER bounds or padding")
     return payload[:end]
 
@@ -212,20 +229,27 @@ def authenticode_hash(data, pe):
 
 
 class Der:
-    def __init__(self, tag, value):
+    def __init__(self, tag, value, depth):
         self.tag = tag
         self.value = value
+        self.depth = depth
 
     def children(self):
+        if self.depth >= MAX_DER_DEPTH:
+            raise ValueError("DER nesting exceeds limit")
         result = []
         cursor = 0
         while cursor < len(self.value):
-            item, cursor = der_read(self.value, cursor)
+            if len(result) >= MAX_DER_CHILDREN:
+                raise ValueError("DER child count exceeds limit")
+            item, cursor = der_read(self.value, cursor, self.depth + 1)
             result.append(item)
         return result
 
 
-def der_read(data, offset=0):
+def der_read(data, offset=0, depth=0):
+    if len(data) > MAX_DER_BYTES or depth > MAX_DER_DEPTH:
+        raise ValueError("DER resource limit exceeded")
     if offset + 2 > len(data):
         raise ValueError("truncated DER object")
     tag = data[offset]
@@ -233,31 +257,51 @@ def der_read(data, offset=0):
     cursor = offset + 2
     if length & 0x80:
         count = length & 0x7F
-        if not count or count > 4 or cursor + count > len(data):
+        if not count:
+            raise ValueError("indefinite DER length is forbidden")
+        if count > 4 or cursor + count > len(data):
             raise ValueError("invalid DER length")
         if data[cursor] == 0:
             raise ValueError("nonminimal DER length")
         length = int.from_bytes(data[cursor:cursor + count], "big")
+        if length < 128 or count != (length.bit_length() + 7) // 8:
+            raise ValueError("nonminimal DER long-form length")
         cursor += count
     end = cursor + length
     if end > len(data):
         raise ValueError("DER object is out of bounds")
-    return Der(tag, data[cursor:end]), end
+    return Der(tag, data[cursor:end], depth), end
 
 
 def der_oid(item):
-    if item.tag != 0x06 or not item.value:
+    if item.tag != 0x06 or not item.value or len(item.value) > 256:
         raise ValueError("expected DER object identifier")
-    first = item.value[0]
-    values = [first // 40, first % 40]
+    subidentifiers = []
     value = 0
-    for byte in item.value[1:]:
+    group_start = True
+    for byte in item.value:
+        if group_start and byte == 0x80:
+            raise ValueError("nonminimal DER OID subidentifier")
+        if value > (1 << 63):
+            raise ValueError("DER OID subidentifier is too large")
         value = (value << 7) | (byte & 0x7F)
         if not byte & 0x80:
-            values.append(value)
+            subidentifiers.append(value)
+            if len(subidentifiers) > 64:
+                raise ValueError("DER OID has too many arcs")
             value = 0
-    if value:
+            group_start = True
+        else:
+            group_start = False
+    if not group_start:
         raise ValueError("truncated DER object identifier")
+    first = subidentifiers[0]
+    if first < 40:
+        values = [0, first]
+    elif first < 80:
+        values = [1, first - 40]
+    else:
+        values = [2, first - 80]
     return ".".join(map(str, values))
 
 
@@ -317,8 +361,10 @@ def create_request(args):
     if args.algorithm != ALGORITHM:
         raise ValueError("unsupported signing algorithm")
     parse_pe(Path(args.unsigned_uki).read_bytes(), False)
+    normalized_certificate = certificate_der(args.certificate)
+    Path(args.normalized_certificate).write_bytes(certificate_pem(normalized_certificate))
     document = {
-        "certificate_sha256": certificate_sha256(args.openssl, args.certificate),
+        "certificate_sha256": hashlib.sha256(normalized_certificate).hexdigest(),
         "context": "uefi-secure-boot-uki",
         "format_version": REQUEST_FORMAT,
         "signature_algorithm": ALGORITHM,
@@ -346,7 +392,8 @@ def verify(args):
         raise ValueError("wrong signing context or algorithm")
     if sha256(args.unsigned_uki) != request["unsigned_uki_sha256"]:
         raise ValueError("unsigned UKI no longer matches its request")
-    fingerprint = certificate_sha256(args.openssl, args.certificate)
+    expected_certificate = certificate_der(args.certificate)
+    fingerprint = hashlib.sha256(expected_certificate).hexdigest()
     if fingerprint != request["certificate_sha256"]:
         raise ValueError("signer certificate does not match request")
     unsigned_data = Path(args.unsigned_uki).read_bytes()
@@ -370,9 +417,14 @@ def verify(args):
         args.certificate,
         "-nointern",
         "-noverify",
+        "-signer",
+        args.verified_signer,
         "-out",
         args.content,
     )
+    verified_signer = certificate_der(args.verified_signer)
+    if verified_signer != expected_certificate:
+        raise ValueError("verified SignerInfo certificate does not match request")
     shutil.copyfile(args.signed_uki, args.output)
     write_json(args.metadata, {
         "certificate_sha256": fingerprint,
@@ -445,12 +497,13 @@ def main():
     request.add_argument("--openssl", required=True)
     request.add_argument("--unsigned-uki", required=True)
     request.add_argument("--certificate", required=True)
+    request.add_argument("--normalized-certificate", required=True)
     request.add_argument("--algorithm", required=True)
     request.add_argument("--output", required=True)
     request.add_argument("--digest-output", required=True)
     request.set_defaults(function=create_request)
     verify_parser = commands.add_parser("verify")
-    for name in ("openssl", "request", "request-digest", "unsigned-uki", "signed-uki", "certificate", "pkcs7", "content", "output", "metadata"):
+    for name in ("openssl", "request", "request-digest", "unsigned-uki", "signed-uki", "certificate", "pkcs7", "content", "verified-signer", "output", "metadata"):
         verify_parser.add_argument("--" + name, required=True)
     verify_parser.set_defaults(function=verify)
     fixture = commands.add_parser("ephemeral-fixture")

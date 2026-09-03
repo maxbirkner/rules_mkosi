@@ -7,6 +7,9 @@ creates a deterministic UKI without accepting any key. Signing is separate:
    `authenticode-sha256`, its canonical request digest, the UEFI signing
    context, and the SHA-256 fingerprint of the expected public certificate in
    `mkosi-secure-boot-signing-request-v2` JSON.
+   Certificate input is accepted only when it contains exactly one PEM or DER
+   X.509 object; bundles, duplicates, reversed chains, and trailing data are
+   rejected. The rule emits and subsequently uses one normalized certificate.
 2. A signing system outside Bazel validates that request, Authenticode-signs
    the exact UKI, and returns the firmware-consumable signed PE/COFF image.
 3. `secure_boot_import_response` validates PE and `WIN_CERTIFICATE` bounds,
@@ -17,6 +20,9 @@ creates a deterministic UKI without accepting any key. Signing is separate:
    computed Authenticode PE hash. It also proves that stripping the certificate
    table while normalizing only the PE checksum and security-directory fields
    recovers the requested unsigned UKI.
+   OpenSSL is given only the normalized certificate with `-nointern`, and the
+   certificate it reports for the verified `SignerInfo` must have identical
+   DER bytes and fingerprint.
 
 The request, request digest, unsigned UKI, certificate, external signed UKI,
 and verification metadata are public artifacts. A detached workflow envelope
