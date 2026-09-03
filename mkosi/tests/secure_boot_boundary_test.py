@@ -3,6 +3,7 @@
 import json
 import importlib.util
 import hashlib
+import os
 import pathlib
 import struct
 import subprocess
@@ -111,6 +112,30 @@ class SecureBootBoundaryTest(unittest.TestCase):
 
     def test_request_emits_canonical_der_certificate_and_matching_fingerprint(self):
         certificate = self.normalized_certificate.read_bytes()
+        launcher_scratch = self.work / "independent-openssl-scratch"
+        environment = dict(os.environ)
+        environment["MKOSI_DEBIAN_TOOLS_SCRATCH"] = str(launcher_scratch.resolve())
+        original = "/outputs/work/" + str(self.cert)
+        independent = subprocess.run(
+            [
+                DEBIAN_TOOLS,
+                "--rw-bind",
+                "{}:/outputs/work".format(pathlib.Path.cwd()),
+                "/usr/bin/openssl",
+                "x509",
+                "-inform",
+                "PEM",
+                "-in",
+                original,
+                "-outform",
+                "DER",
+            ],
+            check=True,
+            capture_output=True,
+            env=environment,
+        ).stdout
+        self.assertLess(len(independent), 1024 * 1024)
+        self.assertEqual(certificate, independent)
         self.assertTrue(certificate.startswith(b"\x30"))
         self.assertNotIn(b"-----BEGIN CERTIFICATE-----", certificate)
         self.assertEqual(
