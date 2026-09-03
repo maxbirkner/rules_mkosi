@@ -324,6 +324,12 @@ mkosi_rootfs_payload(
 )
 
 mkosi_rootfs_payload(
+    name = "sysupdate_a_etc_os_release",
+    src = "testdata/sysupdate-runtime/os-release",
+    destination = "/etc/os-release",
+)
+
+mkosi_rootfs_payload(
     name = "sysupdate_a_apply_script",
     src = "testdata/sysupdate-runtime/apply-update",
     destination = "/usr/lib/rules-mkosi-apply-update",
@@ -372,6 +378,7 @@ mkosi_image(
         ":sysupdate_a_apply_script",
         ":sysupdate_a_apply_service",
         ":sysupdate_a_apply_wants",
+        ":sysupdate_a_etc_os_release",
         ":sysupdate_a_os_release",
         ":sysupdate_a_root_repart",
         ":sysupdate_a_verity_repart",
@@ -391,6 +398,7 @@ mkosi_image(
         ":sysupdate_a_apply_script",
         ":sysupdate_a_apply_service",
         ":sysupdate_a_apply_wants",
+        ":sysupdate_a_etc_os_release",
         ":sysupdate_a_os_release",
         ":sysupdate_a_root_repart",
         ":sysupdate_a_verity_repart",
