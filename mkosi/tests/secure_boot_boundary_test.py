@@ -41,6 +41,9 @@ class SecureBootBoundaryTest(unittest.TestCase):
         self.unsigned.write_bytes(minimal_pe())
         self.cert = self.work / "certificate.pem"
         self.signed = self.work / "signed.efi"
+        self.other_unsigned = self.work / "same-layout-other.efi"
+        self.other_unsigned.write_bytes(minimal_pe(b"other payload"))
+        self.other_signed = self.work / "same-layout-other-signed.efi"
         self.run_tool(
             "ephemeral-fixture",
             "--openssl", DEBIAN_TOOLS,
@@ -49,6 +52,8 @@ class SecureBootBoundaryTest(unittest.TestCase):
             "--certificate", self.cert,
             "--signed-uki", self.signed,
             "--scratch", self.work / "private-scratch",
+            "--other-unsigned", self.other_unsigned,
+            "--other-signed", self.other_signed,
         )
         self.request = self.work / "request.json"
         self.request_digest = self.work / "request.sha256"
@@ -118,6 +123,29 @@ class SecureBootBoundaryTest(unittest.TestCase):
             path.write_bytes(candidate)
             self.assertNotEqual(self.verify(path).returncode, 0)
 
+    def test_request_rejects_malformed_optional_headers_and_directories(self):
+        for name, mutate in {
+            "zero-directories": lambda data: struct.pack_into("<I", data, 0x98 + 108, 0),
+            "four-directories": lambda data: struct.pack_into("<I", data, 0x98 + 108, 4),
+            "truncated-optional": lambda data: struct.pack_into("<H", data, 0x80 + 20, 112),
+            "bad-headers": lambda data: struct.pack_into("<I", data, 0x98 + 60, 0x180),
+        }.items():
+            candidate = bytearray(minimal_pe())
+            mutate(candidate)
+            path = self.work / (name + ".efi")
+            path.write_bytes(candidate)
+            result = self.run_tool(
+                "request",
+                "--openssl", DEBIAN_TOOLS,
+                "--unsigned-uki", path,
+                "--certificate", self.cert,
+                "--algorithm", "authenticode-sha256",
+                "--output", self.work / (name + ".json"),
+                "--digest-output", self.work / (name + ".sha256"),
+                check=False,
+            )
+            self.assertNotEqual(result.returncode, 0, name)
+
     def test_wrong_certificate_algorithm_request_and_different_uki_are_rejected(self):
         other_unsigned = self.work / "other.efi"
         other_unsigned.write_bytes(minimal_pe(b"different valid UKI"))
@@ -139,6 +167,17 @@ class SecureBootBoundaryTest(unittest.TestCase):
         document["signature_algorithm"] = "authenticode-sha1"
         altered.write_text(json.dumps(document))
         self.assertIn("request digest", self.verify(request=altered).stderr)
+
+    def test_transplanted_trusted_certificate_table_is_rejected(self):
+        original = bytearray(self.signed.read_bytes())
+        other = self.other_signed.read_bytes()
+        _, _, source_offset, source_size = self._security(other)
+        _, _, target_offset, target_size = self._security(original)
+        self.assertEqual((source_offset, source_size), (target_offset, target_size))
+        original[target_offset:target_offset + target_size] = other[source_offset:source_offset + source_size]
+        transplanted = self.work / "transplanted.efi"
+        transplanted.write_bytes(original)
+        self.assertNotEqual(self.verify(transplanted).returncode, 0)
 
     @staticmethod
     def _directory_offset(data):

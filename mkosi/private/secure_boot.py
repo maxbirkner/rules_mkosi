@@ -14,6 +14,10 @@ from pathlib import Path
 REQUEST_FORMAT = "mkosi-secure-boot-signing-request-v2"
 SIGNED_FORMAT = "mkosi-secure-boot-signed-uki-v2"
 ALGORITHM = "authenticode-sha256"
+OID_SIGNED_DATA = "1.2.840.113549.1.7.2"
+OID_SPC_INDIRECT_DATA = "1.3.6.1.4.1.311.2.1.4"
+OID_SHA256 = "2.16.840.1.101.3.4.2.1"
+OID_RSA = {"1.2.840.113549.1.1.1", "1.2.840.113549.1.1.11"}
 _counter = 0
 
 
@@ -69,14 +73,45 @@ def parse_pe(data, signed):
     if pe > len(data) - 24 or data[pe:pe + 4] != b"PE\0\0":
         raise ValueError("invalid PE header bounds")
     optional = pe + 24
+    section_count = struct.unpack_from("<H", data, pe + 6)[0]
     optional_size = struct.unpack_from("<H", data, pe + 20)[0]
+    if not section_count or section_count > 96:
+        raise ValueError("invalid PE section count")
     if optional + optional_size > len(data):
         raise ValueError("PE optional header is out of bounds")
     magic = struct.unpack_from("<H", data, optional)[0]
-    directory = optional + (112 if magic == 0x20B else 96 if magic == 0x10B else -1)
-    if directory < optional or directory + 40 > optional + optional_size:
+    fixed_size = 112 if magic == 0x20B else 96 if magic == 0x10B else -1
+    if fixed_size < 0 or optional_size < fixed_size:
+        raise ValueError("invalid PE optional header magic or size")
+    directory = optional + fixed_size
+    directory_count = struct.unpack_from("<I", data, optional + fixed_size - 4)[0]
+    if directory_count < 5:
+        raise ValueError("PE has fewer than five data directories")
+    if directory + directory_count * 8 > optional + optional_size:
         raise ValueError("PE security directory is unavailable")
     checksum = optional + 64
+    file_alignment = struct.unpack_from("<I", data, optional + 36)[0]
+    size_headers = struct.unpack_from("<I", data, optional + 60)[0]
+    if file_alignment < 0x200 or file_alignment & (file_alignment - 1):
+        raise ValueError("invalid PE FileAlignment")
+    section_table = optional + optional_size
+    section_table_end = section_table + section_count * 40
+    if section_table_end > len(data) or size_headers < section_table_end or size_headers > len(data):
+        raise ValueError("invalid PE section table or SizeOfHeaders")
+    if size_headers % file_alignment:
+        raise ValueError("PE SizeOfHeaders is not file aligned")
+    sections = []
+    for index in range(section_count):
+        entry = section_table + index * 40
+        raw_size, raw_offset = struct.unpack_from("<II", data, entry + 16)
+        if raw_size:
+            if raw_offset < size_headers or raw_offset % file_alignment or raw_offset + raw_size > len(data):
+                raise ValueError("PE section raw data is out of bounds")
+            sections.append((raw_offset, raw_size))
+    sections.sort()
+    for previous, current in zip(sections, sections[1:]):
+        if previous[0] + previous[1] > current[0]:
+            raise ValueError("PE section raw data overlaps")
     certificate_offset, certificate_size = struct.unpack_from("<II", data, directory + 32)
     if signed:
         if not certificate_offset or certificate_offset % 8 or certificate_size < 8:
@@ -85,7 +120,14 @@ def parse_pe(data, signed):
             raise ValueError("certificate table bounds or trailing data are invalid")
     elif certificate_offset or certificate_size:
         raise ValueError("requested UKI is already signed")
-    return checksum, directory + 32, certificate_offset, certificate_size
+    return {
+        "certificate_offset": certificate_offset,
+        "certificate_size": certificate_size,
+        "checksum": checksum,
+        "security_directory": directory + 32,
+        "sections": sections,
+        "size_headers": size_headers,
+    }
 
 
 def authenticode_payload(signed_data, certificate_offset, certificate_size):
@@ -130,21 +172,145 @@ def _der_object(payload):
 
 
 def prove_equivalence(unsigned_data, signed_data):
-    unsigned_checksum, unsigned_directory, _, _ = parse_pe(unsigned_data, False)
-    signed_checksum, signed_directory, certificate_offset, certificate_size = parse_pe(signed_data, True)
-    if (unsigned_checksum, unsigned_directory) != (signed_checksum, signed_directory):
+    unsigned = parse_pe(unsigned_data, False)
+    signed = parse_pe(signed_data, True)
+    if (unsigned["checksum"], unsigned["security_directory"]) != (signed["checksum"], signed["security_directory"]):
         raise ValueError("PE layouts differ")
+    certificate_offset = signed["certificate_offset"]
+    certificate_size = signed["certificate_size"]
     if certificate_offset < len(unsigned_data):
         raise ValueError("Authenticode table overlaps requested UKI")
     signed_prefix = bytearray(signed_data[:len(unsigned_data)])
     unsigned_prefix = bytearray(unsigned_data)
-    for offset, size in ((unsigned_checksum, 4), (unsigned_directory, 8)):
+    for offset, size in ((unsigned["checksum"], 4), (unsigned["security_directory"], 8)):
         signed_prefix[offset:offset + size] = unsigned_prefix[offset:offset + size]
     if signed_prefix != unsigned_prefix:
         raise ValueError("signed UKI differs from requested unsigned UKI")
     if any(signed_data[len(unsigned_data):certificate_offset]):
         raise ValueError("nonzero data inserted before Authenticode table")
     return authenticode_payload(signed_data, certificate_offset, certificate_size)
+
+
+def authenticode_hash(data, pe):
+    digest = hashlib.sha256()
+    checksum = pe["checksum"]
+    security = pe["security_directory"]
+    digest.update(data[:checksum])
+    digest.update(data[checksum + 4:security])
+    digest.update(data[security + 8:pe["size_headers"]])
+    end = pe["size_headers"]
+    for offset, size in pe["sections"]:
+        if offset < end:
+            raise ValueError("PE section order overlaps hashed content")
+        digest.update(data[offset:offset + size])
+        end = offset + size
+    certificate_offset = pe["certificate_offset"] or len(data)
+    if end > certificate_offset:
+        raise ValueError("certificate table overlaps PE content")
+    digest.update(data[end:certificate_offset])
+    return digest.digest()
+
+
+class Der:
+    def __init__(self, tag, value):
+        self.tag = tag
+        self.value = value
+
+    def children(self):
+        result = []
+        cursor = 0
+        while cursor < len(self.value):
+            item, cursor = der_read(self.value, cursor)
+            result.append(item)
+        return result
+
+
+def der_read(data, offset=0):
+    if offset + 2 > len(data):
+        raise ValueError("truncated DER object")
+    tag = data[offset]
+    length = data[offset + 1]
+    cursor = offset + 2
+    if length & 0x80:
+        count = length & 0x7F
+        if not count or count > 4 or cursor + count > len(data):
+            raise ValueError("invalid DER length")
+        if data[cursor] == 0:
+            raise ValueError("nonminimal DER length")
+        length = int.from_bytes(data[cursor:cursor + count], "big")
+        cursor += count
+    end = cursor + length
+    if end > len(data):
+        raise ValueError("DER object is out of bounds")
+    return Der(tag, data[cursor:end]), end
+
+
+def der_oid(item):
+    if item.tag != 0x06 or not item.value:
+        raise ValueError("expected DER object identifier")
+    first = item.value[0]
+    values = [first // 40, first % 40]
+    value = 0
+    for byte in item.value[1:]:
+        value = (value << 7) | (byte & 0x7F)
+        if not byte & 0x80:
+            values.append(value)
+            value = 0
+    if value:
+        raise ValueError("truncated DER object identifier")
+    return ".".join(map(str, values))
+
+
+def algorithm_oid(item):
+    children = item.children()
+    if item.tag != 0x30 or not children:
+        raise ValueError("invalid AlgorithmIdentifier")
+    return der_oid(children[0])
+
+
+def authenticode_facts(payload):
+    outer, end = der_read(payload)
+    outer_children = outer.children()
+    if outer.tag != 0x30 or end != len(payload) or len(outer_children) != 2:
+        raise ValueError("invalid Authenticode ContentInfo")
+    if der_oid(outer_children[0]) != OID_SIGNED_DATA or outer_children[1].tag != 0xA0:
+        raise ValueError("AuthentiCode is not PKCS7 SignedData")
+    signed_wrapper = outer_children[1].children()
+    if len(signed_wrapper) != 1 or signed_wrapper[0].tag != 0x30:
+        raise ValueError("invalid SignedData wrapper")
+    signed = signed_wrapper[0].children()
+    if len(signed) < 4 or signed[1].tag != 0x31:
+        raise ValueError("invalid SignedData fields")
+    digest_algorithms = signed[1].children()
+    if len(digest_algorithms) != 1 or algorithm_oid(digest_algorithms[0]) != OID_SHA256:
+        raise ValueError("SignedData must declare exactly SHA-256")
+    content = signed[2].children()
+    if len(content) != 2 or der_oid(content[0]) != OID_SPC_INDIRECT_DATA or content[1].tag != 0xA0:
+        raise ValueError("missing Authenticode SpcIndirectDataContent")
+    indirect_wrappers = content[1].children()
+    if len(indirect_wrappers) != 1 or indirect_wrappers[0].tag != 0x30:
+        raise ValueError("invalid SpcIndirectDataContent")
+    indirect = indirect_wrappers[0].children()
+    if len(indirect) != 2:
+        raise ValueError("invalid SpcIndirectDataContent fields")
+    digest_info = indirect[1].children()
+    if len(digest_info) != 2 or algorithm_oid(digest_info[0]) != OID_SHA256 or digest_info[1].tag != 0x04:
+        raise ValueError("invalid Authenticode image digest")
+    signer_infos = signed[-1]
+    signers = signer_infos.children()
+    if signer_infos.tag != 0x31 or len(signers) != 1:
+        raise ValueError("AuthentiCode must have exactly one SignerInfo")
+    signer = signers[0].children()
+    if len(signer) < 5:
+        raise ValueError("invalid SignerInfo")
+    if algorithm_oid(signer[2]) != OID_SHA256:
+        raise ValueError("SignerInfo digest algorithm is not SHA-256")
+    signature_index = 4 if signer[3].tag != 0xA0 else 5
+    if signature_index >= len(signer) or algorithm_oid(signer[signature_index - 1]) not in OID_RSA:
+        raise ValueError("unsupported SignerInfo signature algorithm")
+    if signer[signature_index].tag != 0x04:
+        raise ValueError("missing SignerInfo signature")
+    return digest_info[1].value
 
 
 def create_request(args):
@@ -183,10 +349,13 @@ def verify(args):
     fingerprint = certificate_sha256(args.openssl, args.certificate)
     if fingerprint != request["certificate_sha256"]:
         raise ValueError("signer certificate does not match request")
-    payload = prove_equivalence(
-        Path(args.unsigned_uki).read_bytes(),
-        Path(args.signed_uki).read_bytes(),
-    )
+    unsigned_data = Path(args.unsigned_uki).read_bytes()
+    signed_data = Path(args.signed_uki).read_bytes()
+    payload = prove_equivalence(unsigned_data, signed_data)
+    embedded_digest = authenticode_facts(payload)
+    computed_digest = authenticode_hash(signed_data, parse_pe(signed_data, True))
+    if embedded_digest != computed_digest:
+        raise ValueError("embedded Authenticode digest does not match imported PE")
     Path(args.pkcs7).write_bytes(payload)
     run_tool(
         args.openssl,
@@ -204,19 +373,6 @@ def verify(args):
         "-out",
         args.content,
     )
-    printed = run_tool(
-        args.openssl,
-        "/usr/bin/openssl",
-        "pkcs7",
-        "-print",
-        "-inform",
-        "DER",
-        "-in",
-        args.pkcs7,
-        capture=True,
-    ).stdout.decode(errors="replace")
-    if "algorithm: sha256 " not in printed:
-        raise ValueError("embedded Authenticode signature does not use SHA-256")
     shutil.copyfile(args.signed_uki, args.output)
     write_json(args.metadata, {
         "certificate_sha256": fingerprint,
@@ -263,6 +419,19 @@ def ephemeral_fixture(args):
             args.signed_uki,
             args.unsigned_uki,
         )
+        if args.other_unsigned:
+            run_tool(
+                args.sbsign,
+                "/usr/lib/systemd/systemd-sbsign",
+                "sign",
+                "--private-key",
+                str(key),
+                "--certificate",
+                args.certificate,
+                "--output",
+                args.other_signed,
+                args.other_unsigned,
+            )
     finally:
         if key.exists():
             key.write_bytes(b"\0" * key.stat().st_size)
@@ -287,6 +456,8 @@ def main():
     fixture = commands.add_parser("ephemeral-fixture")
     for name in ("openssl", "sbsign", "unsigned-uki", "certificate", "signed-uki", "scratch"):
         fixture.add_argument("--" + name, required=True)
+    fixture.add_argument("--other-unsigned")
+    fixture.add_argument("--other-signed")
     fixture.set_defaults(function=ephemeral_fixture)
     args = parser.parse_args()
     try:
