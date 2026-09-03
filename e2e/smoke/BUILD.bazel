@@ -325,7 +325,7 @@ mkosi_rootfs_payload(
 
 mkosi_rootfs_payload(
     name = "sysupdate_a_etc_os_release",
-    src = "testdata/sysupdate-runtime/os-release",
+    src = "testdata/sysupdate-runtime/os-release-etc",
     destination = "/etc/os-release",
 )
 
