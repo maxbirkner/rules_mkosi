@@ -77,10 +77,10 @@ def main():
     state = pathlib.Path(os.environ["TEST_TMPDIR"])
     disk = state / "release-ab.raw"
     shutil.copyfile(boot._resolve_runfile(config["image"]), disk)
+    before = _partition_digests(disk)
     with open(disk, "ab") as image:
         image.truncate(image.tell() + 1280 * 1024 * 1024)
     disk.chmod(0o600)
-    before = _partition_digests(disk)
     _run(config, disk, state / "update-boot", "RULES_MKOSI_SYSUPDATE_APPLIED_VERSION=2")
     after = _partition_digests(disk)
 
