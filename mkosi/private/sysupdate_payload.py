@@ -92,6 +92,7 @@ TriesDone=0""",
     script.write_text(
         """#!/bin/sh
 set -eu
+echo RULES_MKOSI_SLOT_A_VERSION=1
 /usr/bin/systemd-repart --dry-run=no --definitions=/usr/lib/rules-mkosi-repart.d /dev/vda
 cd /opt/rules-mkosi/source
 sha256sum -c SHA256SUMS
