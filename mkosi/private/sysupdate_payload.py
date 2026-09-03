@@ -98,6 +98,7 @@ sha256sum -c SHA256SUMS
 echo RULES_MKOSI_UPDATE_DIGESTS_VERIFIED
 /usr/lib/systemd/systemd-sysupdate --definitions=/opt/rules-mkosi/definitions --transfer-source=/opt/rules-mkosi/source --verify=yes update {version}
 echo RULES_MKOSI_SYSUPDATE_APPLIED_VERSION={version}
+touch /efi/rules-mkosi-update-applied
 sync
 systemctl poweroff
 """.format(version=args.version),

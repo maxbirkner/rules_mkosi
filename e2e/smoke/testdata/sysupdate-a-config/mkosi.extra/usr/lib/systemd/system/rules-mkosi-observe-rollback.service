@@ -1,0 +1,7 @@
+[Unit]
+Description=Report rollback to slot A
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/rules-mkosi-observe-rollback

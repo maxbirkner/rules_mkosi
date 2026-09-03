@@ -3,12 +3,13 @@
 load(":managed_python_test.bzl", "managed_python_test")
 load(":qemu_ovmf_boot_test.bzl", "qemu_ovmf_boot_config")
 
-def qemu_sysupdate_test(name, image, tags = []):
+def qemu_sysupdate_test(name, image, rollback = False, tags = []):
     """Runs update mutation followed by a boot of the installed slot.
 
     Args:
       name: Test target name.
       image: Initial release A/B disk target.
+      rollback: Exercise three failed slot B boots and require slot A fallback.
       tags: Additional Bazel tags.
     """
     config = name + "_config"
@@ -30,13 +31,13 @@ def qemu_sysupdate_test(name, image, tags = []):
     )
     managed_python_test(
         name = name,
-        src = "//mkosi/private:sysupdate_vm_test.py",
-        args = ["$(rootpath :{})".format(config)],
+        src = "@rules_mkosi//mkosi/private:sysupdate_vm_test.py",
+        args = ["$(rootpath :{})".format(config)] + (["--rollback"] if rollback else []),
         data = [
-            "//mkosi/private:boot_test.py",
-            "//mkosi/private:diagnostics.py",
-            "//mkosi/private:partition_metadata.py",
-            "//mkosi/private:sysupdate_vm_test.py",
+            "@rules_mkosi//mkosi/private:boot_test.py",
+            "@rules_mkosi//mkosi/private:diagnostics.py",
+            "@rules_mkosi//mkosi/private:partition_metadata.py",
+            "@rules_mkosi//mkosi/private:sysupdate_vm_test.py",
             ":{}".format(config),
         ],
         timeout = "long",

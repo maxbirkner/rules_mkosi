@@ -42,7 +42,7 @@ def _partition_digests(path):
     return result
 
 
-def _run(config, disk, scratch, marker):
+def _run(config, disk, scratch, marker, expected_failure_marker=""):
     old = os.environ.get("TEST_TMPDIR")
     os.environ["TEST_TMPDIR"] = str(scratch)
     try:
@@ -55,6 +55,7 @@ def _run(config, disk, scratch, marker):
             firmware_vars=boot._resolve_runfile(config["firmware_vars"]),
             kernel_preflight=boot._resolve_runfile(config["kernel_preflight"]),
             readiness_marker=marker,
+            expected_failure_marker=expected_failure_marker,
             shutdown_markers=config["shutdown_markers"],
             boot_timeout_seconds=config["boot_timeout_seconds"],
             qmp_initialization_timeout_seconds=config[
@@ -93,7 +94,24 @@ def main():
         if value["label"] in ("root-1", "verity-1") and key in changed:
             raise RuntimeError("active A partition changed: {}".format(value["label"]))
 
-    _run(config, disk, state / "slot-b-boot", "RULES_MKOSI_SLOT_B_VERSION=2")
+    rollback = len(sys.argv) == 3 and sys.argv[2] == "--rollback"
+    if rollback:
+        for attempt in range(1, 4):
+            _run(
+                config,
+                disk,
+                state / "failed-slot-b-{}".format(attempt),
+                "RULES_MKOSI_SLOT_B_VERSION=2",
+                "Welcome to emergency mode!",
+            )
+        _run(
+            config,
+            disk,
+            state / "rollback-slot-a",
+            "RULES_MKOSI_ROLLBACK_SLOT_A_VERSION=1",
+        )
+    else:
+        _run(config, disk, state / "slot-b-boot", "RULES_MKOSI_SLOT_B_VERSION=2")
     evidence = {
         "after": after,
         "before": before,
@@ -105,7 +123,10 @@ def main():
     (output / "sysupdate-evidence.json").write_text(
         json.dumps(evidence, indent=2, sort_keys=True) + "\n"
     )
-    print("systemd-sysupdate inactive-slot mutation and slot B boot verified")
+    if rollback:
+        print("systemd-boot exhausted slot B attempts and rolled back to slot A")
+    else:
+        print("systemd-sysupdate inactive-slot mutation and slot B boot verified")
 
 
 if __name__ == "__main__":

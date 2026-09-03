@@ -1,0 +1,6 @@
+#!/bin/sh
+set -eu
+if test -e /efi/rules-mkosi-update-applied; then
+    echo RULES_MKOSI_ROLLBACK_SLOT_A_VERSION=1
+    systemctl poweroff
+fi

@@ -1,6 +1,7 @@
 [Unit]
 Description=Apply declared offline A/B update
 After=local-fs.target
+ConditionPathExists=!/efi/rules-mkosi-update-applied
 
 [Service]
 Type=oneshot

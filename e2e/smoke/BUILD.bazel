@@ -65,6 +65,7 @@ behavior_targets(
         ":sysupdate_public_api_test",
         ":sysupdate_phase1_mutation_test",
         ":sysupdate_success_lifecycle_test",
+        ":sysupdate_rollback_lifecycle_test",
         ":release_demo_partition_metadata_test",
         ":release_demo_reproducibility_test",
         ":release_demo_rootfs_payload_test",
@@ -273,9 +274,25 @@ mkosi_config_tree(
     src = "testdata/sysupdate-b-config",
 )
 
+mkosi_config_tree(
+    name = "sysupdate_b_fail_config_tree",
+    src = "testdata/sysupdate-b-fail-config",
+)
+
 mkosi_image(
     name = "sysupdate_b_image",
     config_tree = ":sysupdate_b_config_tree",
+    debian_snapshot = "@mkosi_debian_snapshot//:repository",
+    mode = "release",
+    release_seed = "00000000-0000-4000-8000-000000000025",
+    release_source_date_epoch = 0,
+    unified_kernel_image = "unsigned",
+    verity = "hash",
+)
+
+mkosi_image(
+    name = "sysupdate_b_fail_image",
+    config_tree = ":sysupdate_b_fail_config_tree",
     debian_snapshot = "@mkosi_debian_snapshot//:repository",
     mode = "release",
     release_seed = "00000000-0000-4000-8000-000000000025",
@@ -289,6 +306,11 @@ image_uki_fixture(
     image = ":sysupdate_b_image",
 )
 
+image_uki_fixture(
+    name = "sysupdate_b_fail_uki",
+    image = ":sysupdate_b_fail_image",
+)
+
 sysupdate_update_payload(
     name = "sysupdate_b_payload_tree",
     image = ":sysupdate_b_image",
@@ -296,9 +318,23 @@ sysupdate_update_payload(
     version = "2",
 )
 
+sysupdate_update_payload(
+    name = "sysupdate_b_fail_payload_tree",
+    image = ":sysupdate_b_fail_image",
+    signed_uki = ":sysupdate_b_fail_uki",
+    version = "2",
+)
+
 mkosi_rootfs_payload(
     name = "sysupdate_b_payload",
     src = ":sysupdate_b_payload_tree",
+    destination = "/opt/rules-mkosi",
+    executable_paths = ["apply-update"],
+)
+
+mkosi_rootfs_payload(
+    name = "sysupdate_b_fail_payload",
+    src = ":sysupdate_b_fail_payload_tree",
     destination = "/opt/rules-mkosi",
     executable_paths = ["apply-update"],
 )
@@ -311,6 +347,18 @@ mkosi_image(
     release_seed = "00000000-0000-4000-8000-000000000025",
     release_source_date_epoch = 0,
     rootfs_payloads = [":sysupdate_b_payload"],
+    unified_kernel_image = "unsigned",
+    verity = "hash",
+)
+
+mkosi_image(
+    name = "sysupdate_a_rollback_image",
+    config_tree = ":sysupdate_a_config_tree",
+    debian_snapshot = "@mkosi_debian_snapshot//:repository",
+    mode = "release",
+    release_seed = "00000000-0000-4000-8000-000000000025",
+    release_source_date_epoch = 0,
+    rootfs_payloads = [":sysupdate_b_fail_payload"],
     unified_kernel_image = "unsigned",
     verity = "hash",
 )
@@ -332,6 +380,12 @@ qemu_ovmf_boot_test(
 qemu_sysupdate_test(
     name = "sysupdate_success_lifecycle_test",
     image = ":sysupdate_a_image",
+)
+
+qemu_sysupdate_test(
+    name = "sysupdate_rollback_lifecycle_test",
+    image = ":sysupdate_a_rollback_image",
+    rollback = True,
 )
 
 mkosi_config_tree(
