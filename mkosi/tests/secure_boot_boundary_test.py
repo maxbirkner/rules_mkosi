@@ -2,6 +2,7 @@
 
 import json
 import importlib.util
+import hashlib
 import pathlib
 import struct
 import subprocess
@@ -68,11 +69,12 @@ class SecureBootBoundaryTest(unittest.TestCase):
             "--openssl", DEBIAN_TOOLS,
             "--unsigned-uki", self.unsigned,
             "--certificate", self.cert,
-            "--certificate-output", self.work / "normalized-certificate.pem",
+            "--certificate-output", self.work / "normalized-certificate.der",
             "--algorithm", "authenticode-sha256",
             "--output", self.request,
             "--digest-output", self.request_digest,
         )
+        self.normalized_certificate = self.work / "normalized-certificate.der"
 
     def run_tool(self, command, *arguments, check=True):
         result = subprocess.run(
@@ -106,6 +108,15 @@ class SecureBootBoundaryTest(unittest.TestCase):
         result = self.verify()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual((self.work / "verified.efi").read_bytes(), self.signed.read_bytes())
+
+    def test_request_emits_canonical_der_certificate_and_matching_fingerprint(self):
+        certificate = self.normalized_certificate.read_bytes()
+        self.assertTrue(certificate.startswith(b"\x30"))
+        self.assertNotIn(b"-----BEGIN CERTIFICATE-----", certificate)
+        self.assertEqual(
+            json.loads(self.request.read_text())["certificate_sha256"],
+            hashlib.sha256(certificate).hexdigest(),
+        )
 
     def test_arbitrary_and_tampered_bytes_are_rejected(self):
         arbitrary = self.work / "arbitrary.efi"
@@ -236,7 +247,7 @@ class SecureBootBoundaryTest(unittest.TestCase):
             "request",
             "--openssl", DEBIAN_TOOLS,
             "--unsigned-uki", self.unsigned,
-            "--certificate", self.work / "normalized-certificate.pem",
+            "--certificate", self.work / "normalized-certificate.der",
             "--certificate-output", self.work / "der-positive.der",
             "--algorithm", "authenticode-sha256",
             "--output", self.work / "der-positive.json",
