@@ -39,6 +39,15 @@ it against resolved `Seed=`.
 `release_source_date_epoch` accepts zero and nonnegative values only for
 release mode; runtime validates it against resolved `SourceDateEpoch=`.
 
+<!-- behavior:BHV-IMAGE-IMMUTABLE -->
+Unsigned UKI and hash-only dm-verity modes are release-only. Verity requires a
+UKI so the root hash is carried by `.cmdline`; signed and unsupported modes
+fail analysis. The normalized verity projection checks split artifact extents
+against GPT, derives format geometry from the generated superblock, recomputes
+the complete salted hash tree, and rejects truncation, mutation, and nonzero
+padding. Verification uses constant-size buffers and one bounded on-disk
+digest level at a time; format-1 digest slots are power-of-two padded.
+
 <!-- behavior:BHV-IMAGE-SOURCES -->
 `source_trees` accepts typed trees at unique normalized relative destinations,
 preserves valid roles, and rejects traversal, aliases, collisions, and
@@ -89,7 +98,8 @@ user-site state and an empty child `PATH`.
 
 <!-- behavior:BHV-IMAGE-PROVIDER -->
 `MkosiImageInfo` fixes `format_version`, exposes `raw_image`, `manifest`,
-`partition_metadata`, `uki`, and `build_metadata` as `File` or `None`, keeps
+`partition_metadata`, `uki`, split root/hash/signature roles, normalized UKI
+and verity metadata, and `build_metadata` as `File` or `None`, keeps
 `image` as the exact raw-image alias, and projects every present artifact once
 through `DefaultInfo`. Its `firmware` field exposes the selected tier directly.
 

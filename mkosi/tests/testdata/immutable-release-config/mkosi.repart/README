@@ -1,0 +1,2 @@
+The definitions in this directory describe the immutable x86-64 root layout.
+The root and its dm-verity hash are split for update and inspection consumers.

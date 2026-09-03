@@ -61,6 +61,7 @@ class BootLifecycleTest(unittest.TestCase):
         process_error=None,
         handshake=None,
         clock_values=(0, 1),
+        boot_options=None,
     ):
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
@@ -105,6 +106,7 @@ class BootLifecycleTest(unittest.TestCase):
                             qmp_handshake=handshake or (lambda *_args: None),
                             monotonic=monotonic,
                             sleep=lambda _seconds: None,
+                            **(boot_options or {}),
                         )
             output = stderr.getvalue()
             self.assertEqual(1, output.count("VM_FAILURE:"))
@@ -114,6 +116,58 @@ class BootLifecycleTest(unittest.TestCase):
             self.assertIn("qemu diagnostic", output)
             self.assertFalse((root / "qmp.sock").exists())
             return process
+
+    def _expected_failure_passes(self, serial):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            (root / "vars.fd").write_bytes(b"vars")
+            (root / "guest-serial.log").write_bytes(serial)
+            process = _Process()
+
+            def factory(_command, stdout, **_kwargs):
+                stdout.write(b"qemu diagnostic\n")
+                return process
+
+            with mock.patch.dict("os.environ", {"TEST_TMPDIR": directory}, clear=False):
+                boot_test._boot(
+                    "image.raw",
+                    "qemu",
+                    "qemu-data",
+                    firmware_code="code.fd",
+                    firmware_vars=str(root / "vars.fd"),
+                    readiness_marker="READY",
+                    expected_failure_marker="VERITY FAILURE",
+                    stop_after_readiness=True,
+                    process_factory=factory,
+                    qmp_handshake=lambda *_args: None,
+                    monotonic=lambda: 0,
+                    sleep=lambda _seconds: None,
+                )
+            self.assertTrue(process.terminated)
+
+    def test_expected_failure_before_readiness_passes(self):
+        self._expected_failure_passes(b"VERITY FAILURE\n")
+
+    def test_expected_failure_precedes_readiness_when_both_are_present(self):
+        self._expected_failure_passes(b"VERITY FAILURE\nREADY\n")
+
+    def test_readiness_before_expected_failure_is_failure(self):
+        self._run(
+            "GUEST_FAILURE",
+            serial=b"READY\nVERITY FAILURE\n",
+            boot_options={
+                "expected_failure_marker": "VERITY FAILURE",
+                "stop_after_readiness": True,
+            },
+        )
+
+    def test_missing_expected_failure_marker_times_out(self):
+        self._run(
+            "READINESS_TIMEOUT",
+            serial=b"Linux version 6.1\n",
+            clock_values=(0, 0, 181),
+            boot_options={"expected_failure_marker": "VERITY FAILURE"},
+        )
 
     def test_launch_failure(self):
         self._run("QEMU_EXEC_FAILURE", process_error=OSError("missing qemu"))

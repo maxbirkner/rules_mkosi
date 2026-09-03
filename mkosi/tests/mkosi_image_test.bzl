@@ -47,7 +47,7 @@ def _provider_test_impl(ctx):
 
     asserts.true(env, MkosiImageInfo in target)
     info = target[MkosiImageInfo]
-    asserts.equals(env, "mkosi-image-v1", info.format_version)
+    asserts.equals(env, "mkosi-image-v2", info.format_version)
     asserts.equals(env, ctx.attr.expected_output, info.raw_image.basename)
     asserts.equals(env, info.raw_image, info.image)
     asserts.equals(env, None, info.manifest)
@@ -93,7 +93,7 @@ def _provider_test_impl(ctx):
     asserts.equals(env, "--debian-tools-sha256", argv[7])
     asserts.equals(
         env,
-        "ee26a2ba23d1fadb89b0fc6b2329a44206682ca243b89fe495246e827009729f",
+        "93c520f0935e74d47111d74ab4de55300ca24422a8ee611cc9d3cf188252b6b7",
         argv[8],
     )
     kernel_preflight = argv.index("--kernel-preflight")
@@ -200,7 +200,7 @@ def _debian_tools_provider_test_impl(ctx):
     asserts.equals(env, "13", info.release)
     asserts.equals(
         env,
-        "ee26a2ba23d1fadb89b0fc6b2329a44206682ca243b89fe495246e827009729f",
+        "93c520f0935e74d47111d74ab4de55300ca24422a8ee611cc9d3cf188252b6b7",
         info.archive_sha256,
     )
     asserts.equals(env, "trixie", info.codename)
@@ -208,7 +208,7 @@ def _debian_tools_provider_test_impl(ctx):
     asserts.equals(env, "20250814T000000Z", info.snapshot)
     asserts.equals(
         env,
-        "4feda33b82e94493cf6b80bac6ea1bdbc904afbea6b85bce7820d60f6e233401",
+        "fa4e9f106cf6fb20b8b2c2b9206375e4af25abb7fd885fbfd9613ecb7bb191ce",
         info.lock_sha256,
     )
     asserts.equals(
@@ -287,11 +287,17 @@ def _image_info_fixture_impl(ctx):
     return [
         DefaultInfo(files = depset([artifact for artifact in artifacts if artifact != None])),
         MkosiImageInfo(
-            format_version = "mkosi-image-v1",
+            format_version = "mkosi-image-v2",
             raw_image = raw_image,
             manifest = manifest,
             partition_metadata = partition_metadata,
             uki = uki,
+            root_image = None,
+            root_hash = None,
+            root_hash_image = None,
+            root_hash_signature = None,
+            uki_metadata = None,
+            verity_metadata = None,
             build_metadata = build_metadata,
             firmware = "uefi",
             image = raw_image,
@@ -313,7 +319,7 @@ def _image_info_contract_test_impl(ctx):
     env = analysistest.begin(ctx)
     target = analysistest.target_under_test(env)
     info = target[MkosiImageInfo]
-    asserts.equals(env, "mkosi-image-v1", info.format_version)
+    asserts.equals(env, "mkosi-image-v2", info.format_version)
     artifacts = [
         info.raw_image,
         info.manifest,
@@ -403,7 +409,7 @@ def _release_provider_test_impl(ctx):
     asserts.equals(env, "0", argv[epoch + 1])
     asserts.equals(env, "0", image_action.env["SOURCE_DATE_EPOCH"])
     info = target[MkosiImageInfo]
-    asserts.equals(env, "mkosi-image-v1", info.format_version)
+    asserts.equals(env, "mkosi-image-v2", info.format_version)
     asserts.equals(env, "release_subject.raw", info.raw_image.basename)
     asserts.equals(env, info.raw_image, info.image)
     asserts.equals(env, "release_subject.mkosi-image-info.json", info.build_metadata.basename)
@@ -453,6 +459,28 @@ def _bios_provider_test_impl(ctx):
     return analysistest.end(env)
 
 _bios_provider_test = analysistest.make(_bios_provider_test_impl)
+
+def _immutable_release_provider_test_impl(ctx):
+    env = analysistest.begin(ctx)
+    target = analysistest.target_under_test(env)
+    info = target[MkosiImageInfo]
+    asserts.equals(env, "mkosi-image-v2", info.format_version)
+    asserts.equals(env, "immutable_release_subject.efi", info.uki.basename)
+    asserts.equals(env, "immutable_release_subject.root.raw", info.root_image.basename)
+    asserts.equals(env, "immutable_release_subject.roothash", info.root_hash.basename)
+    asserts.equals(env, "immutable_release_subject.root-verity.raw", info.root_hash_image.basename)
+    asserts.equals(env, None, info.root_hash_signature)
+    asserts.equals(env, "immutable_release_subject.uki.json", info.uki_metadata.basename)
+    asserts.equals(env, "immutable_release_subject.verity.json", info.verity_metadata.basename)
+    actions = analysistest.target_actions(env)
+    image = [action for action in actions if action.mnemonic == "MkosiImage"][0]
+    asserts.true(env, "--split-artifacts=uki,partitions,roothash" in image.argv)
+    asserts.true(env, "--unified-kernel-images=unsigned" in image.argv)
+    asserts.equals(env, 1, len([action for action in actions if action.mnemonic == "MkosiUkiMetadata"]))
+    asserts.equals(env, 1, len([action for action in actions if action.mnemonic == "MkosiVerityMetadata"]))
+    return analysistest.end(env)
+
+_immutable_release_provider_test = analysistest.make(_immutable_release_provider_test_impl)
 
 def _tree_provider_test_impl(ctx):
     env = analysistest.begin(ctx)
@@ -820,6 +848,25 @@ def mkosi_image_test_suite(name):
         name = "release_provider_test",
         target_under_test = ":release_subject",
     )
+    mkosi_image(
+        name = "immutable_release_subject",
+        config_tree = ":immutable_release_config_tree",
+        debian_snapshot = "@mkosi_debian_snapshot//:repository",
+        mode = "release",
+        release_seed = "00000000-0000-4000-8000-000000000007",
+        release_source_date_epoch = 0,
+        unified_kernel_image = "unsigned",
+        verity = "hash",
+        tags = ["manual"],
+    )
+    mkosi_config_tree(
+        name = "immutable_release_config_tree",
+        src = "testdata/immutable-release-config",
+    )
+    _immutable_release_provider_test(
+        name = "immutable_release_provider_test",
+        target_under_test = ":immutable_release_subject",
+    )
     raw_image_file(
         name = "release_raw_image",
         image = ":release_subject",
@@ -873,6 +920,47 @@ def mkosi_image_test_suite(name):
         name = "invalid_mode_test",
         expected_error = "must be either 'tracer' or 'release'",
         target_under_test = ":invalid_mode_subject",
+    )
+
+    mkosi_image(
+        name = "invalid_signed_uki_subject",
+        config = "testdata/minimal.conf",
+        unified_kernel_image = "signed",
+        tags = ["manual"],
+    )
+    _invalid_tree_mapping_test(
+        name = "invalid_signed_uki_test",
+        expected_error = "signing is tracked by #23",
+        target_under_test = ":invalid_signed_uki_subject",
+    )
+
+    mkosi_image(
+        name = "invalid_tracer_verity_subject",
+        config = "testdata/minimal.conf",
+        unified_kernel_image = "unsigned",
+        verity = "hash",
+        tags = ["manual"],
+    )
+    _invalid_tree_mapping_test(
+        name = "invalid_tracer_verity_test",
+        expected_error = "only supported in release mode",
+        target_under_test = ":invalid_tracer_verity_subject",
+    )
+
+    mkosi_image(
+        name = "invalid_verity_without_uki_subject",
+        config_tree = ":release_config_tree",
+        debian_snapshot = "@mkosi_debian_snapshot//:repository",
+        mode = "release",
+        release_seed = "00000000-0000-4000-8000-000000000007",
+        release_source_date_epoch = 0,
+        verity = "hash",
+        tags = ["manual"],
+    )
+    _invalid_tree_mapping_test(
+        name = "invalid_verity_without_uki_test",
+        expected_error = "requires unified_kernel_image='unsigned'",
+        target_under_test = ":invalid_verity_without_uki_subject",
     )
 
     mkosi_image(

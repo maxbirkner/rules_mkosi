@@ -25,6 +25,7 @@ load(
     "raw_image_file",
     "rootfs_payload_public_api_test",
     "snapshot_public_api_test",
+    "verity_corrupted_image",
 )
 load(":python_override.bzl", "consumer_python")
 
@@ -51,6 +52,8 @@ behavior_targets(
         ":release_demo_artifact_test",
         ":release_demo_build_metadata_test",
         ":release_demo_build_test",
+        ":release_demo_verity_boot_test",
+        ":release_demo_verity_corruption_boot_test",
         ":release_demo_partition_metadata_test",
         ":release_demo_reproducibility_test",
         ":release_demo_rootfs_payload_test",
@@ -218,6 +221,17 @@ mkosi_image(
     release_source_date_epoch = 0,
 )
 
+mkosi_image(
+    name = "immutable_demo",
+    config_tree = ":immutable_release_config_tree",
+    debian_snapshot = "@mkosi_debian_snapshot//:repository",
+    mode = "release",
+    release_seed = "00000000-0000-4000-8000-000000000015",
+    release_source_date_epoch = 0,
+    unified_kernel_image = "unsigned",
+    verity = "hash",
+)
+
 mkosi_config_tree(
     name = "config_tree",
     src = "@rules_mkosi//mkosi/tests:testdata/config-tree",
@@ -226,6 +240,11 @@ mkosi_config_tree(
 mkosi_config_tree(
     name = "release_config_tree",
     src = "testdata/release-config",
+)
+
+mkosi_config_tree(
+    name = "immutable_release_config_tree",
+    src = "testdata/immutable-release-config",
 )
 
 mkosi_source_tree(
@@ -238,6 +257,38 @@ build_test(
     name = "demo_build_test",
     tags = ["requires-network"],
     targets = [":demo"],
+)
+
+qemu_ovmf_boot_test(
+    name = "release_demo_verity_boot_test",
+    image = ":immutable_demo",
+    machine_args = [
+        "-machine",
+        "q35",
+        "-m",
+        "2048M",
+    ],
+    readiness_marker = "EXT4-fs (dm-0): mounted filesystem",
+    stop_after_readiness = True,
+)
+
+verity_corrupted_image(
+    name = "release_demo_corrupted",
+    image = ":immutable_demo",
+)
+
+qemu_ovmf_boot_test(
+    name = "release_demo_verity_corruption_boot_test",
+    expected_failure_marker = "data block 0 is corrupted",
+    image = ":release_demo_corrupted",
+    machine_args = [
+        "-machine",
+        "q35",
+        "-m",
+        "2048M",
+    ],
+    readiness_marker = "Reached target initrd-root-device.target - Initrd Root Device.",
+    stop_after_readiness = True,
 )
 
 build_test(
@@ -344,6 +395,7 @@ py_test(
 qemu_ovmf_boot_test(
     name = "demo_boot_test",
     image = ":demo",
+    shutdown_timeout_seconds = 60,
     tags = [
         "manifest",
         "requires-network",

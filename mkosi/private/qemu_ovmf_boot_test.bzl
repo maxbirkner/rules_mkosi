@@ -73,6 +73,8 @@ def _qemu_ovmf_boot_config_impl(ctx):
         "qemu": qemu.qemu_files_to_run.executable.short_path,
         "qmp_initialization_timeout_seconds": ctx.attr.qmp_initialization_timeout_seconds,
         "readiness_marker": ctx.attr.readiness_marker,
+        "expected_failure_marker": ctx.attr.expected_failure_marker,
+        "stop_after_readiness": ctx.attr.stop_after_readiness,
         "shutdown_markers": ctx.attr.shutdown_markers,
         "shutdown_timeout_seconds": ctx.attr.shutdown_timeout_seconds,
         "system_data": qemu.system_data_anchor.short_path,
@@ -120,6 +122,12 @@ qemu_ovmf_boot_config = rule(
             mandatory = True,
             doc = "Exact serial marker proving guest userspace readiness.",
         ),
+        "expected_failure_marker": attr.string(
+            doc = "Exact serial marker that makes an intentional negative boot pass before readiness.",
+        ),
+        "stop_after_readiness": attr.bool(
+            doc = "Terminate QEMU successfully as soon as readiness is observed.",
+        ),
         "shutdown_markers": attr.string_list(
             mandatory = True,
             doc = "Exact serial markers proving guest-initiated clean shutdown.",
@@ -146,6 +154,8 @@ def qemu_ovmf_boot_test(
         name,
         image,
         readiness_marker = "systemd[1]: Hostname set to <rules-mkosi-tracer>.",
+        expected_failure_marker = "",
+        stop_after_readiness = False,
         shutdown_markers = [
             "systemd-shutdown[1]: Powering off.",
             "reboot: Power down",
@@ -168,6 +178,8 @@ def qemu_ovmf_boot_test(
         name = config_name,
         image = image,
         readiness_marker = readiness_marker,
+        expected_failure_marker = expected_failure_marker,
+        stop_after_readiness = stop_after_readiness,
         shutdown_markers = shutdown_markers,
         machine_args = machine_args,
         boot_timeout_seconds = boot_timeout_seconds,

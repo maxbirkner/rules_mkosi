@@ -9,6 +9,8 @@ exports_files([
     "managed_python_bootstrap.py",
     "mkosi_image.bzl",
     "partition_metadata.py",
+    "uki_metadata.py",
+    "verity_metadata.py",
     "managed_python_test.bzl",
     "qemu_ovmf_boot_test.bzl",
     "run_mkosi.py",

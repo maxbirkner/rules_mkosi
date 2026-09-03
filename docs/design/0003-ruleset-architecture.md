@@ -37,7 +37,7 @@ Consumers load rules and providers only from `//mkosi:defs.bzl`. Files below
 because registration and advanced integrations need a stable label.
 
 `mkosi_image` exposes a stable `MkosiImageInfo` output contract. Its
-`format_version` is always `mkosi-image-v1`, and its `raw_image`, `manifest`,
+`format_version` is always `mkosi-image-v2`, and its `raw_image`, `manifest`,
 `partition_metadata`, `uki`, and `build_metadata` fields are each a `File` or
 `None`; consumers select fields rather than infer roles from artifact names.
 The current disk/raw mode provides `raw_image` and the normalized JSON
@@ -65,7 +65,7 @@ declared staged inputs, and rejects it unless the values match `Seed=` and
 `SourceDateEpoch=`; its Debian defaults are forced from the snapshot provider.
 A narrow release wrapper supplies deterministic passwd,
 group, hosts, and NSS sandbox inputs rather than mkosi's host `/etc` defaults.
-The stable provider remains `mkosi-image-v1`; its normalized metadata advances
+The stable provider remains `mkosi-image-v2`; its normalized metadata advances
 to `mkosi-image-build-metadata-v2`, adding the release mode, reproducibility
 inputs, and authenticated snapshot identity/lock digest. The release action
 retains `no-remote-exec` pending execution-platform qualification, but may use

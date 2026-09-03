@@ -380,12 +380,18 @@ basename, or the contents of `DefaultInfo`.
 
 | Field | Type | Availability |
 | --- | --- | --- |
-| `format_version` | `string` | Always `mkosi-image-v1`. It identifies the stable provider contract. |
+| `format_version` | `string` | Always `mkosi-image-v2`. It identifies the stable provider contract. |
 | `firmware` | `string` | Explicit `uefi` (default) or `bios` tier; never inferred from filenames. |
 | `raw_image` | `File` or `None` | Present for the current disk/raw output mode. |
 | `manifest` | `File` or `None` | `None` until a mode explicitly requests mkosi manifest output. |
 | `partition_metadata` | `File` or `None` | Validated, normalized GPT JSON for release images; `None` in tracer mode. |
-| `uki` | `File` or `None` | `None` until a mode produces a Unified Kernel Image. |
+| `uki` | `File` or `None` | Split unsigned UKI when `unified_kernel_image = "unsigned"`. |
+| `root_image` | `File` or `None` | Split immutable root filesystem for `verity = "hash"`. |
+| `root_hash` | `File` or `None` | Lowercase SHA-256 dm-verity root hash. |
+| `root_hash_image` | `File` or `None` | Split dm-verity hash partition. |
+| `root_hash_signature` | `File` or `None` | Reserved typed output; always `None` until #23 adds signing. |
+| `uki_metadata` | `File` or `None` | Normalized PE section hashes and verified root-hash linkage. |
+| `verity_metadata` | `File` or `None` | Independently verified root/hash partition linkage, dm-verity geometry, salt, tree extent, root hash, and split-artifact digests. |
 | `build_metadata` | `File` or `None` | Present for every current target. It is normalized JSON with schema `mkosi-image-build-metadata-v2`, output-role booleans, mode, and forced mkosi disk/raw/no-compression settings. Release metadata additionally records the authenticated snapshot identity, lock digest, and resolved reproducibility inputs. |
 | `image` | `File` or `None` | Deprecated compatibility alias for `raw_image`; it is exactly the same artifact. New consumers must use `raw_image`. |
 
@@ -396,10 +402,23 @@ without changing the provider field meanings. This intentionally changes the
 old singleton `DefaultInfo` projection: consumers that assumed its sole file
 was the raw disk must migrate to `MkosiImageInfo.raw_image`. The retained
 `image` field preserves source compatibility for existing provider consumers.
-This contract defines output roles only; it does not generate UKIs, verity
-artifacts, or partition metadata.
+`unified_kernel_image = "unsigned"` and `verity = "hash"` are release-only.
+Signed modes fail analysis and remain scoped to #23. Existing targets retain
+the `none` defaults and their artifact projection.
+The verity projection parses the generated format-1 superblock, recomputes
+every data and hash-tree level, rejects nonzero padding or ambiguous trailing
+data, and requires split artifact sizes to equal their GPT partition extents.
+It streams fixed-size blocks and spools only raw digests for one level at a
+time, keeping peak memory independent of image size. Format-1 digest slots use
+the next power-of-two size while the projected root hash remains the raw
+digest.
+Reproducibility hashing opens each split artifact once, compares descriptor
+identity and timestamps before and after fixed-size reads, and rejects
+premature EOF or mutation instead of combining bytes from different states.
+It hashes exactly the initial descriptor size, then performs one bounded-byte
+growth probe, so concurrent extension cannot make work unbounded.
 
-The provider stays at `mkosi-image-v1`: the metadata schema independently
+The provider stays at `mkosi-image-v2`: the metadata schema independently
 advanced from v1 to v2 to make cache-relevant release provenance explicit.
 Consumers must select the metadata artifact through `build_metadata` and use
 its schema version when parsing its contents.

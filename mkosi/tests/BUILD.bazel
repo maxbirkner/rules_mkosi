@@ -58,6 +58,15 @@ py_test(
 )
 
 py_test(
+    name = "verity_metadata_test",
+    srcs = [
+        "verity_metadata_test.py",
+        "//mkosi/private:verity_metadata.py",
+    ],
+    main = "verity_metadata_test.py",
+)
+
+py_test(
     name = "behavior_matrix_test",
     srcs = ["behavior_matrix_test.py"],
     args = [
@@ -94,6 +103,7 @@ behavior_targets(
         ":default_version_test",
         ":diagnostic_contract_test",
         ":explicit_version_test",
+        ":immutable_release_provider_test",
         ":mkosi_staging_artifact_test",
         ":mkosi_staging_metadata_test",
         ":mkosi_staging_role_test",
@@ -111,6 +121,7 @@ behavior_targets(
         ":reproducibility_manifest_test",
         ":root_dependency_test",
         ":unsupported_version_test",
+        ":verity_metadata_test",
     ],
 )
 

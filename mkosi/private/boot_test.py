@@ -184,6 +184,8 @@ def _boot(
     firmware_vars=None,
     kernel_preflight=None,
     readiness_marker="",
+    expected_failure_marker="",
+    stop_after_readiness=False,
     shutdown_markers=(),
     boot_timeout_seconds=180,
     qmp_initialization_timeout_seconds=15,
@@ -289,7 +291,40 @@ def _boot(
                 deadline = monotonic() + boot_timeout_seconds
                 while monotonic() < deadline:
                     serial = _read_log(serial_log)
-                    if readiness_marker.encode() in serial:
+                    readiness_offset = serial.find(readiness_marker.encode())
+                    failure_offset = (
+                        serial.find(expected_failure_marker.encode())
+                        if expected_failure_marker else -1
+                    )
+                    if expected_failure_marker:
+                        if failure_offset >= 0 and (
+                            readiness_offset < 0 or failure_offset < readiness_offset
+                        ):
+                            excerpt_start = max(0, failure_offset - 256)
+                            excerpt_end = min(
+                                len(serial),
+                                failure_offset + len(expected_failure_marker) + 256,
+                            )
+                            print(
+                                "Expected failure evidence:\n{}".format(
+                                    serial[excerpt_start:excerpt_end].decode(errors="replace")
+                                )
+                            )
+                            _stop_process(process)
+                            return
+                        if readiness_offset >= 0:
+                            _diagnose(
+                                "GUEST_FAILURE",
+                                "observed readiness before exact expected failure marker %r"
+                                % expected_failure_marker,
+                                serial_log,
+                                qemu_log,
+                                diagnostic_bytes,
+                            )
+                    elif readiness_offset >= 0:
+                        if stop_after_readiness:
+                            _stop_process(process)
+                            return
                         break
                     if process.poll() is not None:
                         _diagnose(
@@ -367,6 +402,8 @@ def main():
         firmware_vars=_resolve_runfile(config["firmware_vars"]),
         kernel_preflight=_resolve_runfile(config["kernel_preflight"]),
         readiness_marker=config["readiness_marker"],
+        expected_failure_marker=config.get("expected_failure_marker", ""),
+        stop_after_readiness=config.get("stop_after_readiness", False),
         shutdown_markers=config["shutdown_markers"],
         boot_timeout_seconds=config["boot_timeout_seconds"],
         qmp_initialization_timeout_seconds=config["qmp_initialization_timeout_seconds"],

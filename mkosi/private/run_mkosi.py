@@ -209,10 +209,15 @@ def _run_mkosi(script, arguments, runner=subprocess.run, environment=None):
     except OSError as error:
         diagnostics.fail("TOOLCHAIN_FAILURE", "mkosi executable cannot start {}: {}".format(script, error))
     if completed.returncode:
+        original = completed.stdout + completed.stderr
+        tail = original.decode(errors="replace").strip().splitlines()[-8:]
         diagnostics.fail(
-            diagnostics.classify_mkosi_output(completed.stdout + completed.stderr),
-            "mkosi image assembly exited with status {}".format(completed.returncode),
-            completed.stdout + completed.stderr,
+            diagnostics.classify_mkosi_output(original),
+            "mkosi image assembly exited with status {}: {}".format(
+                completed.returncode,
+                " | ".join(tail),
+            ),
+            original,
             exit_code=diagnostics.child_exit_code(completed.returncode),
         )
     for stream, content in ((sys.stdout, completed.stdout), (sys.stderr, completed.stderr)):
@@ -425,6 +430,7 @@ def _activate_release_mode(
     original_parse_ini = mkosi.config.parse_ini
     validate_initial_configuration = [True]
     declared_roots = tuple(Path(path).resolve() for path in allowed_paths)
+    parse_depth = [0]
 
     def repositories(cls, context, for_image=False):
         if for_image:
@@ -467,8 +473,15 @@ def _activate_release_mode(
         return Path(mirror)
 
     def parse_config(*args, **kwargs):
-        parsed = original_parse_config(*args, **kwargs)
-        if validate_initial_configuration[0]:
+        primary_configuration = "mkosi-initrd" not in os.fspath(
+            kwargs.get("resources", "/")
+        )
+        parse_depth[0] += 1
+        try:
+            parsed = original_parse_config(*args, **kwargs)
+        finally:
+            parse_depth[0] -= 1
+        if validate_initial_configuration[0] and parse_depth[0] == 0 and primary_configuration:
             images = tuple(
                 replace(
                     config,
@@ -479,7 +492,11 @@ def _activate_release_mode(
                 for config in parsed[2]
             )
             _validate_release_configuration(
-                images,
+                tuple(
+                    config
+                    for config in images
+                    if getattr(config, "image", "main") == "main"
+                ),
                 release_seed,
                 release_source_date_epoch,
                 release_distribution,
@@ -500,7 +517,7 @@ def _activate_release_mode(
             for root in declared_roots
         )
         for section, setting, value in original_parse_ini(*args, **kwargs):
-            if declared:
+            if validate_initial_configuration[0] and parse_depth[0] == 1 and declared:
                 _validate_release_ini_entry(section)
             yield section, setting, value
 
