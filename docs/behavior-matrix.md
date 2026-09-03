@@ -190,7 +190,8 @@ toolchain, network, assembly, and VM boundaries with one actionable
 remediation. SeaBIOS failures distinguish an absent boot sector, observable
 GRUB/core failure, kernel/initrd/config guest failure, readiness timeout, and
 post-readiness shutdown failure while retaining firmware, serial, and QEMU
-logs.
+logs. The successful no-cache BIOS qualification publishes bounded raw logs
+and an actual stage-evidence excerpt through Bazel undeclared outputs.
 
 <!-- behavior:BHV-STAGING-FAILURES -->
 Staging rejects collisions, duplicate sources, absolute/traversing

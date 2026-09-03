@@ -459,6 +459,10 @@ boot, and shutdown deadlines must be positive and, together with a reserved
 (`60`, `300`, or `900` seconds). Invalid categories or deadline combinations
 fail during analysis, so a lifecycle timeout reports its own diagnostic before
 Bazel's test deadline can terminate the process.
+The BIOS qualification is tagged `no-cache`. Each execution writes bounded
+`firmware.log`, `guest-serial.log`, `qemu.log`, and `boot-evidence.log` files
+to Bazel's undeclared test outputs. Its successful test log prints actual
+captured SeaBIOS, boot-device, GRUB, kernel, readiness, and poweroff lines.
 The `config` label remains compatible with existing consumers and must resolve
 to exactly one file; typed tree targets are validated at analysis and again by
 the staging preflight.

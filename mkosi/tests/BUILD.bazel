@@ -375,6 +375,7 @@ seabios_boot_config_test(
 qemu_seabios_boot_test(
     name = "bios_boot_test",
     image = ":bios_release_subject",
+    tags = ["no-cache"],
 )
 
 py_test(

@@ -412,6 +412,7 @@ qemu_ovmf_boot_test(
 qemu_seabios_boot_test(
     name = "bios_boot_test",
     image = ":bios_release_demo",
+    tags = ["no-cache"],
 )
 
 qemu_ovmf_boot_config(

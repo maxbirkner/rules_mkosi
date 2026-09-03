@@ -74,7 +74,8 @@ supported.
 `bios_boot_test` is independently named and boots `bios_release_demo`, the
 offline GRUB image, through public `qemu_seabios_boot_test`. It uses the pinned
 SeaBIOS ROM and the same bounded serial/QMP lifecycle, then proves real-root
-readiness and clean poweroff.
+readiness and clean poweroff. The no-cache runtime retains bounded firmware,
+serial, QEMU, and selected actual boot-stage evidence as Bazel test outputs.
 
 The BCR presubmit has separate Bazel 8 and Bazel 9 tasks. The Bazel 8 task
 uses the committed `e2e/smoke/MODULE.bazel.lock` strictly. The Bazel 9 task

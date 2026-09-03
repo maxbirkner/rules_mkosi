@@ -64,6 +64,61 @@ def _read_log(path):
         return b"<log unavailable>\n"
 
 
+def _bounded_content(data, limit):
+    if len(data) <= limit:
+        return data
+    marker = b"\n--- bounded log: middle omitted ---\n"
+    if limit <= len(marker):
+        return data[:limit]
+    remaining = max(0, limit - len(marker))
+    head = remaining // 2
+    return data[:head] + marker + data[-(remaining - head) :]
+
+
+def _actual_boot_evidence(firmware, serial, limit):
+    stages = (
+        ("firmware", firmware, (b"SeaBIOS", b"Booting from Hard Disk", b"Booting from 0000:7c00")),
+        (
+            "serial",
+            serial,
+            (
+                b"GRUB",
+                b"Linux version",
+                b"systemd[1]: Hostname set to",
+                b"systemd-shutdown[1]: Powering off.",
+                b"reboot: Power down",
+            ),
+        ),
+    )
+    output = []
+    for source, content, markers in stages:
+        for line in content.splitlines():
+            if any(marker in line for marker in markers):
+                output.append(b"[" + source.encode() + b"] " + line)
+    return _bounded_content(b"\n".join(output) + b"\n", limit)
+
+
+def _export_boot_logs(serial_log, firmware_log, qemu_log, diagnostic_bytes):
+    output_directory = os.environ.get("TEST_UNDECLARED_OUTPUTS_DIR")
+    if not output_directory:
+        return
+    destination = pathlib.Path(output_directory)
+    try:
+        destination.mkdir(parents=True, exist_ok=True)
+        limit = min(diagnostic_bytes, 256 * 1024)
+        serial = _read_log(serial_log)
+        firmware = _read_log(firmware_log)
+        for name, content in (
+            ("guest-serial.log", serial),
+            ("firmware.log", firmware),
+            ("qemu.log", _read_log(qemu_log)),
+            ("boot-evidence.log", _actual_boot_evidence(firmware, serial, limit)),
+        ):
+            (destination / name).write_bytes(_bounded_content(content, limit))
+    except OSError as error:
+        print("unable to export bounded boot logs: {}".format(error), file=sys.stderr)
+
+
 def _diagnose(
     kind,
     message,
@@ -435,14 +490,14 @@ def _boot(
                         diagnostic_bytes,
                         firmware_log,
                     )
-                print(
-                    "guest readiness and clean shutdown verified: "
-                    "firmware={} readiness={!r} shutdown={!r}".format(
-                        firmware_kind,
-                        readiness_marker,
-                        list(shutdown_markers),
-                    ),
+                evidence = _actual_boot_evidence(
+                    _read_log(firmware_log),
+                    _read_log(serial_log),
+                    min(diagnostic_bytes, 256 * 1024),
                 )
+                print("actual observed boot evidence:")
+                print(evidence.decode(errors="replace"), end="")
+                print("guest readiness and clean shutdown verified")
             finally:
                 if process.poll() is None:
                     if not _stop_process(process):
@@ -455,6 +510,12 @@ def _boot(
                             firmware_log,
                         )
     finally:
+        _export_boot_logs(
+            serial_log,
+            firmware_log,
+            qemu_log,
+            diagnostic_bytes,
+        )
         try:
             qmp_socket_file.unlink()
         except FileNotFoundError:
