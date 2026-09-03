@@ -9,7 +9,9 @@ creates a deterministic UKI without accepting any key. Signing is separate:
    `mkosi-secure-boot-signing-request-v2` JSON.
    Certificate input is accepted only when it contains exactly one PEM or DER
    X.509 object; bundles, duplicates, reversed chains, and trailing data are
-   rejected. The rule emits and subsequently uses one normalized certificate.
+   rejected. The isolated DER object must then pass the authenticated
+   toolchain's OpenSSL X.509 parser. The rule fingerprints, emits, and
+   subsequently uses only OpenSSL's canonical DER result.
 2. A signing system outside Bazel validates that request, Authenticode-signs
    the exact UKI, and returns the firmware-consumable signed PE/COFF image.
 3. `secure_boot_import_response` validates PE and `WIN_CERTIFICATE` bounds,

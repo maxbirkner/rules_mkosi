@@ -56,8 +56,7 @@ def run_tool(tool, *arguments, capture=False):
     return subprocess.run(command, check=True, capture_output=capture, env=env)
 
 
-def certificate_der(path):
-    data = Path(path).read_bytes()
+def isolated_certificate_der(data):
     begin = b"-----BEGIN CERTIFICATE-----"
     end_marker = b"-----END CERTIFICATE-----"
     if begin in data or end_marker in data:
@@ -77,10 +76,50 @@ def certificate_der(path):
     return data
 
 
+def certificate_der(path):
+    return isolated_certificate_der(Path(path).read_bytes())
+
+
 def certificate_pem(data):
     body = base64.b64encode(data)
     lines = [body[index:index + 64] for index in range(0, len(body), 64)]
     return b"-----BEGIN CERTIFICATE-----\n" + b"\n".join(lines) + b"\n-----END CERTIFICATE-----\n"
+
+
+def canonical_certificate(openssl, der):
+    """Validates one isolated DER object as X.509 with the declared OpenSSL."""
+    global _counter
+    _counter += 1
+    scratch = Path(".secure-boot-x509-{}-{}".format(os.getpid(), _counter))
+    if scratch.exists():
+        shutil.rmtree(scratch)
+    scratch.mkdir(mode=0o700)
+    source = scratch / "certificate.der"
+    source.write_bytes(der)
+    try:
+        result = run_tool(
+            openssl,
+            "/usr/bin/openssl",
+            "x509",
+            "-inform",
+            "DER",
+            "-in",
+            str(source),
+            "-outform",
+            "DER",
+            capture=True,
+        )
+        canonical = result.stdout
+        if not canonical or len(canonical) > MAX_DER_BYTES:
+            raise ValueError("OpenSSL returned an invalid X.509 certificate size")
+        return isolated_certificate_der(canonical)
+    except subprocess.CalledProcessError as error:
+        detail = (error.stderr or b"")[:4096].decode(errors="replace").strip()
+        raise ValueError("invalid X.509 certificate: {}".format(detail or "OpenSSL rejected DER")) from error
+    finally:
+        if source.exists():
+            source.write_bytes(b"\0" * source.stat().st_size)
+        shutil.rmtree(scratch, ignore_errors=True)
 
 
 def write_json(path, document):
@@ -361,7 +400,7 @@ def create_request(args):
     if args.algorithm != ALGORITHM:
         raise ValueError("unsupported signing algorithm")
     parse_pe(Path(args.unsigned_uki).read_bytes(), False)
-    normalized_certificate = certificate_der(args.certificate)
+    normalized_certificate = canonical_certificate(args.openssl, certificate_der(args.certificate))
     Path(args.certificate_output).write_bytes(certificate_pem(normalized_certificate))
     document = {
         "certificate_sha256": hashlib.sha256(normalized_certificate).hexdigest(),
@@ -392,7 +431,7 @@ def verify(args):
         raise ValueError("wrong signing context or algorithm")
     if sha256(args.unsigned_uki) != request["unsigned_uki_sha256"]:
         raise ValueError("unsigned UKI no longer matches its request")
-    expected_certificate = certificate_der(args.certificate)
+    expected_certificate = canonical_certificate(args.openssl, certificate_der(args.certificate))
     fingerprint = hashlib.sha256(expected_certificate).hexdigest()
     if fingerprint != request["certificate_sha256"]:
         raise ValueError("signer certificate does not match request")
@@ -404,6 +443,7 @@ def verify(args):
     if embedded_digest != computed_digest:
         raise ValueError("embedded Authenticode digest does not match imported PE")
     Path(args.pkcs7).write_bytes(payload)
+    Path(args.expected_pem).write_bytes(certificate_pem(expected_certificate))
     run_tool(
         args.openssl,
         "/usr/bin/openssl",
@@ -414,7 +454,7 @@ def verify(args):
         "-in",
         args.pkcs7,
         "-certfile",
-        args.certificate,
+        args.expected_pem,
         "-nointern",
         "-noverify",
         "-signer",
@@ -422,7 +462,7 @@ def verify(args):
         "-out",
         args.content,
     )
-    verified_signer = certificate_der(args.verified_signer)
+    verified_signer = canonical_certificate(args.openssl, certificate_der(args.verified_signer))
     if verified_signer != expected_certificate:
         raise ValueError("verified SignerInfo certificate does not match request")
     shutil.copyfile(args.signed_uki, args.output)
@@ -503,7 +543,7 @@ def main():
     request.add_argument("--digest-output", required=True)
     request.set_defaults(function=create_request)
     verify_parser = commands.add_parser("verify")
-    for name in ("openssl", "request", "request-digest", "unsigned-uki", "signed-uki", "certificate", "pkcs7", "content", "verified-signer", "output", "metadata"):
+    for name in ("openssl", "request", "request-digest", "unsigned-uki", "signed-uki", "certificate", "expected-pem", "pkcs7", "content", "verified-signer", "output", "metadata"):
         verify_parser.add_argument("--" + name, required=True)
     verify_parser.set_defaults(function=verify)
     fixture = commands.add_parser("ephemeral-fixture")

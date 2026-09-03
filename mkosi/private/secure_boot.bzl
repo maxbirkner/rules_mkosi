@@ -70,7 +70,7 @@ def _request_impl(ctx):
     if image.uki == None:
         fail("image must provide an unsigned UKI")
     certificate = _certificate(ctx.attr.certificate)
-    normalized_certificate = ctx.actions.declare_file(ctx.label.name + ".certificate.pem")
+    normalized_certificate = ctx.actions.declare_file(ctx.label.name + ".certificate.der")
     request = ctx.actions.declare_file(ctx.label.name + ".secure-boot-request.json")
     request_digest = ctx.actions.declare_file(ctx.label.name + ".secure-boot-request.sha256")
     args = ctx.actions.args()
@@ -117,6 +117,7 @@ def _import_impl(ctx):
     pkcs7 = ctx.actions.declare_file(ctx.label.name + ".authenticode.der")
     content = ctx.actions.declare_file(ctx.label.name + ".authenticode-content")
     verified_signer = ctx.actions.declare_file(ctx.label.name + ".verified-signer.pem")
+    expected_pem = ctx.actions.declare_file(ctx.label.name + ".expected-certificate.pem")
     args = ctx.actions.args()
     args.add(ctx.file._tool.path)
     args.add("verify")
@@ -126,6 +127,7 @@ def _import_impl(ctx):
     args.add("--unsigned-uki", request.unsigned_uki.path)
     args.add("--signed-uki", signed_input.path)
     args.add("--certificate", request.certificate.path)
+    args.add("--expected-pem", expected_pem.path)
     args.add("--pkcs7", pkcs7.path)
     args.add("--content", content.path)
     args.add("--verified-signer", verified_signer.path)
@@ -135,7 +137,7 @@ def _import_impl(ctx):
         ctx,
         args,
         [ctx.file._tool, ctx.executable._debian_tools, request.request, request.request_digest, request.unsigned_uki, request.certificate, signed_input],
-        [output, metadata, pkcs7, content, verified_signer],
+        [output, metadata, pkcs7, content, verified_signer, expected_pem],
         "SecureBootImportAuthenticode",
     )
     return [

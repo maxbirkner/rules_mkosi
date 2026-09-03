@@ -7,6 +7,8 @@ import struct
 import subprocess
 import sys
 import unittest
+from types import SimpleNamespace
+from unittest import mock
 
 
 TOOL, DEBIAN_TOOLS = sys.argv[1:3]
@@ -91,6 +93,7 @@ class SecureBootBoundaryTest(unittest.TestCase):
             "--unsigned-uki", self.unsigned,
             "--signed-uki", signed or self.signed,
             "--certificate", certificate or self.cert,
+            "--expected-pem", self.work / "expected-certificate.pem",
             "--pkcs7", self.work / "signature.der",
             "--content", self.work / "content.bin",
             "--verified-signer", self.work / "verified-signer.pem",
@@ -208,6 +211,55 @@ class SecureBootBoundaryTest(unittest.TestCase):
                 check=False,
             )
             self.assertIn("certificate", result.stderr)
+
+    def test_request_requires_openssl_validated_x509_and_accepts_der(self):
+        for name, value in {
+            "empty-sequence": b"\x30\x00",
+            "x509-shaped-malformed": b"\x30\x03\x02\x01\x00",
+        }.items():
+            certificate = self.work / (name + ".der")
+            certificate.write_bytes(value)
+            result = self.run_tool(
+                "request",
+                "--openssl", DEBIAN_TOOLS,
+                "--unsigned-uki", self.unsigned,
+                "--certificate", certificate,
+                "--certificate-output", self.work / (name + ".normalized.der"),
+                "--algorithm", "authenticode-sha256",
+                "--output", self.work / (name + ".json"),
+                "--digest-output", self.work / (name + ".sha256"),
+                check=False,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("invalid X.509 certificate", result.stderr)
+        result = self.run_tool(
+            "request",
+            "--openssl", DEBIAN_TOOLS,
+            "--unsigned-uki", self.unsigned,
+            "--certificate", self.work / "normalized-certificate.pem",
+            "--certificate-output", self.work / "der-positive.der",
+            "--algorithm", "authenticode-sha256",
+            "--output", self.work / "der-positive.json",
+            "--digest-output", self.work / "der-positive.sha256",
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_canonical_certificate_invokes_declared_x509_launcher(self):
+        calls = []
+
+        def fake_run(tool, *arguments, **kwargs):
+            calls.append((tool, arguments, kwargs))
+            return SimpleNamespace(stdout=b"\x30\x00")
+
+        with (
+            mock.patch.object(SECURE_BOOT, "run_tool", side_effect=fake_run),
+            mock.patch.object(SECURE_BOOT, "isolated_certificate_der", return_value=b"\x30\x00"),
+        ):
+            self.assertEqual(SECURE_BOOT.canonical_certificate("declared-launcher", b"\x30\x00"), b"\x30\x00")
+        self.assertEqual(calls[0][0], "declared-launcher")
+        self.assertEqual(calls[0][1][:4], ("/usr/bin/openssl", "x509", "-inform", "DER"))
+        self.assertTrue(calls[0][2]["capture"])
 
     def test_der_rejects_noncanonical_lengths_and_oids_with_bounds(self):
         canonical, _ = SECURE_BOOT.der_read(b"\x06\x09\x2a\x86\x48\x86\xf7\x0d\x01\x07\x02")
