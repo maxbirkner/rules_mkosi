@@ -1,6 +1,0 @@
-PRETTY_NAME="rules_mkosi A/B test image"
-NAME="rules_mkosi"
-ID=rules-mkosi
-IMAGE_ID=rules-mkosi
-IMAGE_VERSION=1
-VERSION_ID=1
