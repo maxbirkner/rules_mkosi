@@ -56,6 +56,12 @@ def write_json(path, document):
     Path(path).write_text(json.dumps(document, indent=2, sort_keys=True) + "\n")
 
 
+def request_digest(document):
+    return hashlib.sha256(
+        (json.dumps(document, sort_keys=True, separators=(",", ":")) + "\n").encode()
+    ).hexdigest()
+
+
 def parse_pe(data, signed):
     if len(data) < 64 or data[:2] != b"MZ":
         raise ValueError("UKI is not a PE/COFF image")
@@ -134,9 +140,7 @@ def create_request(args):
         "unsigned_uki_sha256": sha256(args.unsigned_uki),
     }
     write_json(args.output, document)
-    Path(args.digest_output).write_text(hashlib.sha256(
-        (json.dumps(document, sort_keys=True, separators=(",", ":")) + "\n").encode()
-    ).hexdigest() + "\n")
+    Path(args.digest_output).write_text(request_digest(document) + "\n")
 
 
 def verify(args):
@@ -150,6 +154,9 @@ def verify(args):
     }
     if set(request) != expected or request["format_version"] != REQUEST_FORMAT:
         raise ValueError("invalid signing request schema")
+    recorded_request_digest = Path(args.request_digest).read_text().strip()
+    if recorded_request_digest != request_digest(request):
+        raise ValueError("signing request digest does not match request")
     if request["context"] != "uefi-secure-boot-uki" or request["signature_algorithm"] != ALGORITHM:
         raise ValueError("wrong signing context or algorithm")
     if sha256(args.unsigned_uki) != request["unsigned_uki_sha256"]:
@@ -196,7 +203,7 @@ def verify(args):
     write_json(args.metadata, {
         "certificate_sha256": fingerprint,
         "format_version": SIGNED_FORMAT,
-        "request_digest": Path(args.request_digest).read_text().strip(),
+        "request_digest": recorded_request_digest,
         "signed_uki_sha256": sha256(args.signed_uki),
         "unsigned_uki_sha256": request["unsigned_uki_sha256"],
         "verification": "embedded-authenticode-sha256",
@@ -229,6 +236,7 @@ def ephemeral_fixture(args):
         run_tool(
             args.sbsign,
             "/usr/lib/systemd/systemd-sbsign",
+            "sign",
             "--private-key",
             str(key),
             "--certificate",
