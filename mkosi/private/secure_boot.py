@@ -362,7 +362,7 @@ def create_request(args):
         raise ValueError("unsupported signing algorithm")
     parse_pe(Path(args.unsigned_uki).read_bytes(), False)
     normalized_certificate = certificate_der(args.certificate)
-    Path(args.normalized_certificate).write_bytes(certificate_pem(normalized_certificate))
+    Path(args.certificate_output).write_bytes(certificate_pem(normalized_certificate))
     document = {
         "certificate_sha256": hashlib.sha256(normalized_certificate).hexdigest(),
         "context": "uefi-secure-boot-uki",
@@ -497,7 +497,7 @@ def main():
     request.add_argument("--openssl", required=True)
     request.add_argument("--unsigned-uki", required=True)
     request.add_argument("--certificate", required=True)
-    request.add_argument("--normalized-certificate", required=True)
+    request.add_argument("--certificate-output", required=True)
     request.add_argument("--algorithm", required=True)
     request.add_argument("--output", required=True)
     request.add_argument("--digest-output", required=True)

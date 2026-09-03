@@ -79,7 +79,7 @@ def _request_impl(ctx):
     args.add("--openssl", ctx.executable._debian_tools.path)
     args.add("--unsigned-uki", image.uki.path)
     args.add("--certificate", certificate.path)
-    args.add("--normalized-certificate", normalized_certificate.path)
+    args.add("--certificate-output", normalized_certificate.path)
     args.add("--algorithm", ctx.attr.signature_algorithm)
     args.add("--output", request.path)
     args.add("--digest-output", request_digest.path)
