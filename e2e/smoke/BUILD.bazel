@@ -317,6 +317,37 @@ sysupdate_update_payload(
     version = "2",
 )
 
+mkosi_rootfs_payload(
+    name = "sysupdate_a_os_release",
+    src = "testdata/sysupdate-a-config/mkosi.extra/usr/lib/os-release",
+    destination = "/usr/lib/os-release",
+)
+
+mkosi_rootfs_payload(
+    name = "sysupdate_a_apply_script",
+    src = "testdata/sysupdate-a-config/mkosi.extra/usr/lib/rules-mkosi-apply-update",
+    destination = "/usr/lib/rules-mkosi-apply-update",
+    executable_paths = [""],
+)
+
+mkosi_rootfs_payload(
+    name = "sysupdate_a_apply_service",
+    src = "testdata/sysupdate-a-config/mkosi.extra/usr/lib/systemd/system/rules-mkosi-apply-update.service",
+    destination = "/usr/lib/systemd/system/rules-mkosi-apply-update.service",
+)
+
+mkosi_rootfs_payload(
+    name = "sysupdate_a_apply_wants",
+    src = "testdata/sysupdate-a-config/mkosi.extra/etc/systemd/system/multi-user.target.wants/rules-mkosi-apply-update.service",
+    destination = "/etc/systemd/system/multi-user.target.wants/rules-mkosi-apply-update.service",
+)
+
+mkosi_rootfs_payload(
+    name = "sysupdate_a_repart_definitions",
+    src = "testdata/sysupdate-a-config/mkosi.extra/usr/lib/rules-mkosi-repart.d",
+    destination = "/usr/lib/rules-mkosi-repart.d",
+)
+
 sysupdate_update_payload(
     name = "sysupdate_b_fail_payload_tree",
     image = ":sysupdate_b_fail_image",
@@ -331,6 +362,13 @@ mkosi_image(
     mode = "release",
     release_seed = "00000000-0000-4000-8000-000000000015",
     release_source_date_epoch = 0,
+    rootfs_payloads = [
+        ":sysupdate_a_apply_script",
+        ":sysupdate_a_apply_service",
+        ":sysupdate_a_apply_wants",
+        ":sysupdate_a_os_release",
+        ":sysupdate_a_repart_definitions",
+    ],
     unified_kernel_image = "unsigned",
     verity = "hash",
 )
@@ -342,6 +380,13 @@ mkosi_image(
     mode = "release",
     release_seed = "00000000-0000-4000-8000-000000000015",
     release_source_date_epoch = 0,
+    rootfs_payloads = [
+        ":sysupdate_a_apply_script",
+        ":sysupdate_a_apply_service",
+        ":sysupdate_a_apply_wants",
+        ":sysupdate_a_os_release",
+        ":sysupdate_a_repart_definitions",
+    ],
     unified_kernel_image = "unsigned",
     verity = "hash",
 )
