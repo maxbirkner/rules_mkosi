@@ -139,6 +139,7 @@ behavior_targets(
         ":reproducibility_manifest_test",
         ":root_dependency_test",
         ":secure_boot_boundary_test",
+        ":secure_boot_fixture_action_test",
         ":unsupported_version_test",
         ":verity_metadata_test",
     ],
@@ -273,6 +274,7 @@ debian_tools_preflight_test(
         "bootctl",
         "objcopy",
         "openssl",
+        "systemd-sbsign",
     ],
     tree = "@mkosi_debian_tools//:tree_root",
 )

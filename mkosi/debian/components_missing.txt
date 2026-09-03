@@ -9,3 +9,4 @@ grub-install|/usr/sbin/grub-install|grub2-common
 bootctl|/usr/bin/bootctl|systemd-boot
 objcopy|/usr/bin/objcopy|binutils
 openssl|/usr/bin/openssl|openssl
+systemd-sbsign|/usr/lib/systemd/systemd-sbsign|systemd-ukify

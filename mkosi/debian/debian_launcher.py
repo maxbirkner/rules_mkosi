@@ -32,6 +32,7 @@ TOOLS = {
     "bootctl": "/usr/bin/bootctl",
     "objcopy": "/usr/bin/objcopy",
     "openssl": "/usr/bin/openssl",
+    "systemd-sbsign": "/usr/lib/systemd/systemd-sbsign",
     "sqv": "/usr/bin/sqv",
 }
 

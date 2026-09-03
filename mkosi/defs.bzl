@@ -47,12 +47,10 @@ load(
 )
 load(
     "//mkosi/private:secure_boot.bzl",
+    _SecureBootEphemeralTestFixtureInfo = "SecureBootEphemeralTestFixtureInfo",
     _SecureBootSignedUkiInfo = "SecureBootSignedUkiInfo",
     _SecureBootSigningRequestInfo = "SecureBootSigningRequestInfo",
-    _SecureBootTestKeyInfo = "SecureBootTestKeyInfo",
-    _SecureBootTestResponseInfo = "SecureBootTestResponseInfo",
-    _secure_boot_ephemeral_test_key = "secure_boot_ephemeral_test_key",
-    _secure_boot_ephemeral_test_response = "secure_boot_ephemeral_test_response",
+    _secure_boot_ephemeral_test_fixture = "secure_boot_ephemeral_test_fixture",
     _secure_boot_import_response = "secure_boot_import_response",
     _secure_boot_signing_request = "secure_boot_signing_request",
 )
@@ -83,9 +81,7 @@ qemu_executable = _qemu_executable
 qemu_ovmf_toolchain = _qemu_ovmf_toolchain
 SecureBootSigningRequestInfo = _SecureBootSigningRequestInfo
 SecureBootSignedUkiInfo = _SecureBootSignedUkiInfo
-SecureBootTestKeyInfo = _SecureBootTestKeyInfo
-SecureBootTestResponseInfo = _SecureBootTestResponseInfo
+SecureBootEphemeralTestFixtureInfo = _SecureBootEphemeralTestFixtureInfo
 secure_boot_signing_request = _secure_boot_signing_request
 secure_boot_import_response = _secure_boot_import_response
-secure_boot_ephemeral_test_key = _secure_boot_ephemeral_test_key
-secure_boot_ephemeral_test_response = _secure_boot_ephemeral_test_response
+secure_boot_ephemeral_test_fixture = _secure_boot_ephemeral_test_fixture
