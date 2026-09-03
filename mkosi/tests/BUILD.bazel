@@ -41,7 +41,6 @@ py_test(
         "@mkosi_debian_tools//:launcher",
     ],
     main = "secure_boot_boundary_test.py",
-    tags = ["requires_kernel_contract"],
 )
 
 py_test(
