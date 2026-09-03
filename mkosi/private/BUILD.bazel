@@ -13,6 +13,7 @@ exports_files([
     "qemu_ovmf_boot_test.bzl",
     "run_mkosi.py",
     "stage_inputs.py",
+    "write_bios_repart.py",
     "qemu_ovmf_validate.sh",
     "qemu_ovmf_smoke_test.bzl",
     "toolchains_repo.bzl",

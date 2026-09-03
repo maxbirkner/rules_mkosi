@@ -20,6 +20,8 @@ TOOLS = {
     "apt-get": "/usr/bin/apt-get",
     "dpkg": "/usr/bin/dpkg",
     "debugfs": "/usr/sbin/debugfs",
+    "mtype": "/usr/bin/mtype",
+    "mdir": "/usr/bin/mdir",
     "systemd-repart": "/usr/bin/systemd-repart",
     "mkfs.ext4": "/usr/sbin/mkfs.ext4",
     "mkfs.fat": "/usr/sbin/mkfs.fat",

@@ -11,6 +11,7 @@ import zlib
 from pathlib import Path
 
 ROOT_X86_64 = "4f68bce3-e8cd-4db1-96e7-fbcaf984b709"
+BIOS_BOOT = "21686148-6449-6e6f-744e-656564454649"
 ALIGNMENT = 1024 * 1024
 _HEADER_MIN = 92
 _MAX_ARRAY_BYTES = 64 * 1024 * 1024
@@ -121,7 +122,7 @@ def _validated_gpt(path):
     return image_size, sector_size, primary, backup
 
 
-def project_image(path):
+def project_image(path, firmware="uefi"):
     _, sector_size, primary, _ = _validated_gpt(path)
 
     partitions = []
@@ -170,7 +171,16 @@ def project_image(path):
         raise ValueError("exactly one Linux x86-64 root partition is required")
     if roots[0]["label"] != "root-x86-64":
         raise ValueError("Linux x86-64 root partition label must be root-x86-64")
+    bios_boot = [entry for entry in partitions if entry["type_guid"] == BIOS_BOOT]
+    if firmware == "bios":
+        if len(bios_boot) != 1:
+            raise ValueError("BIOS firmware requires exactly one GPT BIOS boot partition")
+        if bios_boot[0]["size_bytes"] < ALIGNMENT:
+            raise ValueError("GPT BIOS boot partition must be at least 1 MiB")
+    elif firmware != "uefi":
+        raise ValueError("firmware must be either uefi or bios")
     return {
+        "firmware": firmware,
         "format_version": "mkosi-partition-metadata-v1",
         "partitions": partitions,
         "sector_size": sector_size,
@@ -236,8 +246,9 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--image", required=True)
     parser.add_argument("--output", required=True)
+    parser.add_argument("--firmware", choices=("uefi", "bios"), default="uefi")
     args = parser.parse_args()
-    metadata = project_image(args.image)
+    metadata = project_image(args.image, args.firmware)
     Path(args.output).write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n")
 
 

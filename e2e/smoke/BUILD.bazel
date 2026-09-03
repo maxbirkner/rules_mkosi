@@ -41,6 +41,7 @@ behavior_targets(
         ":boot_entry_regression_test",
         ":boot_launcher_contract_test",
         ":boot_preflight_contract_test",
+        ":bios_release_demo_build_test",
         ":debian_snapshot_public_provider_test",
         ":debian_tools_public_provider_test",
         ":demo_artifact_test",
@@ -207,6 +208,16 @@ mkosi_rootfs_payload(
     destination = "/etc/skel/.config/example/config",
 )
 
+mkosi_image(
+    name = "bios_release_demo",
+    config_tree = ":release_config_tree",
+    debian_snapshot = "@mkosi_debian_snapshot//:repository",
+    firmware = "bios",
+    mode = "release",
+    release_seed = "00000000-0000-4000-8000-000000000015",
+    release_source_date_epoch = 0,
+)
+
 mkosi_config_tree(
     name = "config_tree",
     src = "@rules_mkosi//mkosi/tests:testdata/config-tree",
@@ -238,6 +249,11 @@ build_test(
 build_test(
     name = "release_demo_build_test",
     targets = [":release_demo"],
+)
+
+build_test(
+    name = "bios_release_demo_build_test",
+    targets = [":bios_release_demo"],
 )
 
 public_api_test(

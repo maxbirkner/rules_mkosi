@@ -219,6 +219,22 @@ class ProjectionTest(unittest.TestCase):
         self.assertNotIn("disk_guid", projected)
         self.assertNotIn("unique_guid", projected["partitions"][0])
 
+    def test_bios_firmware_requires_bios_boot_partition(self):
+        entries = [
+            (1, 2048, 4095, partition_metadata.BIOS_BOOT, "BIOS Boot"),
+            (2, 4096, 6143, partition_metadata.ROOT_X86_64, "root-x86-64"),
+        ]
+        with open(self.path, "wb") as output:
+            output.write(image(entries=entries))
+        projected = partition_metadata.project_image(self.path, "bios")
+        self.assertEqual("bios", projected["firmware"])
+        self.assertEqual(partition_metadata.BIOS_BOOT, projected["partitions"][0]["type_guid"])
+
+        with open(self.path, "wb") as output:
+            output.write(image())
+        with self.assertRaisesRegex(ValueError, "BIOS boot partition"):
+            partition_metadata.project_image(self.path, "bios")
+
     def test_dense_table_uses_one_linear_entry_scan(self):
         self.write_dense_image(512)
         projected = partition_metadata.project_image(self.path)

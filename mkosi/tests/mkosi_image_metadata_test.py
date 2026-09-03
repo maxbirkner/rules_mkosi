@@ -17,6 +17,7 @@ def main() -> None:
             "uki": False,
         },
         "format_version": "mkosi-image-build-metadata-v2",
+        "firmware": "uefi",
         "mkosi": {
             "compression": "none",
             "format": "disk",

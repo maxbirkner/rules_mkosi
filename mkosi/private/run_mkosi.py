@@ -8,6 +8,7 @@ import runpy
 import shutil
 import subprocess
 import sys
+import traceback
 import uuid
 from dataclasses import replace
 from pathlib import Path
@@ -60,6 +61,7 @@ _PATH_OPTIONS = {
     "--package-cache-directory",
     "--build-directory",
     "--sandbox-tree",
+    "--repart-directory",
 }
 
 
@@ -284,10 +286,27 @@ def _validate_release_configuration(
     release_snapshot,
     allowed_paths,
     allowed_extra_tree=None,
+    release_firmware="uefi",
 ):
     expected_seed = uuid.UUID(release_seed)
     allowed_roots = [Path(path).resolve() for path in allowed_paths]
-    for config in images:
+    images = tuple(images)
+    for index, config in enumerate(images):
+        # mkosi appends the requested image after generated dependency images
+        # such as mkosi-initrd. Firmware selection constrains that primary
+        # image. Generated dependency defaults are pinned mkosi resources, not
+        # caller configuration, and may intentionally use distinct seeds.
+        if index != len(images) - 1:
+            continue
+        if release_firmware == "bios":
+            if getattr(config, "secure_boot", False):
+                raise SystemExit("bios firmware is incompatible with SecureBoot")
+            if getattr(getattr(config, "unified_kernel_images", None), "value", "no") == "yes":
+                raise SystemExit("bios firmware is incompatible with UnifiedKernelImages")
+            bootloader = getattr(config, "bootloader", None)
+            bootloader_name = getattr(bootloader, "name", str(bootloader or "none")).lower()
+            if bootloader_name != "none":
+                raise SystemExit("bios firmware is incompatible with a UEFI Bootloader")
         if getattr(config, "proxy_url", None):
             raise SystemExit("release configuration cannot use a proxy")
         if getattr(getattr(config, "incremental", None), "value", "no") != "no":
@@ -385,6 +404,7 @@ def _activate_release_mode(
     release_snapshot,
     allowed_paths,
     allowed_extra_tree,
+    release_firmware,
 ):
     """Mount a long Bazel path at mkosi's stable in-sandbox repository path."""
     from pathlib import Path
@@ -404,6 +424,7 @@ def _activate_release_mode(
     original_parse_config = mkosi.config.parse_config
     original_parse_ini = mkosi.config.parse_ini
     validate_initial_configuration = [True]
+    declared_roots = tuple(Path(path).resolve() for path in allowed_paths)
 
     def repositories(cls, context, for_image=False):
         if for_image:
@@ -466,14 +487,21 @@ def _activate_release_mode(
                 release_snapshot,
                 allowed_paths,
                 allowed_extra_tree,
+                release_firmware,
             )
             validate_initial_configuration[0] = False
             return (parsed[0], parsed[1], images)
         return parsed
 
     def parse_ini(*args, **kwargs):
+        path = Path(args[0]).resolve() if args else None
+        declared = path is not None and any(
+            path == root or root in path.parents
+            for root in declared_roots
+        )
         for section, setting, value in original_parse_ini(*args, **kwargs):
-            _validate_release_ini_entry(section)
+            if declared:
+                _validate_release_ini_entry(section)
             yield section, setting, value
 
     def install_sandbox_trees(config, dst):
@@ -561,6 +589,7 @@ def main():
     release_distribution = None
     release_codename = None
     release_snapshot = None
+    release_firmware = None
     while preamble_end < len(sys.argv) and sys.argv[preamble_end] != "--":
         option = sys.argv[preamble_end]
         if option == "--executable-path" and preamble_end + 1 < len(sys.argv):
@@ -602,6 +631,9 @@ def main():
         elif option == "--release-snapshot" and preamble_end + 1 < len(sys.argv):
             release_snapshot = sys.argv[preamble_end + 1]
             preamble_end += 2
+        elif option == "--release-firmware" and preamble_end + 1 < len(sys.argv):
+            release_firmware = sys.argv[preamble_end + 1]
+            preamble_end += 2
         else:
             raise SystemExit("invalid run_mkosi.py preamble")
     if preamble_end == len(sys.argv):
@@ -634,6 +666,7 @@ def main():
         release_distribution,
         release_codename,
         release_snapshot,
+        release_firmware,
     )
     if any(option is not None for option in release_options) and not all(
         option is not None for option in release_options
@@ -683,10 +716,23 @@ def main():
             (materialized / "mkosi.extra").resolve()
             if (materialized / "mkosi.extra").is_dir()
             else None,
+            release_firmware,
         )
     if release_child:
         sys.argv[:] = [script] + arguments
-        runpy.run_path(script, run_name="__main__")
+        try:
+            runpy.run_path(script, run_name="__main__")
+        except SystemExit as error:
+            if error.code not in (None, 0):
+                print(
+                    "rules_mkosi release child failed: status={!r}; command={!r}".format(
+                        error.code,
+                        sys.argv,
+                    ),
+                    file=sys.stderr,
+                )
+                traceback.print_exc(file=sys.stderr)
+            raise
     else:
         _run_mkosi(script, arguments)
 

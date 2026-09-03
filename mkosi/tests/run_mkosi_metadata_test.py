@@ -139,6 +139,33 @@ def main():
         [root],
         safe_extra,
     )
+    for setting, value, message in (
+        ("secure_boot", True, "SecureBoot"),
+        ("unified_kernel_images", types.SimpleNamespace(value="yes"), "UnifiedKernelImages"),
+        ("bootloader", types.SimpleNamespace(value="systemd-boot"), "UEFI Bootloader"),
+    ):
+        configuration = types.SimpleNamespace(
+            seed=uuid.UUID(seed),
+            source_date_epoch=0,
+            **{setting: value},
+        )
+        try:
+            wrapper._validate_release_configuration(
+                [configuration],
+                seed,
+                0,
+                "debian",
+                "trixie",
+                "20250814T000000Z",
+                [root],
+                None,
+                "bios",
+            )
+        except SystemExit as error:
+            assert message in str(error)
+        else:
+            raise AssertionError("{} was accepted for BIOS".format(setting))
+
     for configuration, message in (
         (types.SimpleNamespace(seed=uuid.uuid4(), source_date_epoch=0), "Seed"),
         (types.SimpleNamespace(seed=uuid.UUID(seed), source_date_epoch=None), "SourceDateEpoch"),

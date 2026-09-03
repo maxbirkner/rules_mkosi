@@ -53,6 +53,7 @@ def _provider_test_impl(ctx):
     asserts.equals(env, None, info.manifest)
     asserts.equals(env, None, info.partition_metadata)
     asserts.equals(env, None, info.uki)
+    asserts.equals(env, "uefi", info.firmware)
     asserts.equals(env, ctx.attr.expected_metadata, info.build_metadata.basename)
     asserts.equals(
         env,
@@ -92,7 +93,7 @@ def _provider_test_impl(ctx):
     asserts.equals(env, "--debian-tools-sha256", argv[7])
     asserts.equals(
         env,
-        "522f1ad5d2494f767092c1fe8051f0e0b053f9c6fafb97b7041bc28a652e359c",
+        "ee26a2ba23d1fadb89b0fc6b2329a44206682ca243b89fe495246e827009729f",
         argv[8],
     )
     kernel_preflight = argv.index("--kernel-preflight")
@@ -199,7 +200,7 @@ def _debian_tools_provider_test_impl(ctx):
     asserts.equals(env, "13", info.release)
     asserts.equals(
         env,
-        "522f1ad5d2494f767092c1fe8051f0e0b053f9c6fafb97b7041bc28a652e359c",
+        "ee26a2ba23d1fadb89b0fc6b2329a44206682ca243b89fe495246e827009729f",
         info.archive_sha256,
     )
     asserts.equals(env, "trixie", info.codename)
@@ -207,7 +208,7 @@ def _debian_tools_provider_test_impl(ctx):
     asserts.equals(env, "20250814T000000Z", info.snapshot)
     asserts.equals(
         env,
-        "02828b2d265fc6ff59e6a41bd05168247bc6a575461eaca239df1ec9552839d8",
+        "4feda33b82e94493cf6b80bac6ea1bdbc904afbea6b85bce7820d60f6e233401",
         info.lock_sha256,
     )
     asserts.equals(
@@ -222,7 +223,7 @@ def _debian_tools_provider_test_impl(ctx):
     asserts.equals(env, "python", info.python.basename)
     asserts.true(env, info.launcher.executable != None)
     asserts.true(env, info.tree_files_to_run.executable == None)
-    asserts.equals(env, 11, len(info.required_components))
+    asserts.equals(env, 12, len(info.required_components))
     asserts.true(env, info.provenance.basename == "provenance.bzl")
     return analysistest.end(env)
 
@@ -292,6 +293,7 @@ def _image_info_fixture_impl(ctx):
             partition_metadata = partition_metadata,
             uki = uki,
             build_metadata = build_metadata,
+            firmware = "uefi",
             image = raw_image,
         ),
     ]
@@ -425,6 +427,32 @@ def _release_provider_test_impl(ctx):
     return analysistest.end(env)
 
 _release_provider_test = analysistest.make(_release_provider_test_impl)
+
+def _bios_provider_test_impl(ctx):
+    env = analysistest.begin(ctx)
+    target = analysistest.target_under_test(env)
+    info = target[MkosiImageInfo]
+    asserts.equals(env, "bios", info.firmware)
+    image_action = [a for a in analysistest.target_actions(env) if a.mnemonic == "MkosiImage"][0]
+    asserts.true(env, "--architecture=x86-64" in image_action.argv)
+    asserts.true(env, "--bootable=yes" in image_action.argv)
+    asserts.true(env, "--bios-bootloader=grub" in image_action.argv)
+    asserts.true(env, "--initrd=" in image_action.argv)
+    for package in ("grub-pc-bin", "grub-common", "grub2-common", "linux-image-amd64"):
+        asserts.true(env, "--package=" + package in image_action.argv)
+    repart = image_action.argv.index("--repart-directory")
+    asserts.true(env, image_action.argv[repart + 1].endswith(".bios-repart"))
+    asserts.true(env, any([f.basename.endswith(".bios-repart") for f in image_action.inputs.to_list()]))
+    repart_action = [a for a in analysistest.target_actions(env) if a.mnemonic == "MkosiBiosRepart"][0]
+    asserts.true(env, any([f.basename.endswith(".bios-repart") for f in repart_action.outputs.to_list()]))
+    firmware = image_action.argv.index("--release-firmware")
+    asserts.equals(env, "bios", image_action.argv[firmware + 1])
+    partition_action = [a for a in analysistest.target_actions(env) if a.mnemonic == "MkosiPartitionMetadata"][0]
+    firmware = partition_action.argv.index("--firmware")
+    asserts.equals(env, "bios", partition_action.argv[firmware + 1])
+    return analysistest.end(env)
+
+_bios_provider_test = analysistest.make(_bios_provider_test_impl)
 
 def _tree_provider_test_impl(ctx):
     env = analysistest.begin(ctx)
@@ -756,6 +784,30 @@ def mkosi_image_test_suite(name):
         release_seed = "00000000-0000-4000-8000-000000000007",
         release_source_date_epoch = 0,
     )
+    mkosi_image(
+        name = "bios_release_subject",
+        config_tree = ":release_config_tree",
+        debian_snapshot = "@mkosi_debian_snapshot//:repository",
+        firmware = "bios",
+        mode = "release",
+        release_seed = "00000000-0000-4000-8000-000000000007",
+        release_source_date_epoch = 0,
+    )
+    _bios_provider_test(
+        name = "bios_release_provider_test",
+        target_under_test = ":bios_release_subject",
+    )
+    mkosi_image(
+        name = "bios_tracer_subject",
+        config = "testdata/minimal.conf",
+        firmware = "bios",
+        tags = ["manual"],
+    )
+    _invalid_tree_mapping_test(
+        name = "bios_tracer_test",
+        expected_error = "bios firmware requires release mode",
+        target_under_test = ":bios_tracer_subject",
+    )
     mkosi_reproducibility_manifest(
         name = "release_reproducibility",
         image = ":release_subject",
@@ -771,6 +823,10 @@ def mkosi_image_test_suite(name):
     raw_image_file(
         name = "release_raw_image",
         image = ":release_subject",
+    )
+    raw_image_file(
+        name = "bios_release_raw_image",
+        image = ":bios_release_subject",
     )
     build_metadata_file(
         name = "release_subject_build_metadata",
@@ -1225,6 +1281,8 @@ def mkosi_image_test_suite(name):
             ":image_info_contract_30_test",
             ":image_info_contract_31_test",
             ":release_provider_test",
+            ":bios_release_provider_test",
+            ":bios_tracer_test",
             ":release_without_snapshot_test",
             ":tracer_with_snapshot_test",
             ":invalid_mode_test",
