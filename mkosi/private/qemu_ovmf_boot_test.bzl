@@ -79,6 +79,7 @@ def _qemu_ovmf_boot_config_impl(ctx):
         "shutdown_timeout_seconds": ctx.attr.shutdown_timeout_seconds,
         "system_data": qemu.system_data_anchor.short_path,
         "test_timeout": ctx.attr.test_timeout,
+        "update_payload": ctx.files.update_payload[0].short_path if ctx.files.update_payload else "",
     }
     ctx.actions.write(
         output = output,
@@ -92,7 +93,7 @@ def _qemu_ovmf_boot_config_impl(ctx):
             qemu.qemu_files_to_run.executable,
             qemu.system_data_anchor,
             ctx.executable._kernel_preflight,
-        ],
+        ] + ctx.files.update_payload,
         transitive_files = depset(transitive = [
             qemu.qemu_runfiles.files,
             qemu.system_data_files,
@@ -141,6 +142,10 @@ qemu_ovmf_boot_config = rule(
         "shutdown_timeout_seconds": attr.int(mandatory = True),
         "diagnostic_bytes": attr.int(mandatory = True),
         "test_timeout": attr.string(default = "moderate"),
+        "update_payload": attr.label(
+            allow_files = True,
+            doc = "Optional declared update tree exposed read-only to a lifecycle guest.",
+        ),
         "_kernel_preflight": attr.label(
             cfg = "exec",
             default = "//mkosi/private:kernel_preflight",

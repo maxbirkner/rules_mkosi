@@ -324,20 +324,6 @@ sysupdate_update_payload(
     version = "2",
 )
 
-mkosi_rootfs_payload(
-    name = "sysupdate_b_payload",
-    src = ":sysupdate_b_payload_tree",
-    destination = "/opt/rules-mkosi",
-    executable_paths = ["apply-update"],
-)
-
-mkosi_rootfs_payload(
-    name = "sysupdate_b_fail_payload",
-    src = ":sysupdate_b_fail_payload_tree",
-    destination = "/opt/rules-mkosi",
-    executable_paths = ["apply-update"],
-)
-
 mkosi_image(
     name = "sysupdate_a_image",
     config_tree = ":sysupdate_a_config_tree",
@@ -345,7 +331,6 @@ mkosi_image(
     mode = "release",
     release_seed = "00000000-0000-4000-8000-000000000015",
     release_source_date_epoch = 0,
-    rootfs_payloads = [":sysupdate_b_payload"],
     unified_kernel_image = "unsigned",
     verity = "hash",
 )
@@ -357,7 +342,6 @@ mkosi_image(
     mode = "release",
     release_seed = "00000000-0000-4000-8000-000000000015",
     release_source_date_epoch = 0,
-    rootfs_payloads = [":sysupdate_b_fail_payload"],
     unified_kernel_image = "unsigned",
     verity = "hash",
 )
@@ -365,12 +349,14 @@ mkosi_image(
 qemu_sysupdate_test(
     name = "sysupdate_success_lifecycle_test",
     image = ":sysupdate_a_image",
+    update_payload = ":sysupdate_b_payload_tree",
 )
 
 qemu_sysupdate_test(
     name = "sysupdate_rollback_lifecycle_test",
     image = ":sysupdate_a_rollback_image",
     rollback = True,
+    update_payload = ":sysupdate_b_fail_payload_tree",
 )
 
 mkosi_config_tree(

@@ -3,12 +3,13 @@
 load(":managed_python_test.bzl", "managed_python_test")
 load(":qemu_ovmf_boot_test.bzl", "qemu_ovmf_boot_config")
 
-def qemu_sysupdate_test(name, image, rollback = False, tags = []):
+def qemu_sysupdate_test(name, image, update_payload, rollback = False, tags = []):
     """Runs update mutation followed by a boot of the installed slot.
 
     Args:
       name: Test target name.
       image: Initial release A/B disk target.
+      update_payload: Declared offline update payload tree.
       rollback: Exercise three failed slot B boots and require slot A fallback.
       tags: Additional Bazel tags.
     """
@@ -27,6 +28,7 @@ def qemu_sysupdate_test(name, image, rollback = False, tags = []):
         shutdown_timeout_seconds = 60,
         diagnostic_bytes = 262144,
         test_timeout = "long",
+        update_payload = update_payload,
         tags = ["manual"],
     )
     managed_python_test(

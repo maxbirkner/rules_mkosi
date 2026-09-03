@@ -5,7 +5,7 @@ ConditionPathExists=!/efi/rules-mkosi-update-applied
 
 [Service]
 Type=oneshot
-ExecStart=/opt/rules-mkosi/apply-update
+ExecStart=/usr/lib/rules-mkosi-apply-update
 
 [Install]
 WantedBy=multi-user.target

@@ -46,11 +46,20 @@ def _run(config, disk, scratch, marker, expected_failure_marker=""):
     old = os.environ.get("TEST_TMPDIR")
     os.environ["TEST_TMPDIR"] = str(scratch)
     try:
+        update_payload = boot._resolve_runfile(config["update_payload"])
         boot._boot(
             disk,
             boot._resolve_runfile(config["qemu"]),
             boot._resolve_runfile(config["system_data"]),
-            qemu_args=config["qemu_args"],
+            qemu_args=config["qemu_args"]
+            + [
+                "-fsdev",
+                "local,id=updates,path={},security_model=none,readonly=on".format(
+                    update_payload
+                ),
+                "-device",
+                "virtio-9p-pci,fsdev=updates,mount_tag=rules_mkosi_updates",
+            ],
             firmware_code=boot._resolve_runfile(config["firmware_code"]),
             firmware_vars=boot._resolve_runfile(config["firmware_vars"]),
             kernel_preflight=boot._resolve_runfile(config["kernel_preflight"]),
