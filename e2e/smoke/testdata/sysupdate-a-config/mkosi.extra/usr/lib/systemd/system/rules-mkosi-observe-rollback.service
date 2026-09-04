@@ -1,6 +1,7 @@
 [Unit]
 Description=Report rollback to slot A
 After=local-fs.target
+ConditionPathExists=/efi/rules-mkosi-update-applied
 
 [Service]
 Type=oneshot
