@@ -14,10 +14,10 @@ modprobe 9pnet_virtio || echo RULES_MKOSI_9P_TRANSPORT_BUILTIN
 echo RULES_MKOSI_PAYLOAD_MOUNT_START
 mount -v -t 9p -o trans=virtio,version=9p2000.L,ro rules_mkosi_updates /run/rules-mkosi-update
 echo RULES_MKOSI_PAYLOAD_MOUNT_COMPLETE
-cd /run/rules-mkosi-update/source
+cd /run/rules-mkosi-update
 sha256sum -c SHA256SUMS
 echo RULES_MKOSI_UPDATE_DIGESTS_VERIFIED
-/usr/lib/systemd/systemd-sysupdate --definitions=/run/rules-mkosi-update/definitions --transfer-source=/run/rules-mkosi-update/source --verify=yes update 2
+/usr/lib/systemd/systemd-sysupdate --definitions=/run/rules-mkosi-update/definitions --transfer-source=/run/rules-mkosi-update --verify=yes update 2
 echo RULES_MKOSI_SYSUPDATE_APPLIED_VERSION=2
 touch /efi/rules-mkosi-update-applied
 sync

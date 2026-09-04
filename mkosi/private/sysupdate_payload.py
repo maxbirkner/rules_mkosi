@@ -25,7 +25,7 @@ def main():
     args = parser.parse_args()
 
     output = pathlib.Path(args.output)
-    source = output / "source"
+    source = output
     definitions = output / "definitions"
     source.mkdir(parents=True)
     definitions.mkdir(parents=True)
