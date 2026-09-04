@@ -46,7 +46,9 @@ def _run(config, disk, scratch, marker, expected_failure_marker=""):
     old = os.environ.get("TEST_TMPDIR")
     os.environ["TEST_TMPDIR"] = str(scratch)
     try:
-        update_payload = boot._resolve_runfile(config["update_payload"])
+        update_payload = str(
+            pathlib.Path(boot._resolve_runfile(config["update_payload"])).resolve()
+        )
         boot._boot(
             disk,
             boot._resolve_runfile(config["qemu"]),
