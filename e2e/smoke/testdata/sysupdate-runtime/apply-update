@@ -10,8 +10,10 @@ trap fail EXIT
 echo RULES_MKOSI_SLOT_A_VERSION=1
 echo RULES_MKOSI_UPDATER_START
 mkdir -p /run/rules-mkosi-update
-modprobe 9pnet_virtio
-mount -t 9p -o trans=virtio,ro rules_mkosi_updates /run/rules-mkosi-update
+modprobe 9pnet_virtio || echo RULES_MKOSI_9P_TRANSPORT_BUILTIN
+echo RULES_MKOSI_PAYLOAD_MOUNT_START
+mount -v -t 9p -o trans=virtio,version=9p2000.L,ro rules_mkosi_updates /run/rules-mkosi-update
+echo RULES_MKOSI_PAYLOAD_MOUNT_COMPLETE
 /usr/bin/systemd-repart --dry-run=no --definitions=/usr/lib/rules-mkosi-repart.d /dev/vda
 cd /run/rules-mkosi-update/source
 sha256sum -c SHA256SUMS
