@@ -336,18 +336,6 @@ mkosi_rootfs_payload(
     executable_paths = [""],
 )
 
-mkosi_rootfs_payload(
-    name = "sysupdate_a_root_repart",
-    src = "testdata/sysupdate-runtime/repart.d/30-root-b.conf",
-    destination = "/usr/lib/rules-mkosi-repart.d/30-root-b.conf",
-)
-
-mkosi_rootfs_payload(
-    name = "sysupdate_a_verity_repart",
-    src = "testdata/sysupdate-runtime/repart.d/40-root-verity-b.conf",
-    destination = "/usr/lib/rules-mkosi-repart.d/40-root-verity-b.conf",
-)
-
 sysupdate_update_payload(
     name = "sysupdate_b_fail_payload_tree",
     image = ":sysupdate_b_fail_image",
@@ -366,8 +354,6 @@ mkosi_image(
         ":sysupdate_a_apply_script",
         ":sysupdate_a_etc_os_release",
         ":sysupdate_a_os_release",
-        ":sysupdate_a_root_repart",
-        ":sysupdate_a_verity_repart",
     ],
     unified_kernel_image = "unsigned",
     verity = "hash",
@@ -384,8 +370,6 @@ mkosi_image(
         ":sysupdate_a_apply_script",
         ":sysupdate_a_etc_os_release",
         ":sysupdate_a_os_release",
-        ":sysupdate_a_root_repart",
-        ":sysupdate_a_verity_repart",
     ],
     unified_kernel_image = "unsigned",
     verity = "hash",

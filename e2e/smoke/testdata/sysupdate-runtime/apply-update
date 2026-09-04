@@ -14,9 +14,6 @@ modprobe 9pnet_virtio || echo RULES_MKOSI_9P_TRANSPORT_BUILTIN
 echo RULES_MKOSI_PAYLOAD_MOUNT_START
 mount -v -t 9p -o trans=virtio,version=9p2000.L,ro rules_mkosi_updates /run/rules-mkosi-update
 echo RULES_MKOSI_PAYLOAD_MOUNT_COMPLETE
-echo RULES_MKOSI_REPART_START
-/usr/bin/systemd-repart --empty=allow --offline=no --size=auto --dry-run=no --no-pager --json=pretty --definitions=/usr/lib/rules-mkosi-repart.d /dev/vda 2>&1
-echo RULES_MKOSI_REPART_COMPLETE
 cd /run/rules-mkosi-update/source
 sha256sum -c SHA256SUMS
 echo RULES_MKOSI_UPDATE_DIGESTS_VERIFIED
