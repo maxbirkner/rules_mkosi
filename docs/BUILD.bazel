@@ -1,4 +1,5 @@
 exports_files([
     "behavior-matrix.md",
     "secure-boot.md",
+    "sysupdate-ab.md",
 ])

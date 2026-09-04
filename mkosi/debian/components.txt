@@ -1,6 +1,7 @@
 apt-get|/usr/bin/apt-get|apt
 dpkg|/usr/bin/dpkg|dpkg
 systemd-repart|/usr/bin/systemd-repart|systemd-repart
+systemd-sysupdate|/usr/lib/systemd/systemd-sysupdate|systemd-container
 mkfs.ext4|/usr/sbin/mkfs.ext4|e2fsprogs
 mkfs.fat|/usr/sbin/mkfs.fat|dosfstools
 mkfs.btrfs|/usr/sbin/mkfs.btrfs|btrfs-progs

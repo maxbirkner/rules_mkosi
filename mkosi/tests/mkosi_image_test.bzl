@@ -97,7 +97,7 @@ def _provider_test_impl(ctx):
     asserts.equals(env, "--debian-tools-sha256", argv[7])
     asserts.equals(
         env,
-        "93c520f0935e74d47111d74ab4de55300ca24422a8ee611cc9d3cf188252b6b7",
+        "45fb355a3ce49d03f3951050a9a0b60fa15278854aef025c1df9cc2b89fb1a4c",
         argv[8],
     )
     kernel_preflight = argv.index("--kernel-preflight")
@@ -215,7 +215,7 @@ def _debian_tools_provider_test_impl(ctx):
     asserts.equals(env, "13", info.release)
     asserts.equals(
         env,
-        "93c520f0935e74d47111d74ab4de55300ca24422a8ee611cc9d3cf188252b6b7",
+        "45fb355a3ce49d03f3951050a9a0b60fa15278854aef025c1df9cc2b89fb1a4c",
         info.archive_sha256,
     )
     asserts.equals(env, "trixie", info.codename)
@@ -223,7 +223,7 @@ def _debian_tools_provider_test_impl(ctx):
     asserts.equals(env, "20250814T000000Z", info.snapshot)
     asserts.equals(
         env,
-        "fa4e9f106cf6fb20b8b2c2b9206375e4af25abb7fd885fbfd9613ecb7bb191ce",
+        "815a4413a0780d14631be34078bceb929ccae29754a911aecadc6fca108123eb",
         info.lock_sha256,
     )
     asserts.equals(
@@ -238,7 +238,7 @@ def _debian_tools_provider_test_impl(ctx):
     asserts.equals(env, "python", info.python.basename)
     asserts.true(env, info.launcher.executable != None)
     asserts.true(env, info.tree_files_to_run.executable == None)
-    asserts.equals(env, 14, len(info.required_components))
+    asserts.equals(env, 15, len(info.required_components))
     asserts.true(env, info.provenance.basename == "provenance.bzl")
     return analysistest.end(env)
 

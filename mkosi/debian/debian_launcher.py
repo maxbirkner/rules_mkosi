@@ -23,6 +23,7 @@ TOOLS = {
     "mtype": "/usr/bin/mtype",
     "mdir": "/usr/bin/mdir",
     "systemd-repart": "/usr/bin/systemd-repart",
+    "systemd-sysupdate": "/usr/lib/systemd/systemd-sysupdate",
     "mkfs.ext4": "/usr/sbin/mkfs.ext4",
     "mkfs.fat": "/usr/sbin/mkfs.fat",
     "mkfs.btrfs": "/usr/sbin/mkfs.btrfs",

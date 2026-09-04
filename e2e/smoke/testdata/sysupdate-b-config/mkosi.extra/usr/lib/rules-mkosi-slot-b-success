@@ -1,0 +1,7 @@
+#!/bin/sh
+set -eu
+systemctl start systemd-bless-boot.service
+status="$(bootctl is-installed 2>&1 || true)"
+echo "RULES_MKOSI_SLOT_B_VERSION=2"
+echo "RULES_MKOSI_BOOT_SUCCESS_COMMITTED $status"
+systemctl poweroff

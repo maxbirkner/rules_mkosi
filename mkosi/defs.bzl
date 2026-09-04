@@ -45,6 +45,7 @@ load(
     _qemu_seabios_boot_config = "qemu_seabios_boot_config",
     _qemu_seabios_boot_test = "qemu_seabios_boot_test",
 )
+load("//mkosi/private:qemu_sysupdate_test.bzl", _qemu_sysupdate_test = "qemu_sysupdate_test")
 load(
     "//mkosi/private:secure_boot.bzl",
     _SecureBootEphemeralTestFixtureInfo = "SecureBootEphemeralTestFixtureInfo",
@@ -54,6 +55,12 @@ load(
     _secure_boot_import_response = "secure_boot_import_response",
     _secure_boot_signing_request = "secure_boot_signing_request",
 )
+load(
+    "//mkosi/private:sysupdate_ab.bzl",
+    _SysupdateAbInfo = "SysupdateAbInfo",
+    _sysupdate_ab = "sysupdate_ab",
+)
+load("//mkosi/private:sysupdate_payload.bzl", _sysupdate_update_payload = "sysupdate_update_payload")
 
 MkosiImageInfo = _MkosiImageInfo
 MkosiConfigTreeInfo = _MkosiConfigTreeInfo
@@ -79,9 +86,13 @@ qemu_seabios_boot_config = _qemu_seabios_boot_config
 managed_python_test = _managed_python_test
 qemu_executable = _qemu_executable
 qemu_ovmf_toolchain = _qemu_ovmf_toolchain
+qemu_sysupdate_test = _qemu_sysupdate_test
 SecureBootSigningRequestInfo = _SecureBootSigningRequestInfo
 SecureBootSignedUkiInfo = _SecureBootSignedUkiInfo
 SecureBootEphemeralTestFixtureInfo = _SecureBootEphemeralTestFixtureInfo
+SysupdateAbInfo = _SysupdateAbInfo
+sysupdate_ab = _sysupdate_ab
+sysupdate_update_payload = _sysupdate_update_payload
 secure_boot_signing_request = _secure_boot_signing_request
 secure_boot_import_response = _secure_boot_import_response
 secure_boot_ephemeral_test_fixture = _secure_boot_ephemeral_test_fixture

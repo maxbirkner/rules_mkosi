@@ -274,6 +274,7 @@ def _boot(
     firmware=None,
     firmware_kind="",
     disk_interface="virtio",
+    snapshot=True,
     kernel_preflight=None,
     readiness_marker="",
     expected_failure_marker="",
@@ -338,7 +339,8 @@ def _boot(
             "-qmp",
             "unix:%s,server=on,wait=off" % qmp_socket,
             "-drive",
-            "if=%s,format=raw,snapshot=on,file=%s" % (disk_interface, image),
+            "if=%s,format=raw,snapshot=%s,file=%s"
+            % (disk_interface, "on" if snapshot else "off", image),
         ]
         environment = _qemu_environment(scratch)
         with open(qemu_log, "wb") as output:
@@ -548,6 +550,7 @@ def main():
         ),
         firmware_kind=config.get("firmware_kind", "ovmf"),
         disk_interface=config.get("disk_interface", "virtio"),
+        snapshot=config.get("snapshot", True),
         kernel_preflight=_resolve_runfile(config["kernel_preflight"]),
         readiness_marker=config["readiness_marker"],
         expected_failure_marker=config.get("expected_failure_marker", ""),

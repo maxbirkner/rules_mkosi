@@ -167,10 +167,16 @@ def project_image(path, firmware="uefi"):
             }
         )
     roots = [entry for entry in partitions if entry["type_guid"] == ROOT_X86_64]
-    if len(roots) != 1:
-        raise ValueError("exactly one Linux x86-64 root partition is required")
-    if roots[0]["label"] != "root-x86-64":
+    if len(roots) not in (1, 2):
+        raise ValueError("exactly one or two Linux x86-64 root partitions are required")
+    if len(roots) == 1 and roots[0]["label"] != "root-x86-64":
         raise ValueError("Linux x86-64 root partition label must be root-x86-64")
+    if len(roots) == 2:
+        labels = {entry["label"] for entry in roots}
+        if len(labels) != 2 or not all(
+            label == "_empty" or label.startswith("root-") for label in labels
+        ):
+            raise ValueError("A/B root partitions require distinct versioned or _empty labels")
     bios_boot = [entry for entry in partitions if entry["type_guid"] == BIOS_BOOT]
     if firmware == "bios":
         if len(bios_boot) != 1:

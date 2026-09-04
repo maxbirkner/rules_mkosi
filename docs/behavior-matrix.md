@@ -97,6 +97,13 @@ user-site state and an empty child `PATH`.
 
 ## Provider contracts
 
+<!-- behavior:BHV-SYSUPDATE-AB -->
+`sysupdate_ab` exposes two versioned root, verity, and signed-UKI slots plus
+systemd 257 transfer definitions and a digest-bound layout. It requires
+symmetric, aligned, nonoverlapping partitions and distinct versions. Its
+shared-ESP Type #2 UKIs carry boot-attempt counters; successful boots are
+committed by systemd boot assessment. BIOS is rejected explicitly.
+
 <!-- behavior:BHV-SECURE-BOOT-OFFLINE -->
 Secure Boot defaults to no key. Typed v1 providers separate deterministic
 unsigned UKI creation, a digest-and-certificate-bound signing request, an

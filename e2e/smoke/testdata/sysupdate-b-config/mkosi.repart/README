@@ -1,0 +1,2 @@
+This consumer fixture independently exercises the immutable root and dm-verity
+hash partition layout exposed by rules_mkosi.
