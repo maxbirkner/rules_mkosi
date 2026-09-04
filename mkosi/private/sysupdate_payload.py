@@ -27,7 +27,7 @@ def main():
     output = pathlib.Path(args.output)
     source = output
     definitions = output / "definitions"
-    source.mkdir(parents=True)
+    source.mkdir(parents=True, exist_ok=True)
     definitions.mkdir(parents=True)
 
     names = {
