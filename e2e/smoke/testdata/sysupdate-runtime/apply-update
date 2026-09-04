@@ -1,6 +1,14 @@
 #!/bin/sh
-set -eux
+set -eu
+fail() {
+    status=$?
+    echo "RULES_MKOSI_UPDATER_FAILURE status=$status line=$1"
+    systemctl --no-block poweroff
+    exit "$status"
+}
+trap 'fail $LINENO' EXIT
 echo RULES_MKOSI_SLOT_A_VERSION=1
+echo RULES_MKOSI_UPDATER_START
 mkdir -p /run/rules-mkosi-update
 mount -t 9p -o trans=virtio,ro rules_mkosi_updates /run/rules-mkosi-update
 /usr/bin/systemd-repart --dry-run=no --definitions=/usr/lib/rules-mkosi-repart.d /dev/vda
@@ -11,4 +19,5 @@ echo RULES_MKOSI_UPDATE_DIGESTS_VERIFIED
 echo RULES_MKOSI_SYSUPDATE_APPLIED_VERSION=2
 touch /efi/rules-mkosi-update-applied
 sync
+trap - EXIT
 systemctl poweroff

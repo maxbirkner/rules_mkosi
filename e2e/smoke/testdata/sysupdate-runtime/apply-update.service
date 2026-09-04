@@ -1,11 +1,18 @@
 [Unit]
 Description=Apply declared offline A/B update
-After=local-fs.target
+After=local-fs.target systemd-udev-settle.service
+Before=multi-user.target systemd-bless-boot.service
+Conflicts=systemd-sysupdate.timer systemd-sysupdate-reboot.timer
+ConditionKernelCommandLine=rules_mkosi.sysupdate=1
 ConditionPathExists=!/efi/rules-mkosi-update-applied
 
 [Service]
 Type=oneshot
 ExecStart=/usr/lib/rules-mkosi-apply-update
+StandardOutput=journal+console
+StandardError=journal+console
+TimeoutStartSec=240
+FailureAction=poweroff-force
 
 [Install]
 WantedBy=multi-user.target
