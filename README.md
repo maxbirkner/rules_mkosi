@@ -130,6 +130,17 @@ not used as a pre-isolation bootstrap.
 The runner requires an empty supplementary-group list: it clears groups while
 still permitted to do so and fails closed before entering the namespace when
 the caller's groups cannot be cleared.
+An unprivileged user normally cannot clear them, so start the Bazel server,
+and therefore every action and test, from an identity without supplementary
+groups. Shut down a running server first because it keeps the groups it was
+started with:
+
+```console
+bazel shutdown
+sudo -n setpriv --reuid="$(id -u)" --regid="$(id -g)" --clear-groups \
+  env HOME="$HOME" PATH="$PATH" USER="$USER" bazel test //...
+```
+
 Typed input, workspace, and output binds require Linux 5.12 or newer and use
 `open_tree(parent_fd, name, OPEN_TREE_CLONE)`, `fstat` validation,
 `mount_setattr(detached_fd, "", AT_EMPTY_PATH | AT_RECURSIVE)` for read-only

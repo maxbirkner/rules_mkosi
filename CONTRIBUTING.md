@@ -10,6 +10,16 @@
 The hello-world implementation and tests do not require mkosi or other host
 image-building tools.
 
+Image and Debian tools tests require a Bazel server without supplementary
+groups. Start it from a group-free identity, as CI does, after shutting down
+any server that was started with groups:
+
+```console
+bazel shutdown
+sudo -n setpriv --reuid="$(id -u)" --regid="$(id -g)" --clear-groups \
+  env HOME="$HOME" PATH="$PATH" USER="$USER" bazel test //...
+```
+
 ## Checks
 
 Run all formatting, linting, spelling, secret, and repository hygiene checks:
