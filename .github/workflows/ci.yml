@@ -39,12 +39,14 @@ jobs:
         # Suites run as independent jobs on separate runners. Each suite owns
         # its cache namespace so concurrent saves cannot replace another
         # suite's entries; the audit suite only reads the root suite's caches.
+        # Bazelisk runs the root module through tools/bazel, which pins the
+        # module-local .cache/bazel-disk, so only the consumer saves a disk cache.
         include:
           - suite: root
             label: root suite
             module: .
             cache-save: true
-            disk-cache: root
+            disk-cache: "false"
             external-cache: root
             repository-cache: "true"
           - suite: consumer
