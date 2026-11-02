@@ -7,8 +7,9 @@ Keep helpers here only when a workflow needs logic that is clearer and
 testable outside inline shell.
 
 `action_graph_validator.py` checks that Debian toolchain actions do not resolve
-host executables through their environment. CI imports it while inspecting
-Bazel's action graph. Run its focused unit tests with:
+host executables through their environment, and identifies actions by their
+outputs because aquery shares `actionKey` between distinct actions. CI imports
+it while inspecting Bazel's action graph. Run its focused unit tests with:
 
 ```console
 bazel test //ci:action_graph_validator_test
