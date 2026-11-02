@@ -3,6 +3,18 @@
 load("//mkosi:versions.bzl", "MKOSI_VERSIONS")
 
 _PYTHON_TOOLCHAIN_TYPE = "@rules_python//python:toolchain_type"
+_PYTHON_VERSION_SETTING = str(Label("@rules_python//python/config_settings:python_version"))
+
+def _python_version_transition_impl(_settings, attr):
+    return {_PYTHON_VERSION_SETTING: attr.python_version}
+
+# Resolves the Python toolchain and locked pip dependencies for the rule's Python line rather than the consumer's
+# default Python version.
+_python_version_transition = transition(
+    implementation = _python_version_transition_impl,
+    inputs = [],
+    outputs = [_PYTHON_VERSION_SETTING],
+)
 
 _ManagedPythonRuntimeInfo = provider(
     doc = "Managed in-build interpreter selected through Python toolchain resolution.",
@@ -81,11 +93,13 @@ def _managed_python_tool_impl(ctx):
 
 managed_python_tool = rule(
     implementation = _managed_python_tool_impl,
+    cfg = _python_version_transition,
     executable = True,
     attrs = {
         "python_version": attr.string(
             mandatory = True,
-            doc = "Required Python major and minor version.",
+            doc = "Required Python major and minor version. It is also selected for Python toolchain resolution, " +
+                  "independent of the consumer's default Python version.",
         ),
     },
     toolchains = [_PYTHON_TOOLCHAIN_TYPE],
@@ -139,6 +153,7 @@ def _mkosi_toolchain_impl(ctx):
 
 mkosi_toolchain = rule(
     implementation = _mkosi_toolchain_impl,
+    cfg = _python_version_transition,
     attrs = {
         "format_version": attr.string(
             default = "mkosi-v1",
@@ -160,7 +175,8 @@ mkosi_toolchain = rule(
         ),
         "python_version": attr.string(
             mandatory = True,
-            doc = "Bazel-managed Python runtime version.",
+            doc = "Bazel-managed Python runtime version. It is also selected for the locked Python dependencies, " +
+                  "independent of the consumer's default Python version.",
         ),
         "python": attr.label(
             allow_files = True,

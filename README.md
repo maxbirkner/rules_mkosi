@@ -76,6 +76,16 @@ contract. `MkosiToolchainInfo.python_version` reports that compatibility line;
 selected concrete toolchain for diagnostics. No Python registration is needed
 when accepting the default.
 
+rules_mkosi keeps its Python 3.14 line independent of the consumer's default
+Python version. The mkosi toolchain and its managed interpreter,
+`managed_python_test`, and the Debian launcher's Python stub set
+`@rules_python//python/config_settings:python_version` to 3.14 for their own
+toolchain resolution and locked `mkosi_pypi` wheels. A root whose
+`python.defaults(python_version = ...)` selects another line, such as 3.13,
+needs no flag and keeps that default for its own targets; rules_mkosi's module
+requests the 3.14 toolchain itself. A root-registered 3.14 toolchain still
+takes precedence as described above.
+
 The Debian launcher has a separate requirement. It uses checksum-pinned,
 statically linked CPython 3.14.7 because it must start before the isolated
 Debian root or any dynamic loader is available. Consumers do not override this

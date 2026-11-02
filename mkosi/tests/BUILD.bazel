@@ -9,6 +9,7 @@ load(
     "qemu_ovmf_smoke_test",
     "qemu_seabios_boot_test",
 )
+load("//mkosi:versions.bzl", "DEFAULT_PYTHON_VERSION")
 load("//mkosi/debian:toolchain.bzl", "debian_tools_launcher_probe", "debian_tools_preflight", "debian_tools_preflight_test")
 load(":behavior_targets.bzl", "behavior_targets")
 load(":debian_snapshot_test.bzl", "debian_snapshot_provider_test")
@@ -261,6 +262,7 @@ qemu_bazel_compatibility_test(name = "qemu_bazel_compatibility_test")
 sh_test(
     name = "bazel_compatibility_contract_test",
     srcs = ["bazel_compatibility_contract_test.sh"],
+    args = [DEFAULT_PYTHON_VERSION],
     data = ["//:MODULE.bazel"],
 )
 

@@ -1,4 +1,6 @@
 load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test")
+load("//mkosi:toolchain.bzl", "managed_python_tool")
+load("//mkosi:versions.bzl", "DEFAULT_PYTHON_VERSION")
 
 package(default_visibility = ["//visibility:private"])
 
@@ -30,6 +32,13 @@ exports_files([
     "debian_snapshot_repo.bzl",
     "debian_snapshot.py",
 ])
+
+# Interpreter for managed_python_test, resolved for rules_mkosi's Python line.
+managed_python_tool(
+    name = "managed_python",
+    python_version = DEFAULT_PYTHON_VERSION,
+    visibility = ["//visibility:public"],
+)
 
 cc_library(
     name = "kernel_preflight_lib",

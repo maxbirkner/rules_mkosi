@@ -13,6 +13,7 @@ def _impl(ctx):
         """load("@rules_cc//cc:defs.bzl", "cc_binary")
 load("@rules_python//python:defs.bzl", "py_binary")
 load("@rules_mkosi//mkosi/debian:toolchain.bzl", "debian_tools_archive", "debian_tools_toolchain", "debian_tools_tree")
+load("@rules_mkosi//mkosi:versions.bzl", "DEFAULT_PYTHON_VERSION")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -52,6 +53,8 @@ py_binary(
         "@rules_mkosi//mkosi/debian:extract_tree.py",
     ],
     main = "@rules_mkosi//mkosi/debian:debian_launcher.py",
+    # The locked mkosi_pypi hub is resolved for rules_mkosi's Python line, independent of the consumer's default.
+    python_version = DEFAULT_PYTHON_VERSION,
     deps = [
         "@mkosi_pypi//click",
         "@rules_python//python/runfiles",
