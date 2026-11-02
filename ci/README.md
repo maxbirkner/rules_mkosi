@@ -22,7 +22,7 @@ of workflows or test that Bazel executes targets requested through `//...`.
 
 Run the `CI` workflow manually with **Upload artifacts** enabled to build and
 upload the release-mode test disk, build metadata, partition metadata, and
-reproducibility manifest. The Bazel 8 qualified job publishes one
+reproducibility manifest. The Bazel 8 qualified root-suite job publishes one
 `mkosi-manual-test-<commit>` artifact with a `SHA256SUMS` file. GitHub retains
 the artifact for one day.
 

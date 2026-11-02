@@ -113,7 +113,8 @@ commands use `bazel test //...`; configurations change execution policy rather
 than maintaining a CI test inventory. Bazel 9's `portable` compatibility config
 excludes only the semantic `requires-network` image mode, which Bazel 8 covers.
 The separate `manifest` pass uses the one `manifest` selector with
-`--enable_runfiles=no` for the launcher contract.
+`--enable_runfiles=no` for the launcher contract and builds only the selected
+tests and their dependencies.
 
 `module_resolution` contains Bazelmod fixtures for extension selection and
 failure diagnostics. These fixtures deliberately have no lockfiles and run

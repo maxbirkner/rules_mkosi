@@ -31,6 +31,8 @@ test:manifest --enable_runfiles=no --test_strategy=exclusive
 test:manifest --cache_test_results=no --disk_cache=
 # Select only tests whose contract specifically requires manifest mode.
 test:manifest --test_tag_filters=manifest
+# Build only the selected tests and their dependencies, not all of //... again.
+test:manifest --build_tests_only
 
 # Prove bootstrap outputs without accepting remote cached results.
 build:deterministic --noremote_accept_cached
