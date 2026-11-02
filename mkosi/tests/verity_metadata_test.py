@@ -72,6 +72,24 @@ class VerityMetadataTest(unittest.TestCase):
         self.assertEqual(4096, projected["tree_size"])
         self.assertEqual(hashlib.sha256(self.root.read_bytes()).hexdigest(), projected["artifacts"]["root"]["sha256"])
 
+    def test_ignores_inactive_ab_slots(self):
+        self.partitions.write_text(json.dumps({"partitions": [
+            {"number": 1, "size_bytes": 8192, "type_guid": verity_metadata.ROOT, "label": "ab_1"},
+            {"number": 2, "size_bytes": 8192, "type_guid": verity_metadata.ROOT_VERITY, "label": "ab_1_verity"},
+            {"number": 3, "size_bytes": 8192, "type_guid": verity_metadata.ROOT, "label": "_empty"},
+            {"number": 4, "size_bytes": 8192, "type_guid": verity_metadata.ROOT_VERITY, "label": "_empty"},
+        ]}))
+        self.assertEqual(2, self._project()["data_blocks"])
+
+    def test_rejects_second_populated_root(self):
+        self.partitions.write_text(json.dumps({"partitions": [
+            {"number": 1, "size_bytes": 8192, "type_guid": verity_metadata.ROOT, "label": "ab_1"},
+            {"number": 2, "size_bytes": 8192, "type_guid": verity_metadata.ROOT_VERITY, "label": "ab_1_verity"},
+            {"number": 3, "size_bytes": 8192, "type_guid": verity_metadata.ROOT, "label": "ab_0"},
+        ]}))
+        with self.assertRaisesRegex(ValueError, "exactly one"):
+            self._project()
+
     def test_rejects_mismatched_partition_extent(self):
         self._write_partitions(12288, 8192)
         with self.assertRaisesRegex(ValueError, "root artifact size"):

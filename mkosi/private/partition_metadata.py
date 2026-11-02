@@ -11,7 +11,9 @@ import zlib
 from pathlib import Path
 
 ROOT_X86_64 = "4f68bce3-e8cd-4db1-96e7-fbcaf984b709"
+ROOT_X86_64_VERITY = "2c7357ed-ebd2-46d9-aec1-23d437ec2bf5"
 BIOS_BOOT = "21686148-6449-6e6f-744e-656564454649"
+EMPTY_SLOT_LABEL = "_empty"
 ALIGNMENT = 1024 * 1024
 _HEADER_MIN = 92
 _MAX_ARRAY_BYTES = 64 * 1024 * 1024
@@ -122,7 +124,30 @@ def _validated_gpt(path):
     return image_size, sector_size, primary, backup
 
 
-def project_image(path, firmware="uefi"):
+def _validate_ab_slots(partitions, slot_label):
+    """Requires one populated, versioned slot; other root/verity slots must be inactive."""
+    expected = {ROOT_X86_64: slot_label, ROOT_X86_64_VERITY: slot_label + "_verity"}
+    for type_guid, label in expected.items():
+        candidates = [entry for entry in partitions if entry["type_guid"] == type_guid]
+        populated = [entry for entry in candidates if entry["label"] != EMPTY_SLOT_LABEL]
+        if len(populated) != 1 or populated[0]["label"] != label:
+            raise ValueError(
+                "A/B image requires exactly one populated {} partition labelled {!r}; found {!r}".format(
+                    "root" if type_guid == ROOT_X86_64 else "verity",
+                    label,
+                    sorted(entry["label"] for entry in candidates),
+                )
+            )
+        inactive = [entry for entry in candidates if entry["label"] == EMPTY_SLOT_LABEL]
+        if any(entry["size_bytes"] < populated[0]["size_bytes"] for entry in inactive):
+            raise ValueError(
+                "inactive {} slots must be at least as large as the populated slot".format(
+                    "root" if type_guid == ROOT_X86_64 else "verity"
+                )
+            )
+
+
+def project_image(path, firmware="uefi", slot_label=None):
     _, sector_size, primary, _ = _validated_gpt(path)
 
     partitions = []
@@ -166,11 +191,16 @@ def project_image(path, firmware="uefi"):
                 "type_guid": str(uuid.UUID(bytes_le=entry[:16])),
             }
         )
+        if slot_label is not None:
+            partitions[-1]["uuid"] = str(uuid.UUID(bytes_le=entry[16:32]))
     roots = [entry for entry in partitions if entry["type_guid"] == ROOT_X86_64]
-    if len(roots) != 1:
-        raise ValueError("exactly one Linux x86-64 root partition is required")
-    if roots[0]["label"] != "root-x86-64":
-        raise ValueError("Linux x86-64 root partition label must be root-x86-64")
+    if slot_label is None:
+        if len(roots) != 1:
+            raise ValueError("exactly one Linux x86-64 root partition is required")
+        if roots[0]["label"] != "root-x86-64":
+            raise ValueError("Linux x86-64 root partition label must be root-x86-64")
+    else:
+        _validate_ab_slots(partitions, slot_label)
     bios_boot = [entry for entry in partitions if entry["type_guid"] == BIOS_BOOT]
     if firmware == "bios":
         if len(bios_boot) != 1:
@@ -247,8 +277,9 @@ def main():
     parser.add_argument("--image", required=True)
     parser.add_argument("--output", required=True)
     parser.add_argument("--firmware", choices=("uefi", "bios"), default="uefi")
+    parser.add_argument("--slot-label")
     args = parser.parse_args()
-    metadata = project_image(args.image, args.firmware)
+    metadata = project_image(args.image, args.firmware, args.slot_label)
     Path(args.output).write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n")
 
 

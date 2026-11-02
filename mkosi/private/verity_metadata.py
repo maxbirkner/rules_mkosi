@@ -12,6 +12,8 @@ from pathlib import Path
 ROOT = "4f68bce3-e8cd-4db1-96e7-fbcaf984b709"
 ROOT_VERITY = "2c7357ed-ebd2-46d9-aec1-23d437ec2bf5"
 ROOT_VERITY_SIG = "41092b05-9fc8-4523-994f-2def0408b176"
+# systemd-sysupdate labels inactive A/B slots "_empty"; they carry no verity data.
+EMPTY_SLOT_LABEL = "_empty"
 MAX_ARTIFACT_BYTES = 16 * 1024**3
 MAX_BLOCKS = 1 << 32
 MAX_LEVELS = 64
@@ -178,6 +180,8 @@ def project(root_hash_path, partition_metadata_path, root_image_path, hash_image
     partitions = json.loads(Path(partition_metadata_path).read_text())["partitions"]
     by_type = {}
     for partition in partitions:
+        if partition.get("label") == EMPTY_SLOT_LABEL and partition["type_guid"] in (ROOT, ROOT_VERITY):
+            continue
         by_type.setdefault(partition["type_guid"], []).append(partition)
     if len(by_type.get(ROOT, [])) != 1 or len(by_type.get(ROOT_VERITY, [])) != 1:
         raise ValueError("exactly one x86-64 root data and verity hash partition is required")
