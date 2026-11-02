@@ -14,6 +14,7 @@ def _impl(ctx):
 load("@rules_python//python:defs.bzl", "py_binary")
 load("@rules_mkosi//mkosi/debian:toolchain.bzl", "debian_tools_archive", "debian_tools_toolchain", "debian_tools_tree")
 load("@rules_mkosi//mkosi:versions.bzl", "DEFAULT_PYTHON_VERSION")
+load("@rules_mkosi//mkosi/private:bootstrap_binary.bzl", "bootstrap_binary")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -63,7 +64,7 @@ py_binary(
 )
 
 cc_binary(
-    name = "launcher",
+    name = "launcher_binary",
     srcs = [
         "@rules_mkosi//mkosi/debian:launcher_main.cc",
     ],
@@ -85,11 +86,37 @@ cc_binary(
     ],
 )
 
+bootstrap_binary(
+    name = "launcher",
+    binary = ":launcher_binary",
+    exec_compatible_with = [
+        "@platforms//os:linux",
+        "@platforms//cpu:x86_64",
+    ],
+    target_compatible_with = [
+        "@platforms//os:linux",
+        "@platforms//cpu:x86_64",
+    ],
+)
+
 cc_binary(
-    name = "namespace_runner",
+    name = "namespace_runner_binary",
     srcs = ["@rules_mkosi//mkosi/debian:namespace_runner.c"],
     features = ["fully_static_link"],
     linkopts = ["-static", "-Wl,--strip-debug", "-Wl,--build-id=none"],
+    exec_compatible_with = [
+        "@platforms//os:linux",
+        "@platforms//cpu:x86_64",
+    ],
+    target_compatible_with = [
+        "@platforms//os:linux",
+        "@platforms//cpu:x86_64",
+    ],
+)
+
+bootstrap_binary(
+    name = "namespace_runner",
+    binary = ":namespace_runner_binary",
     exec_compatible_with = [
         "@platforms//os:linux",
         "@platforms//cpu:x86_64",

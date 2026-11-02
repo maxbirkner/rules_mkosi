@@ -166,23 +166,73 @@ The module has a normal dependency on the maintained
 amd64 musl `@zig_sdk//toolchain:linux_amd64_musl` toolchain as the bootstrap
 default; an independent downstream root opts into the same maintained
 extension and registration (as shown by `e2e/smoke`) without setting
-`--platforms` or `--host_platform`. Bzlmod requires that extension-provided
-repositories be opted into by the downstream root module, so the maintained
-dependency, extension, and registration are part of the documented consumer
-setup rather than hidden development-only state. This is not a custom compiler
-mechanism. The bootstrap targets use ordinary `cc_binary` toolchain resolution
-with `fully_static_link`, and a consumer's root-module registration takes
-precedence when it provides another compatible standard C/C++ toolchain.
-rules_mkosi does not download, invoke, or select a raw compiler itself. The
-resolved action graph and static ELF metadata are checked in CI.
+`--platforms` or `--host_platform`. hermetic_cc_toolchain's `toolchains`
+extension reads only the root module's tags and creates `@zig_sdk` only when
+the root module uses it, so the maintained dependency, extension, and
+registration are part of the documented consumer setup rather than hidden
+development-only state:
 
-For a consumer that overrides the default, register a compatible
-`@bazel_tools//tools/cpp:toolchain_type` toolchain for Linux x86-64 and static
-linking. The default registration is deliberately generic for normal Linux
-x86-64 target and execution platforms, so unrelated consumer targets are not
-silently transitioned to a musl platform. The maintained toolchain's own
-constraints prevent the bootstrap binaries from being scheduled on another
-operating system or CPU architecture.
+```starlark
+bazel_dep(name = "hermetic_cc_toolchain", version = "4.3.0")
+
+hermetic_cc = use_extension("@hermetic_cc_toolchain//toolchain:ext.bzl", "toolchains")
+hermetic_cc.exec_platform(arch = "amd64", os = "linux")
+use_repo(hermetic_cc, "zig_sdk")
+
+register_toolchains("@zig_sdk//toolchain:linux_amd64_musl")
+```
+
+This is not a custom compiler mechanism. The bootstrap targets use ordinary
+`cc_binary` toolchain resolution with `fully_static_link`. rules_mkosi does
+not download, invoke, or select a raw compiler itself. The resolved action
+graph and static ELF metadata are checked in CI. The default registration is
+deliberately generic for normal Linux x86-64 target and execution platforms,
+so unrelated consumer targets are not silently transitioned to a musl
+platform. The maintained toolchain's own constraints prevent the bootstrap
+binaries from being scheduled on another operating system or CPU architecture.
+
+The Debian launcher and namespace runner are built for the target platform
+selected by the `@rules_mkosi//mkosi/toolchain:bootstrap_platform` label flag.
+Its default keeps the current platform, so the first registered C/C++
+toolchain that matches that platform must link fully static executables; a
+root module's registrations precede rules_mkosi's. When a root prefers a
+toolchain that cannot, such as a glibc toolchain that fails with
+`unable to find library -lc` or
+`libc of the specified target requires dynamic linking`, define a platform
+that only a static-capable toolchain matches and select it for the bootstrap
+executables:
+
+```starlark
+# BUILD.bazel
+platform(
+    name = "bootstrap_musl",
+    constraint_values = [
+        "@platforms//cpu:x86_64",
+        "@platforms//os:linux",
+        "@zig_sdk//libc:musl",
+    ],
+)
+
+# MODULE.bazel
+register_toolchains("@zig_sdk//libc_aware/toolchain:linux_amd64_musl")
+```
+
+```console
+# .bazelrc
+common --@rules_mkosi//mkosi/toolchain:bootstrap_platform=//:bootstrap_musl
+```
+
+The flag changes only the platform of the bootstrap executables, including
+when the Debian tools toolchain consumes them in the execution configuration;
+every other target keeps its platform and C/C++ toolchain. A root may instead
+add its own libc constraint that its preferred toolchain excludes, for example
+through `target_compatible_with` or `target_settings`, so that rules_mkosi's
+generic zig musl registration matches the bootstrap platform. The bootstrap
+configuration also selects rules_python's `system_python` bootstrap for the
+launcher's Python stub, because the static launcher executes the interpreter
+directly on that stub. A root may therefore keep
+`--@rules_python//python/config_settings:bootstrap_impl=script` for its own
+targets.
 
 The root module may select a version with `mkosi.toolchain(version = "27")`;
 unsupported or conflicting requests fail during module resolution.
