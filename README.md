@@ -196,9 +196,9 @@ The repository rule performs network fetches only while Bazel resolves the
 extension. The staging action itself has only downloaded metadata, locked
 packages, the managed Python runtime, and the Debian toolchain as inputs; it
 does not invoke apt, dpkg, curl, gpg, or host filesystem tools. This mirror is
-the stable input boundary for `mkosi_image` release mode. The lock is an
-explicitly selected representative Debian tools closure, not a general
-dependency solver.
+the stable input boundary for `mkosi_image` release mode. The built-in lock is
+an explicitly selected representative Debian tools closure covering only the
+`main` component.
 
 ```starlark
 load("@rules_mkosi//mkosi:defs.bzl", "mkosi_image")
@@ -372,6 +372,115 @@ ambient `PATH`; no host executable lookup or shebang launcher is used.
 The configuration label is mandatory and must resolve to exactly one file;
 invalid file targets fail during Bazel analysis.
 
+### Consumer-owned Debian snapshots
+
+A downstream module can lock its own package set, from a snapshot timestamp of
+its choosing and from additional archive components such as
+`non-free-firmware`. Write a JSON specification with the same shape as
+[`debian13.yaml`](mkosi/debian/debian13.yaml):
+
+```json
+{
+  "version": 1,
+  "sources": [
+    {
+      "channel": "trixie main non-free-firmware",
+      "url": "https://snapshot.debian.org/archive/debian/20250814T000000Z"
+    }
+  ],
+  "archs": ["amd64"],
+  "packages": ["amd64-microcode", "openssh-server"]
+}
+```
+
+`channel` is the suite codename followed by its components; `main` is
+required. `archs` must be `["amd64"]`; `Architecture: all` packages are always
+included. Generate or update the lock from the consumer workspace (paths are
+relative to it):
+
+```console
+bazel run @rules_mkosi//mkosi/debian:generate_lock -- \
+  --spec os/debian.spec.json \
+  --output os/debian.lock.json
+```
+
+The generator uses the managed Python toolchain and the standard library only.
+It downloads `InRelease`, `Release`, `Release.gpg`, and each component's
+`binary-amd64` and `binary-all` `Packages.xz`, checks that `InRelease` carries
+the `Release` payload, and verifies every index against the Release SHA-256
+list. It resolves the `Pre-Depends` and `Depends` closure of the requested
+packages plus every `Essential: yes` and `Priority: required` package, which
+mkosi needs to bootstrap offline. Alternatives prefer an already selected
+package and otherwise the first satisfiable one; version constraints use dpkg
+ordering; versioned and unversioned `Provides` satisfy virtual packages (by
+`Priority`, then name, when several providers exist); `:any` and native
+qualifiers resolve to `amd64` or `all` packages, and a foreign-architecture
+qualifier requires `Multi-Arch: foreign`. `Recommends` and `Suggests` are not
+followed because mkosi disables them, and `Conflicts`/`Breaks` are left to
+APT at image build time. Request a specific provider explicitly when a virtual
+package is ambiguous. Pass `--check` in CI to fail when the committed lock
+differs from a fresh resolution of the same specification. Signatures are
+not checked by the generator; the build-time staging action verifies them
+with Debian's pinned archive keyring, so a tampered lock fails the build.
+
+Declare the lock in the root `MODULE.bazel`:
+
+```starlark
+debian = use_extension("@rules_mkosi//mkosi/debian:extensions.bzl", "debian_tools")
+debian.snapshot(
+    name = "my_os_debian",
+    lock = "//os:debian.lock.json",
+    # Optional: also fail when the lock does not have this SHA-256.
+    # lock_sha256 = "...",
+)
+use_repo(debian, "my_os_debian")
+```
+
+`name` must be a valid repository name and unique across every module using
+the extension; it also reserves an internal `<name>_packages` repository and
+cannot reuse a built-in `mkosi_debian_*` name. The repository rule computes the
+lock's SHA-256 while it decodes the lock and records it as
+`DebianSnapshotInfo.lock_sha256`, so every lock edit refetches and changes the
+release image's provenance. Index files and packages are downloaded through
+Bazel's content-addressed downloader with their locked SHA-256 digests;
+packages shared with another lock are fetched once from the repository cache.
+`@my_os_debian//:lock.json` exposes the exact decoded lock.
+
+Use it as the release snapshot and select the extra components with mkosi's
+own `Repositories=` setting, exactly as tracer mode would:
+
+```ini
+[Distribution]
+Distribution=debian
+Release=trixie
+Snapshot=20250814T000000Z
+Repositories=non-free-firmware
+
+[Content]
+Packages=amd64-microcode
+```
+
+```starlark
+mkosi_image(
+    name = "my_os",
+    config_tree = ":my_os_config",
+    mode = "release",
+    debian_snapshot = "@my_os_debian//:repository",
+    release_seed = "00000000-0000-4000-8000-000000000001",
+    release_source_date_epoch = 0,
+)
+```
+
+The staged mirror contains every locked component under
+`dists/<codename>/<component>/`, and `DebianSnapshotInfo.components` lists
+them with `main` first. mkosi v27 registers a local mirror with only `main`;
+release mode instead lists `main` plus the `Repositories=` components and
+fails before any package is installed when one of them is not in the snapshot.
+`Release=` and `Snapshot=` must match the lock's codename and timestamp. A
+package that is not in the lock fails the offline build; add it to the
+specification and regenerate. Lock files without `repository.components`, such
+as the built-in lock, remain valid `main`-only locks.
+
 ### `MkosiImageInfo` output contract
 
 `mkosi_image` returns the public `MkosiImageInfo` provider. Select a specific
@@ -392,7 +501,7 @@ basename, or the contents of `DefaultInfo`.
 | `root_hash_signature` | `File` or `None` | Reserved typed output; always `None` until #23 adds signing. |
 | `uki_metadata` | `File` or `None` | Normalized PE section hashes and verified root-hash linkage. |
 | `verity_metadata` | `File` or `None` | Independently verified root/hash partition linkage, dm-verity geometry, salt, tree extent, root hash, and split-artifact digests. |
-| `build_metadata` | `File` or `None` | Present for every current target. It is normalized JSON with schema `mkosi-image-build-metadata-v2`, output-role booleans, mode, and forced mkosi disk/raw/no-compression settings. Release metadata additionally records the authenticated snapshot identity, lock digest, and resolved reproducibility inputs. |
+| `build_metadata` | `File` or `None` | Present for every current target. It is normalized JSON with schema `mkosi-image-build-metadata-v2`, output-role booleans, mode, and forced mkosi disk/raw/no-compression settings. Release metadata additionally records the authenticated snapshot identity, staged components, lock digest, and resolved reproducibility inputs. |
 | `image` | `File` or `None` | Deprecated compatibility alias for `raw_image`; it is exactly the same artifact. New consumers must use `raw_image`. |
 
 `DefaultInfo.files` contains each non-`None` artifact field once; its depset
