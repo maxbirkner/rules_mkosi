@@ -1,0 +1,15 @@
+{
+  "archs": [
+    "amd64"
+  ],
+  "packages": [
+    "amd64-microcode"
+  ],
+  "sources": [
+    {
+      "channel": "trixie main non-free-firmware",
+      "url": "https://snapshot.debian.org/archive/debian/20250814T000000Z"
+    }
+  ],
+  "version": 1
+}

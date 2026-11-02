@@ -33,6 +33,9 @@ case "$fixture" in
     root_dependency)
         expected="Conflicting mkosi versions: root requests 27, dependency requests 26."
         ;;
+    snapshot_name_conflict)
+        expected="debian_tools.snapshot repository consumer_debian requested by mkosi_extension_snapshot_name_conflict is already declared by mkosi_extension_snapshot_name_conflict"
+        ;;
     *)
         echo "unknown fixture: $fixture" >&2
         exit 2

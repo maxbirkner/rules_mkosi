@@ -45,6 +45,8 @@ behavior_targets(
         ":boot_preflight_contract_test",
         ":bios_release_demo_build_test",
         ":bios_boot_test",
+        ":consumer_snapshot_artifact_test",
+        ":consumer_snapshot_provider_test",
         ":debian_snapshot_public_provider_test",
         ":debian_tools_public_provider_test",
         ":demo_artifact_test",
@@ -332,6 +334,64 @@ snapshot_public_api_test(
 snapshot_public_api_test(
     name = "debian_snapshot_second_consumer_test",
     target_under_test = "@mkosi_debian_snapshot//:repository",
+)
+
+snapshot_public_api_test(
+    name = "consumer_snapshot_provider_test",
+    expected_components = [
+        "main",
+        "non-free-firmware",
+    ],
+    target_under_test = "@consumer_debian//:repository",
+)
+
+mkosi_config_tree(
+    name = "consumer_snapshot_config_tree",
+    src = "testdata/consumer-snapshot-config",
+)
+
+mkosi_image(
+    name = "consumer_snapshot_demo",
+    config_tree = ":consumer_snapshot_config_tree",
+    debian_snapshot = "@consumer_debian//:repository",
+    mode = "release",
+    release_seed = "00000000-0000-4000-8000-000000000016",
+    release_source_date_epoch = 0,
+)
+
+raw_image_file(
+    name = "consumer_snapshot_demo_raw",
+    image = ":consumer_snapshot_demo",
+)
+
+image_partition_metadata_file(
+    name = "consumer_snapshot_demo_partition_metadata",
+    image = ":consumer_snapshot_demo",
+)
+
+image_build_metadata_file(
+    name = "consumer_snapshot_demo_build_metadata",
+    image = ":consumer_snapshot_demo",
+)
+
+py_test(
+    name = "consumer_snapshot_artifact_test",
+    srcs = ["consumer_snapshot_artifact_test.py"],
+    args = [
+        "$(rootpath :consumer_snapshot_demo_raw)",
+        "$(rootpath :consumer_snapshot_demo_partition_metadata)",
+        "$(rootpath :consumer_snapshot_demo_build_metadata)",
+        "$(rootpath @mkosi_debian_tools//:launcher)",
+        "$(rootpath testdata/consumer-snapshot/debian.lock.json)",
+    ],
+    data = [
+        "testdata/consumer-snapshot/debian.lock.json",
+        ":consumer_snapshot_demo_build_metadata",
+        ":consumer_snapshot_demo_partition_metadata",
+        ":consumer_snapshot_demo_raw",
+        "@mkosi_debian_tools//:launcher",
+    ],
+    main = "consumer_snapshot_artifact_test.py",
 )
 
 image_public_api_test(

@@ -68,8 +68,17 @@ use_repo(mkosi, "mkosi_toolchains")
 
 debian_tools = use_extension("@rules_mkosi//mkosi/debian:extensions.bzl", "debian_tools")
 debian_tools.toolchain()
+
+# A consumer-owned lock generated with
+# `bazel run @rules_mkosi//mkosi/debian:generate_lock`; it adds the
+# non-free-firmware component to the base package set.
+debian_tools.snapshot(
+    name = "consumer_debian",
+    lock = "//:testdata/consumer-snapshot/debian.lock.json",
+)
 use_repo(
     debian_tools,
+    "consumer_debian",
     "mkosi_debian_package_inputs",
     "mkosi_debian_python",
     "mkosi_debian_snapshot",
