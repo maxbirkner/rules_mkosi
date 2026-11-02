@@ -55,6 +55,9 @@ therefore runs the complete suite on a capable host; CI's Bazel 8 qualified
 lane runs every root and consumer test that needs the host kernel contract
 after its explicit preflight. Bazel 9 uses `portable` for compatibility and
 omits only tests tagged `requires-network`, which the Bazel 8 lane covers.
+For each Bazel version, CI runs the root suite, the consumer suite, and the
+release-reproducibility and action-graph audits as parallel jobs. Every job
+repeats the kernel preflight before it builds anything else.
 
 The rc cache path is intentionally relative because Bazel does not expand
 repository-relative substitutions in ordinary option values. Canonical
@@ -79,7 +82,9 @@ its clean-build proof is about offline bootstrap binaries, not mutable image
 package downloads.
 The independent consumer's manifest config is the one remaining selector: it
 uses `--enable_runfiles=no` and the `manifest` tag to exercise the launcher
-contract that cannot run in the ordinary runfiles mode.
+contract that cannot run in the ordinary runfiles mode. It also sets
+`--build_tests_only`, so the pass builds the selected tests and everything they
+depend on without the disk cache, but does not rebuild the rest of `//...`.
 `manual` is reserved for synthetic analysis subjects (invalid configurations
 and deliberately non-booted provider fixtures); these are excluded from
 wildcard execution while their companion analysis tests assert the contract.

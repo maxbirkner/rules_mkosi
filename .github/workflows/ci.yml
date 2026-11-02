@@ -24,7 +24,7 @@ concurrency:
 
 jobs:
   test:
-    name: Qualified Bazel ${{ matrix.bazel }}
+    name: Qualified Bazel ${{ matrix.bazel }} / ${{ matrix.label }}
     runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
@@ -32,6 +32,42 @@ jobs:
         bazel:
           - "8.5.1"
           - "9.2.0"
+        suite:
+          - root
+          - consumer
+          - audit
+        # Suites run as independent jobs on separate runners. Each suite owns
+        # its cache namespace so concurrent saves cannot replace another
+        # suite's entries; the audit suite only reads the root suite's caches.
+        # Bazelisk runs the root module through tools/bazel, which pins the
+        # module-local .cache/bazel-disk, so only the consumer saves a disk cache.
+        include:
+          - suite: root
+            label: root suite
+            module: .
+            cache-save: true
+            disk-cache: "false"
+            external-cache: root
+            repository-cache: "true"
+          - suite: consumer
+            label: consumer suite
+            module: e2e/smoke
+            cache-save: true
+            disk-cache: consumer
+            external-cache: consumer
+            repository-cache: '["MODULE.bazel", "e2e/smoke/MODULE.bazel"]'
+          - suite: audit
+            module: ""
+            cache-save: false
+            disk-cache: "false"
+            external-cache: root
+            repository-cache: "true"
+          - bazel: "8.5.1"
+            suite: audit
+            label: release reproducibility and audits
+          - bazel: "9.2.0"
+            suite: audit
+            label: audits
     env:
       USE_BAZEL_VERSION: ${{ matrix.bazel }}
     steps:
@@ -43,10 +79,14 @@ jobs:
         with:
           bazelisk-cache: true
           bazelisk-version: 1.28.0
-          cache-save: ${{ github.event_name != 'pull_request' }}
-          disk-cache: rules-mkosi-${{ matrix.bazel }}
-          external-cache: true
-          repository-cache: true
+          cache-save: ${{ github.event_name != 'pull_request' && matrix.cache-save }}
+          disk-cache: >-
+            ${{ matrix.disk-cache != 'false' &&
+            format('rules-mkosi-{0}-{1}', matrix.bazel, matrix.disk-cache) ||
+            'false' }}
+          external-cache: |
+            name: qualified-${{ matrix.external-cache }}
+          repository-cache: ${{ matrix.repository-cache }}
 
       - name: Verify pinned Bazel version
         run: |
@@ -55,8 +95,7 @@ jobs:
           echo "$actual"
           test "$actual" = "bazel ${{ matrix.bazel }}"
 
-      - name: Qualify host kernel, then run complete root and e2e suites
-        id: qualification
+      - name: Qualify host kernel
         run: |
           run_bazel() {
             sudo -n setpriv --reuid="$(id -u)" --regid="$(id -g)" \
@@ -73,13 +112,6 @@ jobs:
             esac
             echo "CI bootstrap identity has empty supplementary groups"
           '
-          if [ "${{ matrix.bazel }}" = "9.2.0" ]; then
-            # Bazel 9 uses a newer lockfile format; compatibility is tested
-            # without rewriting the committed Bazel 8 lockfile.
-            bazel_configs=(--config=portable --config=bazel9)
-          else
-            bazel_configs=(--config=qualified)
-          fi
           expected_bazel_version="bazel ${{ matrix.bazel }}"
           test "$(run_bazel bazel --version)" = "$expected_bazel_version"
           (
@@ -97,25 +129,44 @@ jobs:
           grep -F "Executed 1 out of 1 test" kernel-preflight.log
           ! grep -F "(cached)" kernel-preflight.log
           rm kernel-preflight.log
-          run_bazel bazel test "${bazel_configs[@]}" //...
-          manifest_configs=(--config=manifest)
+
+      - name: Run complete ${{ matrix.label }}
+        id: qualification
+        if: matrix.module != ''
+        working-directory: ${{ matrix.module }}
+        run: |
+          run_bazel() {
+            sudo -n setpriv --reuid="$(id -u)" --regid="$(id -g)" \
+              --clear-groups env HOME="$HOME" PATH="$PATH" \
+              USE_BAZEL_VERSION="$USE_BAZEL_VERSION" "$@"
+          }
           if [ "${{ matrix.bazel }}" = "9.2.0" ]; then
-            manifest_configs+=(--config=bazel9)
+            # Bazel 9 uses a newer lockfile format; compatibility is tested
+            # without rewriting the committed Bazel 8 lockfile.
+            bazel_configs=(--config=portable --config=bazel9)
+            manifest_configs=(--config=manifest --config=bazel9)
+          else
+            bazel_configs=(--config=qualified)
+            manifest_configs=(--config=manifest)
           fi
+          # The preflight server ran from the repository root, and every module
+          # in this job shares the output base configured by setup-bazel.
+          run_bazel bazel shutdown
+          run_bazel bazel test "${bazel_configs[@]}" //...
           run_bazel bazel test "${manifest_configs[@]}" //...
-          (
-            cd e2e/smoke
-            run_bazel bazel shutdown
-            run_bazel bazel test "${bazel_configs[@]}" //...
-            run_bazel bazel test "${manifest_configs[@]}" //...
-          )
-          if [ "${{ matrix.bazel }}" = "8.5.1" ]; then
-            run_bazel ./ci/verify-release-reproducibility.sh
-          fi
+
+      - name: Verify release reproducibility
+        if: matrix.suite == 'audit' && matrix.bazel == '8.5.1'
+        run: |
+          sudo -n setpriv --reuid="$(id -u)" --regid="$(id -g)" \
+            --clear-groups env HOME="$HOME" PATH="$PATH" \
+            USE_BAZEL_VERSION="$USE_BAZEL_VERSION" \
+            ./ci/verify-release-reproducibility.sh
 
       - name: Surface retained boot evidence
         id: boot_evidence
-        if: always()
+        if: always() && matrix.module != ''
+        working-directory: ${{ matrix.module }}
         env:
           QUALIFICATION_OUTCOME: ${{ steps.qualification.outcome }}
         run: |
@@ -124,20 +175,23 @@ jobs:
               --clear-groups env HOME="$HOME" PATH="$PATH" \
               USE_BAZEL_VERSION="$USE_BAZEL_VERSION" "$@"
           }
-          evidence_dir="$RUNNER_TEMP/boot-evidence-${{ matrix.bazel }}"
+          module="${{ matrix.suite }}"
+          evidence_dir="$RUNNER_TEMP/boot-evidence-${{ matrix.bazel }}-$module"
           mkdir -p "$evidence_dir"
           echo "has_evidence=false" >> "$GITHUB_OUTPUT"
           info_configs=()
           if [ "${{ matrix.bazel }}" = "9.2.0" ]; then
             info_configs=(--config=bazel9)
           fi
-          collect_module() {
-            module="$1"
-            testlogs="$2"
-            if [ ! -d "$testlogs" ]; then
-              echo "No $module Bazel testlogs directory was created: $testlogs"
-              return
-            fi
+          has_evidence=false
+          has_bios_evidence=false
+          if ! testlogs="$(
+            run_bazel bazel info "${info_configs[@]}" bazel-testlogs
+          )"; then
+            echo "The $module Bazel testlogs path is unavailable."
+          elif [ ! -d "$testlogs" ]; then
+            echo "No $module Bazel testlogs directory was created: $testlogs"
+          else
             while IFS= read -r evidence; do
               relative="${evidence#"$testlogs"/}"
               target_dir="${relative%/test.outputs/boot-evidence.log}"
@@ -173,23 +227,6 @@ jobs:
               esac
             done < <(find "$testlogs" -type f \
               -path '*/test.outputs/boot-evidence.log' -print)
-          }
-          has_evidence=false
-          has_bios_evidence=false
-          if root_testlogs="$(
-            run_bazel bazel info "${info_configs[@]}" bazel-testlogs
-          )"; then
-            collect_module root "$root_testlogs"
-          else
-            echo "Root Bazel testlogs path is unavailable."
-          fi
-          if consumer_testlogs="$(
-            cd e2e/smoke
-            run_bazel bazel info "${info_configs[@]}" bazel-testlogs
-          )"; then
-            collect_module consumer "$consumer_testlogs"
-          else
-            echo "Consumer Bazel testlogs path is unavailable."
           fi
           if $has_evidence; then
             echo "has_evidence=true" >> "$GITHUB_OUTPUT"
@@ -209,8 +246,8 @@ jobs:
           steps.boot_evidence.outputs.has_evidence == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: boot-evidence-bazel-${{ matrix.bazel }}-${{ github.sha }}
-          path: ${{ runner.temp }}/boot-evidence-${{ matrix.bazel }}
+          name: boot-evidence-bazel-${{ matrix.bazel }}-${{ matrix.suite }}-${{ github.sha }}
+          path: ${{ runner.temp }}/boot-evidence-${{ matrix.bazel }}-${{ matrix.suite }}
           if-no-files-found: error
           retention-days: 1
           compression-level: 9
@@ -219,7 +256,8 @@ jobs:
         if: >-
           github.event_name == 'workflow_dispatch' &&
           inputs.upload_artifacts &&
-          matrix.bazel == '8.5.1'
+          matrix.bazel == '8.5.1' &&
+          matrix.suite == 'root'
         run: |
           run_bazel() {
             sudo -n setpriv --reuid="$(id -u)" --regid="$(id -g)" \
@@ -263,7 +301,8 @@ jobs:
         if: >-
           github.event_name == 'workflow_dispatch' &&
           inputs.upload_artifacts &&
-          matrix.bazel == '8.5.1'
+          matrix.bazel == '8.5.1' &&
+          matrix.suite == 'root'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: mkosi-manual-test-${{ github.sha }}
@@ -273,6 +312,7 @@ jobs:
           compression-level: 0
 
       - name: Audit Debian tools action graph
+        if: matrix.suite == 'audit'
         run: |
           run_bazel() {
             sudo -n setpriv --reuid="$(id -u)" --regid="$(id -g)" \
@@ -551,6 +591,7 @@ jobs:
           echo "Debian tools archive/bootstrap graph contains only managed actions"
 
       - name: Verify downstream no-RC toolchain default
+        if: matrix.suite == 'audit'
         run: |
           run_bazel() {
             sudo -n setpriv --reuid="$(id -u)" --regid="$(id -g)" \
@@ -577,6 +618,7 @@ jobs:
           echo "no-RC downstream launcher resolves maintained hermetic C++ toolchain"
 
       - name: Verify Linux sandbox helper
+        if: matrix.suite == 'audit'
         run: |
           run_bazel() {
             sudo -n setpriv --reuid="$(id -u)" --regid="$(id -g)" \
