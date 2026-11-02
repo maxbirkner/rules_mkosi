@@ -245,6 +245,17 @@ honors one root override, and rejects unsupported, conflicting, multiple-name,
 or dependency-owned-name requests. The dependency-owned-name rejection is the
 maintained `e2e/module_resolution/nonroot_name` fixture.
 
+<!-- behavior:BHV-CONSUMER-ISOLATION -->
+The mkosi toolchain, `managed_python_test`, and the Debian launcher resolve
+Python and the locked wheels for rules_mkosi's Python 3.14 line regardless of
+the consumer's default `python_version`. The static Debian launcher and
+namespace runner are built for the `bootstrap_platform` flag (default: the
+current platform) with rules_python's `system_python` bootstrap, without
+changing the platform of consumer targets. The maintained
+`e2e/module_resolution/consumer_isolation` fixture combines a Python 3.13
+default, `bootstrap_impl=script`, and a first-priority glibc C/C++ toolchain
+that cannot link static executables.
+
 <!-- behavior:BHV-ACTION-FAILURES -->
 Executed failures preserve tool output and classify kernel capability,
 toolchain, network, assembly, and VM boundaries with one actionable

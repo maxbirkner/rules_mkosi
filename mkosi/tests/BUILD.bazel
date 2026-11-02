@@ -12,6 +12,7 @@ load(
 load("//mkosi:versions.bzl", "DEFAULT_PYTHON_VERSION")
 load("//mkosi/debian:toolchain.bzl", "debian_tools_launcher_probe", "debian_tools_preflight", "debian_tools_preflight_test")
 load(":behavior_targets.bzl", "behavior_targets")
+load(":consumer_isolation_test.bzl", "consumer_isolation_test_suite")
 load(":debian_snapshot_test.bzl", "debian_snapshot_provider_test")
 load(
     ":extension_semantics_test.bzl",
@@ -107,6 +108,7 @@ behavior_targets(
     name = "behavior_root_targets",
     testonly = True,
     targets = [
+        "//:e2e/module_resolution/consumer_isolation/MODULE.bazel",
         "//:e2e/module_resolution/nonroot_name/MODULE.bazel",
         "//:e2e/module_resolution/snapshot_name_conflict/MODULE.bazel",
         "//ci:verify-release-reproducibility.sh",
@@ -119,6 +121,7 @@ behavior_targets(
         ":boot_lifecycle_test",
         ":seabios_boot_config_test",
         ":conflicting_root_test",
+        ":consumer_isolation_tests",
         ":debian_snapshot_artifact_test",
         ":debian_snapshot_provider_test",
         ":debian_snapshot_trust_test",
@@ -370,6 +373,8 @@ py_test(
     ],
     main = "sysupdate_test.py",
 )
+
+consumer_isolation_test_suite(name = "consumer_isolation_tests")
 
 py_test(
     name = "debian_subject_build_metadata_test",

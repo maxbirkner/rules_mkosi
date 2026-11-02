@@ -675,6 +675,7 @@ jobs:
           - nonroot_name
           - root_dependency
           - snapshot_name_conflict
+          - consumer_isolation
     env:
       USE_BAZEL_VERSION: ${{ matrix.bazel }}
     steps:
@@ -706,7 +707,7 @@ jobs:
             "build --disk_cache=$fixture_root/.cache/bazel-disk" "$rc"
           git -C "$GITHUB_WORKSPACE" check-ignore -q "$rc"
           case "${{ matrix.fixture }}" in
-            default|explicit)
+            default|explicit|consumer_isolation)
               cache="$fixture_root/.cache/bazel-disk"
               test -d "$cache"
               test "$(realpath "$cache")" = "$cache"

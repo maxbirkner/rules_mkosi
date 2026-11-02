@@ -1,0 +1,55 @@
+load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load("@rules_mkosi//mkosi:defs.bzl", "managed_python_test")
+load("@rules_python//python:defs.bzl", "py_test")
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+
+# Selected by .bazelrc for rules_mkosi's bootstrap executables. Only the consumer's libc-aware musl toolchain
+# matches this platform.
+platform(
+    name = "bootstrap_musl",
+    constraint_values = [
+        "@platforms//cpu:x86_64",
+        "@platforms//os:linux",
+        "@zig_sdk//libc:musl",
+    ],
+)
+
+py_test(
+    name = "consumer_python_test",
+    srcs = ["consumer_python_test.py"],
+)
+
+py_test(
+    name = "bootstrap_static_test",
+    srcs = ["bootstrap_static_test.py"],
+    args = [
+        "$(rootpath @mkosi_debian_tools//:launcher)",
+        "$(rootpath @mkosi_debian_tools//:namespace_runner)",
+    ],
+    data = [
+        "@mkosi_debian_tools//:launcher",
+        "@mkosi_debian_tools//:namespace_runner",
+    ],
+)
+
+sh_test(
+    name = "launcher_help_test",
+    srcs = ["launcher_help_test.sh"],
+    args = ["$(rootpath @mkosi_debian_tools//:launcher)"],
+    data = ["@mkosi_debian_tools//:launcher"],
+)
+
+managed_python_test(
+    name = "mkosi_python_test",
+    src = "mkosi_python_test.py",
+    args = ["$(rootpath @mkosi_toolchains//:mkosi_python)"],
+    data = [
+        "mkosi_python_test.py",
+        "@mkosi_toolchains//:mkosi_python",
+    ],
+)
+
+build_test(
+    name = "mkosi_toolchain_build_test",
+    targets = ["@mkosi_toolchains//:mkosi_toolchain"],
+)

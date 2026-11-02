@@ -132,5 +132,19 @@ The separate `manifest` pass uses the one `manifest` selector with
 failure diagnostics. These fixtures deliberately have no lockfiles and run
 with `--lockfile_mode=off` on both supported versions, so dependency state
 does not become part of semantic fixture maintenance. Run one fixture with
-`e2e/module_resolution/test.sh <default|explicit|unsupported|conflicting_root|nonroot_name|root_dependency>`;
+`e2e/module_resolution/test.sh <default|explicit|unsupported|conflicting_root|nonroot_name|root_dependency|snapshot_name_conflict|consumer_isolation>`;
 CI runs every fixture on Bazel 8.5.1 and 9.2.0.
+
+`module_resolution/consumer_isolation` is a consumer whose defaults conflict
+with rules_mkosi's: it depends on rules_python 2.3.4, defaults to Python 3.13,
+selects rules_python's shell `script` bootstrap, and registers zig's glibc
+toolchain, which cannot link fully static executables, before every other C/C++
+toolchain. Its `.bazelrc` selects a libc-aware musl platform through
+`@rules_mkosi//mkosi/toolchain:bootstrap_platform`. Its tests prove that the
+consumer's own Python remains 3.13, that rules_mkosi's managed Python and mkosi
+toolchain resolve 3.14 with the locked wheels, that the Debian launcher runs
+its Python stub, and that the launcher and namespace runner are fully static.
+The fixture script also checks the link actions: the bootstrap executables use
+the musl toolchain in both target and execution configurations, the inherited
+default platform would use the glibc toolchain, and a consumer-configured
+rules_mkosi target keeps the glibc toolchain.

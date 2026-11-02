@@ -232,7 +232,8 @@ configuration also selects rules_python's `system_python` bootstrap for the
 launcher's Python stub, because the static launcher executes the interpreter
 directly on that stub. A root may therefore keep
 `--@rules_python//python/config_settings:bootstrap_impl=script` for its own
-targets.
+targets. The `e2e/module_resolution/consumer_isolation` fixture exercises this
+setup together with a Python 3.13 default.
 
 The root module may select a version with `mkosi.toolchain(version = "27")`;
 unsupported or conflicting requests fail during module resolution.

@@ -86,6 +86,13 @@ dependencies change, regenerate the two committed lockfiles with Bazel 8.5.1
 using `--lockfile_mode=update`; never edit generated lockfiles by hand or
 update them in CI.
 
+Run one module-resolution fixture, for example the consumer isolation
+fixture, with:
+
+```console
+e2e/module_resolution/test.sh consumer_isolation
+```
+
 The root command intentionally excludes `e2e/`. See
 [the test architecture](docs/design/0003-ruleset-architecture.md#consumer-module)
 and [`e2e/README.md`](e2e/README.md).
