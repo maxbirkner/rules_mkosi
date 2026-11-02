@@ -524,6 +524,8 @@ def _mkosi_image_impl(ctx):
         arguments.add(snapshot.codename)
         arguments.add("--release-snapshot")
         arguments.add(snapshot.snapshot)
+        arguments.add("--release-components")
+        arguments.add(",".join(snapshot.components))
         arguments.add("--release-firmware")
         arguments.add(firmware)
     if config_is_directory:
@@ -745,6 +747,7 @@ def _mkosi_image_impl(ctx):
         metadata["debian_snapshot"] = {
             "architecture": snapshot.architecture,
             "codename": snapshot.codename,
+            "components": snapshot.components,
             "format_version": snapshot.format_version,
             "lock_sha256": snapshot.lock_sha256,
             "snapshot": snapshot.snapshot,

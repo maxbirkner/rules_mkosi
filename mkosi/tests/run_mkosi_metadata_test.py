@@ -122,6 +122,53 @@ def main():
         "20250814T000000Z",
         [root],
     )
+    snapshot_components = ("main", "non-free-firmware")
+    assert wrapper._release_apt_components([], snapshot_components) == ("main",)
+    assert wrapper._release_apt_components(
+        ["non-free-firmware", "main", "non-free-firmware"],
+        snapshot_components,
+    ) == snapshot_components
+    wrapper._validate_release_configuration(
+        [
+            types.SimpleNamespace(
+                seed=uuid.UUID(seed),
+                source_date_epoch=0,
+                repositories=["non-free-firmware"],
+            )
+        ],
+        seed,
+        0,
+        "debian",
+        "trixie",
+        "20250814T000000Z",
+        [root],
+        release_components=snapshot_components,
+    )
+    for repositories, components in (
+        (["non-free-firmware"], ("main",)),
+        (["contrib"], snapshot_components),
+    ):
+        try:
+            wrapper._validate_release_configuration(
+                [
+                    types.SimpleNamespace(
+                        seed=uuid.UUID(seed),
+                        source_date_epoch=0,
+                        repositories=repositories,
+                    )
+                ],
+                seed,
+                0,
+                "debian",
+                "trixie",
+                "20250814T000000Z",
+                [root],
+                release_components=components,
+            )
+        except SystemExit as error:
+            assert "absent from the Debian snapshot: " + repositories[0] in str(error), error
+        else:
+            raise AssertionError("Repositories={} was accepted".format(repositories))
     safe_extra = root / "mkosi.extra"
     wrapper._validate_release_configuration(
         [

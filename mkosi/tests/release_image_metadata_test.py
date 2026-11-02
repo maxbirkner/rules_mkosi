@@ -13,6 +13,7 @@ def main() -> None:
     assert metadata["debian_snapshot"] == {
         "architecture": "amd64",
         "codename": "trixie",
+        "components": ["main"],
         "format_version": "debian-snapshot-v1",
         "lock_sha256": "fa4e9f106cf6fb20b8b2c2b9206375e4af25abb7fd885fbfd9613ecb7bb191ce",
         "snapshot": "20250814T000000Z",
