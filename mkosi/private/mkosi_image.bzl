@@ -881,10 +881,10 @@ Lowercase letters, digits, '.', '-' and '_' only. Make variables are expanded as
         "image_version": attr.string(
             doc = """os-release IMAGE_VERSION passed to mkosi as ImageVersion=, overriding the configuration.
 
-Requires image_id. Letters, digits, '.', '~' and '^' only, so that '_' separates the id from the version and
-'+'/'-' remain free for systemd-boot boot counting. Make variables are expanded, so a release version can come
-from a build setting through a TemplateVariableInfo target in the common `toolchains` attribute, e.g.
-image_version = "$(OS_VERSION)".
+Requires image_id. Letters, digits and '.' only: systemd-sysupdate accepts only letters, digits and ".,_-+" in
+a version, '_' separates the id from the version, and '+'/'-' remain free for systemd-boot boot counting. Make
+variables are expanded, so a release version can come from a build setting through a TemplateVariableInfo target in
+the common `toolchains` attribute, e.g. image_version = "$(OS_VERSION)".
 With verity='hash', the populated root and verity partitions must be labelled
 '<image_id>_<image_version>' and '<image_id>_<image_version>_verity' (repart 'Label=%M_%A' and
 'Label=%M_%A_verity'), and inactive A/B slots must be labelled '_empty', following the

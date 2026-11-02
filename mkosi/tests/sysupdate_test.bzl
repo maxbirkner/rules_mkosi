@@ -5,6 +5,7 @@ load(
     "//mkosi:defs.bzl",
     "MkosiImageInfo",
     "MkosiRootfsPayloadInfo",
+    "SecureBootSignedUkiInfo",
     "SysupdatePayloadInfo",
     "mkosi_image",
     "qemu_ovmf_boot_config",
@@ -19,6 +20,20 @@ _template_variables = rule(
     implementation = _template_variables_impl,
     attrs = {"variables": attr.string_dict(mandatory = True)},
 )
+
+def _signed_uki_impl(ctx):
+    request = ctx.actions.declare_file(ctx.label.name + ".secure-boot-request.json")
+    signed_uki = ctx.actions.declare_file(ctx.label.name + ".signed.efi")
+    ctx.actions.write(request, "{}")
+    ctx.actions.write(signed_uki, "")
+    return [SecureBootSignedUkiInfo(
+        format_version = "mkosi-secure-boot-signed-uki-v2",
+        request = request,
+        signed_uki = signed_uki,
+        verification_metadata = request,
+    )]
+
+_signed_uki = rule(implementation = _signed_uki_impl)
 
 def _action(env, mnemonic):
     actions = [action for action in analysistest.target_actions(env) if action.mnemonic == mnemonic]
@@ -136,10 +151,19 @@ def _payload_test_impl(ctx):
     ):
         asserts.true(env, _option_value(argv, option).endswith("/" + basename), option)
         asserts.true(env, basename in [file.basename for file in action.inputs.to_list()], basename)
+    for option, basename in (
+        ("--signed-uki", "signed_uki_subject.signed.efi"),
+        ("--signing-request", "signed_uki_subject.secure-boot-request.json"),
+    ):
+        if ctx.attr.expect_signed_uki:
+            asserts.true(env, _option_value(argv, option).endswith("/" + basename), option)
+            asserts.true(env, basename in [file.basename for file in action.inputs.to_list()], basename)
+        else:
+            asserts.false(env, option in argv, option)
     asserts.equals(env, info.directory.path, _option_value(argv, "--output"))
     return analysistest.end(env)
 
-_payload_test = analysistest.make(_payload_test_impl)
+_payload_test = analysistest.make(_payload_test_impl, attrs = {"expect_signed_uki": attr.bool()})
 
 def _lifecycle_boot_config_test_impl(ctx):
     env = analysistest.begin(ctx)
@@ -223,7 +247,7 @@ def sysupdate_test_suite(name):
         config_tree = ":release_config_tree",
         debian_snapshot = "@mkosi_debian_snapshot//:repository",
         image_id = "rules-mkosi.plain_1",
-        image_version = "1.2~rc1^git",
+        image_version = "1.2.RC1",
         mode = "release",
         release_seed = "00000000-0000-4000-8000-000000000007",
         release_source_date_epoch = 0,
@@ -232,7 +256,7 @@ def sysupdate_test_suite(name):
     _image_identity_test(
         name = "versioned_plain_release_identity_test",
         expected_id = "rules-mkosi.plain_1",
-        expected_version = "1.2~rc1^git",
+        expected_version = "1.2.RC1",
         target_under_test = ":versioned_plain_release_subject",
     )
     mkosi_image(
@@ -261,9 +285,12 @@ def sysupdate_test_suite(name):
         ("uppercase_image_id", {"image_id": "Rules"}, "image_id must be non-empty and use only lowercase"),
         ("image_id_space", {"image_id": "rules mkosi"}, "image_id must be non-empty"),
         ("version_without_id", {"image_version": "1"}, "image_version requires image_id"),
+        ("tilde_version", {"image_id": "rules", "image_version": "1~rc1"}, "image_version must be non-empty"),
+        ("caret_version", {"image_id": "rules", "image_version": "1^git"}, "image_version must be non-empty"),
         ("underscore_version", {"image_id": "rules", "image_version": "1_2"}, "image_version must be non-empty"),
         ("boot_counter_version", {"image_id": "rules", "image_version": "1+2"}, "image_version must be non-empty"),
         ("dash_version", {"image_id": "rules", "image_version": "1-2"}, "image_version must be non-empty"),
+        ("comma_version", {"image_id": "rules", "image_version": "1,2"}, "image_version must be non-empty"),
         ("undefined_variable_version", {"image_id": "rules", "image_version": "$(UNDEFINED_VERSION)"}, "UNDEFINED_VERSION"),
     ]:
         mkosi_image(
@@ -335,7 +362,22 @@ def sysupdate_test_suite(name):
         name = "versioned_payload_test",
         target_under_test = ":versioned_payload_subject",
     )
-    tests.append(":versioned_payload_test")
+    _signed_uki(
+        name = "signed_uki_subject",
+        tags = ["manual"],
+    )
+    sysupdate_payload(
+        name = "signed_payload_subject",
+        image = ":versioned_release_subject",
+        signed_uki = ":signed_uki_subject",
+        tags = ["manual"],
+    )
+    _payload_test(
+        name = "signed_payload_test",
+        expect_signed_uki = True,
+        target_under_test = ":signed_payload_subject",
+    )
+    tests += [":signed_payload_test", ":versioned_payload_test"]
     for subject, image, expected_error in [
         ("unversioned", ":immutable_release_subject", "image must set image_id and image_version"),
         ("without_verity", ":versioned_plain_release_subject", "unified_kernel_image = 'unsigned' and verity = 'hash'"),

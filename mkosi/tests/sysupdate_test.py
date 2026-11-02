@@ -74,6 +74,8 @@ class TransferTest(unittest.TestCase):
 
     def test_zero_boot_attempts_disables_boot_counting(self):
         target = _section(sysupdate.transfers("os", boot_attempts=0, instances=2)["90-uki.transfer"], "Target")
+        # systemd-sysupdate names new files after the first pattern and defaults to TriesLeft=3.
+        self.assertEqual("os_@v.efi os_@v+@l-@d.efi os_@v+@l.efi", target["MatchPattern"])
         self.assertNotIn("TriesLeft", target)
         self.assertNotIn("TriesDone", target)
 
@@ -95,6 +97,7 @@ class PayloadTest(unittest.TestCase):
         self.root_image.write_bytes(b"root" + bytes(3 * 1024 * 1024))
         (self.root / "verity.raw").write_bytes(b"verity")
         (self.root / "image.efi").write_bytes(b"uki")
+        (self.root / "signed.efi").write_bytes(b"signed uki")
         (self.root / "roothash").write_text(ROOT_HASH.upper() + "\n")
         self.write_partitions(ROOT_UUID, VERITY_UUID)
 
@@ -109,7 +112,11 @@ class PayloadTest(unittest.TestCase):
         ]
         (self.root / "partitions.json").write_text(json.dumps({"partitions": partitions}))
 
-    def run_payload(self):
+    def write_signing_request(self, unsigned_uki):
+        request = {"unsigned_uki_sha256": hashlib.sha256(unsigned_uki).hexdigest()}
+        (self.root / "request.json").write_text(json.dumps(request))
+
+    def run_payload(self, *extra_args):
         output = self.root / "payload"
         argv = [
             "sysupdate.py",
@@ -122,10 +129,17 @@ class PayloadTest(unittest.TestCase):
             "--verity-image={}".format(self.root / "verity.raw"),
             "--uki={}".format(self.root / "image.efi"),
             "--output={}".format(output),
+            *extra_args,
         ]
         with mock.patch.object(sys, "argv", argv):
             sysupdate.main()
         return output
+
+    def signed_args(self):
+        return [
+            "--signed-uki={}".format(self.root / "signed.efi"),
+            "--signing-request={}".format(self.root / "request.json"),
+        ]
 
     def test_payload_names_and_checksums(self):
         output = self.run_payload()
@@ -157,6 +171,23 @@ class PayloadTest(unittest.TestCase):
         self.assertIn("SYSUPDATE_INVALID", str(raised.exception))
         self.assertIn("does not match root-hash-derived UUID " + VERITY_UUID, str(raised.exception))
         self.assertFalse((self.root / "payload").exists())
+
+    def test_signed_uki_for_this_image_replaces_unsigned_uki(self):
+        self.write_signing_request(b"uki")
+        output = self.run_payload(*self.signed_args())
+        self.assertEqual(b"signed uki", (output / "os_7.efi").read_bytes())
+
+    def test_signed_uki_requested_for_another_image_is_rejected(self):
+        self.write_signing_request(b"another uki")
+        with self.assertRaises(SystemExit) as raised:
+            self.run_payload(*self.signed_args())
+        self.assertIn("SYSUPDATE_INVALID", str(raised.exception))
+        self.assertIn("signed UKI was requested for unsigned UKI", str(raised.exception))
+        self.assertFalse((self.root / "payload").exists())
+
+    def test_signed_uki_without_signing_request_is_rejected(self):
+        with self.assertRaisesRegex(SystemExit, "must be given together"):
+            self.run_payload(self.signed_args()[0])
 
     def test_unlabelled_root_slot_is_rejected(self):
         self.write_partitions(ROOT_UUID, VERITY_UUID, root_label="root-x86-64")

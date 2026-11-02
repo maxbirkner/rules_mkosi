@@ -27,11 +27,11 @@ They are exposed as `MkosiImageInfo.image_id`/`image_version` and in the
 
 - `image_id` uses lowercase letters, digits, `.`, `_`, and `-`. It is shared by
   every release of the image.
-- `image_version` uses letters, digits, `.`, `~`, and `^`, and requires
-  `image_id`. `_` separates the id from the version in every artifact name, and
-  `+` and `-` introduce the boot-counting suffix of a UKI, so none of them may
-  appear in a version. Versions are compared like
-  [UAPI version strings](https://uapi-group.org/specifications/specs/version_format_specification/).
+- `image_version` uses only letters, digits, and `.`, and requires `image_id`.
+  systemd-sysupdate accepts only letters, digits, and `.,_-+` in a version;
+  `_` separates the id from the version in every artifact name, and `+` and `-`
+  introduce the boot-counting suffix of a UKI, so none of them may appear in a
+  version.
 
 Both attributes expand Make variables, so the version can come from a build
 setting rather than being edited in `BUILD` files:
@@ -189,15 +189,20 @@ written before the UKI that references them:
 | --- | --- | --- |
 | `10-root.transfer` | `<id>_@v.root.@u.raw` | partition of type `root-x86-64` labelled `<id>_@v` |
 | `20-root-verity.transfer` | `<id>_@v.root-verity.@u.raw` | partition of type `root-x86-64-verity` labelled `<id>_@v_verity` |
-| `90-uki.transfer` | `<id>_@v.efi` | `/EFI/Linux/<id>_@v+@l-@d.efi` on `$BOOT` |
+| `90-uki.transfer` | `<id>_@v.efi` | `/EFI/Linux/<id>_@v+@l-@d.efi` on `$BOOT`, or `<id>_@v.efi` with `boot_attempts = 0` |
 
 Sources use `Path=/` with `PathRelativeTo=explicit`, so the update directory is
 chosen at run time with `--transfer-source=`. `@u` in a source name sets the
 target partition's UUID to the root-hash-derived UUID, which is what lets the
 new UKI find its root. Every transfer has `ProtectVersion=%A`, so the running
 release is never overwritten, and keeps at most `instances` versions. New UKIs
-are installed with `TriesLeft=<boot_attempts>`; `boot_attempts = 0` disables
-boot counting.
+are installed with `TriesLeft=<boot_attempts>`.
+
+systemd-sysupdate names a new UKI after the first target `MatchPattern=` and
+defaults to `TriesLeft=3`, so `boot_attempts = 0` disables boot counting by
+listing `<id>_@v.efi` first, ahead of the counted patterns. The counter-free
+pattern then also matches counted names, so do not switch a device to
+`boot_attempts = 0` while its ESP still holds boot-counted UKIs.
 
 ## Update payloads
 
@@ -216,8 +221,9 @@ The output directory contains `<id>_<version>.root.<uuid>.raw`,
 `SHA256SUMS` manifest; zero runs stay sparse. The action fails, leaving no
 output, when the image's GPT UUIDs differ from the UUIDs derived from its root
 hash. `signed_uki` substitutes a UKI imported with
-[`secure_boot_import_response`](secure-boot.md). `SysupdatePayloadInfo`
-exposes the directory, image id, and version.
+[`secure_boot_import_response`](secure-boot.md); the action also fails unless
+that UKI's signing request names the SHA-256 of this image's unsigned UKI.
+`SysupdatePayloadInfo` exposes the directory, image id, and version.
 
 Apply the payload on the device:
 

@@ -62,12 +62,14 @@ rejects aliases, collisions, traversal, and unsafe links.
 <!-- behavior:BHV-IMAGE-IDENTITY -->
 `mkosi_image.image_id` and `image_version` expand Make variables, override
 mkosi's `ImageId=`/`ImageVersion=`, and appear in `MkosiImageInfo` and the
-build metadata. `image_version` requires `image_id` and rejects `_`, `+`, and
-`-`, which systemd-sysupdate and boot counting use as separators.
+build metadata. `image_version` requires `image_id` and accepts only letters,
+digits, and `.`, a subset of the systemd-sysupdate version alphabet that keeps
+`_`, `+`, and `-` free as separators in artifact names and boot counting.
 
 <!-- behavior:BHV-SYSUPDATE-TRANSFERS -->
 `sysupdate_transfers` validates its image id, non-negative `boot_attempts`
-(zero disables boot counting), and at least two `instances`, and installs root,
+(zero lists the counter-free UKI pattern first so that new UKIs are installed
+without a boot counter), and at least two `instances`, and installs root,
 verity, and UKI transfer definitions at a typed rootfs destination. Sources use
 `PathRelativeTo=explicit`, partition targets take their UUID from `@u`, and
 every transfer protects the running version.
@@ -131,8 +133,9 @@ not reproducible.
 
 <!-- behavior:BHV-SYSUPDATE-PAYLOAD -->
 `sysupdate_payload` requires a versioned image with an unsigned UKI and
-hash-only dm-verity, optionally substitutes an externally signed UKI, and
-exposes `SysupdatePayloadInfo`. It names the root and verity artifacts with the
+hash-only dm-verity, optionally substitutes an externally signed UKI whose
+signing request names the image's unsigned UKI digest, and exposes
+`SysupdatePayloadInfo`. It names the root and verity artifacts with the
 partition UUIDs that systemd-repart derives from the root hash, rejects images
 whose GPT UUIDs differ, writes `SHA256SUMS`, and leaves no partial output.
 

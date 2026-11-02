@@ -44,6 +44,8 @@ def transfers(image_id, boot_attempts, instances):
     """Returns transfer file names and contents for the root, verity and UKI resources.
 
     File names sort so that both partitions are written before the UKI that references them.
+    systemd-sysupdate names a new UKI after the first target MatchPattern and gives it TriesLeft=3 unless
+    configured otherwise, so boot counting is disabled by listing the counter-free pattern first.
     """
     partition = """\
 Type=partition
@@ -52,13 +54,18 @@ MatchPattern={label}
 MatchPartitionType={partition_type}
 ReadOnly=yes
 InstancesMax={instances}"""
+    counted = ["{}_@v+@l-@d.efi".format(image_id), "{}_@v+@l.efi".format(image_id)]
+    uncounted = ["{}_@v.efi".format(image_id)]
     uki_target = """\
 Type=regular-file
 Path=/EFI/Linux
 PathRelativeTo=boot
-MatchPattern={image_id}_@v+@l-@d.efi {image_id}_@v+@l.efi {image_id}_@v.efi
+MatchPattern={patterns}
 Mode=0444
-InstancesMax={instances}""".format(image_id=image_id, instances=instances)
+InstancesMax={instances}""".format(
+        patterns=" ".join(counted + uncounted if boot_attempts else uncounted + counted),
+        instances=instances,
+    )
     if boot_attempts:
         uki_target += "\nTriesLeft={}\nTriesDone=0".format(boot_attempts)
     return {
@@ -119,7 +126,31 @@ def _copy(source, destination):
     return digest.hexdigest()
 
 
+def _sha256(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as source:
+        while chunk := source.read(_CHUNK_BYTES):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _release_uki(args):
+    """Returns the UKI to ship, rejecting a signed UKI whose signing request names another unsigned UKI."""
+    if (args.signed_uki is None) != (args.signing_request is None):
+        raise ValueError("--signed-uki and --signing-request must be given together")
+    if args.signed_uki is None:
+        return args.uki
+    requested = json.loads(Path(args.signing_request).read_text(encoding="utf-8"))["unsigned_uki_sha256"]
+    actual = _sha256(args.uki)
+    if requested != actual:
+        raise ValueError(
+            "signed UKI was requested for unsigned UKI {} but the image's UKI is {}".format(requested, actual)
+        )
+    return args.signed_uki
+
+
 def payload(args):
+    uki = _release_uki(args)
     root_hash = Path(args.root_hash).read_text(encoding="ascii").strip().lower()
     root_uuid, verity_uuid = verity_partition_uuids(root_hash)
     partitions = json.loads(Path(args.partition_metadata).read_text(encoding="utf-8"))["partitions"]
@@ -139,7 +170,7 @@ def payload(args):
     for name, source in (
         (root_name(args.image_id, args.image_version, root_uuid), args.root_image),
         (verity_name(args.image_id, args.image_version, verity_uuid), args.verity_image),
-        (uki_name(args.image_id, args.image_version), args.uki),
+        (uki_name(args.image_id, args.image_version), uki),
     ):
         digests[name] = _copy(source, output / name)
     (output / "SHA256SUMS").write_text(
@@ -172,6 +203,8 @@ def main():
     payload_parser.add_argument("--root-image", required=True)
     payload_parser.add_argument("--verity-image", required=True)
     payload_parser.add_argument("--uki", required=True)
+    payload_parser.add_argument("--signed-uki")
+    payload_parser.add_argument("--signing-request")
     payload_parser.add_argument("--output", required=True)
     payload_parser.set_defaults(handler=payload)
     args = parser.parse_args()
