@@ -1,0 +1,57 @@
+#!/bin/sh
+# Drives the A/B lifecycle test from inside the guest. The host test checks the
+# serial markers printed here and the final poweroff.
+set -eu
+
+marker() {
+    echo "rules-mkosi-ab: $*"
+}
+
+install_release() {
+    mkdir -p /run/payload
+    mount -t 9p -o trans=virtio,version=9p2000.L,ro "payload-$1" /run/payload
+    # Log to the serial console rather than only to the journal.
+    SYSTEMD_LOG_TARGET=console /usr/lib/systemd/systemd-sysupdate --transfer-source=/run/payload update
+    umount /run/payload
+    # A new UKI starts with boot counting enabled.
+    for uki in "${esp}/EFI/Linux/${IMAGE_ID}_$1+"*.efi; do
+        [ -e "${uki}" ] || {
+            marker "release $1 was not installed"
+            exit 1
+        }
+    done
+    marker "installed $1"
+    systemctl reboot --no-block
+}
+
+. /usr/lib/os-release
+esp=$(bootctl --print-esp-path)
+roothash=
+for argument in $(cat /proc/cmdline); do
+    case "${argument}" in
+    roothash=*) roothash="${argument#roothash=}" ;;
+    esac
+done
+marker "running ${IMAGE_VERSION} with roothash ${roothash}"
+
+case "${IMAGE_VERSION}" in
+1)
+    install_release 2
+    ;;
+2)
+    if [ -e "${esp}/EFI/Linux/${IMAGE_ID}_3+0-1.efi" ] && [ -e "${esp}/EFI/Linux/${IMAGE_ID}_2.efi" ]; then
+        marker "rolled back from 3 to 2"
+        systemctl poweroff --no-block
+    elif [ -e "${esp}/EFI/Linux/${IMAGE_ID}_2.efi" ]; then
+        marker "2 is blessed"
+        install_release 3
+    else
+        marker "2 is not blessed"
+        exit 1
+    fi
+    ;;
+*)
+    marker "unexpected version ${IMAGE_VERSION}"
+    exit 1
+    ;;
+esac

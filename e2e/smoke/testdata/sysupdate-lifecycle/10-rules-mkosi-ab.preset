@@ -1,0 +1,2 @@
+enable rules-mkosi-ab-lifecycle.service
+enable rules-mkosi-ab-health.service

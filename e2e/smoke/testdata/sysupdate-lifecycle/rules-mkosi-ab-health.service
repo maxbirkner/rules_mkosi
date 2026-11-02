@@ -1,0 +1,12 @@
+[Unit]
+Description=Health check that always fails
+Before=boot-complete.target
+FailureAction=reboot
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'echo "rules-mkosi-ab: health check failed"; exit 1'
+StandardOutput=journal+console
+
+[Install]
+RequiredBy=boot-complete.target

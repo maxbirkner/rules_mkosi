@@ -1,0 +1,16 @@
+[Unit]
+Description=A/B update lifecycle test driver
+# boot-complete.target fails when a health check fails, so the driver does not
+# race the failing release's reboot.
+Requires=boot-complete.target
+After=boot-complete.target systemd-bless-boot.service
+FailureAction=poweroff
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/rules-mkosi-ab-lifecycle
+StandardOutput=journal+console
+StandardError=journal+console
+
+[Install]
+WantedBy=multi-user.target
