@@ -158,80 +158,166 @@ class DebianSnapshotUnitTest(unittest.TestCase):
                 ((str(first), "amd64"), (str(second), "all")), expected
             )
 
-    def test_stages_exact_layout_with_deterministic_metadata(self):
-        package = self.work / "pkg.deb"
-        package.write_bytes(b"representative package")
-        package_digest = hashlib.sha256(package.read_bytes()).hexdigest()
-        package_index = (
-            "Package: demo\nVersion: 1\nArchitecture: amd64\n"
-            "Filename: pool/main/d/demo_1_amd64.deb\n"
-            "Size: %d\n"
-            "SHA256: %s\n\n" % (package.stat().st_size, package_digest)
+    def _write_index(self, name, content):
+        path = self.work / name
+        with lzma.open(path, "wb") as output:
+            output.write(content)
+        return path
+
+    def _package(self, name, component, content):
+        package = self.work / ("%s.deb" % name)
+        package.write_bytes(content)
+        digest = hashlib.sha256(content).hexdigest()
+        filename = "pool/%s/%s/%s_1_amd64.deb" % (component, name[0], name)
+        paragraph = (
+            "Package: %s\nVersion: 1\nArchitecture: amd64\n"
+            "Filename: %s\nSize: %d\nSHA256: %s\n\n" % (name, filename, len(content), digest)
         ).encode()
-        package_all = b""
-        packages_xz = self.work / "Packages.xz"
-        packages_all_xz = self.work / "Packages-all.xz"
-        with lzma.open(packages_xz, "wb") as output:
-            output.write(package_index)
-        with lzma.open(packages_all_xz, "wb") as output:
-            output.write(package_all)
-        packages_digest = hashlib.sha256(packages_xz.read_bytes()).hexdigest()
-        packages_all_digest = hashlib.sha256(packages_all_xz.read_bytes()).hexdigest()
-        release = (
-            "SHA256:\n %s %d main/binary-amd64/Packages.xz\n"
-            " %s %d main/binary-all/Packages.xz\n"
-            % (
-                packages_digest,
-                packages_xz.stat().st_size,
-                packages_all_digest,
-                packages_all_xz.stat().st_size,
+        record = "%s|1|amd64|%s|%d|%s" % (name, filename, len(content), digest)
+        return package, paragraph, record
+
+    def _arguments(self, extra_components=()):
+        package, paragraph, record = self._package("demo", "main", b"representative package")
+        indexes = [
+            ("main", "amd64", self._write_index("main-amd64.xz", paragraph)),
+            ("main", "all", self._write_index("main-all.xz", b"")),
+        ]
+        packages = [(package, record + "|pkg_000.deb")]
+        for index, component in enumerate(extra_components):
+            firmware, firmware_paragraph, firmware_record = self._package(
+                "firmware-%d" % index, component, b"firmware payload %d" % index
             )
-        ).encode()
+            indexes.append(
+                (component, "amd64", self._write_index(component + "-amd64.xz", firmware_paragraph))
+            )
+            indexes.append((component, "all", self._write_index(component + "-all.xz", b"")))
+            packages.append((firmware, firmware_record + "|pkg_%03d.deb" % (index + 1)))
+        digests = {
+            (component, architecture): hashlib.sha256(path.read_bytes()).hexdigest()
+            for component, architecture, path in indexes
+        }
+        release = b"SHA256:\n" + b"".join(
+            b" %s %d %s/binary-%s/Packages.xz\n"
+            % (
+                digests[(component, architecture)].encode(),
+                path.stat().st_size,
+                component.encode(),
+                architecture.encode(),
+            )
+            for component, architecture, path in indexes
+        )
         inrelease = self.work / "InRelease"
         release_path = self.work / "Release"
         release_gpg = self.work / "Release.gpg"
         inrelease.write_bytes(b"signed")
         release_path.write_bytes(release)
         release_gpg.write_bytes(b"signature")
-        output = self.work / "out"
-        scratch = self.work / "scratch"
-        args = types.SimpleNamespace(
+        return types.SimpleNamespace(
             inrelease=str(inrelease),
             release=str(release_path),
             release_gpg=str(release_gpg),
-            packages_xz=str(packages_xz),
-            packages_all_xz=str(packages_all_xz),
-            output=str(output),
-            scratch=str(scratch),
+            packages_xz=str(indexes[0][2]),
+            packages_all_xz=str(indexes[1][2]),
+            output=str(self.work / "out"),
+            scratch=str(self.work / "scratch"),
             launcher="launcher",
             inrelease_sha256=hashlib.sha256(inrelease.read_bytes()).hexdigest(),
             release_sha256=hashlib.sha256(release).hexdigest(),
             release_gpg_sha256=hashlib.sha256(release_gpg.read_bytes()).hexdigest(),
-            packages_xz_sha256=packages_digest,
-            packages_all_xz_sha256=packages_all_digest,
+            packages_xz_sha256=digests[("main", "amd64")],
+            packages_all_xz_sha256=digests[("main", "all")],
             packages_path="dists/trixie/main/binary-amd64/Packages.xz",
             packages_all_path="dists/trixie/main/binary-all/Packages.xz",
-            package_records=[
-                "demo|1|amd64|pool/main/d/demo_1_amd64.deb|%d|%s|pkg_000.deb"
-                % (package.stat().st_size, package_digest)
+            codename="trixie",
+            component_indexes=[
+                "%s|%s|dists/trixie/%s/binary-%s/Packages.xz|%s"
+                % (component, architecture, component, architecture, digests[(component, architecture)])
+                for component, architecture, _ in indexes[2:]
             ],
-            package_names=["pkg_000.deb"],
-            packages=[str(package)],
+            component_index_files=[str(path) for _, _, path in indexes[2:]],
+            package_records=[record for _, record in packages],
+            package_names=[record.rsplit("|", 1)[1] for _, record in packages],
+            packages=[str(package) for package, _ in packages],
         )
 
+    def _stage(self, args):
         def verify(*_):
-            verified = output / "verified-release"
-            verified.parent.mkdir(parents=True)
-            verified.write_bytes(release)
+            verified = pathlib.Path(args.output) / "verified-release"
+            verified.parent.mkdir(parents=True, exist_ok=True)
+            verified.write_bytes(pathlib.Path(args.release).read_bytes())
 
         with mock.patch.object(debian_snapshot, "_verify_signature", side_effect=verify):
             debian_snapshot.stage(args)
-        repository = output
+        return pathlib.Path(args.output)
+
+    def test_stages_exact_layout_with_deterministic_metadata(self):
+        repository = self._stage(self._arguments())
         self.assertEqual(
             b"representative package",
             (repository / "pool/main/d/demo_1_amd64.deb").read_bytes(),
         )
         self.assertEqual(0, (repository / "dists/trixie/Release").stat().st_mtime_ns)
+
+    def test_stages_every_locked_component(self):
+        repository = self._stage(self._arguments(("non-free-firmware", "contrib")))
+        for component in ("main", "non-free-firmware", "contrib"):
+            for architecture in ("amd64", "all"):
+                index = repository / "dists/trixie" / component / ("binary-" + architecture) / "Packages"
+                self.assertTrue(index.is_file(), index)
+        self.assertEqual(
+            b"firmware payload 0",
+            (repository / "pool/non-free-firmware/f/firmware-0_1_amd64.deb").read_bytes(),
+        )
+        self.assertEqual(
+            b"firmware payload 1",
+            (repository / "pool/contrib/f/firmware-1_1_amd64.deb").read_bytes(),
+        )
+
+    def test_component_index_must_be_authenticated_by_release(self):
+        args = self._arguments(("non-free-firmware",))
+        release = pathlib.Path(args.release).read_bytes()
+        release = b"\n".join(
+            line for line in release.split(b"\n") if b"non-free-firmware/binary-amd64" not in line
+        )
+        pathlib.Path(args.release).write_bytes(release)
+        args.release_sha256 = hashlib.sha256(release).hexdigest()
+        with self.assertRaisesRegex(ValueError, "exactly one"):
+            self._stage(args)
+
+    def test_component_index_digest_is_verified(self):
+        args = self._arguments(("non-free-firmware",))
+        args.component_indexes[0] = args.component_indexes[0][:-64] + "0" * 64
+        with self.assertRaisesRegex(ValueError, "digest mismatch"):
+            self._stage(args)
+
+    def test_component_indexes_must_be_complete_and_placed(self):
+        args = self._arguments(("non-free-firmware",))
+        del args.component_indexes[1]
+        del args.component_index_files[1]
+        with self.assertRaisesRegex(ValueError, "binary-amd64 and binary-all"):
+            self._stage(args)
+        args = self._arguments(("non-free-firmware",))
+        args.component_indexes[0] = args.component_indexes[0].replace("dists/trixie", "dists/bookworm")
+        with self.assertRaisesRegex(ValueError, "must be staged at"):
+            self._stage(args)
+
+    def test_codename_selects_the_staged_suite(self):
+        args = self._arguments()
+        args.codename = "forky"
+        args.packages_path = args.packages_path.replace("trixie", "forky")
+        args.packages_all_path = args.packages_all_path.replace("trixie", "forky")
+        repository = self._stage(args)
+        self.assertTrue((repository / "dists/forky/InRelease").is_file())
+        self.assertTrue((repository / "dists/forky/main/binary-amd64/Packages").is_file())
+
+    def test_package_must_be_listed_by_a_locked_component(self):
+        args = self._arguments(("non-free-firmware",))
+        _, _, record = self._package("unlisted", "non-free-firmware", b"unlisted")
+        args.package_records.append(record + "|pkg_009.deb")
+        args.package_names.append("pkg_009.deb")
+        args.packages.append(str(self.work / "unlisted.deb"))
+        with self.assertRaisesRegex(ValueError, "do not match Packages metadata"):
+            self._stage(args)
 
 
 if __name__ == "__main__":

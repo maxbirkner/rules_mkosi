@@ -8,20 +8,54 @@ DebianSnapshotInfo = provider(
         "release": "Numeric Debian release.",
         "codename": "Debian codename.",
         "architecture": "Package architecture.",
+        "components": "Archive components staged in the repository, starting with main.",
         "snapshot": "Immutable snapshot identifier.",
         "snapshot_url": "Immutable snapshot URL.",
         "lock_sha256": "Digest of the package and repository lock.",
         "repository": "TreeArtifact containing the local APT repository.",
         "inrelease": "Authenticated InRelease metadata.",
         "release_metadata": "Authenticated Release metadata.",
-        "packages_metadata": "Authenticated Packages metadata.",
+        "packages_metadata": "Authenticated Packages metadata of every staged component.",
         "package_files": "Locked package files staged in the repository.",
     },
 )
 
+def _component_indexes(ctx):
+    if len(ctx.attr.component_packages) != len(ctx.attr.component_package_records):
+        fail("component_packages and component_package_records must have the same length")
+    files = []
+    for target in ctx.attr.component_packages:
+        target_files = target.files.to_list()
+        if len(target_files) != 1:
+            fail("component_packages entry %s must provide exactly one file" % target.label)
+        files.append(target_files[0])
+    components = ["main"]
+    architectures = {}
+    for record in ctx.attr.component_package_records:
+        fields = record.split("|")
+        if len(fields) != 4:
+            fail("component package record must be component|architecture|path|sha256: %s" % record)
+        component, architecture, path, _ = fields
+        if component == "main" or not component or "/" in component:
+            fail("invalid additional Debian component: %s" % component)
+        expected_path = "dists/%s/%s/binary-%s/Packages.xz" % (ctx.attr.codename, component, architecture)
+        if path != expected_path:
+            fail("Debian component index %s must use path %s" % (record, expected_path))
+        if component not in architectures:
+            components.append(component)
+            architectures[component] = []
+        if architecture in architectures[component]:
+            fail("duplicate Debian component index: %s %s" % (component, architecture))
+        architectures[component].append(architecture)
+    for component, indexed in architectures.items():
+        if sorted(indexed) != ["all", "amd64"]:
+            fail("Debian component %s must provide binary-amd64 and binary-all indexes" % component)
+    return components, files
+
 def _impl(ctx):
     if len(ctx.files.package_files) != len(ctx.attr.package_names):
         fail("package_files and package_names must have the same length")
+    components, component_indexes = _component_indexes(ctx)
     debian_tools = ctx.toolchains["//mkosi/toolchain:debian_tools_toolchain_type"].debian_tools
     output = ctx.actions.declare_directory(ctx.label.name + "_repository")
     scratch = ctx.actions.declare_directory(ctx.label.name + "_scratch")
@@ -34,6 +68,7 @@ def _impl(ctx):
     arguments.add("--output", output.path)
     arguments.add("--scratch", scratch.path)
     arguments.add("--launcher", debian_tools.launcher.executable.path)
+    arguments.add("--codename", ctx.attr.codename)
     for name, option in [
         ("inrelease", "inrelease"),
         ("release", "release"),
@@ -44,6 +79,9 @@ def _impl(ctx):
         arguments.add("--%s-sha256" % option, ctx.attr.metadata_digests[name])
     arguments.add("--packages-path", ctx.attr.packages_path)
     arguments.add("--packages-all-path", ctx.attr.packages_all_path)
+    for index, record in zip(component_indexes, ctx.attr.component_package_records):
+        arguments.add("--component-index", record)
+        arguments.add("--component-index-file", index.path)
     for package in ctx.attr.package_records:
         arguments.add("--package", package)
     for package, name in zip(ctx.files.package_files, ctx.attr.package_names):
@@ -61,7 +99,7 @@ def _impl(ctx):
                 ctx.file.packages_xz,
                 ctx.file.packages_all_xz,
                 ctx.file._stager,
-            ] + ctx.files.package_files,
+            ] + component_indexes + ctx.files.package_files,
         ),
         tools = [runtime, debian_tools.launcher],
         outputs = [output, scratch],
@@ -79,13 +117,16 @@ def _impl(ctx):
         release = ctx.attr.release,
         codename = ctx.attr.codename,
         architecture = ctx.attr.architecture,
+        components = components,
         snapshot = ctx.attr.snapshot,
         snapshot_url = ctx.attr.snapshot_url,
         lock_sha256 = ctx.attr.lock_sha256,
         repository = output,
         inrelease = ctx.file.inrelease,
         release_metadata = ctx.file.release_metadata,
-        packages_metadata = depset([ctx.file.packages_xz, ctx.file.packages_all_xz]),
+        packages_metadata = depset(
+            [ctx.file.packages_xz, ctx.file.packages_all_xz] + component_indexes,
+        ),
         package_files = depset(ctx.files.package_files),
     )
     return [repository, DefaultInfo(files = depset([output]))]
@@ -111,6 +152,13 @@ debian_snapshot = rule(
         "package_records": attr.string_list(mandatory = True),
         "packages_path": attr.string(default = "dists/trixie/main/binary-amd64/Packages.xz"),
         "packages_all_path": attr.string(default = "dists/trixie/main/binary-all/Packages.xz"),
+        "component_packages": attr.label_list(
+            allow_files = True,
+            doc = "Packages.xz indexes of components other than main, aligned with component_package_records.",
+        ),
+        "component_package_records": attr.string_list(
+            doc = "component|architecture|path|sha256 records for component_packages.",
+        ),
         "metadata_digests": attr.string_dict(mandatory = True),
         "_stager": attr.label(
             allow_single_file = True,
