@@ -8,7 +8,56 @@ lockfile_mode="${LOCKFILE_MODE:-off}"
 
 cd "$root"
 
+link_graph() {
+    "$bazel_command" --nosystem_rc --nohome_rc aquery --lockfile_mode="$lockfile_mode" \
+        --output=text "$@"
+}
+
+require_link_toolchain() {
+    case "$2" in
+        *"tools/$3"*) ;;
+        *)
+            echo "$1 did not link with the $3 toolchain" >&2
+            echo "$2" >&2
+            exit 1
+            ;;
+    esac
+    case "$2" in
+        *"tools/$4"*)
+            echo "$1 linked with the $4 toolchain" >&2
+            echo "$2" >&2
+            exit 1
+            ;;
+    esac
+}
+
 case "$fixture" in
+    consumer_isolation)
+        "$bazel_command" --nosystem_rc --nohome_rc test --lockfile_mode="$lockfile_mode" //...
+        # The toolchain consumes the launcher in the execution configuration; tests consume it as target data.
+        bootstrap_closure='deps(@mkosi_debian_tools//:launcher) + deps(@mkosi_debian_tools//:toolchain)'
+        bootstrap_links="mnemonic(\"CppLink\", filter(\":(launcher|namespace_runner)_binary\$\", $bootstrap_closure))"
+        graph="$(link_graph "$bootstrap_links")"
+        for action in "launcher_binary'" "namespace_runner_binary'" "launcher_binary [for tool]'"; do
+            case "$graph" in
+                *"Linking external/"*"/$action"*) ;;
+                *)
+                    echo "bootstrap link graph lacks $action" >&2
+                    exit 1
+                    ;;
+            esac
+        done
+        require_link_toolchain "selected bootstrap platform" "$graph" \
+            x86_64-linux-musl/ x86_64-linux-gnu
+        graph="$(link_graph \
+            --@rules_mkosi//mkosi/toolchain:bootstrap_platform=@rules_mkosi//mkosi/toolchain:inherit_platform \
+            "$bootstrap_links")"
+        require_link_toolchain "inherited bootstrap platform" "$graph" \
+            x86_64-linux-gnu x86_64-linux-musl/
+        graph="$(link_graph 'mnemonic("CppLink", deps(@rules_mkosi//mkosi:kernel_preflight))')"
+        require_link_toolchain "consumer target platform" "$graph" \
+            x86_64-linux-gnu x86_64-linux-musl/
+        ;;
     default|explicit)
         definition="$("$bazel_command" --nosystem_rc --nohome_rc \
             query --lockfile_mode="$lockfile_mode" @mkosi_toolchains//:mkosi_toolchain --output=build)"

@@ -5,7 +5,25 @@ import sys
 import unittest
 
 sys.path.insert(0, str(pathlib.Path(__file__).parent))
-from action_graph_validator import validate_action_environment
+from action_graph_validator import action_identity, validate_action_environment
+
+
+class ActionIdentityTest(unittest.TestCase):
+    def test_distinguishes_actions_sharing_an_action_key(self):
+        launcher = {"actionKey": "symlink", "mnemonic": "ExecutableSymlink", "outputIds": [7]}
+        header = {"actionKey": "symlink", "mnemonic": "Symlink", "outputIds": [3]}
+
+        self.assertNotEqual(action_identity(launcher), action_identity(header))
+
+    def test_ignores_output_order(self):
+        self.assertEqual(
+            action_identity({"outputIds": [2, 1]}),
+            action_identity({"outputIds": [1, 2]}),
+        )
+
+    def test_rejects_action_without_outputs(self):
+        with self.assertRaisesRegex(ValueError, "without outputs.*Middleman"):
+            action_identity({"mnemonic": "Middleman", "outputIds": []})
 
 
 class ActionGraphValidatorTest(unittest.TestCase):

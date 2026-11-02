@@ -10,6 +10,16 @@
 The hello-world implementation and tests do not require mkosi or other host
 image-building tools.
 
+Image and Debian tools tests require a Bazel server without supplementary
+groups. Start it from a group-free identity, as CI does, after shutting down
+any server that was started with groups:
+
+```console
+bazel shutdown
+sudo -n setpriv --reuid="$(id -u)" --regid="$(id -g)" --clear-groups \
+  env HOME="$HOME" PATH="$PATH" USER="$USER" bazel test //...
+```
+
 ## Checks
 
 Run all formatting, linting, spelling, secret, and repository hygiene checks:
@@ -85,6 +95,13 @@ versions because they test extension semantics, not dependency locking. If
 dependencies change, regenerate the two committed lockfiles with Bazel 8.5.1
 using `--lockfile_mode=update`; never edit generated lockfiles by hand or
 update them in CI.
+
+Run one module-resolution fixture, for example the consumer isolation
+fixture, with:
+
+```console
+e2e/module_resolution/test.sh consumer_isolation
+```
 
 The root command intentionally excludes `e2e/`. See
 [the test architecture](docs/design/0003-ruleset-architecture.md#consumer-module)

@@ -349,7 +349,10 @@ jobs:
           python3 - debian-tools-aquery.json <<'PY'
           import json
           import sys
-          from ci.action_graph_validator import validate_action_environment
+          from ci.action_graph_validator import (
+              action_identity,
+              validate_action_environment,
+          )
 
           graph = json.load(open(sys.argv[1], encoding="utf-8"))
           archive = []
@@ -438,7 +441,10 @@ jobs:
           validated = set()
 
           def validate_action(action):
-              action_id = action["actionKey"]
+              try:
+                  action_id = action_identity(action)
+              except ValueError as error:
+                  raise SystemExit(str(error)) from error
               if action_id in validated:
                   return
               if action_id in visiting:
@@ -675,6 +681,7 @@ jobs:
           - nonroot_name
           - root_dependency
           - snapshot_name_conflict
+          - consumer_isolation
     env:
       USE_BAZEL_VERSION: ${{ matrix.bazel }}
     steps:
@@ -706,7 +713,7 @@ jobs:
             "build --disk_cache=$fixture_root/.cache/bazel-disk" "$rc"
           git -C "$GITHUB_WORKSPACE" check-ignore -q "$rc"
           case "${{ matrix.fixture }}" in
-            default|explicit)
+            default|explicit|consumer_isolation)
               cache="$fixture_root/.cache/bazel-disk"
               test -d "$cache"
               test "$(realpath "$cache")" = "$cache"

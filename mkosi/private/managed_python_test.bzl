@@ -6,24 +6,21 @@ ManagedPythonTestInfo = provider(
 )
 
 def _managed_python_test_impl(ctx):
-    runtime = ctx.toolchains["@rules_python//python:toolchain_type"].py3_runtime
-    if runtime.interpreter == None:
-        fail("managed_python_test requires an in-build Python interpreter")
-
+    python = ctx.attr._python[DefaultInfo]
     executable = ctx.actions.declare_file(ctx.label.name)
     ctx.actions.symlink(
         output = executable,
-        target_file = runtime.interpreter,
+        target_file = python.files_to_run.executable,
         is_executable = True,
     )
 
-    transitive_files = [runtime.files or depset()]
+    transitive_files = []
     for data in ctx.attr.data:
         transitive_files.append(data[DefaultInfo].files)
     runfiles = ctx.runfiles(
         files = [ctx.file.src],
         transitive_files = depset(transitive = transitive_files),
-    )
+    ).merge(python.default_runfiles)
     for data in ctx.attr.data:
         runfiles = runfiles.merge(data[DefaultInfo].default_runfiles)
 
@@ -48,14 +45,20 @@ _managed_python_attrs = {
         doc = "Python script automatically passed as the interpreter's first argument.",
     ),
     "data": attr.label_list(allow_files = True),
+    # The interpreter is resolved for rules_mkosi's Python line in its own configuration, so the test and its data
+    # stay in the consumer's configuration.
+    "_python": attr.label(
+        default = Label("//mkosi/private:managed_python"),
+        executable = True,
+        cfg = "target",
+    ),
 }
 
 _managed_python_test = rule(
     implementation = _managed_python_test_impl,
     test = True,
     attrs = _managed_python_attrs,
-    toolchains = ["@rules_python//python:toolchain_type"],
-    doc = "Tests src with the registered managed interpreter, followed by args.",
+    doc = "Tests src with the registered managed interpreter of rules_mkosi's Python line, followed by args.",
 )
 
 def _src_arg(src):
