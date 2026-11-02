@@ -273,6 +273,21 @@ def _configuration_paths(value):
             yield from _configuration_paths(item)
 
 
+def _release_apt_components(repositories, release_components):
+    """Return mkosi's Debian components for the release mirror, or fail closed."""
+    components = tuple(dict.fromkeys(("main", *repositories)))
+    missing = [component for component in components if component not in release_components]
+    if missing:
+        raise SystemExit(
+            "release configuration Repositories= requests components absent from the "
+            "Debian snapshot: {} (snapshot components: {})".format(
+                ", ".join(missing),
+                ", ".join(release_components),
+            )
+        )
+    return components
+
+
 def _validate_release_ini_entry(section):
     if section in ("Match", "TriggerMatch"):
         raise SystemExit(
@@ -292,6 +307,7 @@ def _validate_release_configuration(
     allowed_paths,
     allowed_extra_tree=None,
     release_firmware="uefi",
+    release_components=("main",),
 ):
     expected_seed = uuid.UUID(release_seed)
     allowed_roots = [Path(path).resolve() for path in allowed_paths]
@@ -328,6 +344,7 @@ def _validate_release_configuration(
                     release_snapshot,
                 )
             )
+        _release_apt_components(getattr(config, "repositories", ()), release_components)
         if config.seed != expected_seed:
             raise SystemExit(
                 "release configuration Seed must resolve to {}".format(expected_seed)
@@ -410,8 +427,15 @@ def _activate_release_mode(
     allowed_paths,
     allowed_extra_tree,
     release_firmware,
+    release_components,
 ):
-    """Mount a long Bazel path at mkosi's stable in-sandbox repository path."""
+    """Mount a long Bazel path at mkosi's stable in-sandbox repository path.
+
+    mkosi v27 registers a local mirror with only the main component. The
+    snapshot can stage more components, so the mirror source instead lists
+    main plus the components requested through Repositories=, each of which
+    must be present in the snapshot.
+    """
     from pathlib import Path
 
     import mkosi
@@ -437,7 +461,14 @@ def _activate_release_mode(
             return
         for repository in original_repositories(cls, context, for_image):
             if repository.url == source_url:
-                yield replace(repository, url="file:///repository")
+                yield replace(
+                    repository,
+                    url="file:///repository",
+                    components=_release_apt_components(
+                        context.config.repositories,
+                        release_components,
+                    ),
+                )
             else:
                 yield repository
 
@@ -505,6 +536,7 @@ def _activate_release_mode(
                 allowed_paths,
                 allowed_extra_tree,
                 release_firmware,
+                release_components,
             )
             validate_initial_configuration[0] = False
             return (parsed[0], parsed[1], images)
@@ -607,6 +639,7 @@ def main():
     release_codename = None
     release_snapshot = None
     release_firmware = None
+    release_components = None
     while preamble_end < len(sys.argv) and sys.argv[preamble_end] != "--":
         option = sys.argv[preamble_end]
         if option == "--executable-path" and preamble_end + 1 < len(sys.argv):
@@ -651,6 +684,11 @@ def main():
         elif option == "--release-firmware" and preamble_end + 1 < len(sys.argv):
             release_firmware = sys.argv[preamble_end + 1]
             preamble_end += 2
+        elif option == "--release-components" and preamble_end + 1 < len(sys.argv):
+            release_components = tuple(sys.argv[preamble_end + 1].split(","))
+            if "main" not in release_components or "" in release_components:
+                raise SystemExit("release components must be a comma-separated list including main")
+            preamble_end += 2
         else:
             raise SystemExit("invalid run_mkosi.py preamble")
     if preamble_end == len(sys.argv):
@@ -684,6 +722,7 @@ def main():
         release_codename,
         release_snapshot,
         release_firmware,
+        release_components,
     )
     if any(option is not None for option in release_options) and not all(
         option is not None for option in release_options
@@ -734,6 +773,7 @@ def main():
             if (materialized / "mkosi.extra").is_dir()
             else None,
             release_firmware,
+            release_components,
         )
     if release_child:
         sys.argv[:] = [script] + arguments

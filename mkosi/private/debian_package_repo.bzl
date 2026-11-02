@@ -1,7 +1,10 @@
 """Repository rule for checksum-pinned Debian package inputs."""
 
+load(":debian_snapshot_repo.bzl", "validate_lock")
+
 def _impl(ctx):
     lock = json.decode(ctx.read(ctx.attr.lock))
+    validate_lock(lock)
     packages = sorted(lock["packages"], key = lambda package: package["key"])
     files = []
     manifest = []

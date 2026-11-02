@@ -4,6 +4,7 @@ exports_files([
     "LICENSE",
     "MODULE.bazel",
     "e2e/module_resolution/nonroot_name/MODULE.bazel",
+    "e2e/module_resolution/snapshot_name_conflict/MODULE.bazel",
 ])
 
 filegroup(

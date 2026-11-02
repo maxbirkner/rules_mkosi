@@ -233,12 +233,46 @@ def _authenticated_release_matches(payload, release):
     return payload == release or payload + b"\n" == release
 
 
+def _component_indexes(args):
+    if len(args.component_indexes) != len(args.component_index_files):
+        raise ValueError("--component-index and --component-index-file counts differ")
+    indexes = [
+        ("main", "amd64", args.packages_path, args.packages_xz_sha256, args.packages_xz),
+        ("main", "all", args.packages_all_path, args.packages_all_xz_sha256, args.packages_all_xz),
+    ]
+    for record, path in zip(args.component_indexes, args.component_index_files):
+        fields = record.split("|")
+        if len(fields) != 4:
+            raise ValueError("component index record must have four fields")
+        component, architecture, relative, digest = fields
+        indexes.append((component, architecture, relative, digest, path))
+    seen = set()
+    for component, architecture, relative, _, _ in indexes:
+        if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", component):
+            raise ValueError("invalid Debian component: %s" % component)
+        if architecture not in ("amd64", "all"):
+            raise ValueError("unsupported index architecture: %s" % architecture)
+        expected = "dists/%s/%s/binary-%s/Packages.xz" % (args.codename, component, architecture)
+        if relative != expected:
+            raise ValueError("Packages index %s must be staged at %s" % (relative, expected))
+        if (component, architecture) in seen:
+            raise ValueError("duplicate Packages index: %s %s" % (component, architecture))
+        seen.add((component, architecture))
+    components = {component for component, _, _, _, _ in indexes}
+    if seen != {(component, architecture) for component in components for architecture in ("amd64", "all")}:
+        raise ValueError("every Debian component needs binary-amd64 and binary-all indexes")
+    return indexes
+
+
 def stage(args):
+    if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", args.codename):
+        raise ValueError("invalid Debian codename: %s" % args.codename)
+    indexes = _component_indexes(args)
     _verify_digest(args.inrelease, args.inrelease_sha256, "InRelease")
     _verify_digest(args.release, args.release_sha256, "Release")
     _verify_digest(args.release_gpg, args.release_gpg_sha256, "Release.gpg")
-    _verify_digest(args.packages_xz, args.packages_xz_sha256, "Packages")
-    _verify_digest(args.packages_all_xz, args.packages_all_xz_sha256, "Packages-all")
+    for component, architecture, _, digest, path in indexes:
+        _verify_digest(path, digest, "Packages %s/%s" % (component, architecture))
     _verify_signature(
         args.launcher,
         args.inrelease,
@@ -253,26 +287,19 @@ def stage(args):
     release = pathlib.Path(args.release).read_bytes()
     if not _authenticated_release_matches(authenticated_release, release):
         raise ValueError("authenticated InRelease does not match locked Release")
-    package_bytes = pathlib.Path(args.packages_xz).read_bytes()
-    _release_hash(authenticated_release, args.packages_path, len(package_bytes), args.packages_xz_sha256)
-    packages_all_bytes = pathlib.Path(args.packages_all_xz).read_bytes()
-    _release_hash(
-        authenticated_release,
-        args.packages_all_path,
-        len(packages_all_bytes),
-        args.packages_all_xz_sha256,
-    )
+    for _, _, relative, digest, path in indexes:
+        _release_hash(authenticated_release, relative, len(pathlib.Path(path).read_bytes()), digest)
 
     destination = pathlib.Path(args.output)
-    (destination / args.packages_path[:-3]).parent.mkdir(parents=True, exist_ok=True)
-    (destination / args.packages_all_path[:-3]).parent.mkdir(parents=True, exist_ok=True)
-    _copy(args.inrelease, destination / "dists/trixie/InRelease")
-    _copy(args.release, destination / "dists/trixie/Release")
-    _copy(args.release_gpg, destination / "dists/trixie/Release.gpg")
-    amd64_packages = destination / args.packages_path[:-3]
-    all_packages = destination / args.packages_all_path[:-3]
-    _decompress(args.packages_xz, amd64_packages)
-    _decompress(args.packages_all_xz, all_packages)
+    dists = destination / "dists" / args.codename
+    _copy(args.inrelease, dists / "InRelease")
+    _copy(args.release, dists / "Release")
+    _copy(args.release_gpg, dists / "Release.gpg")
+    staged_indexes = []
+    for _, architecture, relative, _, path in indexes:
+        staged = destination / relative[: -len(".xz")]
+        _decompress(path, staged)
+        staged_indexes.append((staged, architecture))
 
     expected = {}
     filenames = set()
@@ -296,13 +323,7 @@ def stage(args):
         filenames.add(filename)
         local_names.add(local_name)
         expected[key] = (filename, int(size), digest, local_name)
-    actual = _read_package_metadata(
-        (
-        (amd64_packages, "amd64"),
-        (all_packages, "all"),
-        ),
-        expected,
-    )
+    actual = _read_package_metadata(staged_indexes, expected)
     if actual.keys() != expected.keys():
         raise ValueError("locked packages do not match Packages metadata")
     for key in sorted(expected):
@@ -338,6 +359,14 @@ def main():
     parser.add_argument("--packages-all-xz-sha256", required=True)
     parser.add_argument("--packages-path", required=True)
     parser.add_argument("--packages-all-path", required=True)
+    parser.add_argument("--codename", default="trixie")
+    parser.add_argument("--component-index", dest="component_indexes", action="append", default=[])
+    parser.add_argument(
+        "--component-index-file",
+        dest="component_index_files",
+        action="append",
+        default=[],
+    )
     parser.add_argument("--package", dest="package_records", action="append", default=[])
     parser.add_argument("--package-file", dest="packages", action="append", default=[])
     parser.add_argument("--package-name", dest="package_names", action="append", default=[])

@@ -90,6 +90,23 @@ The root command intentionally excludes `e2e/`. See
 [the test architecture](docs/design/0003-ruleset-architecture.md#consumer-module)
 and [`e2e/README.md`](e2e/README.md).
 
+The image-building tests run the namespace launcher, which requires an empty
+supplementary-group list. CI starts Bazel through
+`sudo -n setpriv --reuid="$(id -u)" --regid="$(id -g)" --clear-groups`; do the
+same locally (after `bazel shutdown`, because the server keeps the groups of
+the client that started it) when a test reports
+`cannot clear supplementary groups`.
+
+The Debian lock generator has hermetic unit tests in
+`//mkosi/debian:generate_lock_test`. The consumer lock in
+`e2e/smoke/testdata/consumer-snapshot` is regenerated from `e2e/smoke` with
+`bazel run @rules_mkosi//mkosi/debian:generate_lock -- --spec
+testdata/consumer-snapshot/debian.spec.json --output
+testdata/consumer-snapshot/debian.lock.json`; add `--check` to verify that it
+is current. The built-in `mkosi/debian/debian13.lock.json` predates the
+generator and is pinned by `DEBIAN_TOOLS_LOCK_SHA256`; changing it also changes
+the Debian tools archive digest.
+
 Install the same checks as Git hooks with `prek install`.
 
 Commit messages should follow Conventional Commits. API changes require tests

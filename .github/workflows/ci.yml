@@ -674,6 +674,7 @@ jobs:
           - conflicting_root
           - nonroot_name
           - root_dependency
+          - snapshot_name_conflict
     env:
       USE_BAZEL_VERSION: ${{ matrix.bazel }}
     steps:

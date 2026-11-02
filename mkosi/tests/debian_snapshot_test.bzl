@@ -13,6 +13,7 @@ def _provider_test_impl(ctx):
     asserts.equals(env, "13", info.release)
     asserts.equals(env, "trixie", info.codename)
     asserts.equals(env, "amd64", info.architecture)
+    asserts.equals(env, ["main"], info.components)
     asserts.equals(env, "20250814T000000Z", info.snapshot)
     asserts.equals(
         env,

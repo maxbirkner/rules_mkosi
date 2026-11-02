@@ -1,4 +1,4 @@
-load("@rules_python//python:defs.bzl", "py_test")
+load("@rules_python//python:defs.bzl", "py_binary", "py_test")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -17,6 +17,21 @@ exports_files([
     "namespace_runner.c",
     "package_archive.py",
 ])
+
+py_binary(
+    name = "generate_lock",
+    srcs = ["generate_lock.py"],
+    main = "generate_lock.py",
+)
+
+py_test(
+    name = "generate_lock_test",
+    srcs = [
+        "generate_lock.py",
+        "generate_lock_test.py",
+    ],
+    main = "generate_lock_test.py",
+)
 
 py_test(
     name = "debian_tools_security_test",

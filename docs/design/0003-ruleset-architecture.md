@@ -369,6 +369,18 @@ separate from `mkosi_image`: it supplies stable provenance and inputs for a
 future network-disabled mode without changing that rule's current package
 acquisition or cache semantics.
 
+Consumers declare further snapshots with the extension's `snapshot` tag. Each
+tag creates the same pair of content-addressed package and snapshot
+repositories from a consumer-owned lock produced by
+`//mkosi/debian:generate_lock`. A lock may pin several archive components;
+every component contributes its `binary-amd64` and `binary-all` indexes, all
+authenticated by the one signed Release. Locks without a component list are
+`main`-only, so the built-in lock needs no migration. Release mode passes the
+provider's component list to the mkosi wrapper, which replaces mkosi v27's
+`main`-only local-mirror source with `main` plus the configuration's
+`Repositories=` components and rejects any component the snapshot does not
+contain.
+
 Some requirements are properties of the execution platform rather than files:
 
 - Linux kernel namespace support.

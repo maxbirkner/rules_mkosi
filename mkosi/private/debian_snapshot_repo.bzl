@@ -1,6 +1,44 @@
 """Repository rule for authenticated Debian snapshot metadata."""
 
-def _validate_lock(lock):
+load(":sha256.bzl", "sha256_hex")
+
+_HEX = "0123456789abcdef"
+_IDENTIFIER_CHARACTERS = "abcdefghijklmnopqrstuvwxyz0123456789-"
+_INDEX_ARCHITECTURES = ["amd64", "all"]
+
+def _is_sha256(value):
+    return type(value) == type("") and len(value) == 64 and value.strip(_HEX) == ""
+
+def _is_identifier(value):
+    return (
+        type(value) == type("") and
+        value != "" and
+        value[0] != "-" and
+        value.strip(_IDENTIFIER_CHARACTERS) == ""
+    )
+
+def index_name(component, architecture):
+    """Returns the lock metadata name of a component's Packages.xz index.
+
+    The main component keeps the original single-component names so existing
+    locks remain valid without migration.
+    """
+    prefix = "" if component == "main" else component + "_"
+    return prefix + ("packages_xz" if architecture == "amd64" else "packages_all_xz")
+
+def validate_lock(lock):
+    """Validates a Debian snapshot lock and returns its normalized identity.
+
+    Fails on any malformed, unpinned, or unsafe repository metadata or package
+    record. A lock without repository.components is a main-only lock.
+
+    Args:
+      lock: Decoded lock JSON.
+
+    Returns:
+      A struct with the codename, components (main first), distribution,
+      architecture, metadata entries, release, snapshot, and snapshot URL.
+    """
     repository = lock.get("repository")
     if not repository:
         fail("Debian lock is missing repository metadata")
@@ -8,8 +46,41 @@ def _validate_lock(lock):
     snapshot = repository.get("snapshot", "")
     if not snapshot or len(snapshot) != 16 or snapshot[-1] != "Z" or "T" not in snapshot:
         fail("Debian snapshot must be an immutable UTC timestamp")
-    if not snapshot_url.endswith(snapshot):
+    if not snapshot_url.startswith("https://") or not snapshot_url.endswith("/" + snapshot):
         fail("Debian snapshot URL must end with its immutable snapshot identifier")
+    if repository.get("distribution", "debian") != "debian":
+        fail("Debian lock distribution must be debian")
+    if repository.get("architecture", "amd64") != "amd64":
+        fail("Debian lock architecture must be amd64")
+    codename = repository.get("codename", "trixie")
+    if not _is_identifier(codename):
+        fail("Debian lock codename is invalid: %s" % codename)
+    release = repository.get("release", "13")
+    if type(release) != type("") or not release.isdigit():
+        fail("Debian lock release must be numeric")
+    components = repository.get("components", ["main"])
+    if type(components) != type([]) or "main" not in components:
+        fail("Debian lock components must include main")
+    for component in components:
+        if not _is_identifier(component):
+            fail("Debian lock component is invalid: %s" % component)
+    if len(set(components)) != len(components):
+        fail("Debian lock components must be unique")
+    components = ["main"] + [component for component in components if component != "main"]
+
+    dists = "dists/" + codename
+    expected = {
+        "inrelease": (dists + "/InRelease", None, None),
+        "release": (dists + "/Release", None, None),
+        "release_gpg": (dists + "/Release.gpg", None, None),
+    }
+    for component in components:
+        for architecture in _INDEX_ARCHITECTURES:
+            expected[index_name(component, architecture)] = (
+                "%s/%s/binary-%s/Packages.xz" % (dists, component, architecture),
+                component,
+                architecture,
+            )
     metadata = repository.get("metadata", [])
     if not metadata:
         fail("Debian lock has no repository metadata")
@@ -22,16 +93,23 @@ def _validate_lock(lock):
         if not name or name in names:
             fail("Debian repository metadata names must be unique")
         names.add(name)
+        if name not in expected:
+            fail("unexpected Debian repository metadata: %s" % name)
         if not path or path.startswith("/") or ".." in path.split("/"):
             fail("unsafe Debian repository metadata path: %s" % path)
-        if not url.startswith(snapshot_url + "/"):
+        expected_path, component, architecture = expected[name]
+        if path != expected_path:
+            fail("Debian repository metadata %s must use path %s" % (name, expected_path))
+        if entry.get("component", component) != component or entry.get("architecture", architecture) != architecture:
+            fail("Debian repository metadata %s has an inconsistent component or architecture" % name)
+        if url != snapshot_url + "/" + path:
             fail("Debian repository metadata URL is outside the pinned snapshot: %s" % url)
-        invalid_digest = digest.strip("0123456789abcdef") != ""
-        if len(digest) != 64 or invalid_digest:
+        if not _is_sha256(digest):
             fail("Debian repository metadata digest is not SHA-256: %s" % path)
-    if names != set(["inrelease", "release", "release_gpg", "packages_xz", "packages_all_xz"]):
+    if names != set(expected.keys()):
         fail("Debian repository metadata must pin all required indexes and signatures")
     package_keys = set()
+    lock_keys = set()
     for package in lock.get("packages", []):
         name = package.get("name", "")
         version = package.get("version", "")
@@ -53,40 +131,54 @@ def _validate_lock(lock):
             fail("Debian package URL does not match filename: %s" % filename)
         size = package.get("size")
         digest = package.get("sha256", "")
-        if type(size) != type(0) or size < 0 or len(digest) != 64 or digest.strip("0123456789abcdef") != "":
+        if type(size) != type(0) or size < 0 or not _is_sha256(digest):
             fail("Debian package lock has invalid size or digest: %s" % filename)
+        lock_key = package.get("key", "")
+        if type(lock_key) != type("") or not lock_key or lock_key in lock_keys:
+            fail("Debian package lock keys must be unique: %s" % filename)
+        lock_keys.add(lock_key)
+        if package.get("component", "main") not in components:
+            fail("Debian package %s is not in a locked component" % name)
         key = (name, version, architecture)
         if key in package_keys:
             fail("duplicate Debian package lock identity: %s" % name)
         package_keys.add(key)
-    return repository
+    return struct(
+        codename = codename,
+        components = components,
+        distribution = "debian",
+        architecture = "amd64",
+        metadata = metadata,
+        release = release,
+        snapshot = snapshot,
+        snapshot_url = snapshot_url,
+    )
 
 def _impl(ctx):
-    lock = json.decode(ctx.read(ctx.attr.lock))
-    repository = _validate_lock(lock)
-    files = []
-    for entry in repository["metadata"]:
-        output = entry["name"]
+    content = ctx.read(ctx.attr.lock)
+    lock_sha256 = sha256_hex(content)
+    if ctx.attr.lock_sha256 and lock_sha256 != ctx.attr.lock_sha256:
+        fail("Debian lock %s has SHA-256 %s, expected %s" % (
+            ctx.attr.lock,
+            lock_sha256,
+            ctx.attr.lock_sha256,
+        ))
+    ctx.file("lock.json", content, executable = False, legacy_utf8 = False)
+    repository = validate_lock(json.decode(content))
+    entries = {}
+    for entry in repository.metadata:
         ctx.download(
             url = entry["url"],
-            output = output,
+            output = entry["name"],
             sha256 = entry["sha256"],
             canonical_id = entry["url"] + "#" + entry["sha256"],
         )
-        files.append((entry["name"], output))
+        entries[entry["name"]] = entry
 
-    packages = sorted(lock["packages"], key = lambda package: package["key"])
+    packages = sorted(json.decode(content)["packages"], key = lambda package: package["key"])
     package_records = []
     package_names = []
     for index, package in enumerate(packages):
-        filename = package.get("filename", "")
-        if not filename:
-            fail("Debian package lock is missing filename: %s" % package["key"])
-        if package["urls"][0] != repository["snapshot_url"] + "/" + filename:
-            fail("Debian package URL does not match locked filename: %s" % package["key"])
-        size = package.get("size")
-        if type(size) != type(0) or size < 0:
-            fail("Debian package lock has invalid size: %s" % package["key"])
         index_string = str(index)
         if index < 10:
             index_string = "00" + index_string
@@ -98,22 +190,23 @@ def _impl(ctx):
             package["name"],
             package["version"],
             package["arch"],
-            filename,
-            size,
+            package["filename"],
+            package["size"],
             package["sha256"],
             local_name,
         ))
-    digests = {
-        entry["name"]: entry["sha256"]
-        for entry in repository["metadata"]
-    }
-    packages_path = ""
-    packages_all_path = ""
-    for entry in repository["metadata"]:
-        if entry["name"] == "packages_xz":
-            packages_path = entry["path"]
-        elif entry["name"] == "packages_all_xz":
-            packages_all_path = entry["path"]
+    component_packages = []
+    component_package_records = []
+    for component in repository.components[1:]:
+        for architecture in ["amd64", "all"]:
+            entry = entries[index_name(component, architecture)]
+            component_packages.append(":" + entry["name"])
+            component_package_records.append("|".join([
+                component,
+                architecture,
+                entry["path"],
+                entry["sha256"],
+            ]))
     ctx.file(
         "BUILD.bazel",
         """load("@rules_mkosi//mkosi:defs.bzl", "debian_snapshot")
@@ -124,6 +217,10 @@ exports_files({files})
 
 debian_snapshot(
     name = "repository",
+    distribution = {distribution},
+    release = {release},
+    codename = {codename},
+    architecture = {architecture},
     snapshot = {snapshot},
     snapshot_url = {snapshot_url},
     lock_sha256 = {lock_sha256},
@@ -134,22 +231,33 @@ debian_snapshot(
     packages_all_xz = ":packages_all_xz",
     packages_path = {packages_path},
     packages_all_path = {packages_all_path},
+    component_packages = {component_packages},
+    component_package_records = {component_package_records},
     package_files = ["{package_repo}//:all"],
     package_names = {package_names},
     package_records = {package_records},
     metadata_digests = {digests},
 )
 """.format(
-            files = repr([output for _, output in files]),
-            snapshot = repr(repository["snapshot"]),
-            snapshot_url = repr(repository["snapshot_url"]),
-            lock_sha256 = repr(ctx.attr.lock_sha256),
+            files = repr(sorted(entries.keys()) + ["lock.json"]),
+            distribution = repr(repository.distribution),
+            release = repr(repository.release),
+            codename = repr(repository.codename),
+            architecture = repr(repository.architecture),
+            snapshot = repr(repository.snapshot),
+            snapshot_url = repr(repository.snapshot_url),
+            lock_sha256 = repr(lock_sha256),
             package_repo = ctx.attr.package_repo,
             package_records = repr(package_records),
             package_names = repr(package_names),
-            digests = repr(digests),
-            packages_path = repr(packages_path),
-            packages_all_path = repr(packages_all_path),
+            digests = repr({
+                name: entries[name]["sha256"]
+                for name in ["inrelease", "release", "release_gpg", "packages_xz", "packages_all_xz"]
+            }),
+            packages_path = repr(entries["packages_xz"]["path"]),
+            packages_all_path = repr(entries["packages_all_xz"]["path"]),
+            component_packages = repr(component_packages),
+            component_package_records = repr(component_package_records),
         ),
     )
     if hasattr(ctx, "repo_metadata"):
@@ -161,6 +269,8 @@ debian_snapshot_repo = repository_rule(
     attrs = {
         "lock": attr.label(mandatory = True, allow_single_file = True),
         "package_repo": attr.string(mandatory = True),
-        "lock_sha256": attr.string(mandatory = True),
+        "lock_sha256": attr.string(
+            doc = "Optional expected SHA-256 of the lock file. The computed digest is always recorded.",
+        ),
     },
 )

@@ -58,10 +58,18 @@ def _snapshot_public_api_test_impl(ctx):
     asserts.equals(env, "trixie", info.codename)
     asserts.equals(env, "amd64", info.architecture)
     asserts.equals(env, "20250814T000000Z", info.snapshot)
+    asserts.equals(env, ctx.attr.expected_components, info.components)
     asserts.equals(env, "repository_repository", info.repository.basename)
+    asserts.equals(env, 2 * len(ctx.attr.expected_components), len(info.packages_metadata.to_list()))
+    asserts.equals(env, 64, len(info.lock_sha256))
     return analysistest.end(env)
 
-snapshot_public_api_test = analysistest.make(_snapshot_public_api_test_impl)
+snapshot_public_api_test = analysistest.make(
+    _snapshot_public_api_test_impl,
+    attrs = {
+        "expected_components": attr.string_list(default = ["main"]),
+    },
+)
 
 def _image_public_api_test_impl(ctx):
     env = analysistest.begin(ctx)

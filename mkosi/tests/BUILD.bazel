@@ -19,6 +19,7 @@ load(
     "explicit_version_test",
     "qemu_bazel_compatibility_test",
     "root_dependency_test",
+    "snapshot_declaration_test",
     "unsupported_version_test",
 )
 load(
@@ -105,8 +106,10 @@ behavior_targets(
     testonly = True,
     targets = [
         "//:e2e/module_resolution/nonroot_name/MODULE.bazel",
+        "//:e2e/module_resolution/snapshot_name_conflict/MODULE.bazel",
         "//ci:verify-release-reproducibility.sh",
         "//ci:verify_reproducibility_execution_test",
+        "//mkosi/debian:generate_lock_test",
         ":analysis_tests",
         ":bios_image_artifact_test",
         ":bios_boot_test",
@@ -139,8 +142,10 @@ behavior_targets(
         ":release_subject_build_metadata_test",
         ":reproducibility_manifest_test",
         ":root_dependency_test",
+        ":run_mkosi_metadata_test",
         ":secure_boot_boundary_test",
         ":secure_boot_fixture_action_test",
+        ":snapshot_declaration_test",
         ":unsupported_version_test",
         ":verity_metadata_test",
     ],
@@ -345,6 +350,8 @@ unsupported_version_test(name = "unsupported_version_test")
 conflicting_root_test(name = "conflicting_root_test")
 
 root_dependency_test(name = "root_dependency_test")
+
+snapshot_declaration_test(name = "snapshot_declaration_test")
 
 mkosi_image_test_suite(name = "analysis_tests")
 

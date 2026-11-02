@@ -120,8 +120,16 @@ its normalized `executable_paths`.
 
 <!-- behavior:BHV-SNAPSHOT-PROVIDER -->
 `DebianSnapshotInfo` exposes its format, distribution, release, codename,
-architecture, timestamp/URL, lock digest, repository, metadata files, package
-records, and package files from authenticated snapshot inputs.
+architecture, components, timestamp/URL, lock digest, repository, metadata
+files, package records, and package files from authenticated snapshot inputs.
+
+<!-- behavior:BHV-SNAPSHOT-CONSUMER -->
+`//mkosi/debian:generate_lock` resolves a consumer specification into a
+deterministic multi-component lock from Release-verified indexes. The
+`debian_tools.snapshot` tag turns that lock into a repository with a computed
+lock digest and rejects duplicate or reserved repository names. Release images
+built from it install packages from every component selected by
+`Repositories=` and reject components absent from the snapshot.
 
 <!-- behavior:BHV-DEBIAN-TOOLS-PROVIDER -->
 `DebianToolsInfo` exposes distribution/release, authenticated tree/archive
@@ -209,8 +217,8 @@ destinations, escaping links, and invalid file roles before writing output.
 
 <!-- behavior:BHV-SNAPSHOT-FAILURES -->
 Snapshot materialization rejects bad OpenPGP signatures, mismatched Release
-hashes, malformed/duplicate package records, unsafe package paths, and content
-digest mismatches.
+hashes, incomplete or misplaced component indexes, malformed/duplicate package
+records, unsafe package paths, and content digest mismatches.
 
 ## Why line coverage is not a target
 
