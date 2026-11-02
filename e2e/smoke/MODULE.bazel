@@ -76,6 +76,13 @@ debian_tools.snapshot(
     name = "consumer_debian",
     lock = "//:testdata/consumer-snapshot/debian.lock.json",
 )
+
+# The A/B update fixture needs systemd-sysupdate (systemd-container), which the
+# built-in snapshot does not lock.
+debian_tools.snapshot(
+    name = "sysupdate_debian",
+    lock = "//:testdata/sysupdate-snapshot/debian.lock.json",
+)
 use_repo(
     debian_tools,
     "consumer_debian",
@@ -83,6 +90,7 @@ use_repo(
     "mkosi_debian_python",
     "mkosi_debian_snapshot",
     "mkosi_debian_tools",
+    "sysupdate_debian",
 )
 
 register_toolchains(

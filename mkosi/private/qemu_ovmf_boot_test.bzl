@@ -11,6 +11,10 @@ _TEST_TIMEOUT_SECONDS = {
 }
 _CLEANUP_MARGIN_SECONDS = 30
 
+# QEMU rejects virtio-9p mount tags longer than 31 bytes.
+_MAX_MOUNT_TAG_LENGTH = 31
+_MOUNT_TAG_CHARACTERS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-"
+
 QemuOvmfBootConfigInfo = provider(
     "Validated lifecycle deadlines and Bazel timeout category.",
     fields = [
@@ -21,6 +25,26 @@ QemuOvmfBootConfigInfo = provider(
         "cleanup_margin_seconds",
     ],
 )
+
+def _read_only_shares(shares):
+    """Validates read_only_shares and returns (directory, mount tag) pairs sorted by tag."""
+    validated = []
+    tags = {}
+    for target, mount_tag in shares.items():
+        files = target[DefaultInfo].files.to_list()
+        if len(files) != 1 or not files[0].is_directory:
+            fail("read_only_shares key %s must provide exactly one directory" % target.label)
+        if (not mount_tag or len(mount_tag) > _MAX_MOUNT_TAG_LENGTH or
+            mount_tag.strip(_MOUNT_TAG_CHARACTERS)):
+            fail(
+                ("read_only_shares mount tag %r must be 1 to %d letters, digits, " +
+                 "'.', '_' or '-'") % (mount_tag, _MAX_MOUNT_TAG_LENGTH),
+            )
+        if mount_tag in tags:
+            fail("read_only_shares mount tag %r is used more than once" % mount_tag)
+        tags[mount_tag] = True
+        validated.append((mount_tag, files[0]))
+    return [(directory, mount_tag) for mount_tag, directory in sorted(validated)]
 
 def _qemu_ovmf_boot_config_impl(ctx):
     image = ctx.attr.image[MkosiImageInfo].raw_image
@@ -38,6 +62,11 @@ def _qemu_ovmf_boot_config_impl(ctx):
         fail("readiness_marker must not be empty")
     if not ctx.attr.shutdown_markers or any([not marker for marker in ctx.attr.shutdown_markers]):
         fail("shutdown_markers must contain nonempty markers")
+    if any([not marker for marker in ctx.attr.progress_markers]):
+        fail("progress_markers must contain only nonempty markers")
+    if ctx.attr.progress_markers and ctx.attr.expected_failure_marker:
+        fail("progress_markers cannot be combined with expected_failure_marker")
+    shares = _read_only_shares(ctx.attr.read_only_shares)
     if ctx.attr.test_timeout not in _TEST_TIMEOUT_SECONDS:
         fail("timeout must be short, moderate, or long; eternal is not supported")
     lifecycle_seconds = (
@@ -73,8 +102,14 @@ def _qemu_ovmf_boot_config_impl(ctx):
         "qemu": qemu.qemu_files_to_run.executable.short_path,
         "qmp_initialization_timeout_seconds": ctx.attr.qmp_initialization_timeout_seconds,
         "readiness_marker": ctx.attr.readiness_marker,
+        "progress_markers": ctx.attr.progress_markers,
         "expected_failure_marker": ctx.attr.expected_failure_marker,
         "stop_after_readiness": ctx.attr.stop_after_readiness,
+        "allow_reboot": ctx.attr.allow_reboot,
+        "read_only_shares": [
+            {"directory": directory.short_path, "mount_tag": mount_tag}
+            for directory, mount_tag in shares
+        ],
         "shutdown_markers": ctx.attr.shutdown_markers,
         "shutdown_timeout_seconds": ctx.attr.shutdown_timeout_seconds,
         "system_data": qemu.system_data_anchor.short_path,
@@ -92,7 +127,7 @@ def _qemu_ovmf_boot_config_impl(ctx):
             qemu.qemu_files_to_run.executable,
             qemu.system_data_anchor,
             ctx.executable._kernel_preflight,
-        ],
+        ] + [directory for directory, _ in shares],
         transitive_files = depset(transitive = [
             qemu.qemu_runfiles.files,
             qemu.system_data_files,
@@ -122,8 +157,21 @@ qemu_ovmf_boot_config = rule(
             mandatory = True,
             doc = "Exact serial marker proving guest userspace readiness.",
         ),
+        "progress_markers": attr.string_list(
+            doc = "Exact serial markers that must appear in this order before readiness_marker.",
+        ),
         "expected_failure_marker": attr.string(
             doc = "Exact serial marker that makes an intentional negative boot pass before readiness.",
+        ),
+        "allow_reboot": attr.bool(
+            doc = """Keep QEMU running across guest reboots instead of treating a reboot as an exit.
+
+The image snapshot and the copied OVMF variables persist across reboots for the lifetime of the test.
+""",
+        ),
+        "read_only_shares": attr.label_keyed_string_dict(
+            allow_files = True,
+            doc = "Directory targets exposed to the guest as read-only virtio-9p shares, keyed to their mount tags.",
         ),
         "stop_after_readiness": attr.bool(
             doc = "Terminate QEMU successfully as soon as readiness is observed.",
@@ -154,8 +202,11 @@ def qemu_ovmf_boot_test(
         name,
         image,
         readiness_marker = "systemd[1]: Hostname set to <rules-mkosi-tracer>.",
+        progress_markers = [],
         expected_failure_marker = "",
         stop_after_readiness = False,
+        allow_reboot = False,
+        read_only_shares = {},
         shutdown_markers = [
             "systemd-shutdown[1]: Powering off.",
             "reboot: Power down",
@@ -172,14 +223,23 @@ def qemu_ovmf_boot_test(
     The adapter owns only OVMF firmware and QEMU command construction. The
     serial state machine is firmware-neutral and is also used by the SeaBIOS
     adapter.
+
+    Multi-boot lifecycles, such as an A/B update followed by a reboot, set
+    allow_reboot so that one QEMU process keeps the writable image snapshot
+    and firmware variables across guest reboots, list their ordered
+    checkpoints in progress_markers, and may expose directory artifacts such
+    as update payloads through read_only_shares.
     """
     config_name = name + "_config"
     qemu_ovmf_boot_config(
         name = config_name,
         image = image,
         readiness_marker = readiness_marker,
+        progress_markers = progress_markers,
         expected_failure_marker = expected_failure_marker,
         stop_after_readiness = stop_after_readiness,
+        allow_reboot = allow_reboot,
+        read_only_shares = read_only_shares,
         shutdown_markers = shutdown_markers,
         machine_args = machine_args,
         boot_timeout_seconds = boot_timeout_seconds,

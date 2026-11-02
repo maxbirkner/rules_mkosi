@@ -75,7 +75,7 @@ def _bounded_content(data, limit):
     return data[:head] + marker + data[-(remaining - head) :]
 
 
-def _actual_boot_evidence(firmware, serial, limit):
+def _actual_boot_evidence(firmware, serial, limit, markers=()):
     stages = (
         ("firmware", firmware, (b"SeaBIOS", b"Booting from Hard Disk", b"Booting from 0000:7c00")),
         (
@@ -87,7 +87,8 @@ def _actual_boot_evidence(firmware, serial, limit):
                 b"systemd[1]: Hostname set to",
                 b"systemd-shutdown[1]: Powering off.",
                 b"reboot: Power down",
-            ),
+            )
+            + tuple(marker.encode() for marker in markers if marker),
         ),
     )
     output = []
@@ -98,7 +99,7 @@ def _actual_boot_evidence(firmware, serial, limit):
     return _bounded_content(b"\n".join(output) + b"\n", limit)
 
 
-def _export_boot_logs(serial_log, firmware_log, qemu_log, diagnostic_bytes):
+def _export_boot_logs(serial_log, firmware_log, qemu_log, diagnostic_bytes, markers=()):
     output_directory = os.environ.get("TEST_UNDECLARED_OUTPUTS_DIR")
     if not output_directory:
         return
@@ -112,7 +113,7 @@ def _export_boot_logs(serial_log, firmware_log, qemu_log, diagnostic_bytes):
             ("guest-serial.log", serial),
             ("firmware.log", firmware),
             ("qemu.log", _read_log(qemu_log)),
-            ("boot-evidence.log", _actual_boot_evidence(firmware, serial, limit)),
+            ("boot-evidence.log", _actual_boot_evidence(firmware, serial, limit, markers)),
         ):
             (destination / name).write_bytes(_bounded_content(content, limit))
     except OSError as error:
@@ -196,6 +197,81 @@ def _qmp_handshake(process, socket_path, timeout, monotonic=time.monotonic, slee
     raise QmpHandshakeError(last_error)
 
 
+def _ordered_progress(serial, markers):
+    """Returns the offset after the last ordered progress marker and the first missing marker index."""
+    offset = 0
+    for index, marker in enumerate(markers):
+        found = serial.find(marker.encode(), offset)
+        if found < 0:
+            return offset, index
+        offset = found + len(marker.encode())
+    return offset, None
+
+
+def _resolve_runfile_directory(path):
+    """Returns a runfiles directory, or a mapping of its relative file names when only a manifest lists them."""
+    manifest = os.environ.get("RUNFILES_MANIFEST_FILE")
+    if manifest and os.path.isfile(manifest):
+        files = {}
+        prefixes = (path, "../" + path, "external/" + path)
+        with open(manifest, encoding="utf-8") as entries:
+            for line in entries:
+                logical, physical = line.rstrip("\n").split(" ", 1)
+                for prefix in prefixes:
+                    if logical == prefix and os.path.isdir(physical):
+                        return physical
+                    if logical.startswith(prefix + "/"):
+                        files[logical[len(prefix) + 1 :]] = physical
+        if files:
+            return files
+    return _resolve_runfile(path)
+
+
+def _link_or_copy(source, destination):
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        os.link(source, destination)
+    except OSError:
+        shutil.copyfile(source, destination)
+
+
+def _materialize_share(source, destination):
+    """Recreates a share as regular files, hard-linking them where possible.
+
+    Bazel may present tree artifacts as directories of symlinks into the output base, or only list their files
+    in a runfiles manifest. QEMU's 9p server would expose host symlinks verbatim, so the guest needs a tree of
+    regular files instead. source is a directory or a mapping from relative file names to files.
+    """
+    destination.mkdir(parents=True)
+    if isinstance(source, dict):
+        for relative, physical in sorted(source.items()):
+            _link_or_copy(os.path.realpath(physical), destination / relative)
+        return
+    for entry in sorted(os.listdir(source)):
+        path = os.path.realpath(os.path.join(source, entry))
+        if os.path.isdir(path):
+            _materialize_share(path, destination / entry)
+        else:
+            _link_or_copy(path, destination / entry)
+
+
+def _virtfs_arguments(shares, scratch):
+    """Returns QEMU arguments exposing each (directory, mount tag) pair as a read-only virtio-9p share."""
+    arguments = []
+    for directory, mount_tag in shares:
+        materialized = scratch / "shares" / mount_tag
+        shutil.rmtree(materialized, ignore_errors=True)
+        _materialize_share(directory, materialized)
+        arguments += [
+            "-virtfs",
+            "local,path={},mount_tag={},security_model=none,readonly=on".format(
+                str(materialized).replace(",", ",,"),
+                mount_tag,
+            ),
+        ]
+    return arguments
+
+
 def _guest_started(serial):
     return b"Linux version" in serial or b"systemd[" in serial
 
@@ -276,8 +352,11 @@ def _boot(
     disk_interface="virtio",
     kernel_preflight=None,
     readiness_marker="",
+    progress_markers=(),
     expected_failure_marker="",
     stop_after_readiness=False,
+    allow_reboot=False,
+    read_only_shares=(),
     shutdown_markers=(),
     boot_timeout_seconds=180,
     qmp_initialization_timeout_seconds=15,
@@ -312,6 +391,16 @@ def _boot(
         if firmware_vars:
             shutil.copyfile(firmware_vars, vars_copy)
             vars_copy.chmod(0o600)
+        try:
+            share_arguments = _virtfs_arguments(read_only_shares, scratch)
+        except OSError as error:
+            _diagnose(
+                "SHARE_FAILURE",
+                "cannot prepare read-only share: {}".format(error),
+                serial_log,
+                qemu_log,
+                diagnostic_bytes,
+            )
         expanded_qemu_args = [
             argument.replace("{firmware_code}", firmware_code or "")
             .replace("{firmware_vars}", str(vars_copy))
@@ -328,7 +417,7 @@ def _boot(
             "tcg",
             "-nodefaults",
             "-nographic",
-            "-no-reboot",
+        ] + ([] if allow_reboot else ["-no-reboot"]) + share_arguments + [
             "-serial",
             "none",
             "-chardev",
@@ -389,7 +478,12 @@ def _boot(
                 while monotonic() < deadline:
                     serial = _read_log(serial_log)
                     firmware_output = _read_log(firmware_log)
-                    readiness_offset = serial.find(readiness_marker.encode())
+                    progress_offset, missing_progress = _ordered_progress(serial, progress_markers)
+                    readiness_offset = (
+                        serial.find(readiness_marker.encode(), progress_offset)
+                        if missing_progress is None
+                        else -1
+                    )
                     failure_offset = (
                         serial.find(expected_failure_marker.encode())
                         if expected_failure_marker else -1
@@ -451,9 +545,12 @@ def _boot(
                         )
                         if timeout_kind == "FIRMWARE_FAILURE":
                             timeout_kind = "READINESS_TIMEOUT"
+                    missing_marker = readiness_marker
+                    if missing_progress is not None:
+                        missing_marker = progress_markers[missing_progress]
                     _diagnose(
                         timeout_kind,
-                        "did not observe exact serial marker %r" % readiness_marker,
+                        "did not observe exact serial marker %r" % missing_marker,
                         serial_log,
                         qemu_log,
                         diagnostic_bytes,
@@ -494,6 +591,7 @@ def _boot(
                     _read_log(firmware_log),
                     _read_log(serial_log),
                     min(diagnostic_bytes, 256 * 1024),
+                    tuple(progress_markers) + (readiness_marker,),
                 )
                 print("actual observed boot evidence:")
                 print(evidence.decode(errors="replace"), end="")
@@ -515,6 +613,7 @@ def _boot(
             firmware_log,
             qemu_log,
             diagnostic_bytes,
+            tuple(progress_markers) + (readiness_marker,),
         )
         try:
             qmp_socket_file.unlink()
@@ -550,8 +649,14 @@ def main():
         disk_interface=config.get("disk_interface", "virtio"),
         kernel_preflight=_resolve_runfile(config["kernel_preflight"]),
         readiness_marker=config["readiness_marker"],
+        progress_markers=config.get("progress_markers", ()),
         expected_failure_marker=config.get("expected_failure_marker", ""),
         stop_after_readiness=config.get("stop_after_readiness", False),
+        allow_reboot=config.get("allow_reboot", False),
+        read_only_shares=[
+            (_resolve_runfile_directory(share["directory"]), share["mount_tag"])
+            for share in config.get("read_only_shares", ())
+        ],
         shutdown_markers=config["shutdown_markers"],
         boot_timeout_seconds=config["boot_timeout_seconds"],
         qmp_initialization_timeout_seconds=config["qmp_initialization_timeout_seconds"],

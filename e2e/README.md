@@ -49,6 +49,19 @@ the lock pins the package from `non-free-firmware`, that the image metadata
 records the consumer lock digest and components, and that dpkg installed the
 locked version and its microcode files.
 
+`sysupdate_v1`, `sysupdate_v2`, and `sysupdate_v3` are three releases of one
+versioned dm-verity image built from `@sysupdate_debian`, a consumer lock that
+adds `systemd-container` for `systemd-sysupdate`. They share
+`sysupdate_transfers` with `boot_attempts = 1`, and release 3 adds a health
+check that always fails. `sysupdate_payload_test` checks release 2's
+labels, root-hash-derived partition UUIDs, payload names, and checksums
+through the public providers. `sysupdate_lifecycle_test` boots release 1 with
+`qemu_ovmf_boot_test(allow_reboot = True)`, exposes the release 2 and 3
+payloads as read-only virtio-9p shares, and follows ordered serial markers
+while a guest driver applies release 2, verifies that it is blessed, applies
+release 3, and verifies the fallback to release 2. See
+[`docs/sysupdate-ab.md`](../docs/sysupdate-ab.md).
+
 The `tree_demo` target additionally consumes a complete configuration directory
 and an explicitly typed configuration/source tree through the public API. Its
 build and semantic artifact tests also run by default.

@@ -1,6 +1,7 @@
 """Implementation of the public mkosi_image rule."""
 
 load("//mkosi/private:debian_snapshot.bzl", "DebianSnapshotInfo")
+load("//mkosi/private:image_identity.bzl", "validate_image_id", "validate_image_version")
 
 MkosiImageInfo = provider(
     doc = """Stable output contract for mkosi_image.
@@ -28,6 +29,8 @@ The image field is a compatibility alias for raw_image.
         "verity_metadata": "Normalized dm-verity linkage metadata, or None.",
         "build_metadata": "Normalized JSON build-metadata File describing this contract's output modes.",
         "firmware": "Selected firmware tier: uefi or bios.",
+        "image_id": "Explicit os-release IMAGE_ID string, or None when not selected by the rule.",
+        "image_version": "Explicit os-release IMAGE_VERSION string, or None when not selected by the rule.",
         "image": "Deprecated compatibility alias for raw_image; use raw_image in new consumers.",
     },
 )
@@ -435,6 +438,14 @@ def _mkosi_image_impl(ctx):
         ctx.attr.release_source_date_epoch >= 0
     ):
         fail("release_seed and release_source_date_epoch are only supported in release mode")
+    image_id = ctx.expand_make_variables("image_id", ctx.attr.image_id, {}) or None
+    image_version = ctx.expand_make_variables("image_version", ctx.attr.image_version, {}) or None
+    if image_version and not image_id:
+        fail("image_version requires image_id")
+    if image_id:
+        validate_image_id(image_id)
+    if image_version:
+        validate_image_version(image_version)
     if ctx.attr.config and ctx.attr.config_tree:
         fail("set exactly one of config and config_tree")
     if not ctx.attr.config and not ctx.attr.config_tree:
@@ -566,6 +577,10 @@ def _mkosi_image_impl(ctx):
     ))
     if uki_enabled:
         arguments.add("--unified-kernel-images=unsigned")
+    if image_id:
+        arguments.add("--image-id=" + image_id)
+    if image_version:
+        arguments.add("--image-version=" + image_version)
     if firmware == "bios":
         arguments.add("--architecture=x86-64")
         arguments.add("--bootable=yes")
@@ -643,6 +658,9 @@ def _mkosi_image_impl(ctx):
         partition_arguments.add(partition_metadata.path)
         partition_arguments.add("--firmware")
         partition_arguments.add(firmware)
+        if image_version and verity_enabled:
+            partition_arguments.add("--slot-label")
+            partition_arguments.add(image_id + "_" + image_version)
         ctx.actions.run(
             executable = mkosi.python,
             arguments = [partition_arguments],
@@ -742,6 +760,8 @@ def _mkosi_image_impl(ctx):
         "mode": ctx.attr.mode,
         "firmware": firmware,
     }
+    if image_id:
+        metadata["image"] = {"id": image_id, "version": image_version}
     if release_mode:
         snapshot = ctx.attr.debian_snapshot[DebianSnapshotInfo]
         metadata["debian_snapshot"] = {
@@ -791,6 +811,8 @@ def _mkosi_image_impl(ctx):
             verity_metadata = verity_metadata,
             build_metadata = build_metadata,
             firmware = firmware,
+            image_id = image_id,
+            image_version = image_version,
             image = image,
         ),
     ]
@@ -849,6 +871,25 @@ its label basename, are copied to that key.
         "rootfs_payloads": attr.label_list(
             providers = [MkosiRootfsPayloadInfo],
             doc = "Typed payloads installed at explicit image-root destinations through mkosi.extra.",
+        ),
+        "image_id": attr.string(
+            doc = """os-release IMAGE_ID passed to mkosi as ImageId=, overriding the configuration.
+
+Lowercase letters, digits, '.', '-' and '_' only. Make variables are expanded as for image_version.
+""",
+        ),
+        "image_version": attr.string(
+            doc = """os-release IMAGE_VERSION passed to mkosi as ImageVersion=, overriding the configuration.
+
+Requires image_id. Letters, digits and '.' only: systemd-sysupdate accepts only letters, digits and ".,_-+" in
+a version, '_' separates the id from the version, and '+'/'-' remain free for systemd-boot boot counting. Make
+variables are expanded, so a release version can come from a build setting through a TemplateVariableInfo target in
+the common `toolchains` attribute, e.g. image_version = "$(OS_VERSION)".
+With verity='hash', the populated root and verity partitions must be labelled
+'<image_id>_<image_version>' and '<image_id>_<image_version>_verity' (repart 'Label=%M_%A' and
+'Label=%M_%A_verity'), and inactive A/B slots must be labelled '_empty', following the
+systemd-sysupdate partition conventions used by sysupdate_transfers and sysupdate_payload.
+""",
         ),
         "_stage_script": attr.label(
             cfg = "exec",

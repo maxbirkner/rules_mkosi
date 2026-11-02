@@ -357,6 +357,55 @@ as `/etc/skel/.config/example`. Use sysusers plus tmpfiles to create users and
 home directories. Do not put credentials or secrets in payloads, and do not
 replace these declarations with release lifecycle scripts.
 
+### A/B updates
+
+Versioned UEFI releases can update themselves in place with
+`systemd-sysupdate` and roll back through systemd-boot boot counting:
+
+```starlark
+load(
+    "@rules_mkosi//mkosi:defs.bzl",
+    "mkosi_image",
+    "sysupdate_payload",
+    "sysupdate_transfers",
+)
+
+sysupdate_transfers(
+    name = "os_transfers",
+    image_id = "my-os",
+)
+
+mkosi_image(
+    name = "os",
+    config_tree = ":os_config",
+    debian_snapshot = "@my_os_debian//:repository",
+    image_id = "my-os",
+    image_version = "$(OS_VERSION)",
+    mode = "release",
+    release_seed = "00000000-0000-4000-8000-000000000001",
+    release_source_date_epoch = 1755129600,
+    rootfs_payloads = [":os_transfers"],
+    toolchains = [":os_version_variables"],
+    unified_kernel_image = "unsigned",
+    verity = "hash",
+)
+
+sysupdate_payload(
+    name = "os_payload",
+    image = ":os",
+)
+```
+
+`image_id` and `image_version` set `IMAGE_ID` and `IMAGE_VERSION` and expand
+Make variables. With `verity = "hash"`, the populated root and verity
+partitions must be labelled `<image_id>_<image_version>` and
+`<image_id>_<image_version>_verity`, and inactive slots `_empty`.
+`sysupdate_transfers` installs root, verity, and boot-counted UKI transfer
+definitions, and `sysupdate_payload` produces the matching update directory
+for `systemd-sysupdate --transfer-source=<directory> update`. See
+[`docs/sysupdate-ab.md`](docs/sysupdate-ab.md) for the partition layout, mkosi
+and runtime configuration, health checks, and known pitfalls.
+
 Development and test commands are documented once in
 [CONTRIBUTING.md](CONTRIBUTING.md). The independent consumer module is
 described in [`e2e/README.md`](e2e/README.md).
@@ -491,6 +540,8 @@ basename, or the contents of `DefaultInfo`.
 | --- | --- | --- |
 | `format_version` | `string` | Always `mkosi-image-v2`. It identifies the stable provider contract. |
 | `firmware` | `string` | Explicit `uefi` (default) or `bios` tier; never inferred from filenames. |
+| `image_id` | `string` or `None` | Expanded `mkosi_image.image_id`, or `None` when the configuration owns `ImageId=`. |
+| `image_version` | `string` or `None` | Expanded `mkosi_image.image_version`, or `None`. |
 | `raw_image` | `File` or `None` | Present for the current disk/raw output mode. |
 | `manifest` | `File` or `None` | `None` until a mode explicitly requests mkosi manifest output. |
 | `partition_metadata` | `File` or `None` | Validated, normalized GPT JSON for release images; `None` in tracer mode. |
@@ -501,7 +552,7 @@ basename, or the contents of `DefaultInfo`.
 | `root_hash_signature` | `File` or `None` | Reserved typed output; always `None` until #23 adds signing. |
 | `uki_metadata` | `File` or `None` | Normalized PE section hashes and verified root-hash linkage. |
 | `verity_metadata` | `File` or `None` | Independently verified root/hash partition linkage, dm-verity geometry, salt, tree extent, root hash, and split-artifact digests. |
-| `build_metadata` | `File` or `None` | Present for every current target. It is normalized JSON with schema `mkosi-image-build-metadata-v2`, output-role booleans, mode, and forced mkosi disk/raw/no-compression settings. Release metadata additionally records the authenticated snapshot identity, staged components, lock digest, and resolved reproducibility inputs. |
+| `build_metadata` | `File` or `None` | Present for every current target. It is normalized JSON with schema `mkosi-image-build-metadata-v2`, output-role booleans, mode, and forced mkosi disk/raw/no-compression settings. Release metadata additionally records the authenticated snapshot identity, staged components, lock digest, and resolved reproducibility inputs. An `image` object records an explicit image id and version. |
 | `image` | `File` or `None` | Deprecated compatibility alias for `raw_image`; it is exactly the same artifact. New consumers must use `raw_image`. |
 
 `DefaultInfo.files` contains each non-`None` artifact field once; its depset
@@ -569,6 +620,13 @@ boot, and shutdown deadlines must be positive and, together with a reserved
 (`60`, `300`, or `900` seconds). Invalid categories or deadline combinations
 fail during analysis, so a lifecycle timeout reports its own diagnostic before
 Bazel's test deadline can terminate the process.
+Multi-boot scenarios, such as an A/B update, set `allow_reboot = True` so
+that one QEMU process keeps its writable image snapshot and OVMF variables
+across guest reboots, list ordered `progress_markers` that must all appear
+before `readiness_marker`, and may pass `read_only_shares`, a dictionary from
+directory targets to virtio-9p mount tags that the guest mounts read-only
+(`mount -t 9p -o trans=virtio,ro <tag> <path>`). Shares are materialized as
+regular files in the test's temporary directory before QEMU starts.
 The BIOS qualification is tagged `no-cache`. Each execution writes bounded
 `firmware.log`, `guest-serial.log`, `qemu.log`, and `boot-evidence.log` files
 to Bazel's undeclared test outputs. Its successful test log prints actual

@@ -347,6 +347,51 @@ class ProjectionTest(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, message):
                     self.project(image(entries=entries))
 
+    def project_slots(self, entries, slot_label="ab_1"):
+        with open(self.path, "wb") as output:
+            output.write(image(entries=entries))
+        return partition_metadata.project_image(self.path, slot_label=slot_label)
+
+    def ab_entries(self, root_label="ab_1", verity_label="ab_1_verity", inactive_root_last=8191):
+        verity = partition_metadata.ROOT_X86_64_VERITY
+        return [
+            (2, 2048, 4095, partition_metadata.ROOT_X86_64, root_label),
+            (3, 4096, 6143, verity, verity_label),
+            (4, 6144, inactive_root_last, partition_metadata.ROOT_X86_64, "_empty"),
+            (5, 10240, 12287, verity, "_empty"),
+        ]
+
+    def test_versioned_slots_record_partition_uuids(self):
+        projected = self.project_slots(self.ab_entries())
+        self.assertEqual(
+            ["ab_1", "ab_1_verity", "_empty", "_empty"],
+            [partition["label"] for partition in projected["partitions"]],
+        )
+        uuids = [uuid.UUID(partition["uuid"]) for partition in projected["partitions"]]
+        self.assertEqual(4, len(set(uuids)))
+
+    def test_unversioned_projection_omits_partition_uuids(self):
+        projected = self.project(image())
+        self.assertNotIn("uuid", projected["partitions"][0])
+
+    def test_versioned_slot_rules(self):
+        cases = [
+            (self.ab_entries(root_label="ab_2"), "populated root partition labelled 'ab_1'"),
+            (self.ab_entries(verity_label="ab_1-verity"), "populated verity partition labelled 'ab_1_verity'"),
+            (self.ab_entries(root_label="root-x86-64"), "populated root partition"),
+            (self.ab_entries()[:2] + [(4, 6144, 8191, partition_metadata.ROOT_X86_64, "ab_0")], "exactly one populated root"),
+            (self.ab_entries()[:1], "exactly one populated verity"),
+            (self.ab_entries(inactive_root_last=7167), "inactive root slots must be at least as large"),
+        ]
+        for entries, message in cases:
+            with self.subTest(message=message):
+                with self.assertRaisesRegex(ValueError, message):
+                    self.project_slots(entries)
+
+    def test_inactive_slots_are_optional(self):
+        projected = self.project_slots(self.ab_entries()[:2])
+        self.assertEqual(2, len(projected["partitions"]))
+
 
 if __name__ == "__main__":
     unittest.main()

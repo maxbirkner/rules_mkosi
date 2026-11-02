@@ -399,6 +399,140 @@ class BootLifecycleTest(unittest.TestCase):
                     sleep=lambda _seconds: None,
                 )
 
+    def _lifecycle_boot(self, serial, **boot_options):
+        """Runs a successful boot and returns the QEMU command line."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            (root / "vars.fd").write_bytes(b"vars")
+            (root / "guest-serial.log").write_bytes(serial)
+            observed = {}
+
+            def factory(command, **_kwargs):
+                observed["command"] = command
+                return _Process()
+
+            with mock.patch.dict("os.environ", {"TEST_TMPDIR": directory}, clear=True):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    boot_test._boot(
+                        "image.raw",
+                        "qemu",
+                        "qemu-data",
+                        firmware_code="code.fd",
+                        firmware_vars=str(root / "vars.fd"),
+                        readiness_marker="READY",
+                        shutdown_markers=("SHUTDOWN",),
+                        process_factory=factory,
+                        qmp_handshake=lambda *_args: None,
+                        sleep=lambda _seconds: None,
+                        **boot_options,
+                    )
+            return observed["command"]
+
+    def test_progress_markers_must_precede_readiness_in_order(self):
+        command = self._lifecycle_boot(
+            b"FIRST\nSECOND\nFIRST\nREADY\nSHUTDOWN\n",
+            progress_markers=("FIRST", "SECOND", "FIRST"),
+        )
+        self.assertIn("-no-reboot", command)
+
+    def test_out_of_order_progress_markers_time_out_naming_the_missing_marker(self):
+        self._run(
+            "READINESS_TIMEOUT",
+            serial=b"SECOND\nFIRST\nREADY\n",
+            clock_values=(0, 0, 181),
+            boot_options={"progress_markers": ("FIRST", "SECOND")},
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            (root / "vars.fd").write_bytes(b"vars")
+            (root / "guest-serial.log").write_bytes(b"FIRST\nREADY\n")
+            clock = iter((0, 0, 181))
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr), self.assertRaises(SystemExit):
+                with mock.patch.dict("os.environ", {"TEST_TMPDIR": directory}, clear=True):
+                    boot_test._boot(
+                        "image.raw",
+                        "qemu",
+                        "qemu-data",
+                        firmware_code="code.fd",
+                        firmware_vars=str(root / "vars.fd"),
+                        readiness_marker="READY",
+                        progress_markers=("FIRST", "SECOND"),
+                        shutdown_markers=("SHUTDOWN",),
+                        process_factory=lambda *_args, **_kwargs: _Process(),
+                        qmp_handshake=lambda *_args: None,
+                        monotonic=lambda: next(clock, 181),
+                        sleep=lambda _seconds: None,
+                    )
+            self.assertIn("did not observe exact serial marker 'SECOND'", stderr.getvalue())
+
+    def test_allow_reboot_keeps_qemu_running_across_guest_reboots(self):
+        command = self._lifecycle_boot(b"READY\nSHUTDOWN\n", allow_reboot=True)
+        self.assertNotIn("-no-reboot", command)
+
+    def test_read_only_shares_expose_resolved_regular_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = pathlib.Path(directory) / "artifacts"
+            share = pathlib.Path(directory) / "payload"
+            (source / "nested").mkdir(parents=True)
+            (source / "root.raw").write_bytes(b"root")
+            (source / "nested" / "uki.efi").write_bytes(b"uki")
+            share.mkdir()
+            (share / "root.raw").symlink_to(source / "root.raw")
+            (share / "nested").symlink_to(source / "nested")
+            command = self._lifecycle_boot(
+                b"READY\nSHUTDOWN\n",
+                read_only_shares=[(str(share), "payload-2")],
+            )
+            option = command[command.index("-virtfs") + 1]
+            self.assertTrue(option.startswith("local,path=/"))
+            self.assertTrue(option.endswith(",mount_tag=payload-2,security_model=none,readonly=on"))
+
+    def test_materialized_share_has_no_symlinks(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            source = root / "artifacts"
+            (source / "nested").mkdir(parents=True)
+            (source / "root.raw").write_bytes(b"root")
+            (source / "nested" / "uki.efi").write_bytes(b"uki")
+            share = root / "share"
+            share.mkdir()
+            (share / "root.raw").symlink_to(source / "root.raw")
+            (share / "nested").symlink_to(source / "nested")
+            arguments = boot_test._virtfs_arguments([(str(share), "tag")], root / "scratch")
+            materialized = root / "scratch" / "shares" / "tag"
+            self.assertEqual(
+                ["-virtfs", "local,path={},mount_tag=tag,security_model=none,readonly=on".format(materialized)],
+                arguments,
+            )
+            self.assertFalse((materialized / "root.raw").is_symlink())
+            self.assertFalse((materialized / "nested").is_symlink())
+            self.assertEqual(b"root", (materialized / "root.raw").read_bytes())
+            self.assertEqual(b"uki", (materialized / "nested" / "uki.efi").read_bytes())
+
+    def test_manifest_only_share_is_materialized_from_its_file_entries(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            (root / "root.raw").write_bytes(b"root")
+            (root / "uki.efi").write_bytes(b"uki")
+            manifest = root / "MANIFEST"
+            manifest.write_text(
+                "_main/payload/root.raw {}\n_main/payload/nested/uki.efi {}\n_main/other x\n".format(
+                    root / "root.raw",
+                    root / "uki.efi",
+                ),
+            )
+            with mock.patch.dict("os.environ", {"RUNFILES_MANIFEST_FILE": str(manifest)}):
+                files = boot_test._resolve_runfile_directory("_main/payload")
+            self.assertEqual(
+                {"root.raw": str(root / "root.raw"), "nested/uki.efi": str(root / "uki.efi")},
+                files,
+            )
+            boot_test._virtfs_arguments([(files, "tag")], root / "scratch")
+            materialized = root / "scratch" / "shares" / "tag"
+            self.assertEqual(b"root", (materialized / "root.raw").read_bytes())
+            self.assertEqual(b"uki", (materialized / "nested" / "uki.efi").read_bytes())
+
     def test_qmp_malformed_and_eof_are_bounded_errors(self):
         for payload in (b"not-json\n", b""):
             left, right = socket.socketpair()

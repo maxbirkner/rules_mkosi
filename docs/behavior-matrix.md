@@ -46,7 +46,8 @@ fail analysis. The normalized verity projection checks split artifact extents
 against GPT, derives format geometry from the generated superblock, recomputes
 the complete salted hash tree, and rejects truncation, mutation, and nonzero
 padding. Verification uses constant-size buffers and one bounded on-disk
-digest level at a time; format-1 digest slots are power-of-two padded.
+digest level at a time; format-1 digest slots are power-of-two padded. Inactive `_empty` A/B slots are excluded from the
+projection.
 
 <!-- behavior:BHV-IMAGE-SOURCES -->
 `source_trees` accepts typed trees at unique normalized relative destinations,
@@ -57,6 +58,21 @@ untyped values.
 `rootfs_payloads` installs typed Bazel files and trees at normalized absolute
 image paths, preserves declared executable and relative-symlink intent, and
 rejects aliases, collisions, traversal, and unsafe links.
+
+<!-- behavior:BHV-IMAGE-IDENTITY -->
+`mkosi_image.image_id` and `image_version` expand Make variables, override
+mkosi's `ImageId=`/`ImageVersion=`, and appear in `MkosiImageInfo` and the
+build metadata. `image_version` requires `image_id` and accepts only letters,
+digits, and `.`, a subset of the systemd-sysupdate version alphabet that keeps
+`_`, `+`, and `-` free as separators in artifact names and boot counting.
+
+<!-- behavior:BHV-SYSUPDATE-TRANSFERS -->
+`sysupdate_transfers` validates its image id, non-negative `boot_attempts`
+(zero lists the counter-free UKI pattern first so that new UKIs are installed
+without a boot counter), and at least two `instances`, and installs root,
+verity, and UKI transfer definitions at a typed rootfs destination. Sources use
+`PathRelativeTo=explicit`, partition targets take their UUID from `@u`, and
+every transfer protects the running version.
 
 <!-- behavior:BHV-TREE-SRC -->
 `mkosi_config_tree.src` and `mkosi_source_tree.src` each resolve to exactly one
@@ -90,6 +106,14 @@ timeout category, and the boundary equal to that category is accepted.
 `test_timeout`/the public macro's `timeout` accepts `short`, `moderate`, and
 `long`, propagates to the generated test, and rejects unsupported categories.
 
+<!-- behavior:BHV-BOOT-LIFECYCLE -->
+`progress_markers` must appear in order before readiness and contain only
+nonempty markers; they cannot be combined with `expected_failure_marker`.
+`allow_reboot` keeps one QEMU process, its writable image snapshot, and its
+firmware variables across guest reboots. `read_only_shares` exposes directory
+artifacts as read-only virtio-9p shares with unique 1-31 character mount tags,
+resolving Bazel's symlinked tree artifacts to regular files.
+
 <!-- behavior:BHV-MANAGED-PYTHON -->
 `managed_python_test.src` requires one Python source, while `data` is optional;
 the generated launcher uses the selected managed interpreter with isolated
@@ -107,12 +131,21 @@ certificate table, exact signer and SHA-256 signature, and byte equivalence
 after only the defined Authenticode mutations. Signed external responses are
 not reproducible.
 
+<!-- behavior:BHV-SYSUPDATE-PAYLOAD -->
+`sysupdate_payload` requires a versioned image with an unsigned UKI and
+hash-only dm-verity, optionally substitutes an externally signed UKI whose
+signing request names the image's unsigned UKI digest, and exposes
+`SysupdatePayloadInfo`. It names the root and verity artifacts with the
+partition UUIDs that systemd-repart derives from the root hash, rejects images
+whose GPT UUIDs differ, writes `SHA256SUMS`, and leaves no partial output.
+
 <!-- behavior:BHV-IMAGE-PROVIDER -->
 `MkosiImageInfo` fixes `format_version`, exposes `raw_image`, `manifest`,
 `partition_metadata`, `uki`, split root/hash/signature roles, normalized UKI
 and verity metadata, and `build_metadata` as `File` or `None`, keeps
 `image` as the exact raw-image alias, and projects every present artifact once
-through `DefaultInfo`. Its `firmware` field exposes the selected tier directly.
+through `DefaultInfo`. Its `firmware` field exposes the selected tier directly,
+and `image_id`/`image_version` expose the explicit image identity or `None`.
 
 <!-- behavior:BHV-TREE-PROVIDERS -->
 `MkosiConfigTreeInfo` and `MkosiSourceTreeInfo` expose the declared `tree` and
@@ -152,7 +185,10 @@ deadlines, and the fixed cleanup margin.
 Release `MkosiImageInfo.partition_metadata` is a provider-composed normalized
 projection. It validates both GPT copies and their CRCs, requires identical
 partition arrays, preserves stable sparse slot numbers, and omits variable GPT
-disk and partition identities. BIOS projections additionally require exactly
+disk and partition identities. Versioned dm-verity images instead require
+exactly one populated root and verity slot labelled `<id>_<version>` and
+`<id>_<version>_verity`, allow inactive `_empty` slots at least as large, and
+record partition UUIDs, which are derived from the root hash. BIOS projections additionally require exactly
 one BIOS boot partition of at least 1 MiB and record the firmware tier. Tracer
 mode continues to expose `None`.
 
@@ -185,6 +221,13 @@ forced raw/disk/uncompressed output semantics.
 Release execution consumes only the authenticated snapshot, blocks networking,
 removes persistent APT sources, rejects host-dependent configuration, and
 emits reproducibility and snapshot metadata.
+
+<!-- behavior:BHV-SYSUPDATE-LIFECYCLE -->
+A versioned UEFI image updates itself in place with `systemd-sysupdate` from a
+read-only payload into its `_empty` slots, boots the new release with its
+verity root found through the UKI's `roothash=`, and blesses it once
+`boot-complete.target` is reached. A release whose health check fails falls
+back to the previous release after its boot attempts are exhausted.
 
 <!-- behavior:BHV-TRACER-RUNTIME -->
 Tracer execution uses the pinned mkosi and Debian tools with explicit network,

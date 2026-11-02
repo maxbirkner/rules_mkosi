@@ -11,6 +11,8 @@ load(
     "qemu_ovmf_boot_test",
     "qemu_ovmf_smoke_test",
     "qemu_seabios_boot_test",
+    "sysupdate_payload",
+    "sysupdate_transfers",
 )
 load("@rules_python//python:defs.bzl", "py_binary", "py_runtime", "py_runtime_pair", "py_test")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
@@ -26,6 +28,7 @@ load(
     "raw_image_file",
     "rootfs_payload_public_api_test",
     "snapshot_public_api_test",
+    "sysupdate_public_api_test",
     "verity_corrupted_image",
 )
 load(":python_override.bzl", "consumer_python")
@@ -61,6 +64,10 @@ behavior_targets(
         ":release_demo_partition_metadata_test",
         ":release_demo_reproducibility_test",
         ":release_demo_rootfs_payload_test",
+        ":sysupdate_lifecycle_test",
+        ":sysupdate_payload_public_provider_test",
+        ":sysupdate_payload_test",
+        ":sysupdate_transfers_public_provider_test",
         ":tree_demo_build_test",
         ":tree_demo_semantics_test",
     ],
@@ -663,4 +670,152 @@ py_test(
     data = [":tree_demo_raw"],
     main = "staged_image_semantics_test.py",
     tags = ["requires-network"],
+)
+
+mkosi_config_tree(
+    name = "sysupdate_config_tree",
+    src = "testdata/sysupdate-config",
+)
+
+sysupdate_transfers(
+    name = "sysupdate_transfers",
+    boot_attempts = 1,
+    image_id = "rules-mkosi-ab",
+)
+
+mkosi_rootfs_payload(
+    name = "sysupdate_lifecycle_driver",
+    src = "testdata/sysupdate-lifecycle/rules-mkosi-ab-lifecycle",
+    destination = "/usr/libexec/rules-mkosi-ab-lifecycle",
+    executable_paths = [""],
+)
+
+mkosi_rootfs_payload(
+    name = "sysupdate_lifecycle_service",
+    src = "testdata/sysupdate-lifecycle/rules-mkosi-ab-lifecycle.service",
+    destination = "/usr/lib/systemd/system/rules-mkosi-ab-lifecycle.service",
+)
+
+mkosi_rootfs_payload(
+    name = "sysupdate_lifecycle_preset",
+    src = "testdata/sysupdate-lifecycle/10-rules-mkosi-ab.preset",
+    destination = "/usr/lib/systemd/system-preset/10-rules-mkosi-ab.preset",
+)
+
+mkosi_rootfs_payload(
+    name = "sysupdate_failing_health_check",
+    src = "testdata/sysupdate-lifecycle/rules-mkosi-ab-health.service",
+    destination = "/usr/lib/systemd/system/rules-mkosi-ab-health.service",
+)
+
+# Releases 1 and 2 are healthy; release 3 adds a health check that always
+# fails, so systemd-boot must fall back to release 2.
+[
+    mkosi_image(
+        name = "sysupdate_v" + version,
+        config_tree = ":sysupdate_config_tree",
+        debian_snapshot = "@sysupdate_debian//:repository",
+        image_id = "rules-mkosi-ab",
+        image_version = version,
+        mode = "release",
+        release_seed = "00000000-0000-4000-8000-000000000017",
+        release_source_date_epoch = 1755129600,
+        rootfs_payloads = [
+            ":sysupdate_lifecycle_driver",
+            ":sysupdate_lifecycle_preset",
+            ":sysupdate_lifecycle_service",
+            ":sysupdate_transfers",
+        ] + extra_payloads,
+        unified_kernel_image = "unsigned",
+        verity = "hash",
+    )
+    for version, extra_payloads in (
+        ("1", []),
+        ("2", []),
+        (
+            "3",
+            [":sysupdate_failing_health_check"],
+        ),
+    )
+]
+
+[
+    sysupdate_payload(
+        name = "sysupdate_v{}_payload".format(version),
+        image = ":sysupdate_v" + version,
+    )
+    for version in ("2", "3")
+]
+
+sysupdate_public_api_test(
+    name = "sysupdate_transfers_public_provider_test",
+    target_under_test = ":sysupdate_transfers",
+)
+
+sysupdate_public_api_test(
+    name = "sysupdate_payload_public_provider_test",
+    expected_version = "2",
+    image = ":sysupdate_v2",
+    target_under_test = ":sysupdate_v2_payload",
+)
+
+image_partition_metadata_file(
+    name = "sysupdate_v2_partition_metadata",
+    image = ":sysupdate_v2",
+)
+
+image_build_metadata_file(
+    name = "sysupdate_v2_build_metadata",
+    image = ":sysupdate_v2",
+)
+
+py_test(
+    name = "sysupdate_payload_test",
+    srcs = ["sysupdate_payload_test.py"],
+    args = [
+        "$(rootpath :sysupdate_v2_payload)",
+        "$(rootpath :sysupdate_v2_partition_metadata)",
+        "$(rootpath :sysupdate_v2_build_metadata)",
+        "$(rootpath :sysupdate_transfers)",
+    ],
+    data = [
+        ":sysupdate_transfers",
+        ":sysupdate_v2_build_metadata",
+        ":sysupdate_v2_partition_metadata",
+        ":sysupdate_v2_payload",
+    ],
+    main = "sysupdate_payload_test.py",
+)
+
+# Boots release 1, applies release 2 with systemd-sysupdate from a read-only
+# share, reboots into it and waits for boot counting to bless it, then applies
+# release 3 whose health check fails and verifies that systemd-boot falls back
+# to release 2 after its single boot attempt.
+qemu_ovmf_boot_test(
+    name = "sysupdate_lifecycle_test",
+    timeout = "long",
+    allow_reboot = True,
+    boot_timeout_seconds = 780,
+    image = ":sysupdate_v1",
+    machine_args = [
+        "-machine",
+        "q35",
+        "-m",
+        "2048M",
+    ],
+    progress_markers = [
+        "rules-mkosi-ab: running 1 with roothash ",
+        "rules-mkosi-ab: installed 2",
+        "rules-mkosi-ab: running 2 with roothash ",
+        "rules-mkosi-ab: 2 is blessed",
+        "rules-mkosi-ab: installed 3",
+        "rules-mkosi-ab: health check failed",
+        "rules-mkosi-ab: running 2 with roothash ",
+    ],
+    read_only_shares = {
+        ":sysupdate_v2_payload": "payload-2",
+        ":sysupdate_v3_payload": "payload-3",
+    },
+    readiness_marker = "rules-mkosi-ab: rolled back from 3 to 2",
+    shutdown_timeout_seconds = 60,
 )

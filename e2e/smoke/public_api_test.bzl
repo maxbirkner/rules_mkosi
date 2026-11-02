@@ -7,6 +7,7 @@ load(
     "DebianToolsInfo",
     "MkosiImageInfo",
     "MkosiRootfsPayloadInfo",
+    "SysupdatePayloadInfo",
 )
 
 def _behavior_targets_impl(ctx):
@@ -90,6 +91,8 @@ def _image_public_api_test_impl(ctx):
     asserts.equals(env, None, info.uki_metadata)
     asserts.equals(env, None, info.verity_metadata)
     asserts.equals(env, "demo.mkosi-image-info.json", info.build_metadata.basename)
+    asserts.equals(env, None, info.image_id)
+    asserts.equals(env, None, info.image_version)
     return analysistest.end(env)
 
 image_public_api_test = analysistest.make(_image_public_api_test_impl)
@@ -103,6 +106,31 @@ def _rootfs_payload_public_api_test_impl(ctx):
     return analysistest.end(env)
 
 rootfs_payload_public_api_test = analysistest.make(_rootfs_payload_public_api_test_impl)
+
+def _sysupdate_public_api_test_impl(ctx):
+    env = analysistest.begin(ctx)
+    target = analysistest.target_under_test(env)
+    if ctx.attr.expected_version:
+        info = target[SysupdatePayloadInfo]
+        asserts.equals(env, "rules-mkosi-ab", info.image_id)
+        asserts.equals(env, ctx.attr.expected_version, info.image_version)
+        asserts.true(env, info.directory.is_directory)
+        image = ctx.attr.image[MkosiImageInfo]
+        asserts.equals(env, "rules-mkosi-ab", image.image_id)
+        asserts.equals(env, ctx.attr.expected_version, image.image_version)
+    else:
+        info = target[MkosiRootfsPayloadInfo]
+        asserts.equals(env, "/usr/lib/sysupdate.d", info.destination)
+        asserts.true(env, info.is_tree)
+    return analysistest.end(env)
+
+sysupdate_public_api_test = analysistest.make(
+    _sysupdate_public_api_test_impl,
+    attrs = {
+        "expected_version": attr.string(),
+        "image": attr.label(providers = [MkosiImageInfo]),
+    },
+)
 
 def _generated_payload_tree_impl(ctx):
     output = ctx.actions.declare_directory(ctx.label.name)
@@ -160,6 +188,8 @@ def _verity_corrupted_image_impl(ctx):
             verity_metadata = info.verity_metadata,
             build_metadata = info.build_metadata,
             firmware = info.firmware,
+            image_id = info.image_id,
+            image_version = info.image_version,
             image = output,
         ),
     ]

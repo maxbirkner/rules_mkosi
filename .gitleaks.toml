@@ -6,4 +6,5 @@ description = "The Debian package lock contains public package keys and hashes, 
 paths = [
   '''mkosi/debian/debian13\.lock\.json$''',
   '''e2e/smoke/testdata/consumer-snapshot/debian\.lock\.json$''',
+  '''e2e/smoke/testdata/sysupdate-snapshot/debian\.lock\.json$''',
 ]
