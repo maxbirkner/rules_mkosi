@@ -54,6 +54,12 @@ load(
     _secure_boot_import_response = "secure_boot_import_response",
     _secure_boot_signing_request = "secure_boot_signing_request",
 )
+load(
+    "//mkosi/private:sysupdate.bzl",
+    _SysupdatePayloadInfo = "SysupdatePayloadInfo",
+    _sysupdate_payload = "sysupdate_payload",
+    _sysupdate_transfers = "sysupdate_transfers",
+)
 
 MkosiImageInfo = _MkosiImageInfo
 MkosiConfigTreeInfo = _MkosiConfigTreeInfo
@@ -85,3 +91,6 @@ SecureBootEphemeralTestFixtureInfo = _SecureBootEphemeralTestFixtureInfo
 secure_boot_signing_request = _secure_boot_signing_request
 secure_boot_import_response = _secure_boot_import_response
 secure_boot_ephemeral_test_fixture = _secure_boot_ephemeral_test_fixture
+SysupdatePayloadInfo = _SysupdatePayloadInfo
+sysupdate_payload = _sysupdate_payload
+sysupdate_transfers = _sysupdate_transfers
