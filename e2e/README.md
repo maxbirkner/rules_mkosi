@@ -76,10 +76,13 @@ UKI fields are explicitly absent until their producing modes exist.
 
 `uefi_boot_test` is the dedicated UEFI tracer test. It consumes `demo` through
 the public `qemu_ovmf_boot_test` macro, boots it with the registered QEMU/OVMF
-artifacts and TCG, waits for the exact systemd hostname marker on the guest
-serial stream, and verifies the guest's clean `Powering off` shutdown. It runs
-in the qualified lane because its image requires the network and host-kernel
-contract. The macro creates a native
+artifacts and `accelerator = "tcg"`, waits for the exact systemd hostname
+marker on the guest serial stream, and verifies the guest's clean
+`Powering off` shutdown. Every other boot test uses the default `auto`
+accelerator and boots with KVM where `/dev/kvm` is accessible, so this test
+keeps a complete boot proven under the TCG fallback. It runs in the qualified
+lane because its image requires the network and host-kernel contract. The
+macro creates a native
 `managed_python_test` launcher: the direct managed interpreter receives a
 private bootstrap first. The bootstrap clears `PATH` and executes the
 lifecycle script with `runpy`, followed by the generated JSON configuration.

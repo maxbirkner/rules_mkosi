@@ -1,5 +1,7 @@
 """Action-level QEMU and OVMF smoke test."""
 
+load(":qemu_accelerator.bzl", "QEMU_ACCELERATOR_DOC", "qemu_accelerator_args")
+
 _QEMU_TOOLCHAIN_TYPE = "//mkosi/toolchain:qemu_toolchain_type"
 
 def _qemu_ovmf_smoke_test_impl(ctx):
@@ -71,7 +73,7 @@ qmp_fifo="$TEST_TMPDIR/qmp.fifo"
 exec 3<> "$qmp_fifo"
 TMPDIR="$TEST_TMPDIR"
 export TMPDIR
-"$qemu" -L "$system_data" -machine q35 -accel tcg -m 128M \
+"$qemu" -L "$system_data" -machine q35 {accelerator_args} -m 128M \
     -nodefaults -nographic -serial "file:$serial_log" -qmp stdio \
     -drive "if=pflash,format=raw,readonly=on,file=$ovmf_code" \
     -drive "if=pflash,format=raw,file=$vars_copy" \
@@ -99,7 +101,7 @@ if [ "$ready" -ne 1 ]; then
     exit 1
 fi
 
-printf '{{"execute":"qmp_capabilities"}}\\r\\n{{"execute":"quit"}}\\r\\n' >&3
+printf '{{"execute":"qmp_capabilities"}}\\r\\n{{"execute":"query-kvm"}}\\r\\n{{"execute":"quit"}}\\r\\n' >&3
 iteration=0
 while kill -0 "$qemu_pid" 2>/dev/null && [ "$iteration" -lt 50 ]
 do
@@ -118,7 +120,17 @@ wait "$qemu_pid" || {{
     exit 1
 }}
 exec 3>&-
+if /usr/bin/grep -Eq '"enabled": *true' "$TEST_TMPDIR/qmp.log"; then
+    echo "QEMU accelerator: kvm"
+elif /usr/bin/grep -Eq '"enabled": *false' "$TEST_TMPDIR/qmp.log"; then
+    echo "QEMU accelerator: tcg"
+else
+    echo "QEMU did not report its accelerator through QMP query-kvm" >&2
+    /bin/cat "$TEST_TMPDIR/qmp.log" >&2 2>/dev/null || true
+    exit 1
+fi
 """.format(
+            accelerator_args = " ".join(qemu_accelerator_args(ctx.attr.accelerator)),
             qemu = repr(toolchain.qemu_files_to_run.executable.short_path),
             qemu_img = repr(toolchain.qemu_img.short_path),
             system_data = repr(toolchain.system_data_anchor.short_path),
@@ -158,6 +170,10 @@ qemu_ovmf_smoke_test = rule(
     test = True,
     toolchains = [_QEMU_TOOLCHAIN_TYPE],
     attrs = {
+        "accelerator": attr.string(
+            default = "auto",
+            doc = QEMU_ACCELERATOR_DOC,
+        ),
         "_firmware_validator": attr.label(
             allow_single_file = True,
             default = "//mkosi/private:qemu_ovmf_validate.sh",

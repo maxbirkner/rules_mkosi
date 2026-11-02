@@ -119,6 +119,14 @@ same locally (after `bazel shutdown`, because the server keeps the groups of
 the client that started it) when a test reports
 `cannot clear supplementary groups`.
 
+QEMU boot tests use KVM when that group-free identity can open `/dev/kvm` for
+reading and writing, and fall back to TCG otherwise; each boot test log prints
+`QEMU accelerator: kvm` or `QEMU accelerator: tcg`. Membership in the `kvm`
+group does not help after `--clear-groups`. Grant access with a user ACL, for
+example `sudo setfacl -m "u:$USER:rw" /dev/kvm`, or with the mode-`0666` udev
+rule that CI installs before its root and consumer suites. Bazel's Linux
+sandbox exposes the host `/dev`, so no extra sandbox mount is required.
+
 The Debian lock generator has hermetic unit tests in
 `//mkosi/debian:generate_lock_test`. The consumer lock in
 `e2e/smoke/testdata/consumer-snapshot` is regenerated from `e2e/smoke` with

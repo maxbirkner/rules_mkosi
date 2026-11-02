@@ -2,6 +2,7 @@
 
 load(":managed_python_test.bzl", "managed_python_test")
 load(":mkosi_image.bzl", "MkosiImageInfo")
+load(":qemu_accelerator.bzl", "QEMU_ACCELERATOR_DOC", "qemu_accelerator_args")
 
 _QEMU_TOOLCHAIN_TYPE = "//mkosi/toolchain:qemu_toolchain_type"
 _TEST_TIMEOUT_SECONDS = {
@@ -87,6 +88,7 @@ def _qemu_ovmf_boot_config_impl(ctx):
     qemu = ctx.toolchains[_QEMU_TOOLCHAIN_TYPE].qemu
     output = ctx.actions.declare_file(ctx.label.name + ".json")
     config = {
+        "accelerator_args": qemu_accelerator_args(ctx.attr.accelerator),
         "boot_timeout_seconds": ctx.attr.boot_timeout_seconds,
         "diagnostic_bytes": ctx.attr.diagnostic_bytes,
         "firmware_code": qemu.ovmf_code.short_path,
@@ -148,6 +150,10 @@ def _qemu_ovmf_boot_config_impl(ctx):
 qemu_ovmf_boot_config = rule(
     implementation = _qemu_ovmf_boot_config_impl,
     attrs = {
+        "accelerator": attr.string(
+            default = "auto",
+            doc = QEMU_ACCELERATOR_DOC,
+        ),
         "image": attr.label(
             mandatory = True,
             providers = [MkosiImageInfo],
@@ -212,6 +218,7 @@ def qemu_ovmf_boot_test(
             "reboot: Power down",
         ],
         machine_args = ["-machine", "q35", "-m", "512M"],
+        accelerator = "auto",
         boot_timeout_seconds = 180,
         qmp_initialization_timeout_seconds = 15,
         shutdown_timeout_seconds = 30,
@@ -229,6 +236,10 @@ def qemu_ovmf_boot_test(
     and firmware variables across guest reboots, list their ordered
     checkpoints in progress_markers, and may expose directory artifacts such
     as update payloads through read_only_shares.
+
+    accelerator selects KVM with a TCG fallback (`auto`, the default) or
+    forces TCG (`tcg`); the accelerator QEMU actually used is recorded in the
+    test log and boot evidence.
     """
     config_name = name + "_config"
     qemu_ovmf_boot_config(
@@ -242,6 +253,7 @@ def qemu_ovmf_boot_test(
         read_only_shares = read_only_shares,
         shutdown_markers = shutdown_markers,
         machine_args = machine_args,
+        accelerator = accelerator,
         boot_timeout_seconds = boot_timeout_seconds,
         qmp_initialization_timeout_seconds = qmp_initialization_timeout_seconds,
         shutdown_timeout_seconds = shutdown_timeout_seconds,

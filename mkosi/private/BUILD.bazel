@@ -25,6 +25,7 @@ exports_files([
     "sysupdate.py",
     "stage_inputs.py",
     "write_bios_repart.py",
+    "qemu_accelerator.bzl",
     "qemu_ovmf_validate.sh",
     "qemu_ovmf_smoke_test.bzl",
     "toolchains_repo.bzl",

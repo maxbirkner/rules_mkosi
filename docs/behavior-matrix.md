@@ -94,6 +94,14 @@ markers; exact markers gate runtime readiness and clean shutdown.
 `machine_args` is passed before adapter-owned firmware arguments. OVMF owns
 its flash drives; SeaBIOS owns the pinned ROM and debug-console capture.
 
+<!-- behavior:BHV-BOOT-ACCELERATOR -->
+`accelerator` on both boot adapters and `qemu_ovmf_smoke_test` defaults to
+`auto`, which lists KVM before TCG so QEMU uses KVM when the test process can
+open `/dev/kvm` for reading and writing and otherwise falls back to TCG.
+`tcg` forces software emulation; every other value is rejected. The
+accelerator QEMU actually selected, as reported by QMP `query-kvm`, is printed
+in the test log and is the first line of the boot evidence.
+
 <!-- behavior:BHV-BOOT-DEADLINES -->
 `boot_timeout_seconds`, `qmp_initialization_timeout_seconds`, and
 `shutdown_timeout_seconds` are positive, their sum plus cleanup fits the Bazel

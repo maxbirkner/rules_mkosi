@@ -239,6 +239,15 @@ the complete root filesystem, and powers off cleanly. The BIOS image therefore
 includes a real initrd, `/sbin/init`, and the full root payload rather than
 only the GRUB installation evidence.
 
+Every QEMU test adapter derives its `-accel` arguments from one shared
+`accelerator` policy. The default lists KVM before TCG, so QEMU itself uses
+KVM when the test process can open `/dev/kvm` and otherwise falls back to TCG
+in the same process; no adapter probes the host. `tcg` forces software
+emulation, and the consumer's `uefi_boot_test` uses it to keep the fallback
+covered on hosts with KVM. The guest CPU model is QEMU's default for both
+accelerators, and deadlines are sized for TCG. The runner records the
+accelerator reported by QMP `query-kvm` in its log and boot evidence.
+
 The production test hierarchy will later add:
 
 1. Content tests against mounted or userspace-inspected filesystems.

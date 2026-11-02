@@ -675,9 +675,17 @@ qemu_seabios_boot_test(
 
 It accepts an `mkosi_image` target and selects
 `MkosiImageInfo.raw_image` explicitly. It resolves QEMU and OVMF through the
-registered toolchain, runs QEMU with TCG,
-no default devices, and a read-only snapshot of the image, then requires exact
-serial readiness and guest shutdown markers. QMP, launch, firmware, guest,
+registered toolchain, runs QEMU with no default devices and a read-only
+snapshot of the image, then requires exact serial readiness and guest shutdown
+markers. The default `accelerator = "auto"` lists KVM before TCG: QEMU uses
+KVM when the test process can open `/dev/kvm` for reading and writing and
+otherwise falls back to TCG software emulation, so deadlines must still fit a
+TCG boot. `accelerator = "tcg"` forces TCG. The guest CPU model does not depend
+on the accelerator. The test log and `boot-evidence.log` record the accelerator
+QEMU actually selected, as reported by QMP `query-kvm`. Bazel's Linux sandbox
+exposes the host `/dev`, so no sandbox option is needed; a Bazel server started
+with `--clear-groups` needs `/dev/kvm` access through a user ACL or mode
+`0666` rather than `kvm` group membership. QMP, launch, firmware, guest,
 readiness-timeout, and shutdown failures are reported separately with bounded
 deadlines and retained serial, firmware, and QEMU diagnostics. OVMF supplies
 flash arguments; SeaBIOS supplies its pinned ROM and debug console. Observable

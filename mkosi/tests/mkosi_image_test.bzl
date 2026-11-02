@@ -21,6 +21,9 @@ load(
 load("//mkosi/debian:toolchain.bzl", "DebianToolsInfo")
 
 _qemu_ovmf_boot_config = qemu_ovmf_boot_config
+
+# QEMU tries accelerators in command-line order, so KVM is preferred and TCG remains the fallback.
+_KVM_WITH_TCG_FALLBACK = ["-accel", "kvm", "-accel", "tcg"]
 _qemu_seabios_boot_config = qemu_seabios_boot_config
 
 def _reproducibility_manifest_test_impl(ctx):
@@ -248,11 +251,17 @@ _debian_tools_provider_test = analysistest.make(_debian_tools_provider_test_impl
 
 _qemu_toolchain_provider_test = analysistest.make(_qemu_toolchain_provider_test_impl)
 
+def _written_boot_config(env):
+    config_writes = [action for action in analysistest.target_actions(env) if action.mnemonic == "FileWrite"]
+    asserts.equals(env, 1, len(config_writes))
+    return json.decode(config_writes[0].content)
+
 def _boot_config_test_impl(ctx):
     env = analysistest.begin(ctx)
     target = analysistest.target_under_test(env)
     output = target[DefaultInfo].files.to_list()[0]
     asserts.equals(env, "analysis_boot_test_config.json", output.basename)
+    asserts.equals(env, _KVM_WITH_TCG_FALLBACK, _written_boot_config(env)["accelerator_args"])
     runfile_names = [
         file.basename
         for file in target[DefaultInfo].default_runfiles.files.to_list()
@@ -268,6 +277,7 @@ def _seabios_boot_config_test_impl(ctx):
     target = analysistest.target_under_test(env)
     output = target[DefaultInfo].files.to_list()[0]
     asserts.equals(env, "analysis_bios_boot_test_config.json", output.basename)
+    asserts.equals(env, _KVM_WITH_TCG_FALLBACK, _written_boot_config(env)["accelerator_args"])
     runfile_names = [
         file.basename
         for file in target[DefaultInfo].default_runfiles.files.to_list()
@@ -277,6 +287,16 @@ def _seabios_boot_config_test_impl(ctx):
     return analysistest.end(env)
 
 seabios_boot_config_test = analysistest.make(_seabios_boot_config_test_impl)
+
+def _accelerator_config_test_impl(ctx):
+    env = analysistest.begin(ctx)
+    asserts.equals(env, ctx.attr.expected_accelerator_args, _written_boot_config(env)["accelerator_args"])
+    return analysistest.end(env)
+
+_accelerator_config_test = analysistest.make(
+    _accelerator_config_test_impl,
+    attrs = {"expected_accelerator_args": attr.string_list(mandatory = True)},
+)
 
 def _seabios_firmware_mismatch_test_impl(ctx):
     env = analysistest.begin(ctx)
@@ -837,6 +857,65 @@ def mkosi_image_test_suite(name):
         diagnostic_bytes = 4096,
         tags = ["manual"],
     )
+    for accelerator, expected_accelerator_args in (
+        ("auto", _KVM_WITH_TCG_FALLBACK),
+        ("tcg", ["-accel", "tcg"]),
+    ):
+        _qemu_ovmf_boot_config(
+            name = "%s_accelerator_boot_subject" % accelerator,
+            accelerator = accelerator,
+            image = ":debian_subject",
+            readiness_marker = "READY",
+            shutdown_markers = ["SHUTDOWN"],
+            machine_args = ["-machine", "q35"],
+            boot_timeout_seconds = 15,
+            qmp_initialization_timeout_seconds = 15,
+            shutdown_timeout_seconds = 15,
+            diagnostic_bytes = 4096,
+            tags = ["manual"],
+        )
+        _accelerator_config_test(
+            name = "%s_accelerator_boot_test" % accelerator,
+            expected_accelerator_args = expected_accelerator_args,
+            target_under_test = ":%s_accelerator_boot_subject" % accelerator,
+        )
+        _qemu_seabios_boot_config(
+            name = "%s_accelerator_bios_boot_subject" % accelerator,
+            accelerator = accelerator,
+            image = ":bios_release_subject",
+            readiness_marker = "READY",
+            shutdown_markers = ["SHUTDOWN"],
+            machine_args = ["-machine", "pc"],
+            boot_timeout_seconds = 15,
+            qmp_initialization_timeout_seconds = 15,
+            shutdown_timeout_seconds = 15,
+            diagnostic_bytes = 4096,
+            tags = ["manual"],
+        )
+        _accelerator_config_test(
+            name = "%s_accelerator_bios_boot_test" % accelerator,
+            expected_accelerator_args = expected_accelerator_args,
+            target_under_test = ":%s_accelerator_bios_boot_subject" % accelerator,
+        )
+    _qemu_ovmf_boot_config(
+        name = "invalid_accelerator_boot_subject",
+        accelerator = "kvm",
+        image = ":debian_subject",
+        readiness_marker = "READY",
+        shutdown_markers = ["SHUTDOWN"],
+        machine_args = ["-machine", "q35"],
+        boot_timeout_seconds = 15,
+        qmp_initialization_timeout_seconds = 15,
+        shutdown_timeout_seconds = 15,
+        diagnostic_bytes = 4096,
+        tags = ["manual"],
+    )
+    _invalid_qemu_config_test(
+        name = "invalid_accelerator_boot_test",
+        expected_failure = "accelerator must be one of",
+        target_under_test = ":invalid_accelerator_boot_subject",
+    )
+
     _invalid_qemu_config_test(
         name = "missing_raw_image_boot_test",
         expected_failure = "MkosiImageInfo.raw_image",
@@ -1488,6 +1567,11 @@ def mkosi_image_test_suite(name):
             ":duplicate_tree_mapping_test",
             ":invalid_source_tree_test",
             ":missing_raw_image_boot_test",
+            ":auto_accelerator_boot_test",
+            ":tcg_accelerator_boot_test",
+            ":auto_accelerator_bios_boot_test",
+            ":tcg_accelerator_bios_boot_test",
+            ":invalid_accelerator_boot_test",
             ":invalid_config_test",
             ":invalid_boot_deadline_test",
             ":invalid_public_boot_deadline_test",

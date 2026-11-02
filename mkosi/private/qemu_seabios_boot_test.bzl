@@ -2,6 +2,7 @@
 
 load(":managed_python_test.bzl", "managed_python_test")
 load(":mkosi_image.bzl", "MkosiImageInfo")
+load(":qemu_accelerator.bzl", "QEMU_ACCELERATOR_DOC", "qemu_accelerator_args")
 load(":qemu_ovmf_boot_test.bzl", "QemuOvmfBootConfigInfo")
 
 _QEMU_TOOLCHAIN_TYPE = "//mkosi/toolchain:qemu_toolchain_type"
@@ -40,6 +41,7 @@ def _qemu_seabios_boot_config_impl(ctx):
     qemu = ctx.toolchains[_QEMU_TOOLCHAIN_TYPE].qemu
     output = ctx.actions.declare_file(ctx.label.name + ".json")
     config = {
+        "accelerator_args": qemu_accelerator_args(ctx.attr.accelerator),
         "boot_timeout_seconds": ctx.attr.boot_timeout_seconds,
         "diagnostic_bytes": ctx.attr.diagnostic_bytes,
         "disk_interface": "virtio",
@@ -92,6 +94,10 @@ def _qemu_seabios_boot_config_impl(ctx):
 qemu_seabios_boot_config = rule(
     implementation = _qemu_seabios_boot_config_impl,
     attrs = {
+        "accelerator": attr.string(
+            default = "auto",
+            doc = QEMU_ACCELERATOR_DOC,
+        ),
         "image": attr.label(mandatory = True, providers = [MkosiImageInfo]),
         "readiness_marker": attr.string(mandatory = True),
         "shutdown_markers": attr.string_list(mandatory = True),
@@ -116,13 +122,18 @@ def qemu_seabios_boot_test(
         readiness_marker = "systemd[1]: Hostname set to <rules-mkosi-bios>.",
         shutdown_markers = ["systemd-shutdown[1]: Powering off.", "reboot: Power down"],
         machine_args = ["-machine", "pc", "-m", "512M"],
+        accelerator = "auto",
         boot_timeout_seconds = 180,
         qmp_initialization_timeout_seconds = 15,
         shutdown_timeout_seconds = 60,
         diagnostic_bytes = 65536,
         timeout = "moderate",
         tags = []):
-    """Boots a BIOS image with pinned SeaBIOS and verifies its serial lifecycle."""
+    """Boots a BIOS image with pinned SeaBIOS and verifies its serial lifecycle.
+
+    accelerator selects KVM with a TCG fallback (`auto`, the default) or
+    forces TCG (`tcg`).
+    """
     config_name = name + "_config"
     qemu_seabios_boot_config(
         name = config_name,
@@ -130,6 +141,7 @@ def qemu_seabios_boot_test(
         readiness_marker = readiness_marker,
         shutdown_markers = shutdown_markers,
         machine_args = machine_args,
+        accelerator = accelerator,
         boot_timeout_seconds = boot_timeout_seconds,
         qmp_initialization_timeout_seconds = qmp_initialization_timeout_seconds,
         shutdown_timeout_seconds = shutdown_timeout_seconds,
