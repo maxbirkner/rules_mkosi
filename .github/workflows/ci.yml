@@ -349,7 +349,10 @@ jobs:
           python3 - debian-tools-aquery.json <<'PY'
           import json
           import sys
-          from ci.action_graph_validator import validate_action_environment
+          from ci.action_graph_validator import (
+              action_identity,
+              validate_action_environment,
+          )
 
           graph = json.load(open(sys.argv[1], encoding="utf-8"))
           archive = []
@@ -438,7 +441,10 @@ jobs:
           validated = set()
 
           def validate_action(action):
-              action_id = action["actionKey"]
+              try:
+                  action_id = action_identity(action)
+              except ValueError as error:
+                  raise SystemExit(str(error)) from error
               if action_id in validated:
                   return
               if action_id in visiting:

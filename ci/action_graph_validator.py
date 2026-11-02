@@ -22,6 +22,21 @@ _HERMETIC_PATH_ACTIONS = {
 }
 
 
+def action_identity(action):
+    """Return a key that distinguishes every action in an aquery graph.
+
+    Bazel derives `actionKey` from an action's behavior rather than its artifacts, so distinct actions such as two
+    symlinks share a key. Each artifact has exactly one generating action, so the output artifact IDs identify it.
+
+    Raises:
+        ValueError: If the action declares no outputs and therefore cannot be identified.
+    """
+    outputs = action.get("outputIds", [])
+    if not outputs:
+        raise ValueError(f"action without outputs: {action.get('mnemonic')}")
+    return tuple(sorted(outputs))
+
+
 def validate_action_environment(action, input_paths):
     """Reject host-resolved executables exposed through action environments."""
     mnemonic = action["mnemonic"]
