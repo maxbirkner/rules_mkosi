@@ -199,8 +199,18 @@ UEFI firmware, and does not accept `source_trees`. Its action passes the base
 root to mkosi as `BaseTrees=` and the initrd as `Initrds=`, sets
 `CacheOnly=always`, and neither reads the snapshot nor synchronizes package
 metadata. The finalize configuration must therefore not install or remove
-packages, and must not set `BaseTrees=` or `Initrds=` itself. The image
-provides the same `MkosiImageInfo` and build metadata as a one-stage release,
+packages, and must not set `BaseTrees=` or `Initrds=` itself.
+
+mkosi builds the default initrd in the base and the kernel modules initrd,
+which it appends to the default initrd in the UKI, only in the bootable
+finalization. Each stage ignores the other stage's initrd settings, so the
+actions reject them instead: the finalize configuration fails with
+`InitrdPackages=`, `InitrdVolatilePackages=`, `InitrdProfiles=`, or a
+`mkosi.initrd.conf` or `mkosi.initrd` entry, and the base configuration fails
+with `KernelModulesInitrd=no`, `KernelModulesInitrdInclude=`
+(`KernelInitrdModules=`), or `KernelModulesInitrdExclude=`.
+
+The image provides the same `MkosiImageInfo` and build metadata as a one-stage release,
 so `sysupdate_payload`, the boot tests, and other consumers need no change.
 
 Put each setting where it changes:
@@ -210,8 +220,8 @@ Put each setting where it changes:
 | `[Distribution]`, including `Snapshot=` and `Repositories=` | `Distribution=` and `Release=`; `Snapshot=` is optional |
 | `Seed=`, `SourceDateEpoch=` | the same `Seed=` and `SourceDateEpoch=` |
 | `Packages=`, `RemoveFiles=`, `Hostname=`, `mkosi.extra/` | `Bootable=yes`, `Bootloader=`, `UnifiedKernelImages=`, `UnifiedKernelImageFormat=` |
-| default initrd settings, `mkosi.initrd.conf` | `KernelCommandLine=`, `KernelModulesInitrd*=` |
-| version-independent `rootfs_payloads` | `mkosi.repart/`, version-dependent `rootfs_payloads` |
+| default initrd: `InitrdPackages=`, `InitrdVolatilePackages=`, `InitrdProfiles=`, `mkosi.initrd.conf` | kernel modules initrd: `KernelModulesInitrd=`, `KernelModulesInitrdInclude=` (`KernelInitrdModules=`), `KernelModulesInitrdExclude=` |
+| version-independent `rootfs_payloads` | `KernelCommandLine=`, `mkosi.repart/`, version-dependent `rootfs_payloads` |
 
 Finalization runs systemd-sysusers, systemd-tmpfiles, presets, depmod, and
 `RemoveFiles=` again on the root, so repeat `RemoveFiles=` in the finalize

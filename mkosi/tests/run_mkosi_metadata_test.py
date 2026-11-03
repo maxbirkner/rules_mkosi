@@ -469,6 +469,9 @@ def _check_two_stage_release(wrapper, root, seed):
         ({"initrds": []}, "Initrds= must resolve to exactly the declared base initrd"),
         ({"initrds": [base_initrd, other]}, "Initrds= must resolve to exactly the declared base initrd"),
         ({"cacheonly": types.SimpleNamespace(value="auto")}, "CacheOnly= must resolve to always"),
+        ({"initrd_packages": ["cryptsetup"]}, "cannot use InitrdPackages=: the default initrd is built by mkosi_base"),
+        ({"initrd_volatile_packages": ["vim"]}, "cannot use InitrdVolatilePackages="),
+        ({"initrd_profiles": ["lvm"]}, "cannot use InitrdProfiles="),
         ({"skeleton_trees": [types.SimpleNamespace(source=pathlib.Path("/etc"))]}, "undeclared path"),
     ):
         _expect_exit(lambda settings=settings: finalize(**settings), message)
@@ -500,6 +503,47 @@ def _check_two_stage_release(wrapper, root, seed):
 
     base()
     base(image_id="rules-mkosi-ab")
+    base(kernel_modules_initrd=True, initrd_packages=["cryptsetup"], initrd_profiles=["lvm"])
+    for settings, message in (
+        ({"kernel_modules_initrd": False}, "cannot use KernelModulesInitrd=no"),
+        ({"kernel_modules_initrd_include": ["virtio"]}, "cannot use KernelModulesInitrdInclude=/KernelInitrdModules="),
+        ({"kernel_modules_initrd_exclude": ["drm"]}, "cannot use KernelModulesInitrdExclude="),
+    ):
+        _expect_exit(lambda settings=settings: base(**settings), message)
+    # The finalization builds the kernel modules initrd, so it accepts these settings.
+    finalize(
+        kernel_modules_initrd=False,
+        kernel_modules_initrd_include=["virtio"],
+        kernel_modules_initrd_exclude=["drm"],
+    )
+
+    finalize_config = root / "finalize-config"
+    finalize_config.mkdir()
+    (finalize_config / "mkosi.conf").write_text("[Content]\nBootable=yes\n")
+    wrapper._validate_finalize_config_directory(finalize_config)
+    for name, is_directory in (("mkosi.initrd.conf", False), ("mkosi.initrd.conf", True), ("mkosi.initrd", True)):
+        path = finalize_config / name
+        if is_directory:
+            path.mkdir()
+        else:
+            path.write_text("[Content]\nPackages=cryptsetup\n")
+        _expect_exit(
+            lambda: wrapper._validate_finalize_config_directory(finalize_config),
+            "cannot contain {}: the default initrd is built by mkosi_base".format(name),
+        )
+        if is_directory:
+            path.rmdir()
+        else:
+            path.unlink()
+    nested = root / "nested-finalize-config"
+    (nested / "mkosi").mkdir(parents=True)
+    (nested / "mkosi/mkosi.conf").write_text("[Content]\nBootable=yes\n")
+    (nested / "mkosi/mkosi.initrd.conf").write_text("[Content]\nPackages=cryptsetup\n")
+    _expect_exit(
+        lambda: wrapper._validate_finalize_config_directory(nested),
+        "cannot contain mkosi.initrd.conf",
+    )
+    assert "_validate_finalize_config_directory(materialized)" in inspect.getsource(wrapper.main)
     _expect_exit(lambda: base(image_version="1"), "release base configuration cannot set ImageVersion=")
     _expect_exit(
         lambda: base(base_trees=[other]),

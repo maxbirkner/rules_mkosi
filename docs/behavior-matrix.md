@@ -76,12 +76,14 @@ metadata, and `sysupdate_payload` artifact names.
 authenticated snapshot with network access blocked and exposes the root as a
 reproducible tar archive and mkosi's default initrd through `MkosiBaseInfo`.
 It requires `release_seed` and a non-negative `release_source_date_epoch`,
-rejects `ImageVersion=`, and none of its inputs depends on an image version.
+rejects `ImageVersion=` and kernel modules initrd settings, and none of its
+inputs depends on an image version.
 `mkosi_image(base = ...)` requires release mode and UEFI firmware, takes the
 snapshot identity, seed, and epoch from the base and rejects them as
 attributes, rejects `source_trees`, and finalizes the base without the
-snapshot: its configuration must not install or remove packages and must
-resolve `BaseTrees=` and `Initrds=` to exactly the declared base artifacts.
+snapshot: its configuration must not install or remove packages, configure
+the default initrd, or contain `mkosi.initrd.conf`, and must resolve
+`BaseTrees=` and `Initrds=` to exactly the declared base artifacts.
 The resulting `MkosiImageInfo` has the same contract as a one-stage release.
 A second stamped version executes only the finalization while the base is
 satisfied from the action cache.

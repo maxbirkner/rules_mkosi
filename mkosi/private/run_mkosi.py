@@ -387,7 +387,32 @@ def _validate_release_stage(config, release_stage, base_tree, base_initrd):
                 "release base configuration cannot set ImageVersion=; set the version on the "
                 "mkosi_image that finalizes the base"
             )
+        # The base is not bootable, so mkosi builds the kernel modules initrd only during finalization.
+        for setting, ignored in (
+            ("KernelModulesInitrd=no", getattr(config, "kernel_modules_initrd", True) is False),
+            (
+                "KernelModulesInitrdInclude=/KernelInitrdModules=",
+                bool(getattr(config, "kernel_modules_initrd_include", ())),
+            ),
+            ("KernelModulesInitrdExclude=", bool(getattr(config, "kernel_modules_initrd_exclude", ()))),
+        ):
+            if ignored:
+                raise SystemExit(
+                    "release base configuration cannot use {}: the kernel modules initrd is built "
+                    "when mkosi_image(base = ...) finalizes the base, so set it in the finalize "
+                    "configuration".format(setting)
+                )
     elif release_stage == "finalize":
+        for name, setting in (
+            ("initrd_packages", "InitrdPackages="),
+            ("initrd_volatile_packages", "InitrdVolatilePackages="),
+            ("initrd_profiles", "InitrdProfiles="),
+        ):
+            if getattr(config, name, ()):
+                raise SystemExit(
+                    "release finalize configuration cannot use {}: the default initrd is built by "
+                    "mkosi_base, so set its contents in the base configuration".format(setting)
+                )
         for name, setting in (
             ("packages", "Packages="),
             ("build_packages", "BuildPackages="),
@@ -419,6 +444,19 @@ def _validate_release_stage(config, release_stage, base_tree, base_initrd):
             )
     elif release_stage != "image":
         raise SystemExit("unknown release stage {}".format(release_stage))
+
+
+def _validate_finalize_config_directory(directory):
+    """Rejects default initrd configuration that a finalization would silently ignore."""
+    directory = Path(directory)
+    if not (directory / "mkosi.conf").exists() and (directory / "mkosi/mkosi.conf").is_file():
+        directory = directory / "mkosi"
+    for name in ("mkosi.initrd.conf", "mkosi.initrd"):
+        if (directory / name).exists() or (directory / name).is_symlink():
+            raise SystemExit(
+                "release finalize configuration cannot contain {}: the default initrd is built by "
+                "mkosi_base, so put it in the base configuration".format(name)
+            )
 
 
 def _validate_release_configuration(
@@ -999,6 +1037,8 @@ def main():
             for index, argument in enumerate(arguments):
                 if argument.startswith(os.fspath(directory) + os.sep):
                     arguments[index] = os.fspath(materialized) + argument[len(os.fspath(directory)) :]
+    if release_stage == "finalize":
+        _validate_finalize_config_directory(materialized)
     if release_stage is not None:
         allowed_paths = []
         for index, argument in enumerate(arguments):
