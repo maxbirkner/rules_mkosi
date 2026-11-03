@@ -3,6 +3,7 @@
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
 import struct
@@ -272,14 +273,41 @@ def canonical_image_sha256(path):
     return _hash_with_patches(path, image_size, patches)
 
 
+def _image_version_from_file(path, slot_label_image_id):
+    """Returns the validated version in path using the sibling image_version.py helper.
+
+    The helper is loaded only here, so modules that import this one for GPT projection do not need it.
+    """
+    helper = Path(__file__).with_name("image_version.py")
+    spec = importlib.util.spec_from_file_location("rules_mkosi_image_version", helper)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    try:
+        return module.read_image_version(path, slot_label_image_id)
+    except (OSError, ValueError) as error:
+        raise SystemExit("IMAGE_VERSION_INVALID: {}".format(error)) from None
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--image", required=True)
     parser.add_argument("--output", required=True)
     parser.add_argument("--firmware", choices=("uefi", "bios"), default="uefi")
-    parser.add_argument("--slot-label")
+    slot = parser.add_mutually_exclusive_group()
+    slot.add_argument("--slot-label")
+    slot.add_argument(
+        "--slot-label-image-id",
+        help="image id of the populated slot label '<image id>_<version>', with the --image-version-file version",
+    )
+    parser.add_argument("--image-version-file")
     args = parser.parse_args()
-    metadata = project_image(args.image, args.firmware, args.slot_label)
+    if (args.slot_label_image_id is None) != (args.image_version_file is None):
+        parser.error("--slot-label-image-id and --image-version-file must be given together")
+    slot_label = args.slot_label
+    if args.slot_label_image_id is not None:
+        image_version = _image_version_from_file(args.image_version_file, args.slot_label_image_id)
+        slot_label = "{}_{}".format(args.slot_label_image_id, image_version)
+    metadata = project_image(args.image, args.firmware, slot_label)
     Path(args.output).write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n")
 
 

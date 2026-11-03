@@ -73,9 +73,23 @@ py_test(
     name = "partition_metadata_test",
     srcs = [
         "partition_metadata_test.py",
+        "//mkosi/private:image_version.py",
         "//mkosi/private:partition_metadata.py",
     ],
     main = "partition_metadata_test.py",
+)
+
+py_test(
+    name = "image_version_test",
+    srcs = [
+        "image_version_test.py",
+        "//mkosi/private:image_version.py",
+    ],
+    data = [
+        "//mkosi/private:diagnostics.py",
+        "//mkosi/private:run_mkosi.py",
+    ],
+    main = "image_version_test.py",
 )
 
 py_test(
@@ -130,6 +144,7 @@ behavior_targets(
         ":default_version_test",
         ":diagnostic_contract_test",
         ":explicit_version_test",
+        ":image_version_test",
         ":immutable_release_provider_test",
         ":mkosi_staging_artifact_test",
         ":mkosi_staging_metadata_test",
@@ -369,6 +384,7 @@ py_test(
     name = "sysupdate_test",
     srcs = [
         "sysupdate_test.py",
+        "//mkosi/private:image_version.py",
         "//mkosi/private:sysupdate.py",
     ],
     main = "sysupdate_test.py",

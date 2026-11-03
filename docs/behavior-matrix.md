@@ -65,6 +65,11 @@ mkosi's `ImageId=`/`ImageVersion=`, and appear in `MkosiImageInfo` and the
 build metadata. `image_version` requires `image_id` and accepts only letters,
 digits, and `.`, a subset of the systemd-sysupdate version alphabet that keeps
 `_`, `+`, and `-` free as separators in artifact names and boot counting.
+`image_version_file` instead reads the version from a generated file at
+execution time; it requires `image_id`, excludes `image_version`, and every
+action that reads it applies the same rule to its content, which may end with
+one newline. Its version reaches mkosi, the slot-label check, the build
+metadata, and `sysupdate_payload` artifact names.
 
 <!-- behavior:BHV-SYSUPDATE-TRANSFERS -->
 `sysupdate_transfers` validates its image id, non-negative `boot_attempts`
@@ -145,7 +150,8 @@ whose GPT UUIDs differ, writes `SHA256SUMS`, and leaves no partial output.
 and verity metadata, and `build_metadata` as `File` or `None`, keeps
 `image` as the exact raw-image alias, and projects every present artifact once
 through `DefaultInfo`. Its `firmware` field exposes the selected tier directly,
-and `image_id`/`image_version` expose the explicit image identity or `None`.
+and `image_id`/`image_version`/`image_version_file` expose the explicit image
+identity or `None`.
 
 <!-- behavior:BHV-TREE-PROVIDERS -->
 `MkosiConfigTreeInfo` and `MkosiSourceTreeInfo` expose the declared `tree` and
