@@ -49,6 +49,7 @@ filegroup(
     srcs = [
         "mkosi_runner/__init__.py",
         "mkosi_runner/command_line.py",
+        "mkosi_runner/mkosi_options.py",
         "mkosi_runner/release_patches.py",
         "mkosi_runner/release_sandbox.py",
         "mkosi_runner/release_validation.py",

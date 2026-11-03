@@ -78,6 +78,8 @@ def _validate(wrapper, configuration, allowed_paths, allowed_extra_tree=None, **
 
 
 def main():
+    # run_mkosi.py reads mkosi's option table, so mkosi must be importable like in the image action.
+    sys.path.insert(0, os.fspath(pathlib.Path(sys.argv[2]).resolve().parents[1]))
     wrapper = _load_wrapper(sys.argv[1])
     root = pathlib.Path(os.environ["TEST_TMPDIR"])
     _check_materialization(wrapper, root)
@@ -209,9 +211,6 @@ def _check_preamble(wrapper):
         "build",
     ]
     _expect_exit(lambda: command_line.absolute_paths(["--tools-tree"]), "mkosi path option is missing its value")
-    assert command_line.declared_paths(
-        ["-C", "/config", "--initrd", "default", "--initrd", "/initrd", "--base-tree=/base", "--sandbox-tree"]
-    ) == ["/config", "/initrd"]
 
 
 def _check_release_configuration(wrapper, root):

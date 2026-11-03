@@ -126,11 +126,11 @@ def _absolutize_python_path():
 
 
 def _mkosi_arguments(preamble, mkosi_arguments):
-    arguments = command_line.absolute_paths(mkosi_arguments)
     if preamble.image_version_file is None:
-        return arguments
+        return command_line.absolute_paths(mkosi_arguments)
+    # An invalid version fails before mkosi's option table is read.
     image_version = _image_version_from_file(preamble.image_version_file, preamble.slot_label_image_id)
-    return command_line.with_image_version(arguments, image_version)
+    return command_line.with_image_version(command_line.absolute_paths(mkosi_arguments), image_version)
 
 
 def _release_stage(preamble):
@@ -182,19 +182,32 @@ def _prepare_release_sandbox(preamble, arguments, stage):
 
 def _stage_configuration(preamble, arguments):
     """Points mkosi at a normalized copy of the -C configuration directory and returns that copy, if any."""
-    if "-C" not in arguments:
+    directory_option = command_line.configuration_directory(arguments)
+    if directory_option is None:
         return None
-    directory_index = arguments.index("-C") + 1
-    directory = os.fspath(Path(arguments[directory_index]))
+    directory = os.fspath(Path(directory_option.value))
     staged = _workspace(arguments) / "staging-root"
     tree.materialize_tree(directory, staged, preamble.executable_paths)
     if preamble.staging_manifest:
         tree.restore_manifest_links(staged, preamble.staging_manifest)
-    arguments[directory_index] = os.fspath(staged)
-    for index, argument in enumerate(arguments):
-        if argument.startswith(directory + os.sep):
-            arguments[index] = os.fspath(staged) + argument[len(directory) :]
+    _redirect_paths(arguments, directory, os.fspath(staged))
+    directory_option.replace(arguments, os.fspath(staged))
     return staged
+
+
+def _redirect_paths(arguments, directory, staged):
+    """Points the arguments, and the paths of path options in any spelling, inside directory into staged."""
+
+    def redirect(path):
+        return staged + path[len(directory) :] if path.startswith(directory + os.sep) else path
+
+    path_indices = set()
+    for occurrence in command_line.path_occurrences(arguments):
+        occurrence.replace(arguments, occurrence.option.map_paths(occurrence.value, redirect))
+        path_indices.add(occurrence.index)
+    for index, argument in enumerate(arguments):
+        if index not in path_indices:
+            arguments[index] = redirect(argument)
 
 
 def _release_settings(preamble, stage):
@@ -240,11 +253,18 @@ def _run_mkosi_in_process(script, arguments):
         raise
 
 
+def _requests_release_parent(preamble_arguments):
+    """Returns whether run_mkosi.py's own options, not the mkosi arguments after --, request a release child."""
+    return any(
+        command_line.preamble_value(preamble_arguments, option) is not None for option in _RELEASE_PARENT_OPTIONS
+    )
+
+
 def main():
     if len(sys.argv) < 3:
         raise SystemExit(command_line.USAGE)
     release_child = os.environ.get(_RELEASE_CHILD_VARIABLE) == "1"
-    if not release_child and any(option in sys.argv[2:] for option in _RELEASE_PARENT_OPTIONS):
+    if not release_child and _requests_release_parent(sys.argv[2:]):
         _run_release_parent(sys.argv[1:])
         return
     script = os.path.abspath(sys.argv[1])
