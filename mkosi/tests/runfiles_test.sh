@@ -1,35 +1,31 @@
-# Sourced by run_with_runfiles.sh; arguments are rlocation paths of a main-repository and an external-repository file.
+# Sourced by run_with_runfiles.sh; $1 and $2 are the rlocation paths Bazel passes for runfiles_test.sh and
+# @bazel_skylib//:LICENSE. They must equal the keys Bazel writes to runfiles manifests and trees.
 PATH=
 export PATH
-manifest="${RUNFILES_MANIFEST_FILE:-${RUNFILES_DIR:-$0.runfiles}/MANIFEST}"
-[ -f "$manifest" ] || {
-    echo "Bazel did not provide a runfiles manifest: $manifest" >&2
-    exit 1
-}
+main_key=_main/mkosi/tests/runfiles_test.sh
+external_key=bazel_skylib+/LICENSE
 
-# Fails unless rlocation resolves $1 to an existing file through the manifest alone.
-assert_manifest_lookup() {
-    resolved="$(RUNFILES_DIR="$TEST_TMPDIR/no-runfiles-tree" RUNFILES_MANIFEST_FILE="$manifest" rlocation "$1")" || {
-        echo "manifest lookup failed for $1" >&2
-        exit 1
-    }
-    [ -f "$resolved" ] || {
-        echo "manifest lookup of $1 returned a missing file: $resolved" >&2
+# Fails unless rlocation, run with RUNFILES_DIR=$1 and RUNFILES_MANIFEST_FILE=$2, resolves $3 to $4.
+assert_resolves_to() {
+    resolved="$(RUNFILES_DIR="$1" RUNFILES_MANIFEST_FILE="$2" rlocation "$3")"
+    [ "$resolved" = "$4" ] || {
+        echo "$3 resolved to $resolved instead of $4" >&2
         exit 1
     }
 }
 
-assert_manifest_lookup "$1"
-assert_manifest_lookup "$2"
+missing_tree="$TEST_TMPDIR/missing-tree"
+manifest="$TEST_TMPDIR/MANIFEST"
+printf '%s %s\n' "$main_key" /manifest/main "$external_key" /manifest/external > "$manifest"
+assert_resolves_to "$missing_tree" "$manifest" "$1" /manifest/main
+assert_resolves_to "$missing_tree" "$manifest" "$2" /manifest/external
 
-tree="$TEST_TMPDIR/runfiles-tree"
-/bin/mkdir -p "$tree/_main"
-: > "$tree/_main/present"
-resolved="$(RUNFILES_DIR="$tree" RUNFILES_MANIFEST_FILE= rlocation _main/present)"
-[ "$resolved" = "$tree/_main/present" ] || {
-    echo "directory lookup returned $resolved" >&2
-    exit 1
-}
+tree="$TEST_TMPDIR/tree"
+/bin/mkdir -p "$tree/${main_key%/*}" "$tree/${external_key%/*}"
+: > "$tree/$main_key"
+: > "$tree/$external_key"
+assert_resolves_to "$tree" "" "$1" "$tree/$main_key"
+assert_resolves_to "$tree" "" "$2" "$tree/$external_key"
 
 if (RUNFILES_DIR="$tree" RUNFILES_MANIFEST_FILE="$manifest" rlocation _main/absent 2>/dev/null); then
     echo "a missing runfile was resolved" >&2
