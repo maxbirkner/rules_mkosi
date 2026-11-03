@@ -93,6 +93,7 @@ def _image_public_api_test_impl(ctx):
     asserts.equals(env, "demo.mkosi-image-info.json", info.build_metadata.basename)
     asserts.equals(env, None, info.image_id)
     asserts.equals(env, None, info.image_version)
+    asserts.equals(env, None, info.image_version_file)
     return analysistest.end(env)
 
 image_public_api_test = analysistest.make(_image_public_api_test_impl)
@@ -110,14 +111,18 @@ rootfs_payload_public_api_test = analysistest.make(_rootfs_payload_public_api_te
 def _sysupdate_public_api_test_impl(ctx):
     env = analysistest.begin(ctx)
     target = analysistest.target_under_test(env)
-    if ctx.attr.expected_version:
+    if ctx.attr.image:
         info = target[SysupdatePayloadInfo]
-        asserts.equals(env, "rules-mkosi-ab", info.image_id)
-        asserts.equals(env, ctx.attr.expected_version, info.image_version)
-        asserts.true(env, info.directory.is_directory)
         image = ctx.attr.image[MkosiImageInfo]
+        asserts.equals(env, "rules-mkosi-ab", info.image_id)
         asserts.equals(env, "rules-mkosi-ab", image.image_id)
-        asserts.equals(env, ctx.attr.expected_version, image.image_version)
+        asserts.true(env, info.directory.is_directory)
+        expected_version = ctx.attr.expected_version or None
+        expected_version_file = ctx.file.expected_version_file
+        asserts.equals(env, expected_version, info.image_version)
+        asserts.equals(env, expected_version, image.image_version)
+        asserts.equals(env, expected_version_file, info.image_version_file)
+        asserts.equals(env, expected_version_file, image.image_version_file)
     else:
         info = target[MkosiRootfsPayloadInfo]
         asserts.equals(env, "/usr/lib/sysupdate.d", info.destination)
@@ -128,6 +133,7 @@ sysupdate_public_api_test = analysistest.make(
     _sysupdate_public_api_test_impl,
     attrs = {
         "expected_version": attr.string(),
+        "expected_version_file": attr.label(allow_single_file = True),
         "image": attr.label(providers = [MkosiImageInfo]),
     },
 )
@@ -190,6 +196,7 @@ def _verity_corrupted_image_impl(ctx):
             firmware = info.firmware,
             image_id = info.image_id,
             image_version = info.image_version,
+            image_version_file = info.image_version_file,
             image = output,
         ),
     ]

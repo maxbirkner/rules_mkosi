@@ -469,7 +469,35 @@ sysupdate_payload(
 ```
 
 `image_id` and `image_version` set `IMAGE_ID` and `IMAGE_VERSION` and expand
-Make variables. With `verity = "hash"`, the populated root and verity
+Make variables. A version that is only known when the build runs, such as one
+derived from Bazel workspace status, comes from a file instead:
+`image_version_file` takes a label of one file that contains the version,
+optionally followed by a newline, and excludes `image_version`:
+
+```starlark
+# tools/workspace_status.sh, selected with
+# --workspace_status_command=tools/workspace_status.sh, prints for example
+#   STABLE_OS_VERSION <commit timestamp>.<short commit hash>
+genrule(
+    name = "os_version",
+    outs = ["os_version.txt"],
+    cmd = "sed -n 's/^STABLE_OS_VERSION //p' bazel-out/stable-status.txt > $@",
+    stamp = 1,
+)
+
+mkosi_image(
+    name = "os",
+    image_id = "my-os",
+    image_version_file = ":os_version",
+    # The remaining attributes are as above, without image_version.
+)
+```
+
+The actions that read the file validate it with the same rule as
+`image_version` and fail when it is empty or contains other characters.
+`MkosiImageInfo.image_version` and `SysupdatePayloadInfo.image_version` are
+then `None`, and their `image_version_file` fields expose the file. With
+`verity = "hash"`, the populated root and verity
 partitions must be labelled `<image_id>_<image_version>` and
 `<image_id>_<image_version>_verity`, and inactive slots `_empty`.
 `sysupdate_transfers` installs root, verity, and boot-counted UKI transfer
@@ -613,7 +641,8 @@ basename, or the contents of `DefaultInfo`.
 | `format_version` | `string` | Always `mkosi-image-v2`. It identifies the stable provider contract. |
 | `firmware` | `string` | Explicit `uefi` (default) or `bios` tier; never inferred from filenames. |
 | `image_id` | `string` or `None` | Expanded `mkosi_image.image_id`, or `None` when the configuration owns `ImageId=`. |
-| `image_version` | `string` or `None` | Expanded `mkosi_image.image_version`, or `None`. |
+| `image_version` | `string` or `None` | Expanded `mkosi_image.image_version`, or `None`, including when the version comes from `image_version_file`. |
+| `image_version_file` | `File` or `None` | `mkosi_image.image_version_file`, whose content is the version optionally followed by one newline, or `None`. At most one of `image_version` and `image_version_file` is set. |
 | `raw_image` | `File` or `None` | Present for the current disk/raw output mode. |
 | `manifest` | `File` or `None` | `None` until a mode explicitly requests mkosi manifest output. |
 | `partition_metadata` | `File` or `None` | Validated, normalized GPT JSON for release images; `None` in tracer mode. |
@@ -624,7 +653,7 @@ basename, or the contents of `DefaultInfo`.
 | `root_hash_signature` | `File` or `None` | Reserved typed output; always `None` until #23 adds signing. |
 | `uki_metadata` | `File` or `None` | Normalized PE section hashes and verified root-hash linkage. |
 | `verity_metadata` | `File` or `None` | Independently verified root/hash partition linkage, dm-verity geometry, salt, tree extent, root hash, and split-artifact digests. |
-| `build_metadata` | `File` or `None` | Present for every current target. It is normalized JSON with schema `mkosi-image-build-metadata-v2`, output-role booleans, mode, and forced mkosi disk/raw/no-compression settings. Release metadata additionally records the authenticated snapshot identity, staged components, lock digest, and resolved reproducibility inputs. An `image` object records an explicit image id and version. |
+| `build_metadata` | `File` or `None` | Present for every current target. It is normalized JSON with schema `mkosi-image-build-metadata-v2`, output-role booleans, mode, and forced mkosi disk/raw/no-compression settings. Release metadata additionally records the authenticated snapshot identity, staged components, lock digest, and resolved reproducibility inputs. An `image` object records an explicit image id and version; a version from `image_version_file` is recorded as the same string, in the same schema. |
 | `image` | `File` or `None` | Deprecated compatibility alias for `raw_image`; it is exactly the same artifact. New consumers must use `raw_image`. |
 
 `DefaultInfo.files` contains each non-`None` artifact field once; its depset

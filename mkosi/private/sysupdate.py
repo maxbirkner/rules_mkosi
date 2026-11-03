@@ -3,6 +3,7 @@
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
 import shutil
@@ -149,7 +150,18 @@ def _release_uki(args):
     return args.signed_uki
 
 
+def _read_image_version(path):
+    """Returns the validated version in path using the sibling image_version.py helper."""
+    helper = Path(__file__).with_name("image_version.py")
+    spec = importlib.util.spec_from_file_location("rules_mkosi_image_version", helper)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.read_image_version(path)
+
+
 def payload(args):
+    if args.image_version_file is not None:
+        args.image_version = _read_image_version(args.image_version_file)
     uki = _release_uki(args)
     root_hash = Path(args.root_hash).read_text(encoding="ascii").strip().lower()
     root_uuid, verity_uuid = verity_partition_uuids(root_hash)
@@ -197,7 +209,9 @@ def main():
     transfer_parser.set_defaults(handler=write_transfers)
     payload_parser = commands.add_parser("payload")
     payload_parser.add_argument("--image-id", required=True)
-    payload_parser.add_argument("--image-version", required=True)
+    version = payload_parser.add_mutually_exclusive_group(required=True)
+    version.add_argument("--image-version")
+    version.add_argument("--image-version-file")
     payload_parser.add_argument("--root-hash", required=True)
     payload_parser.add_argument("--partition-metadata", required=True)
     payload_parser.add_argument("--root-image", required=True)

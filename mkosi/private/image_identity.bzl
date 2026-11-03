@@ -17,7 +17,8 @@ def validate_image_version(image_version):
 
     systemd-sysupdate accepts only letters, digits and ".,_-+" in a version. '_' separates the image
     id from the version and '+'/'-' introduce systemd-boot boot-counting suffixes, so a version is
-    restricted to letters, digits and '.'.
+    restricted to letters, digits and '.'. image_version.py applies the same rule to image_version_file
+    contents at execution time.
 
     Args:
       image_version: Candidate IMAGE_VERSION string.

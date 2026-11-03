@@ -116,13 +116,13 @@ class PayloadTest(unittest.TestCase):
         request = {"unsigned_uki_sha256": hashlib.sha256(unsigned_uki).hexdigest()}
         (self.root / "request.json").write_text(json.dumps(request))
 
-    def run_payload(self, *extra_args):
+    def run_payload(self, *extra_args, version_args=("--image-version=7",)):
         output = self.root / "payload"
         argv = [
             "sysupdate.py",
             "payload",
             "--image-id=os",
-            "--image-version=7",
+            *version_args,
             "--root-hash={}".format(self.root / "roothash"),
             "--partition-metadata={}".format(self.root / "partitions.json"),
             "--root-image={}".format(self.root_image),
@@ -156,6 +156,35 @@ class PayloadTest(unittest.TestCase):
             for name in sorted(["os_7.efi", root_name, verity_name])
         )
         self.assertEqual(expected, (output / "SHA256SUMS").read_text())
+
+    def test_payload_version_from_file(self):
+        (self.root / "version").write_text("7\n")
+        output = self.run_payload(version_args=("--image-version-file={}".format(self.root / "version"),))
+        root_name = "os_7.root.{}.raw".format(ROOT_UUID)
+        verity_name = "os_7.root-verity.{}.raw".format(VERITY_UUID)
+        self.assertEqual(
+            sorted(["SHA256SUMS", "os_7.efi", root_name, verity_name]),
+            sorted(path.name for path in output.iterdir()),
+        )
+
+    def test_invalid_version_file_is_rejected_without_partial_output(self):
+        for content in ("", "7_1\n", "7+1", "7\n\n"):
+            with self.subTest(content=content):
+                (self.root / "version").write_text(content)
+                with self.assertRaises(SystemExit) as raised:
+                    self.run_payload(version_args=("--image-version-file={}".format(self.root / "version"),))
+                message = str(raised.exception)
+                self.assertIn("SYSUPDATE_INVALID: invalid image_version_file", message)
+                self.assertIn("image_version must be non-empty and use only letters, digits and '.'", message)
+                self.assertFalse((self.root / "payload").exists())
+
+    def test_version_and_version_file_are_exclusive(self):
+        (self.root / "version").write_text("7")
+        version_args = ("--image-version=7", "--image-version-file={}".format(self.root / "version"))
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr), self.assertRaises(SystemExit):
+            self.run_payload(version_args=version_args)
+        self.assertIn("not allowed with argument", stderr.getvalue())
 
     def test_payload_keeps_zero_runs_sparse(self):
         output = self.run_payload()

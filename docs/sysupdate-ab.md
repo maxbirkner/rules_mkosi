@@ -7,7 +7,8 @@ and fall back to the previous release through
 [systemd-boot boot counting](https://systemd.io/AUTOMATIC_BOOT_ASSESSMENT/).
 The rules produce three things:
 
-- `mkosi_image(image_id, image_version)` builds a release whose root and
+- `mkosi_image(image_id, image_version)`, or
+  `mkosi_image(image_id, image_version_file)`, builds a release whose root and
   dm-verity partitions occupy one slot and whose other slots are empty.
 - `sysupdate_transfers` generates the transfer definitions that every release
   ships in `/usr/lib/sysupdate.d`.
@@ -23,7 +24,9 @@ in the image, because the transfers use `PathRelativeTo=explicit`.
 `image_id` and `image_version` become mkosi's `ImageId=` and `ImageVersion=`,
 and therefore `IMAGE_ID` and `IMAGE_VERSION` in `os-release` and in the UKI.
 They are exposed as `MkosiImageInfo.image_id`/`image_version` and in the
-`image` object of the build metadata.
+`image` object of the build metadata. Instead of `image_version`, the version
+can come from a file with `image_version_file`; see
+[versions from the build](#versions-from-the-build).
 
 - `image_id` uses lowercase letters, digits, `.`, `_`, and `-`. It is shared by
   every release of the image.
@@ -60,6 +63,67 @@ mkosi_image(
     verity = "hash",
 )
 ```
+
+## Versions from the build
+
+A version derived from the build, such as `<commit timestamp>.<short commit
+hash>`, is only known when actions run. Pass it in a file with
+`image_version_file`, which takes the label of exactly one file, requires
+`image_id`, and excludes `image_version`. The file contains the version,
+optionally followed by one newline. A stamped `genrule` can read it from Bazel
+workspace status:
+
+```sh
+#!/bin/sh
+# tools/workspace_status.sh
+echo "STABLE_OS_VERSION $(git log -1 --format=%ct).$(git rev-parse --short=12 HEAD)"
+```
+
+```sh
+# .bazelrc
+build:release --workspace_status_command=tools/workspace_status.sh
+```
+
+```starlark
+genrule(
+    name = "os_version",
+    outs = ["os_version.txt"],
+    cmd = "sed -n 's/^STABLE_OS_VERSION //p' bazel-out/stable-status.txt > $@",
+    stamp = 1,
+)
+
+mkosi_image(
+    name = "os",
+    config_tree = ":os_config",
+    debian_snapshot = "@my_os_debian//:repository",
+    image_id = "my-os",
+    image_version_file = ":os_version",
+    mode = "release",
+    release_seed = "00000000-0000-4000-8000-000000000001",
+    release_source_date_epoch = 1755129600,
+    rootfs_payloads = [":os_transfers"],
+    unified_kernel_image = "unsigned",
+    verity = "hash",
+)
+```
+
+The version is validated with the same rule as `image_version` by every action
+that reads it, so an empty file, for example when the workspace status command
+is missing, fails the build with an `invalid image_version_file` message. The
+image action passes it to mkosi as `ImageVersion=`, the partition metadata
+action checks the slot labels against it, the build metadata records it in
+`image.version` with the unchanged `mkosi-image-build-metadata-v2` schema, and
+`sysupdate_payload` names its artifacts after it.
+
+`MkosiImageInfo.image_version` and `SysupdatePayloadInfo.image_version` are
+`None` for such an image; `MkosiImageInfo.image_version_file` and
+`SysupdatePayloadInfo.image_version_file` expose the file instead. Consumers
+that need the version read it from that file and remove a trailing newline. For
+an `image_version` string, the string fields are set and the file fields are
+`None`.
+
+Because stable workspace status changes with every commit, everything that
+depends on the version file is rebuilt for each commit, including the image.
 
 ## Partition layout
 
@@ -223,7 +287,9 @@ output, when the image's GPT UUIDs differ from the UUIDs derived from its root
 hash. `signed_uki` substitutes a UKI imported with
 [`secure_boot_import_response`](secure-boot.md); the action also fails unless
 that UKI's signing request names the SHA-256 of this image's unsigned UKI.
-`SysupdatePayloadInfo` exposes the directory, image id, and version.
+`SysupdatePayloadInfo` exposes the `directory`, `image_id`, and either the
+`image_version` string or, for an image versioned through
+`image_version_file`, the `image_version_file` file.
 
 Apply the payload on the device:
 
