@@ -5,6 +5,7 @@ import importlib.util
 import hashlib
 import os
 import pathlib
+import shutil
 import struct
 import subprocess
 import sys
@@ -110,6 +111,9 @@ class SecureBootBoundaryTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual((self.work / "verified.efi").read_bytes(), self.signed.read_bytes())
 
+    def test_tool_calls_remove_their_debian_tools_scratch(self):
+        self.assertEqual(sorted(pathlib.Path.cwd().glob(".secure-boot-tool-*")), [])
+
     def test_request_emits_canonical_der_certificate_and_matching_fingerprint(self):
         certificate = self.normalized_certificate.read_bytes()
         launcher_scratch = self.work / "independent-openssl-scratch"
@@ -134,6 +138,7 @@ class SecureBootBoundaryTest(unittest.TestCase):
             capture_output=True,
             env=environment,
         ).stdout
+        shutil.rmtree(launcher_scratch)
         self.assertLess(len(independent), 1024 * 1024)
         self.assertEqual(certificate, independent)
         self.assertTrue(certificate.startswith(b"\x30"))
