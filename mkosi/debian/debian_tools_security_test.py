@@ -104,29 +104,29 @@ class DebianToolsSecurityTest(unittest.TestCase):
             extract_tree.extract(str(archive), str(root), digest)
         self.assertEqual((root / "safe").read_bytes(), b"original")
 
-    def test_tampered_package_is_rejected_before_ar_parse(self):
+    def _package(self, name, contents):
+        """Writes a Debian package whose data archive holds one regular file and returns its SHA-256."""
         data_archive = io.BytesIO()
-        member = tarfile.TarInfo("safe")
-        member.size = 8
+        member = tarfile.TarInfo(name)
+        member.size = len(contents)
         with tarfile.open(fileobj=data_archive, mode="w") as output:
-            output.addfile(member, io.BytesIO(b"package!"))
+            output.addfile(member, io.BytesIO(contents))
         payload = data_archive.getvalue()
+        header = (
+            "data.tar/".ljust(16)
+            + "0".ljust(12)
+            + "0".ljust(6)
+            + "0".ljust(6)
+            + "100644".ljust(8)
+            + str(len(payload)).ljust(10)
+            + "`\n"
+        ).encode("ascii")
+        package = self.work / (name + ".deb")
+        package.write_bytes(b"!<arch>\n" + header + payload + (b"\n" if len(payload) % 2 else b""))
+        return package, hashlib.sha256(package.read_bytes()).hexdigest()
 
-        def ar_member(name, contents):
-            header = (
-                (name + "/").ljust(16)
-                + "0".ljust(12)
-                + "0".ljust(6)
-                + "0".ljust(6)
-                + "100644".ljust(8)
-                + str(len(contents)).ljust(10)
-                + "`\n"
-            ).encode("ascii")
-            return header + contents + (b"\n" if len(contents) % 2 else b"")
-
-        package = self.work / "pkg.deb"
-        package.write_bytes(b"!<arch>\n" + ar_member("data.tar", payload))
-        expected = hashlib.sha256(package.read_bytes()).hexdigest()
+    def test_tampered_package_is_rejected_before_ar_parse(self):
+        package, expected = self._package("pkg", b"package!")
         manifest = self.work / "package-manifest.txt"
         manifest.write_text("pkg.deb|%s|pkg\n" % expected, encoding="utf-8")
         original = bytearray(package.read_bytes())
@@ -137,6 +137,30 @@ class DebianToolsSecurityTest(unittest.TestCase):
                 package_archive._collect(
                     [str(package)], str(manifest), str(self.work / "package-work")
                 )
+
+    def test_package_digest_mismatch_closes_already_opened_packages(self):
+        first, first_digest = self._package("first", b"first")
+        second, _ = self._package("second", b"second")
+        manifest = self.work / "package-manifest.txt"
+        manifest.write_text(
+            "first.deb|%s|first\nsecond.deb|%s|second\n" % (first_digest, "0" * 64),
+            encoding="utf-8",
+        )
+        opened = []
+        original_open = package_archive._open_authenticated
+
+        def record_open(*args):
+            stream = original_open(*args)
+            opened.append(stream)
+            return stream
+
+        with mock.patch.object(package_archive, "_open_authenticated", side_effect=record_open):
+            with self.assertRaisesRegex(ValueError, "package digest mismatch for second.deb"):
+                package_archive._collect(
+                    [str(first), str(second)], str(manifest), str(self.work / "package-work")
+                )
+        self.assertEqual(1, len(opened))
+        self.assertTrue(opened[0].closed)
 
     def test_launcher_rejects_tampered_archive_before_scratch(self):
         archive = self._archive([(tarfile.TarInfo("safe"), b"safe")])
@@ -414,6 +438,15 @@ class DebianToolsSecurityTest(unittest.TestCase):
             debian_launcher._validate_binds(
                 ["--ro-bind", "%s:/inputs/missing" % (self.work / "missing")]
             )
+
+    def test_completion_marker_keeps_epoch_mtime_after_its_content_is_written(self):
+        partial = self.work / "partial"
+        partial.mkdir()
+        debian_launcher._write_completion_marker(str(partial), "a" * 64)
+        marker = partial / ".complete"
+        self.assertEqual("mkosi-debian-tools-v1\n" + "a" * 64 + "\n", marker.read_text(encoding="utf-8"))
+        self.assertEqual(0, marker.stat().st_mtime_ns)
+        self.assertEqual(0o644, marker.stat().st_mode & 0o777)
 
     def test_missing_mapping_and_executable_fail_precisely(self):
         with self.assertRaises(RuntimeError):

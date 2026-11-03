@@ -1,5 +1,6 @@
 """Build a deterministic Debian package tree archive without host tools."""
 
+import contextlib
 import io
 import hashlib
 import os
@@ -101,7 +102,8 @@ def _open_authenticated(package, expected_digest):
     return stream
 
 
-def _authenticated_streams(packages, expected):
+def _authenticated_streams(packages, expected, stack):
+    """Opens and authenticates every package; stack closes each opened stream, including on errors."""
     if len(expected) != len(packages):
         raise ValueError("package manifest does not match package inputs")
     streams = []
@@ -113,7 +115,7 @@ def _authenticated_streams(packages, expected):
         if name in seen:
             raise ValueError("package is duplicated in action inputs: %s" % name)
         seen.add(name)
-        streams.append((package, _open_authenticated(package, expected[name])))
+        streams.append((package, stack.enter_context(_open_authenticated(package, expected[name]))))
     if seen != set(expected):
         raise ValueError("package manifest does not match package inputs")
     return streams
@@ -155,14 +157,11 @@ def _collect_package(stream, objects, work):
 
 
 def _collect(packages, manifest, work):
-    streams = _authenticated_streams(packages, _read_manifest(manifest))
+    expected = _read_manifest(manifest)
     objects = {}
-    try:
-        for _, stream in streams:
+    with contextlib.ExitStack() as stack:
+        for _, stream in _authenticated_streams(packages, expected, stack):
             _collect_package(stream, objects, work)
-    finally:
-        for _, stream in streams:
-            stream.close()
     return objects
 
 

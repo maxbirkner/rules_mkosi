@@ -526,7 +526,7 @@ def _fail_readiness_timeout(files, observation, readiness):
 def _await_readiness(files, process, readiness, monotonic, sleep):
     """Polls the serial log until readiness; returns True when the test already finished and QEMU was stopped."""
     deadline = monotonic() + readiness.timeout_seconds
-    while monotonic() < deadline:
+    while True:
         observation = _observe(files, readiness)
         if readiness.expected_failure_marker:
             if _expected_failure_observed(files, observation, readiness.expected_failure_marker):
@@ -544,8 +544,9 @@ def _await_readiness(files, process, readiness, monotonic, sleep):
                 ),
                 "QEMU exited before readiness",
             )
+        if monotonic() >= deadline:
+            _fail_readiness_timeout(files, observation, readiness)
         sleep(0.1)
-    _fail_readiness_timeout(files, observation, readiness)
 
 
 def _await_clean_shutdown(files, process, shutdown_markers, shutdown_timeout_seconds):
@@ -579,6 +580,13 @@ def _ensure_stopped(files, process):
             files.fail("SHUTDOWN_FAILURE", "QEMU did not exit after the kill deadline")
 
 
+def _validate_deadlines(**deadlines):
+    """Raises ValueError unless every deadline is a positive number of seconds."""
+    for name, seconds in deadlines.items():
+        if not seconds > 0:
+            raise ValueError("%s must be positive, got %r" % (name, seconds))
+
+
 def _boot(
     image,
     qemu,
@@ -609,6 +617,11 @@ def _boot(
     monotonic=time.monotonic,
     sleep=time.sleep,
 ):
+    _validate_deadlines(
+        boot_timeout_seconds=boot_timeout_seconds,
+        qmp_initialization_timeout_seconds=qmp_initialization_timeout_seconds,
+        shutdown_timeout_seconds=shutdown_timeout_seconds,
+    )
     scratch = pathlib.Path(os.environ.get("TEST_TMPDIR", "boot-test-state"))
     scratch.mkdir(parents=True, exist_ok=True)
     files = _BootFiles(scratch, diagnostic_bytes)

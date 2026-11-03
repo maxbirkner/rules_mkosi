@@ -292,9 +292,10 @@ def _write_completion_marker(partial, expected_digest):
     marker = os.path.join(partial, ".complete")
     with open(marker, "w", encoding="utf-8") as complete:
         complete.write("mkosi-debian-tools-v1\n" + expected_digest + "\n")
+        complete.flush()
+        # Writing the content updates the mtime, so reset it only after the flush.
         os.chmod(marker, 0o644)
         os.utime(marker, (0, 0))
-        complete.flush()
         os.fsync(complete.fileno())
 
 
