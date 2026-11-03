@@ -32,6 +32,22 @@ def _provider_test_impl(ctx):
     asserts.equals(env, 1, len(actions))
     asserts.equals(env, "StageDebianSnapshot", actions[0].mnemonic)
     asserts.equals(env, 2, len(actions[0].outputs.to_list()))
+    _assert_isolated_static_python(env, actions[0])
     return analysistest.end(env)
+
+def _assert_isolated_static_python(env, action):
+    """Asserts that the stager runs in isolated mode with the static interpreter's own standard library."""
+    interpreter = action.argv[0]
+    asserts.equals(env, "-I", action.argv[1])
+    asserts.true(env, action.argv[2].endswith("/debian_snapshot.py"), "argv[2] is the stager script")
+    asserts.equals(
+        env,
+        {
+            "PATH": "",
+            "PYTHONHOME": interpreter[:interpreter.rfind("/")],
+            "PYTHONNOUSERSITE": "1",
+        },
+        action.env,
+    )
 
 debian_snapshot_provider_test = analysistest.make(_provider_test_impl)
