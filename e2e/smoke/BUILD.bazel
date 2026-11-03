@@ -470,8 +470,7 @@ py_test(
     main = "image_metadata_test.py",
 )
 
-# Every other boot test prefers KVM; this one keeps a complete UEFI boot and clean
-# shutdown proven under the TCG fallback on hosts that provide KVM.
+# Boots with TCG even where KVM is available, so TCG stays covered.
 qemu_ovmf_boot_test(
     name = "uefi_boot_test",
     accelerator = "tcg",

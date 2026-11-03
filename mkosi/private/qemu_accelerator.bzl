@@ -2,12 +2,12 @@
 
 QEMU_ACCELERATORS = ["auto", "tcg"]
 
-QEMU_ACCELERATOR_DOC = """QEMU accelerator policy: `auto` (default) or `tcg`.
+QEMU_ACCELERATOR_DOC = """QEMU accelerator: `auto` (default) or `tcg`.
 
-`auto` lists KVM before TCG. QEMU uses KVM when the test process can open `/dev/kvm` for reading and writing and
-otherwise falls back to TCG software emulation in the same process. `tcg` always uses TCG, for example to keep
-software-emulation coverage on hosts that provide KVM. The guest CPU model is the same for both accelerators.
-The accelerator QEMU actually selected is recorded in the test log and boot evidence.
+`auto` uses KVM when the test can open `/dev/kvm` for reading and writing, and TCG software emulation otherwise.
+`tcg` always uses TCG.
+Both use the same guest CPU model.
+The test log records the accelerator QEMU used.
 """
 
 def qemu_accelerator_args(accelerator):
