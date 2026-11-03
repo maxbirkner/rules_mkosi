@@ -12,17 +12,13 @@ from pathlib import Path
 
 _load_sibling = runpy.run_path(str(Path(__file__).with_name("sibling_loader.py")))["load_sibling"]
 gpt = _load_sibling(__file__, "gpt_partitions")
+file_hashing = _load_sibling(__file__, "file_hashing")
 
 MAX_ARTIFACT_BYTES = 16 * 1024**3
 MAX_BLOCKS = 1 << 32
 MAX_LEVELS = 64
 MAX_SPOOL_BYTES = 2 * 1024**3
 SUPERBLOCK_SIZE = 512
-
-
-def _sha256(path):
-    with open(path, "rb") as source:
-        return hashlib.file_digest(source, "sha256").hexdigest()
 
 
 def _digest_size(algorithm):
@@ -254,7 +250,7 @@ def _check_zero_trailer(hash_image_path, offset):
 
 
 def _artifact(path, size):
-    return {"sha256": _sha256(path), "size": size}
+    return {"sha256": file_hashing.sha256_file(path), "size": size}
 
 
 def project(root_hash_path, partition_metadata_path, root_image_path, hash_image_path):

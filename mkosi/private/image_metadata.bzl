@@ -9,6 +9,11 @@ IMAGE_METADATA_ATTRS = {
         default = "//mkosi/private:image_version.py",
         allow_single_file = True,
     ),
+    "_file_hashing": attr.label(
+        cfg = "exec",
+        default = "//mkosi/private:file_hashing.py",
+        allow_single_file = True,
+    ),
     "_gpt_partitions": attr.label(
         cfg = "exec",
         default = "//mkosi/private:gpt_partitions.py",
@@ -130,6 +135,7 @@ def project_verity_metadata(ctx, outputs):
         arguments = [arguments],
         inputs = [
             ctx.file._verity_metadata,
+            ctx.file._file_hashing,
             ctx.file._gpt_partitions,
             ctx.file._sibling_loader,
             outputs.root_hash,
