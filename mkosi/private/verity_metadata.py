@@ -3,23 +3,15 @@
 
 import argparse
 import hashlib
-import importlib.util
 import json
 import os
+import runpy
 import struct
 import tempfile
 from pathlib import Path
 
-
-def _load_sibling(name):
-    """Loads the rules_mkosi helper module name.py from this file's directory, independent of sys.path."""
-    spec = importlib.util.spec_from_file_location("rules_mkosi_" + name, Path(__file__).with_name(name + ".py"))
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-gpt = _load_sibling("gpt_partitions")
+_load_sibling = runpy.run_path(str(Path(__file__).with_name("sibling_loader.py")))["load_sibling"]
+gpt = _load_sibling(__file__, "gpt_partitions")
 
 MAX_ARTIFACT_BYTES = 16 * 1024**3
 MAX_BLOCKS = 1 << 32
@@ -31,6 +23,25 @@ SUPERBLOCK_SIZE = 512
 def _sha256(path):
     with open(path, "rb") as source:
         return hashlib.file_digest(source, "sha256").hexdigest()
+
+
+def _digest_size(algorithm):
+    try:
+        return hashlib.new(algorithm).digest_size
+    except ValueError as error:
+        raise ValueError("unsupported dm-verity hash algorithm") from error
+
+
+def _slot_size(data_block_size, hash_block_size, digest_size):
+    """Validates the block sizes and returns the power-of-two slot that holds one digest in a hash block."""
+    if data_block_size < 512 or data_block_size > 1024 * 1024 or data_block_size & (data_block_size - 1):
+        raise ValueError("invalid dm-verity data block size")
+    if hash_block_size < digest_size or hash_block_size > 1024 * 1024 or hash_block_size & (hash_block_size - 1):
+        raise ValueError("invalid dm-verity hash block size")
+    slot_size = 1 << (digest_size - 1).bit_length()
+    if slot_size > hash_block_size or hash_block_size % slot_size:
+        raise ValueError("dm-verity digest slots do not divide the hash block")
+    return slot_size
 
 
 def _read_superblock(path):
@@ -45,17 +56,8 @@ def _read_superblock(path):
     salt_size = struct.unpack_from("<H", value, 80)[0]
     if version != 1 or hash_type != 1:
         raise ValueError("only dm-verity format 1 with normal salt placement is supported")
-    try:
-        digest_size = hashlib.new(algorithm).digest_size
-    except ValueError as error:
-        raise ValueError("unsupported dm-verity hash algorithm") from error
-    if data_block_size < 512 or data_block_size > 1024 * 1024 or data_block_size & (data_block_size - 1):
-        raise ValueError("invalid dm-verity data block size")
-    if hash_block_size < digest_size or hash_block_size > 1024 * 1024 or hash_block_size & (hash_block_size - 1):
-        raise ValueError("invalid dm-verity hash block size")
-    slot_size = 1 << (digest_size - 1).bit_length()
-    if slot_size > hash_block_size or hash_block_size % slot_size:
-        raise ValueError("dm-verity digest slots do not divide the hash block")
+    digest_size = _digest_size(algorithm)
+    slot_size = _slot_size(data_block_size, hash_block_size, digest_size)
     if not data_blocks or data_blocks > MAX_BLOCKS:
         raise ValueError("invalid dm-verity data block count")
     if salt_size > 256:
@@ -72,19 +74,21 @@ def _read_superblock(path):
     }
 
 
+def _salted_digest(geometry, data):
+    digest = hashlib.new(geometry["algorithm"])
+    digest.update(geometry["salt"])
+    digest.update(data)
+    return digest.digest()
+
+
 def _leaf_digests(source_path, geometry, output):
-    algorithm = geometry["algorithm"]
-    salt = geometry["salt"]
     block_size = geometry["data_block_size"]
     with open(source_path, "rb") as source:
         for _ in range(geometry["data_blocks"]):
             block = source.read(block_size)
             if len(block) != block_size:
                 raise ValueError("root artifact is truncated within declared data blocks")
-            digest = hashlib.new(algorithm)
-            digest.update(salt)
-            digest.update(block)
-            output.write(digest.digest())
+            output.write(_salted_digest(geometry, block))
 
 
 def _level_counts(data_blocks, per_block):
@@ -103,73 +107,101 @@ def _temporary():
     return tempfile.NamedTemporaryFile(prefix=".verity-digests-", dir=".", delete=False)
 
 
-def _verify_tree(root_image_path, hash_image_path, geometry, tree_offset):
-    digest_size = geometry["digest_size"]
-    slot_size = geometry["slot_size"]
-    block_size = geometry["hash_block_size"]
-    per_block = block_size // slot_size
-    counts = _level_counts(geometry["data_blocks"], per_block)
-    leaf_bytes = geometry["data_blocks"] * digest_size
-    next_bytes = counts[0] * digest_size if counts else 0
+def _check_spool_budget(geometry, counts):
+    """Bounds the two digest spools that exist at once: the leaf level and the first hash level."""
+    leaf_bytes = geometry["data_blocks"] * geometry["digest_size"]
+    next_bytes = counts[0] * geometry["digest_size"] if counts else 0
     if leaf_bytes + next_bytes > MAX_SPOOL_BYTES:
         raise ValueError("dm-verity digest spools exceed the resource limit")
+
+
+def _level_offsets(counts, tree_offset, block_size):
+    """Returns the emitted offset of every level and the tree size; dm-verity stores the top level first."""
+    offsets = []
+    preceding = 0
+    for count in reversed(counts):
+        offsets.append(tree_offset + preceding * block_size)
+        preceding += count
+    offsets.reverse()
+    return offsets, preceding * block_size
+
+
+def _expected_block(current, digests, geometry):
+    """Packs the next digests from the current spool into one zero-padded hash block."""
+    digest_size = geometry["digest_size"]
+    padding = b"\0" * (geometry["slot_size"] - digest_size)
+    block = bytearray()
+    for _ in range(digests):
+        digest = current.read(digest_size)
+        if len(digest) != digest_size:
+            raise ValueError("dm-verity digest spool is truncated")
+        block.extend(digest)
+        block.extend(padding)
+    block.extend(b"\0" * (geometry["hash_block_size"] - len(block)))
+    return block
+
+
+def _verify_level(level, block_count, current_path, current_digests, emitted, geometry, output):
+    """Compares one emitted level with the digests of the level below and spools the level's own digests."""
+    block_size = geometry["hash_block_size"]
+    per_block = block_size // geometry["slot_size"]
+    consumed = 0
+    with open(current_path, "rb") as current:
+        for block_index in range(block_count):
+            digests = min(per_block, current_digests - consumed)
+            block = _expected_block(current, digests, geometry)
+            consumed += digests
+            if emitted.read(block_size) != block:
+                raise ValueError("dm-verity hash mismatch at level {} block {}".format(level, block_index))
+            output.write(_salted_digest(geometry, block))
+
+
+def _read_root_digest(path, digest_size):
+    with open(path, "rb") as root:
+        verified_root = root.read(digest_size)
+        if len(verified_root) != digest_size or root.read(1):
+            raise ValueError("dm-verity root digest spool has invalid size")
+    return verified_root
+
+
+def _new_spool(paths):
+    spool = _temporary()
+    paths.append(spool.name)
+    return spool
+
+
+def _remove_spools(paths):
+    for path in paths:
+        try:
+            os.unlink(path)
+        except FileNotFoundError:
+            pass
+
+
+def _verify_tree(root_image_path, hash_image_path, geometry, tree_offset):
+    """Recomputes every hash level from the root artifact and compares it with the emitted hash tree."""
+    block_size = geometry["hash_block_size"]
+    counts = _level_counts(geometry["data_blocks"], block_size // geometry["slot_size"])
+    _check_spool_budget(geometry, counts)
+    level_offsets, tree_size = _level_offsets(counts, tree_offset, block_size)
     paths = []
     try:
-        leaf = _temporary()
-        paths.append(leaf.name)
+        leaf = _new_spool(paths)
         with leaf:
             _leaf_digests(root_image_path, geometry, leaf)
-        current_path = leaf.name
-        current_digests = geometry["data_blocks"]
-        level_offsets = []
-        preceding = 0
-        for count in reversed(counts):
-            level_offsets.append(tree_offset + preceding * block_size)
-            preceding += count
-        level_offsets.reverse()
+        current_path, current_digests = leaf.name, geometry["data_blocks"]
         with open(hash_image_path, "rb") as emitted:
             for level, (block_count, emitted_offset) in enumerate(zip(counts, level_offsets)):
-                next_file = _temporary()
-                paths.append(next_file.name)
-                with open(current_path, "rb") as current, next_file:
+                spool = _new_spool(paths)
+                with spool:
                     emitted.seek(emitted_offset)
-                    consumed = 0
-                    for block_index in range(block_count):
-                        block = bytearray()
-                        for _ in range(min(per_block, current_digests - consumed)):
-                            digest = current.read(digest_size)
-                            if len(digest) != digest_size:
-                                raise ValueError("dm-verity digest spool is truncated")
-                            block.extend(digest)
-                            block.extend(b"\0" * (slot_size - digest_size))
-                            consumed += 1
-                        block.extend(b"\0" * (block_size - len(block)))
-                        actual = emitted.read(block_size)
-                        if actual != block:
-                            raise ValueError(
-                                "dm-verity hash mismatch at level {} block {}".format(
-                                    level, block_index
-                                )
-                            )
-                        digest = hashlib.new(geometry["algorithm"])
-                        digest.update(geometry["salt"])
-                        digest.update(block)
-                        next_file.write(digest.digest())
+                    _verify_level(level, block_count, current_path, current_digests, emitted, geometry, spool)
                 os.unlink(current_path)
                 paths.remove(current_path)
-                current_path = next_file.name
-                current_digests = block_count
-            with open(current_path, "rb") as root:
-                verified_root = root.read(digest_size)
-                if len(verified_root) != digest_size or root.read(1):
-                    raise ValueError("dm-verity root digest spool has invalid size")
-            return counts, verified_root, preceding * block_size
+                current_path, current_digests = spool.name, block_count
+        return counts, _read_root_digest(current_path, geometry["digest_size"]), tree_size
     finally:
-        for path in paths:
-            try:
-                os.unlink(path)
-            except FileNotFoundError:
-                pass
+        _remove_spools(paths)
 
 
 def _all_zero(source):
@@ -179,8 +211,8 @@ def _all_zero(source):
     return True
 
 
-def project(root_hash_path, partition_metadata_path, root_image_path, hash_image_path):
-    root_hash = Path(root_hash_path).read_text().strip().lower()
+def _root_partitions(partition_metadata_path):
+    """Returns the populated root data and verity hash partitions; inactive A/B slots are ignored."""
     partitions = json.loads(Path(partition_metadata_path).read_text())["partitions"]
     by_type = {}
     slot_types = (gpt.ROOT_X86_64, gpt.ROOT_X86_64_VERITY)
@@ -192,8 +224,10 @@ def project(root_hash_path, partition_metadata_path, root_image_path, hash_image
         raise ValueError("exactly one x86-64 root data and verity hash partition is required")
     if by_type.get(gpt.ROOT_X86_64_VERITY_SIG):
         raise ValueError("verity signature partitions require signing support tracked by #23")
-    root_partition = by_type[gpt.ROOT_X86_64][0]
-    hash_partition = by_type[gpt.ROOT_X86_64_VERITY][0]
+    return by_type[gpt.ROOT_X86_64][0], by_type[gpt.ROOT_X86_64_VERITY][0]
+
+
+def _artifact_sizes(root_image_path, hash_image_path, root_partition, hash_partition):
     root_size = os.path.getsize(root_image_path)
     hash_size = os.path.getsize(hash_image_path)
     if root_size > MAX_ARTIFACT_BYTES or hash_size > MAX_ARTIFACT_BYTES:
@@ -202,29 +236,45 @@ def project(root_hash_path, partition_metadata_path, root_image_path, hash_image
         raise ValueError("root artifact size does not equal its GPT partition extent")
     if hash_size != hash_partition["size_bytes"]:
         raise ValueError("hash artifact size does not equal its GPT partition extent")
-    geometry = _read_superblock(hash_image_path)
-    if geometry["data_blocks"] * geometry["data_block_size"] != root_size:
-        raise ValueError("dm-verity data geometry does not cover the root artifact exactly")
-    tree_offset = geometry["hash_block_size"]
+    return root_size, hash_size
+
+
+def _check_superblock_padding(hash_image_path, tree_offset):
     with open(hash_image_path, "rb") as source:
         header_block = source.read(tree_offset)
         if len(header_block) != tree_offset or any(header_block[SUPERBLOCK_SIZE:]):
             raise ValueError("dm-verity superblock padding is not canonical zero padding")
-    levels, verified_root, tree_size = _verify_tree(
-        root_image_path, hash_image_path, geometry, tree_offset
-    )
+
+
+def _check_zero_trailer(hash_image_path, offset):
     with open(hash_image_path, "rb") as source:
-        source.seek(tree_offset + tree_size)
+        source.seek(offset)
         if not _all_zero(source):
             raise ValueError("hash artifact has nonzero ambiguous trailing bytes")
-    verified_root_hex = verified_root.hex()
-    if root_hash != verified_root_hex:
+
+
+def _artifact(path, size):
+    return {"sha256": _sha256(path), "size": size}
+
+
+def project(root_hash_path, partition_metadata_path, root_image_path, hash_image_path):
+    root_hash = Path(root_hash_path).read_text().strip().lower()
+    root_partition, hash_partition = _root_partitions(partition_metadata_path)
+    root_size, hash_size = _artifact_sizes(root_image_path, hash_image_path, root_partition, hash_partition)
+    geometry = _read_superblock(hash_image_path)
+    if geometry["data_blocks"] * geometry["data_block_size"] != root_size:
+        raise ValueError("dm-verity data geometry does not cover the root artifact exactly")
+    tree_offset = geometry["hash_block_size"]
+    _check_superblock_padding(hash_image_path, tree_offset)
+    levels, verified_root, tree_size = _verify_tree(root_image_path, hash_image_path, geometry, tree_offset)
+    _check_zero_trailer(hash_image_path, tree_offset + tree_size)
+    if root_hash != verified_root.hex():
         raise ValueError("supplied root hash does not equal the independently verified root")
     return {
         "artifacts": {
-            "root": {"sha256": _sha256(root_image_path), "size": root_size},
-            "root_hash": {"sha256": _sha256(root_hash_path), "size": os.path.getsize(root_hash_path)},
-            "verity": {"sha256": _sha256(hash_image_path), "size": hash_size},
+            "root": _artifact(root_image_path, root_size),
+            "root_hash": _artifact(root_hash_path, os.path.getsize(root_hash_path)),
+            "verity": _artifact(hash_image_path, hash_size),
         },
         "data_block_size": geometry["data_block_size"],
         "data_blocks": geometry["data_blocks"],

@@ -156,6 +156,7 @@ def qemu_seabios_boot_test(
         data = [
             "@rules_mkosi//mkosi/private:boot_test.py",
             "@rules_mkosi//mkosi/private:diagnostics.py",
+            "@rules_mkosi//mkosi/private:sibling_loader.py",
             ":{}".format(config_name),
         ],
         timeout = timeout,

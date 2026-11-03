@@ -99,8 +99,7 @@ def _directory_checksum(seed, inode_number, generation, block):
     return _crc32c(checksum, block[:-12])
 
 
-def _parse_header(image, lba, total_sectors):
-    raw = _read(image, lba * SECTOR_SIZE, SECTOR_SIZE, "GPT header is truncated")
+def _check_header_integrity(raw, lba):
     if raw[:8] != b"EFI PART":
         raise AssertionError("GPT header signature is missing at LBA %d" % lba)
     revision, header_size, stored_crc = struct.unpack_from("<III", raw, 8)
@@ -113,40 +112,42 @@ def _parse_header(image, lba, total_sectors):
     if zlib.crc32(header) & 0xFFFFFFFF != stored_crc:
         raise AssertionError("GPT header CRC is invalid at LBA %d" % lba)
 
-    current_lba, backup_lba, first_usable, last_usable = struct.unpack_from(
-        "<QQQQ", raw, 24
-    )
-    array_lba, entry_count, entry_size, array_crc = struct.unpack_from("<QIII", raw, 72)
-    if current_lba != lba or backup_lba >= total_sectors:
+
+def _check_header_geometry(header, lba, total_sectors):
+    if header["current_lba"] != lba or header["backup_lba"] >= total_sectors:
         raise AssertionError("GPT header LBA relationship is invalid")
-    if first_usable < 2 or first_usable > last_usable or last_usable >= total_sectors:
+    first_usable = header["first_usable"]
+    if first_usable < 2 or first_usable > header["last_usable"] or header["last_usable"] >= total_sectors:
         raise AssertionError("GPT usable LBA range is invalid")
-    if entry_count == 0 or entry_size < GPT_ENTRY_SIZE or entry_size % 8:
+    if header["entry_count"] == 0 or header["entry_size"] < GPT_ENTRY_SIZE or header["entry_size"] % 8:
         raise AssertionError("GPT partition entry geometry is invalid")
-    array_size = entry_count * entry_size
-    array_sectors = (array_size + SECTOR_SIZE - 1) // SECTOR_SIZE
-    if array_lba < 2 or array_lba + array_sectors > total_sectors:
+    if header["array_lba"] < 2 or header["array_lba"] + header["array_sectors"] > total_sectors:
         raise AssertionError("GPT partition array is outside the image")
-    array = _read(
-        image,
-        array_lba * SECTOR_SIZE,
-        array_size,
-        "GPT partition array is truncated",
-    )
-    if zlib.crc32(array) & 0xFFFFFFFF != array_crc:
-        raise AssertionError("GPT partition array CRC is invalid")
-    return {
+
+
+def _parse_header(image, lba, total_sectors):
+    raw = _read(image, lba * SECTOR_SIZE, SECTOR_SIZE, "GPT header is truncated")
+    _check_header_integrity(raw, lba)
+    current_lba, backup_lba, first_usable, last_usable = struct.unpack_from("<QQQQ", raw, 24)
+    array_lba, entry_count, entry_size, array_crc = struct.unpack_from("<QIII", raw, 72)
+    array_size = entry_count * entry_size
+    header = {
         "current_lba": current_lba,
         "backup_lba": backup_lba,
         "first_usable": first_usable,
         "last_usable": last_usable,
         "disk_guid": raw[56:72],
         "array_lba": array_lba,
-        "array_sectors": array_sectors,
+        "array_sectors": (array_size + SECTOR_SIZE - 1) // SECTOR_SIZE,
         "entry_count": entry_count,
         "entry_size": entry_size,
-        "array": array,
     }
+    _check_header_geometry(header, lba, total_sectors)
+    array = _read(image, array_lba * SECTOR_SIZE, array_size, "GPT partition array is truncated")
+    if zlib.crc32(array) & 0xFFFFFFFF != array_crc:
+        raise AssertionError("GPT partition array CRC is invalid")
+    header["array"] = array
+    return header
 
 
 def _u16(data, offset):

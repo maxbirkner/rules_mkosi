@@ -3,23 +3,13 @@
 
 import argparse
 import hashlib
-import importlib.util
 import json
 import os
+import runpy
 from pathlib import Path
 
-
-def _load_partition_metadata():
-    path = Path(__file__).with_name("partition_metadata.py")
-    spec = importlib.util.spec_from_file_location("mkosi_partition_metadata", path)
-    if spec is None or spec.loader is None:
-        raise RuntimeError("partition metadata projector cannot be loaded")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-partition_metadata = _load_partition_metadata()
+_load_sibling = runpy.run_path(str(Path(__file__).with_name("sibling_loader.py")))["load_sibling"]
+partition_metadata = _load_sibling(__file__, "partition_metadata")
 _HASH_CHUNK_SIZE = 1024 * 1024
 _MAX_JSON_BYTES = 4 * 1024 * 1024
 
@@ -74,84 +64,54 @@ def _metadata_projection(path):
     return _artifact_projection(path), _small_json(path)
 
 
+_EXCLUDED_VARIABLE_FIELDS = (
+    (
+        "artifact_file_metadata.path",
+        "The two clean Bazel output bases intentionally have different paths.",
+    ),
+    ("artifact_file_metadata.inode", "Filesystem allocation identity is not artifact content."),
+    ("artifact_file_metadata.ownership", "Output-base ownership is runner state and is not embedded."),
+    ("artifact_file_metadata.permissions", "Output-base permissions are runner state and are not embedded."),
+    ("artifact_file_metadata.mtime", "Bazel materialization time is not embedded artifact content."),
+    ("build_process.output_base", "Independent output bases are required and must differ."),
+    ("build_process.sandbox_path", "Ephemeral action sandbox identity is not embedded."),
+    ("build_process.workspace_path", "Checkout location is build-process state and is not embedded."),
+    ("build_process.start_time", "Wall-clock action timing is not embedded."),
+    ("build_process.duration", "Runner performance is not artifact content."),
+    ("raw_image.gpt.disk_guid", "GPT disk identity does not describe payload content."),
+    ("raw_image.gpt.partitions[].unique_guid", "GPT partition identities do not describe payload content."),
+    (
+        "raw_image.gpt.primary.partition_array_crc32",
+        "The checksum necessarily changes with normalized partition GUIDs.",
+    ),
+    (
+        "raw_image.gpt.backup.partition_array_crc32",
+        "The checksum necessarily changes with normalized partition GUIDs.",
+    ),
+    (
+        "raw_image.gpt.primary.header_crc32",
+        "The checksum necessarily changes with the normalized disk GUID and array CRC.",
+    ),
+    (
+        "raw_image.gpt.backup.header_crc32",
+        "The checksum necessarily changes with the normalized disk GUID and array CRC.",
+    ),
+)
+
+
 def project(raw_image, build_metadata, partition_metadata_path, artifacts=()):
     metadata = _small_json(build_metadata)
     partition_artifact, partitions = _metadata_projection(partition_metadata_path)
     result = {
         "excluded_variable_fields": [
-            {
-                "field": "artifact_file_metadata.path",
-                "reason": "The two clean Bazel output bases intentionally have different paths.",
-            },
-            {
-                "field": "artifact_file_metadata.inode",
-                "reason": "Filesystem allocation identity is not artifact content.",
-            },
-            {
-                "field": "artifact_file_metadata.ownership",
-                "reason": "Output-base ownership is runner state and is not embedded.",
-            },
-            {
-                "field": "artifact_file_metadata.permissions",
-                "reason": "Output-base permissions are runner state and are not embedded.",
-            },
-            {
-                "field": "artifact_file_metadata.mtime",
-                "reason": "Bazel materialization time is not embedded artifact content.",
-            },
-            {
-                "field": "build_process.output_base",
-                "reason": "Independent output bases are required and must differ.",
-            },
-            {
-                "field": "build_process.sandbox_path",
-                "reason": "Ephemeral action sandbox identity is not embedded.",
-            },
-            {
-                "field": "build_process.workspace_path",
-                "reason": "Checkout location is build-process state and is not embedded.",
-            },
-            {
-                "field": "build_process.start_time",
-                "reason": "Wall-clock action timing is not embedded.",
-            },
-            {
-                "field": "build_process.duration",
-                "reason": "Runner performance is not artifact content.",
-            },
-            {
-                "field": "raw_image.gpt.disk_guid",
-                "reason": "GPT disk identity does not describe payload content.",
-            },
-            {
-                "field": "raw_image.gpt.partitions[].unique_guid",
-                "reason": "GPT partition identities do not describe payload content.",
-            },
-            {
-                "field": "raw_image.gpt.primary.partition_array_crc32",
-                "reason": "The checksum necessarily changes with normalized partition GUIDs.",
-            },
-            {
-                "field": "raw_image.gpt.backup.partition_array_crc32",
-                "reason": "The checksum necessarily changes with normalized partition GUIDs.",
-            },
-            {
-                "field": "raw_image.gpt.primary.header_crc32",
-                "reason": "The checksum necessarily changes with the normalized disk GUID and array CRC.",
-            },
-            {
-                "field": "raw_image.gpt.backup.header_crc32",
-                "reason": "The checksum necessarily changes with the normalized disk GUID and array CRC.",
-            },
+            {"field": field, "reason": reason} for field, reason in _EXCLUDED_VARIABLE_FIELDS
         ],
         "format_version": "mkosi-reproducibility-manifest-v1",
         "immutable_artifacts": {
             "build_metadata": _artifact_projection(build_metadata),
             "partition_metadata": partition_artifact,
             "raw_image": {
-                "canonical_sha256": partition_metadata.canonical_image_sha256(
-                    raw_image
-                ),
+                "canonical_sha256": partition_metadata.canonical_image_sha256(raw_image),
                 "size": raw_image.stat().st_size,
             },
         },

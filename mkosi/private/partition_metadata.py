@@ -3,29 +3,22 @@
 
 import argparse
 import hashlib
-import importlib.util
 import json
 import os
+import runpy
 import struct
 import uuid
 import zlib
 from pathlib import Path
 
-
-def _load_sibling(name):
-    """Loads the rules_mkosi helper module name.py from this file's directory, independent of sys.path."""
-    spec = importlib.util.spec_from_file_location("rules_mkosi_" + name, Path(__file__).with_name(name + ".py"))
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-gpt = _load_sibling("gpt_partitions")
+_load_sibling = runpy.run_path(str(Path(__file__).with_name("sibling_loader.py")))["load_sibling"]
+gpt = _load_sibling(__file__, "gpt_partitions")
 
 ALIGNMENT = 1024 * 1024
 _HEADER_MIN = 92
 _MAX_ARRAY_BYTES = 64 * 1024 * 1024
 _MAX_ENTRIES = 1024 * 1024
+_HASH_CHUNK_BYTES = 1024 * 1024
 
 
 def _read_exact(image, offset, size, image_size, description):
@@ -38,63 +31,115 @@ def _read_exact(image, offset, size, image_size, description):
     return value
 
 
-def _header(image, image_size, sector_size, lba, expected_backup, description):
-    raw = _read_exact(
-        image, lba * sector_size, sector_size, image_size, description
-    )
-    if raw[:8] != b"EFI PART":
-        raise ValueError("{} has an invalid signature".format(description))
+def _require(checks):
+    """Raises ValueError with the message of the first failed (passed, message) check."""
+    for passed, message in checks:
+        if not passed:
+            raise ValueError(message)
+
+
+def _check_header_bytes(raw, sector_size, description):
+    """Validates the signature, revision, size, CRC and reserved bytes of one GPT header sector."""
     revision, header_size, header_crc = struct.unpack_from("<III", raw, 8)
-    if revision != 0x00010000:
-        raise ValueError("{} has unsupported revision".format(description))
-    if header_size < _HEADER_MIN or header_size > sector_size:
-        raise ValueError("{} has invalid header size".format(description))
     checked = bytearray(raw[:header_size])
     checked[16:20] = b"\0" * 4
-    if zlib.crc32(checked) != header_crc:
-        raise ValueError("{} header CRC mismatch".format(description))
-    if raw[20:24] != b"\0" * 4:
-        raise ValueError("{} has nonzero reserved header bytes".format(description))
+    _require(
+        (
+            (raw[:8] == b"EFI PART", "{} has an invalid signature".format(description)),
+            (revision == 0x00010000, "{} has unsupported revision".format(description)),
+            (_HEADER_MIN <= header_size <= sector_size, "{} has invalid header size".format(description)),
+            (zlib.crc32(checked) == header_crc, "{} header CRC mismatch".format(description)),
+            (raw[20:24] == b"\0" * 4, "{} has nonzero reserved header bytes".format(description)),
+        )
+    )
+    return header_size
+
+
+def _check_header_geometry(fields, lba, expected_backup, last_lba, description):
+    """Validates header locations, the usable range and partition-array bounds before the array is read."""
+    _require(
+        (
+            (
+                fields["current"] == lba and fields["backup"] == expected_backup,
+                "{} has invalid reciprocal header LBAs".format(description),
+            ),
+            (lba in (1, last_lba), "{} is not at an expected disk location".format(description)),
+            (
+                fields["first_usable"] <= fields["last_usable"] < last_lba,
+                "{} has invalid usable range".format(description),
+            ),
+            (0 < fields["count"] <= _MAX_ENTRIES, "{} has hostile partition count".format(description)),
+            (
+                128 <= fields["entry_size"] <= 4096 and not fields["entry_size"] % 8,
+                "{} has hostile partition entry size".format(description),
+            ),
+            (
+                fields["count"] * fields["entry_size"] <= _MAX_ARRAY_BYTES,
+                "{} partition array is oversized".format(description),
+            ),
+        )
+    )
+
+
+def _check_array_location(fields, lba, last_lba, array_last_lba, description):
+    entries_lba = fields["entries_lba"]
+    _require(
+        (
+            (
+                entries_lba >= 2 and array_last_lba < last_lba,
+                "{} has invalid partition-array location".format(description),
+            ),
+            (
+                lba != 1 or array_last_lba < fields["first_usable"],
+                "primary GPT partition array is not before the usable range",
+            ),
+            (
+                lba != last_lba or entries_lba > fields["last_usable"],
+                "backup GPT partition array is not after the usable range",
+            ),
+        )
+    )
+
+
+def _header_fields(raw):
     current, backup, first_usable, last_usable = struct.unpack_from("<QQQQ", raw, 24)
     entries_lba, count, entry_size, array_crc = struct.unpack_from("<QIII", raw, 72)
+    return {
+        "array_crc": array_crc,
+        "backup": backup,
+        "count": count,
+        "current": current,
+        "entries_lba": entries_lba,
+        "entry_size": entry_size,
+        "first_usable": first_usable,
+        "last_usable": last_usable,
+    }
+
+
+def _header(image, image_size, sector_size, lba, expected_backup, description):
+    raw = _read_exact(image, lba * sector_size, sector_size, image_size, description)
+    header_size = _check_header_bytes(raw, sector_size, description)
+    fields = _header_fields(raw)
     last_lba = image_size // sector_size - 1
-    if current != lba or backup != expected_backup:
-        raise ValueError("{} has invalid reciprocal header LBAs".format(description))
-    if lba not in (1, last_lba):
-        raise ValueError("{} is not at an expected disk location".format(description))
-    if first_usable > last_usable or last_usable >= last_lba:
-        raise ValueError("{} has invalid usable range".format(description))
-    if not count or count > _MAX_ENTRIES:
-        raise ValueError("{} has hostile partition count".format(description))
-    if entry_size < 128 or entry_size > 4096 or entry_size % 8:
-        raise ValueError("{} has hostile partition entry size".format(description))
-    array_size = count * entry_size
-    if array_size > _MAX_ARRAY_BYTES:
-        raise ValueError("{} partition array is oversized".format(description))
-    array_offset = entries_lba * sector_size
-    array = _read_exact(
-        image, array_offset, array_size, image_size, description + " partition array"
-    )
-    array_last_lba = entries_lba + (array_size + sector_size - 1) // sector_size - 1
-    if entries_lba < 2 or array_last_lba >= last_lba:
-        raise ValueError("{} has invalid partition-array location".format(description))
-    if lba == 1 and array_last_lba >= first_usable:
-        raise ValueError("primary GPT partition array is not before the usable range")
-    if lba == last_lba and entries_lba <= last_usable:
-        raise ValueError("backup GPT partition array is not after the usable range")
-    if zlib.crc32(array) != array_crc:
+    _check_header_geometry(fields, lba, expected_backup, last_lba, description)
+    array_size = fields["count"] * fields["entry_size"]
+    array_offset = fields["entries_lba"] * sector_size
+    array = _read_exact(image, array_offset, array_size, image_size, description + " partition array")
+    array_last_lba = fields["entries_lba"] + (array_size + sector_size - 1) // sector_size - 1
+    _check_array_location(fields, lba, last_lba, array_last_lba, description)
+    if zlib.crc32(array) != fields["array_crc"]:
         raise ValueError("{} partition-array CRC mismatch".format(description))
     return {
         "array": array,
         "array_offset": array_offset,
-        "count": count,
+        "count": fields["count"],
         "disk_guid": raw[56:72],
-        "entry_size": entry_size,
-        "entries_lba": entries_lba,
-        "first_usable": first_usable,
+        "entry_size": fields["entry_size"],
+        "entries_lba": fields["entries_lba"],
+        "first_usable": fields["first_usable"],
         "header_offset": lba * sector_size,
         "header_size": header_size,
-        "last_usable": last_usable,
+        "last_usable": fields["last_usable"],
         "raw_header": raw,
     }
 
@@ -155,68 +200,80 @@ def _validate_ab_slots(partitions, slot_label):
             )
 
 
+def _check_entry_range(number, first, last, primary, previous):
+    """Validates one partition extent against the usable range and the previous populated entry."""
+    if first > last:
+        raise ValueError("partition {} has an invalid range".format(number))
+    if first < primary["first_usable"] or last > primary["last_usable"]:
+        raise ValueError("partition {} is outside the usable range".format(number))
+    if previous is None:
+        return
+    previous_first, previous_last, previous_number = previous
+    if first < previous_first:
+        raise ValueError("partition {} is out of order".format(number))
+    if first <= previous_last:
+        raise ValueError("partition {} overlaps partition {}".format(number, previous_number))
+
+
+def _project_entry(entry, number, first, last, sector_size):
+    start_bytes = first * sector_size
+    if start_bytes % ALIGNMENT:
+        raise ValueError("partition {} is not 1 MiB aligned".format(number))
+    try:
+        label = entry[56:128].decode("utf-16-le").split("\0", 1)[0]
+    except UnicodeDecodeError as error:
+        raise ValueError("partition {} has an invalid label".format(number)) from error
+    return {
+        "label": label,
+        "number": number,
+        "size_bytes": (last - first + 1) * sector_size,
+        "start_bytes": start_bytes,
+        "type_guid": str(uuid.UUID(bytes_le=entry[:16])),
+    }
+
+
+def _validate_roots(partitions, slot_label):
+    if slot_label is not None:
+        _validate_ab_slots(partitions, slot_label)
+        return
+    roots = [entry for entry in partitions if entry["type_guid"] == gpt.ROOT_X86_64]
+    if len(roots) != 1:
+        raise ValueError("exactly one Linux x86-64 root partition is required")
+    if roots[0]["label"] != "root-x86-64":
+        raise ValueError("Linux x86-64 root partition label must be root-x86-64")
+
+
+def _validate_firmware(partitions, firmware):
+    if firmware == "uefi":
+        return
+    if firmware != "bios":
+        raise ValueError("firmware must be either uefi or bios")
+    bios_boot = [entry for entry in partitions if entry["type_guid"] == gpt.BIOS_BOOT]
+    if len(bios_boot) != 1:
+        raise ValueError("BIOS firmware requires exactly one GPT BIOS boot partition")
+    if bios_boot[0]["size_bytes"] < ALIGNMENT:
+        raise ValueError("GPT BIOS boot partition must be at least 1 MiB")
+
+
 def project_image(path, firmware="uefi", slot_label=None):
     _, sector_size, primary, _ = _validated_gpt(path)
-
+    entry_size = primary["entry_size"]
     partitions = []
-    previous_first = None
-    previous_last = None
-    previous_number = None
+    previous = None
+    # One linear scan over the entry array; hostile tables can declare up to _MAX_ENTRIES entries.
     for slot in range(primary["count"]):
-        entry = primary["array"][
-            slot * primary["entry_size"] : (slot + 1) * primary["entry_size"]
-        ]
+        entry = primary["array"][slot * entry_size : (slot + 1) * entry_size]
         if entry[:16] == b"\0" * 16:
             continue
-        first, last = struct.unpack_from("<QQ", entry, 32)
         number = slot + 1
-        if first > last:
-            raise ValueError("partition {} has an invalid range".format(number))
-        if first < primary["first_usable"] or last > primary["last_usable"]:
-            raise ValueError("partition {} is outside the usable range".format(number))
-        if previous_first is not None and first < previous_first:
-            raise ValueError("partition {} is out of order".format(number))
-        if previous_last is not None and first <= previous_last:
-            raise ValueError(
-                "partition {} overlaps partition {}".format(number, previous_number)
-            )
-        previous_first = first
-        previous_last = last
-        previous_number = number
-        start_bytes = first * sector_size
-        if start_bytes % ALIGNMENT:
-            raise ValueError("partition {} is not 1 MiB aligned".format(number))
-        try:
-            label = entry[56:128].decode("utf-16-le").split("\0", 1)[0]
-        except UnicodeDecodeError as error:
-            raise ValueError("partition {} has an invalid label".format(number)) from error
-        partitions.append(
-            {
-                "label": label,
-                "number": number,
-                "size_bytes": (last - first + 1) * sector_size,
-                "start_bytes": start_bytes,
-                "type_guid": str(uuid.UUID(bytes_le=entry[:16])),
-            }
-        )
+        first, last = struct.unpack_from("<QQ", entry, 32)
+        _check_entry_range(number, first, last, primary, previous)
+        previous = (first, last, number)
+        partitions.append(_project_entry(entry, number, first, last, sector_size))
         if slot_label is not None:
             partitions[-1]["uuid"] = str(uuid.UUID(bytes_le=entry[16:32]))
-    roots = [entry for entry in partitions if entry["type_guid"] == gpt.ROOT_X86_64]
-    if slot_label is None:
-        if len(roots) != 1:
-            raise ValueError("exactly one Linux x86-64 root partition is required")
-        if roots[0]["label"] != "root-x86-64":
-            raise ValueError("Linux x86-64 root partition label must be root-x86-64")
-    else:
-        _validate_ab_slots(partitions, slot_label)
-    bios_boot = [entry for entry in partitions if entry["type_guid"] == gpt.BIOS_BOOT]
-    if firmware == "bios":
-        if len(bios_boot) != 1:
-            raise ValueError("BIOS firmware requires exactly one GPT BIOS boot partition")
-        if bios_boot[0]["size_bytes"] < ALIGNMENT:
-            raise ValueError("GPT BIOS boot partition must be at least 1 MiB")
-    elif firmware != "uefi":
-        raise ValueError("firmware must be either uefi or bios")
+    _validate_roots(partitions, slot_label)
+    _validate_firmware(partitions, firmware)
     return {
         "firmware": firmware,
         "format_version": "mkosi-partition-metadata-v1",
@@ -234,6 +291,16 @@ def _canonical_header(header, array_crc):
     return bytes(result)
 
 
+def _hash_bytes(image, digest, size):
+    """Feeds the next size bytes of image into digest in bounded chunks."""
+    while size:
+        chunk = image.read(min(_HASH_CHUNK_BYTES, size))
+        if not chunk:
+            raise ValueError("raw image is truncated while hashing")
+        digest.update(chunk)
+        size -= len(chunk)
+
+
 def _hash_with_patches(path, image_size, patches):
     digest = hashlib.sha256()
     cursor = 0
@@ -241,23 +308,11 @@ def _hash_with_patches(path, image_size, patches):
         for offset, replacement in sorted(patches):
             if offset < cursor:
                 raise ValueError("canonical GPT patches overlap")
-            remaining = offset - cursor
-            while remaining:
-                chunk = image.read(min(1024 * 1024, remaining))
-                if not chunk:
-                    raise ValueError("raw image is truncated while hashing")
-                digest.update(chunk)
-                remaining -= len(chunk)
+            _hash_bytes(image, digest, offset - cursor)
             image.seek(len(replacement), os.SEEK_CUR)
             digest.update(replacement)
             cursor = offset + len(replacement)
-        remaining = image_size - cursor
-        while remaining:
-            chunk = image.read(min(1024 * 1024, remaining))
-            if not chunk:
-                raise ValueError("raw image is truncated while hashing")
-            digest.update(chunk)
-            remaining -= len(chunk)
+        _hash_bytes(image, digest, image_size - cursor)
     return digest.hexdigest()
 
 
@@ -285,7 +340,7 @@ def _image_version_from_file(path, slot_label_image_id):
 
     The helper is loaded only here, so modules that import this one for GPT projection do not need it.
     """
-    image_version = _load_sibling("image_version")
+    image_version = _load_sibling(__file__, "image_version")
     try:
         return image_version.read_image_version(path, slot_label_image_id)
     except (OSError, ValueError) as error:

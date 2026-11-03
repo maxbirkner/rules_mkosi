@@ -5,26 +5,17 @@ import os
 
 os.environ["PATH"] = ""
 
-import importlib.util
+import dataclasses
 import pathlib
+import runpy
 import shutil
 import socket
 import subprocess
 import sys
 import time
 
-
-def _load_diagnostics():
-    path = pathlib.Path(__file__).with_name("diagnostics.py")
-    spec = importlib.util.spec_from_file_location("mkosi_diagnostics", path)
-    if spec is None or spec.loader is None:
-        raise RuntimeError("diagnostic formatter cannot be loaded: {}".format(path))
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-diagnostics = _load_diagnostics()
+_load_sibling = runpy.run_path(str(pathlib.Path(__file__).with_name("sibling_loader.py")))["load_sibling"]
+diagnostics = _load_sibling(__file__, "diagnostics")
 
 
 class QmpHandshakeError(RuntimeError):
@@ -142,42 +133,32 @@ def _diagnose(
     raise SystemExit(1)
 
 
+def _read_qmp_message(reader, description):
+    line = reader.readline()
+    if not line:
+        raise QmpHandshakeError("{} was empty".format(description))
+    try:
+        return json.loads(line)
+    except json.JSONDecodeError as error:
+        raise QmpHandshakeError("{} was not valid JSON".format(description)) from error
+
+
 def _perform_qmp_handshake(connection, timeout):
     connection.settimeout(timeout)
     reader = connection.makefile("rb")
     try:
-        greeting_line = reader.readline()
-        if not greeting_line:
-            raise QmpHandshakeError("QMP greeting was empty")
-        try:
-            greeting = json.loads(greeting_line)
-        except json.JSONDecodeError as error:
-            raise QmpHandshakeError("QMP greeting was not valid JSON") from error
+        greeting = _read_qmp_message(reader, "QMP greeting")
         if not isinstance(greeting, dict) or "QMP" not in greeting:
             raise QmpHandshakeError("QMP greeting was missing")
 
         connection.sendall(b'{"execute":"qmp_capabilities"}\r\n')
-        response_line = reader.readline()
-        if not response_line:
-            raise QmpHandshakeError("QMP capabilities response was empty")
-        try:
-            response = json.loads(response_line)
-        except json.JSONDecodeError as error:
-            raise QmpHandshakeError(
-                "QMP capabilities response was not valid JSON",
-            ) from error
+        response = _read_qmp_message(reader, "QMP capabilities response")
         if not isinstance(response, dict) or "return" not in response:
             raise QmpHandshakeError("QMP capabilities command failed")
 
         connection.sendall(b'{"execute":"query-kvm"}\r\n')
         while True:
-            reply_line = reader.readline()
-            if not reply_line:
-                raise QmpHandshakeError("QMP query-kvm response was empty")
-            try:
-                reply = json.loads(reply_line)
-            except json.JSONDecodeError as error:
-                raise QmpHandshakeError("QMP query-kvm response was not valid JSON") from error
+            reply = _read_qmp_message(reader, "QMP query-kvm response")
             # Asynchronous QMP events may precede the command reply.
             if not isinstance(reply, dict) or "event" not in reply:
                 return _accelerator_from_query_kvm(reply)
@@ -360,6 +341,244 @@ def _stop_process(process, timeout=5):
             return False
 
 
+@dataclasses.dataclass(frozen=True)
+class _BootFiles:
+    """Scratch files of one boot and the bounded diagnostics that report them."""
+
+    scratch: pathlib.Path
+    diagnostic_bytes: int
+
+    @property
+    def vars_copy(self):
+        return self.scratch / "firmware-vars.fd"
+
+    @property
+    def serial_log(self):
+        return self.scratch / "guest-serial.log"
+
+    @property
+    def qemu_log(self):
+        return self.scratch / "qemu.log"
+
+    @property
+    def firmware_log(self):
+        return self.scratch / "firmware.log"
+
+    def fail(self, kind, message, include_firmware_log=True):
+        _diagnose(
+            kind,
+            message,
+            self.serial_log,
+            self.qemu_log,
+            self.diagnostic_bytes,
+            self.firmware_log if include_firmware_log else None,
+        )
+
+
+_QMP_SOCKET = "qmp.sock"
+
+
+def _absolute_or_none(path):
+    return os.path.abspath(path) if path else path
+
+
+def _qemu_command(files, image, qemu, system_data, *, arguments, firmware_code, firmware, accelerator_args,
+                  allow_reboot, share_arguments, disk_interface):
+    expanded_arguments = [
+        argument.replace("{firmware_code}", firmware_code or "")
+        .replace("{firmware_vars}", str(files.vars_copy))
+        .replace("{firmware}", firmware or "")
+        .replace("{firmware_log}", str(files.firmware_log))
+        for argument in arguments
+    ]
+    return [
+        qemu,
+        "-L",
+        system_data,
+    ] + expanded_arguments + list(accelerator_args) + [
+        "-nodefaults",
+        "-nographic",
+    ] + ([] if allow_reboot else ["-no-reboot"]) + share_arguments + [
+        "-serial",
+        "none",
+        "-chardev",
+        "file,id=serial0,path=%s" % files.serial_log,
+        "-device",
+        "isa-serial,chardev=serial0",
+        "-qmp",
+        "unix:%s,server=on,wait=off" % _QMP_SOCKET,
+        "-drive",
+        "if=%s,format=raw,snapshot=on,file=%s" % (disk_interface, image),
+    ]
+
+
+def _share_arguments(files, read_only_shares):
+    try:
+        return _virtfs_arguments(read_only_shares, files.scratch)
+    except OSError as error:
+        files.fail("SHARE_FAILURE", "cannot prepare read-only share: {}".format(error), include_firmware_log=False)
+
+
+def _start_qemu(files, process_factory, command, output):
+    try:
+        return process_factory(
+            command,
+            cwd=files.scratch,
+            env=_qemu_environment(files.scratch),
+            stdout=output,
+            stderr=subprocess.STDOUT,
+        )
+    except OSError as error:
+        files.fail("QEMU_EXEC_FAILURE", str(error))
+
+
+def _initialize_qmp(files, process, qmp_handshake, timeout, monotonic, sleep):
+    """Completes the QMP handshake from the scratch directory, keeping the socket path short."""
+    original_cwd = os.open(".", os.O_RDONLY)
+    try:
+        os.chdir(files.scratch)
+        try:
+            return qmp_handshake(process, _QMP_SOCKET, timeout, monotonic, sleep)
+        except QmpHandshakeError as error:
+            files.fail("QEMU_INITIALIZATION_FAILURE", str(error))
+    finally:
+        os.fchdir(original_cwd)
+        os.close(original_cwd)
+
+
+@dataclasses.dataclass(frozen=True)
+class _Readiness:
+    """Serial markers that decide when a boot is ready, failed as expected, or timed out."""
+
+    marker: str
+    progress_markers: tuple
+    expected_failure_marker: str
+    stop_after_readiness: bool
+    firmware_kind: str
+    timeout_seconds: float
+
+
+@dataclasses.dataclass(frozen=True)
+class _SerialObservation:
+    serial: bytes
+    firmware: bytes
+    missing_progress: int | None
+    readiness_offset: int
+    failure_offset: int
+
+
+def _observe(files, readiness):
+    serial = _read_log(files.serial_log)
+    firmware_output = _read_log(files.firmware_log)
+    progress_offset, missing_progress = _ordered_progress(serial, readiness.progress_markers)
+    readiness_offset = (
+        serial.find(readiness.marker.encode(), progress_offset)
+        if missing_progress is None
+        else -1
+    )
+    failure_offset = (
+        serial.find(readiness.expected_failure_marker.encode())
+        if readiness.expected_failure_marker else -1
+    )
+    return _SerialObservation(serial, firmware_output, missing_progress, readiness_offset, failure_offset)
+
+
+def _print_expected_failure(observation, expected_failure_marker):
+    serial = observation.serial
+    excerpt_start = max(0, observation.failure_offset - 256)
+    excerpt_end = min(len(serial), observation.failure_offset + len(expected_failure_marker) + 256)
+    print(
+        "Expected failure evidence:\n{}".format(
+            serial[excerpt_start:excerpt_end].decode(errors="replace")
+        )
+    )
+
+
+def _expected_failure_observed(files, observation, expected_failure_marker):
+    """Returns whether the exact failure marker appeared first; readiness before it fails the test."""
+    failure_offset = observation.failure_offset
+    readiness_offset = observation.readiness_offset
+    if failure_offset >= 0 and (readiness_offset < 0 or failure_offset < readiness_offset):
+        _print_expected_failure(observation, expected_failure_marker)
+        return True
+    if readiness_offset >= 0:
+        files.fail(
+            "GUEST_FAILURE",
+            "observed readiness before exact expected failure marker %r" % expected_failure_marker,
+            include_firmware_log=False,
+        )
+    return False
+
+
+def _fail_readiness_timeout(files, observation, readiness):
+    firmware_output = _read_log(files.firmware_log)
+    timeout_kind = "READINESS_TIMEOUT"
+    if not readiness.expected_failure_marker:
+        timeout_kind = _classify_pre_readiness_failure(observation.serial, firmware_output, readiness.firmware_kind)
+        if timeout_kind == "FIRMWARE_FAILURE":
+            timeout_kind = "READINESS_TIMEOUT"
+    missing_marker = readiness.marker
+    if observation.missing_progress is not None:
+        missing_marker = readiness.progress_markers[observation.missing_progress]
+    files.fail(timeout_kind, "did not observe exact serial marker %r" % missing_marker)
+
+
+def _await_readiness(files, process, readiness, monotonic, sleep):
+    """Polls the serial log until readiness; returns True when the test already finished and QEMU was stopped."""
+    deadline = monotonic() + readiness.timeout_seconds
+    while monotonic() < deadline:
+        observation = _observe(files, readiness)
+        if readiness.expected_failure_marker:
+            if _expected_failure_observed(files, observation, readiness.expected_failure_marker):
+                _stop_process(process)
+                return True
+        elif observation.readiness_offset >= 0:
+            if readiness.stop_after_readiness:
+                _stop_process(process)
+                return True
+            return False
+        if process.poll() is not None:
+            files.fail(
+                _classify_process_exit(
+                    True, observation.serial, process.returncode, observation.firmware, readiness.firmware_kind
+                ),
+                "QEMU exited before readiness",
+            )
+        sleep(0.1)
+    _fail_readiness_timeout(files, observation, readiness)
+
+
+def _await_clean_shutdown(files, process, shutdown_markers, shutdown_timeout_seconds):
+    try:
+        process.wait(timeout=shutdown_timeout_seconds)
+    except subprocess.TimeoutExpired:
+        _stop_process(process)
+        files.fail("SHUTDOWN_FAILURE", "guest did not terminate before the shutdown deadline")
+    if process.returncode != 0:
+        files.fail("GUEST_FAILURE", "QEMU exited with status %d after readiness" % process.returncode)
+    if not _has_clean_shutdown(files.serial_log, shutdown_markers):
+        files.fail("SHUTDOWN_FAILURE", "guest exited without the exact shutdown markers")
+
+
+def _print_boot_evidence(files, markers, accelerator):
+    evidence = _actual_boot_evidence(
+        _read_log(files.firmware_log),
+        _read_log(files.serial_log),
+        min(files.diagnostic_bytes, 256 * 1024),
+        markers,
+        accelerator,
+    )
+    print("actual observed boot evidence:")
+    print(evidence.decode(errors="replace"), end="")
+    print("guest readiness and clean shutdown verified")
+
+
+def _ensure_stopped(files, process):
+    if process.poll() is None:
+        if not _stop_process(process):
+            files.fail("SHUTDOWN_FAILURE", "QEMU did not exit after the kill deadline")
+
+
 def _boot(
     image,
     qemu,
@@ -392,258 +611,60 @@ def _boot(
 ):
     scratch = pathlib.Path(os.environ.get("TEST_TMPDIR", "boot-test-state"))
     scratch.mkdir(parents=True, exist_ok=True)
-    image = os.path.abspath(image)
-    qemu = os.path.abspath(qemu)
-    system_data = os.path.abspath(system_data)
-    if firmware_code:
-        firmware_code = os.path.abspath(firmware_code)
-    if firmware_vars:
-        firmware_vars = os.path.abspath(firmware_vars)
-    if firmware:
-        firmware = os.path.abspath(firmware)
-    vars_copy = scratch / "firmware-vars.fd"
-    serial_log = scratch / "guest-serial.log"
-    qemu_log = scratch / "qemu.log"
-    firmware_log = scratch / "firmware.log"
-    qmp_socket = "qmp.sock"
-    qmp_socket_file = scratch / qmp_socket
-    process = None
+    files = _BootFiles(scratch, diagnostic_bytes)
+    firmware_vars = _absolute_or_none(firmware_vars)
+    markers = tuple(progress_markers) + (readiness_marker,)
+    readiness = _Readiness(
+        readiness_marker,
+        tuple(progress_markers),
+        expected_failure_marker,
+        stop_after_readiness,
+        firmware_kind,
+        boot_timeout_seconds,
+    )
     accelerator = None
     try:
         if kernel_preflight:
             diagnostics.run_kernel_preflight(kernel_preflight, "QEMU boot test")
         if firmware_vars:
-            shutil.copyfile(firmware_vars, vars_copy)
-            vars_copy.chmod(0o600)
-        try:
-            share_arguments = _virtfs_arguments(read_only_shares, scratch)
-        except OSError as error:
-            _diagnose(
-                "SHARE_FAILURE",
-                "cannot prepare read-only share: {}".format(error),
-                serial_log,
-                qemu_log,
-                diagnostic_bytes,
-            )
-        expanded_qemu_args = [
-            argument.replace("{firmware_code}", firmware_code or "")
-            .replace("{firmware_vars}", str(vars_copy))
-            .replace("{firmware}", firmware or "")
-            .replace("{firmware_log}", str(firmware_log))
-            for argument in (qemu_args or machine_args)
-        ]
-        command = [
-            qemu,
-            "-L",
-            system_data,
-        ] + expanded_qemu_args + list(accelerator_args) + [
-            "-nodefaults",
-            "-nographic",
-        ] + ([] if allow_reboot else ["-no-reboot"]) + share_arguments + [
-            "-serial",
-            "none",
-            "-chardev",
-            "file,id=serial0,path=%s" % serial_log,
-            "-device",
-            "isa-serial,chardev=serial0",
-            "-qmp",
-            "unix:%s,server=on,wait=off" % qmp_socket,
-            "-drive",
-            "if=%s,format=raw,snapshot=on,file=%s" % (disk_interface, image),
-        ]
-        environment = _qemu_environment(scratch)
-        with open(qemu_log, "wb") as output:
-            try:
-                process = process_factory(
-                    command,
-                    cwd=scratch,
-                    env=environment,
-                    stdout=output,
-                    stderr=subprocess.STDOUT,
-                )
-            except OSError as error:
-                _diagnose(
-                    "QEMU_EXEC_FAILURE",
-                    str(error),
-                    serial_log,
-                    qemu_log,
-                    diagnostic_bytes,
-                    firmware_log,
-                )
-
-            try:
-                original_cwd = os.open(".", os.O_RDONLY)
-                try:
-                    os.chdir(scratch)
-                    try:
-                        accelerator = qmp_handshake(
-                            process,
-                            qmp_socket,
-                            qmp_initialization_timeout_seconds,
-                            monotonic,
-                            sleep,
-                        )
-                    except QmpHandshakeError as error:
-                        _diagnose(
-                            "QEMU_INITIALIZATION_FAILURE",
-                            str(error),
-                            serial_log,
-                            qemu_log,
-                            diagnostic_bytes,
-                            firmware_log,
-                        )
-                finally:
-                    os.fchdir(original_cwd)
-                    os.close(original_cwd)
-                print("QEMU accelerator: {}".format(accelerator or "unknown"), flush=True)
-
-                deadline = monotonic() + boot_timeout_seconds
-                while monotonic() < deadline:
-                    serial = _read_log(serial_log)
-                    firmware_output = _read_log(firmware_log)
-                    progress_offset, missing_progress = _ordered_progress(serial, progress_markers)
-                    readiness_offset = (
-                        serial.find(readiness_marker.encode(), progress_offset)
-                        if missing_progress is None
-                        else -1
-                    )
-                    failure_offset = (
-                        serial.find(expected_failure_marker.encode())
-                        if expected_failure_marker else -1
-                    )
-                    if expected_failure_marker:
-                        if failure_offset >= 0 and (
-                            readiness_offset < 0 or failure_offset < readiness_offset
-                        ):
-                            excerpt_start = max(0, failure_offset - 256)
-                            excerpt_end = min(
-                                len(serial),
-                                failure_offset + len(expected_failure_marker) + 256,
-                            )
-                            print(
-                                "Expected failure evidence:\n{}".format(
-                                    serial[excerpt_start:excerpt_end].decode(errors="replace")
-                                )
-                            )
-                            _stop_process(process)
-                            return
-                        if readiness_offset >= 0:
-                            _diagnose(
-                                "GUEST_FAILURE",
-                                "observed readiness before exact expected failure marker %r"
-                                % expected_failure_marker,
-                                serial_log,
-                                qemu_log,
-                                diagnostic_bytes,
-                            )
-                    elif readiness_offset >= 0:
-                        if stop_after_readiness:
-                            _stop_process(process)
-                            return
-                        break
-                    if process.poll() is not None:
-                        _diagnose(
-                            _classify_process_exit(
-                                True,
-                                serial,
-                                process.returncode,
-                                firmware_output,
-                                firmware_kind,
-                            ),
-                            "QEMU exited before readiness",
-                            serial_log,
-                            qemu_log,
-                            diagnostic_bytes,
-                            firmware_log,
-                        )
-                    sleep(0.1)
-                else:
-                    firmware_output = _read_log(firmware_log)
-                    timeout_kind = "READINESS_TIMEOUT"
-                    if not expected_failure_marker:
-                        timeout_kind = _classify_pre_readiness_failure(
-                            serial,
-                            firmware_output,
-                            firmware_kind,
-                        )
-                        if timeout_kind == "FIRMWARE_FAILURE":
-                            timeout_kind = "READINESS_TIMEOUT"
-                    missing_marker = readiness_marker
-                    if missing_progress is not None:
-                        missing_marker = progress_markers[missing_progress]
-                    _diagnose(
-                        timeout_kind,
-                        "did not observe exact serial marker %r" % missing_marker,
-                        serial_log,
-                        qemu_log,
-                        diagnostic_bytes,
-                        firmware_log,
-                    )
-
-                try:
-                    process.wait(timeout=shutdown_timeout_seconds)
-                except subprocess.TimeoutExpired:
-                    _stop_process(process)
-                    _diagnose(
-                        "SHUTDOWN_FAILURE",
-                        "guest did not terminate before the shutdown deadline",
-                        serial_log,
-                        qemu_log,
-                        diagnostic_bytes,
-                        firmware_log,
-                    )
-                if process.returncode != 0:
-                    _diagnose(
-                        "GUEST_FAILURE",
-                        "QEMU exited with status %d after readiness" % process.returncode,
-                        serial_log,
-                        qemu_log,
-                        diagnostic_bytes,
-                        firmware_log,
-                    )
-                if not _has_clean_shutdown(serial_log, shutdown_markers):
-                    _diagnose(
-                        "SHUTDOWN_FAILURE",
-                        "guest exited without the exact shutdown markers",
-                        serial_log,
-                        qemu_log,
-                        diagnostic_bytes,
-                        firmware_log,
-                    )
-                evidence = _actual_boot_evidence(
-                    _read_log(firmware_log),
-                    _read_log(serial_log),
-                    min(diagnostic_bytes, 256 * 1024),
-                    tuple(progress_markers) + (readiness_marker,),
-                    accelerator,
-                )
-                print("actual observed boot evidence:")
-                print(evidence.decode(errors="replace"), end="")
-                print("guest readiness and clean shutdown verified")
-            finally:
-                if process.poll() is None:
-                    if not _stop_process(process):
-                        _diagnose(
-                            "SHUTDOWN_FAILURE",
-                            "QEMU did not exit after the kill deadline",
-                            serial_log,
-                            qemu_log,
-                            diagnostic_bytes,
-                            firmware_log,
-                        )
-    finally:
-        _export_boot_logs(
-            serial_log,
-            firmware_log,
-            qemu_log,
-            diagnostic_bytes,
-            tuple(progress_markers) + (readiness_marker,),
-            accelerator,
+            shutil.copyfile(firmware_vars, files.vars_copy)
+            files.vars_copy.chmod(0o600)
+        command = _qemu_command(
+            files,
+            os.path.abspath(image),
+            os.path.abspath(qemu),
+            os.path.abspath(system_data),
+            arguments=qemu_args or machine_args,
+            firmware_code=_absolute_or_none(firmware_code),
+            firmware=_absolute_or_none(firmware),
+            accelerator_args=accelerator_args,
+            allow_reboot=allow_reboot,
+            share_arguments=_share_arguments(files, read_only_shares),
+            disk_interface=disk_interface,
         )
+        with open(files.qemu_log, "wb") as output:
+            process = _start_qemu(files, process_factory, command, output)
+            try:
+                accelerator = _initialize_qmp(
+                    files, process, qmp_handshake, qmp_initialization_timeout_seconds, monotonic, sleep
+                )
+                print("QEMU accelerator: {}".format(accelerator or "unknown"), flush=True)
+                if _await_readiness(files, process, readiness, monotonic, sleep):
+                    return
+                _await_clean_shutdown(files, process, shutdown_markers, shutdown_timeout_seconds)
+                _print_boot_evidence(files, markers, accelerator)
+            finally:
+                _ensure_stopped(files, process)
+    finally:
+        _export_boot_logs(files.serial_log, files.firmware_log, files.qemu_log, diagnostic_bytes, markers, accelerator)
         try:
-            qmp_socket_file.unlink()
+            (scratch / _QMP_SOCKET).unlink()
         except FileNotFoundError:
             pass
+
+
+def _optional_runfile(config, key):
+    return _resolve_runfile(config[key]) if config.get(key) else None
 
 
 def main():
@@ -655,21 +676,9 @@ def main():
         _resolve_runfile(config["qemu"]),
         _resolve_runfile(config["system_data"]),
         qemu_args=config["qemu_args"],
-        firmware_code=(
-            _resolve_runfile(config["firmware_code"])
-            if config.get("firmware_code")
-            else None
-        ),
-        firmware_vars=(
-            _resolve_runfile(config["firmware_vars"])
-            if config.get("firmware_vars")
-            else None
-        ),
-        firmware=(
-            _resolve_runfile(config["firmware"])
-            if config.get("firmware")
-            else None
-        ),
+        firmware_code=_optional_runfile(config, "firmware_code"),
+        firmware_vars=_optional_runfile(config, "firmware_vars"),
+        firmware=_optional_runfile(config, "firmware"),
         firmware_kind=config.get("firmware_kind", "ovmf"),
         disk_interface=config.get("disk_interface", "virtio"),
         accelerator_args=config["accelerator_args"],

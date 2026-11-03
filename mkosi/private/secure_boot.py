@@ -87,6 +87,17 @@ def certificate_pem(data):
     return b"-----BEGIN CERTIFICATE-----\n" + b"\n".join(lines) + b"\n-----END CERTIFICATE-----\n"
 
 
+def _openssl_der(openssl, source):
+    """Returns OpenSSL's DER re-encoding of the X.509 certificate in source."""
+    result = run_tool(
+        openssl, "/usr/bin/openssl", "x509", "-inform", "DER", "-in", str(source), "-outform", "DER", capture=True
+    )
+    canonical = result.stdout
+    if not canonical or len(canonical) > MAX_DER_BYTES:
+        raise ValueError("OpenSSL returned an invalid X.509 certificate size")
+    return canonical
+
+
 def canonical_certificate(openssl, der):
     """Validates one isolated DER object as X.509 with the declared OpenSSL."""
     global _counter
@@ -98,22 +109,7 @@ def canonical_certificate(openssl, der):
     source = scratch / "certificate.der"
     source.write_bytes(der)
     try:
-        result = run_tool(
-            openssl,
-            "/usr/bin/openssl",
-            "x509",
-            "-inform",
-            "DER",
-            "-in",
-            str(source),
-            "-outform",
-            "DER",
-            capture=True,
-        )
-        canonical = result.stdout
-        if not canonical or len(canonical) > MAX_DER_BYTES:
-            raise ValueError("OpenSSL returned an invalid X.509 certificate size")
-        return isolated_certificate_der(canonical)
+        return isolated_certificate_der(_openssl_der(openssl, source))
     except subprocess.CalledProcessError as error:
         detail = (error.stderr or b"")[:4096].decode(errors="replace").strip()
         raise ValueError("invalid X.509 certificate: {}".format(detail or "OpenSSL rejected DER")) from error
@@ -133,7 +129,8 @@ def request_digest(document):
     ).hexdigest()
 
 
-def parse_pe(data, signed):
+def _pe_optional_header(data):
+    """Returns the optional header offset, its size, its fixed-field size and the section count."""
     if len(data) < 64 or data[:2] != b"MZ":
         raise ValueError("UKI is not a PE/COFF image")
     pe = struct.unpack_from("<I", data, 0x3C)[0]
@@ -150,13 +147,22 @@ def parse_pe(data, signed):
     fixed_size = 112 if magic == 0x20B else 96 if magic == 0x10B else -1
     if fixed_size < 0 or optional_size < fixed_size:
         raise ValueError("invalid PE optional header magic or size")
+    return optional, optional_size, fixed_size, section_count
+
+
+def _security_directory(data, optional, optional_size, fixed_size):
+    """Returns the offset of the security (certificate table) data directory entry."""
     directory = optional + fixed_size
     directory_count = struct.unpack_from("<I", data, optional + fixed_size - 4)[0]
     if directory_count < 5:
         raise ValueError("PE has fewer than five data directories")
     if directory + directory_count * 8 > optional + optional_size:
         raise ValueError("PE security directory is unavailable")
-    checksum = optional + 64
+    return directory + 32
+
+
+def _header_layout(data, optional, optional_size, section_count):
+    """Returns the section table offset, SizeOfHeaders and FileAlignment after validating them."""
     file_alignment = struct.unpack_from("<I", data, optional + 36)[0]
     size_headers = struct.unpack_from("<I", data, optional + 60)[0]
     if file_alignment < 0x200 or file_alignment & (file_alignment - 1):
@@ -167,6 +173,11 @@ def parse_pe(data, signed):
         raise ValueError("invalid PE section table or SizeOfHeaders")
     if size_headers % file_alignment:
         raise ValueError("PE SizeOfHeaders is not file aligned")
+    return section_table, size_headers, file_alignment
+
+
+def _section_ranges(data, section_table, section_count, size_headers, file_alignment):
+    """Returns the sorted, non-overlapping (offset, size) raw data ranges of all sections."""
     sections = []
     for index in range(section_count):
         entry = section_table + index * 40
@@ -179,7 +190,11 @@ def parse_pe(data, signed):
     for previous, current in zip(sections, sections[1:]):
         if previous[0] + previous[1] > current[0]:
             raise ValueError("PE section raw data overlaps")
-    certificate_offset, certificate_size = struct.unpack_from("<II", data, directory + 32)
+    return sections
+
+
+def _certificate_table(data, security_directory, signed):
+    certificate_offset, certificate_size = struct.unpack_from("<II", data, security_directory)
     if signed:
         if not certificate_offset or certificate_offset % 8 or certificate_size < 8:
             raise ValueError("missing or unaligned Authenticode certificate table")
@@ -187,11 +202,20 @@ def parse_pe(data, signed):
             raise ValueError("certificate table bounds or trailing data are invalid")
     elif certificate_offset or certificate_size:
         raise ValueError("requested UKI is already signed")
+    return certificate_offset, certificate_size
+
+
+def parse_pe(data, signed):
+    optional, optional_size, fixed_size, section_count = _pe_optional_header(data)
+    security_directory = _security_directory(data, optional, optional_size, fixed_size)
+    section_table, size_headers, file_alignment = _header_layout(data, optional, optional_size, section_count)
+    sections = _section_ranges(data, section_table, section_count, size_headers, file_alignment)
+    certificate_offset, certificate_size = _certificate_table(data, security_directory, signed)
     return {
         "certificate_offset": certificate_offset,
         "certificate_size": certificate_size,
-        "checksum": checksum,
-        "security_directory": directory + 32,
+        "checksum": optional + 64,
+        "security_directory": security_directory,
         "sections": sections,
         "size_headers": size_headers,
     }
@@ -352,7 +376,8 @@ def algorithm_oid(item):
     return der_oid(children[0])
 
 
-def authenticode_facts(payload):
+def _signed_data(payload):
+    """Returns the SignedData fields of a DER PKCS#7 ContentInfo."""
     outer, end = der_read(payload)
     outer_children = outer.children()
     if outer.tag != 0x30 or end != len(payload) or len(outer_children) != 2:
@@ -368,7 +393,12 @@ def authenticode_facts(payload):
     digest_algorithms = signed[1].children()
     if len(digest_algorithms) != 1 or algorithm_oid(digest_algorithms[0]) != OID_SHA256:
         raise ValueError("SignedData must declare exactly SHA-256")
-    content = signed[2].children()
+    return signed
+
+
+def _image_digest(content_info):
+    """Returns the image digest DER item from the SpcIndirectDataContent in content_info."""
+    content = content_info.children()
     if len(content) != 2 or der_oid(content[0]) != OID_SPC_INDIRECT_DATA or content[1].tag != 0xA0:
         raise ValueError("missing Authenticode SpcIndirectDataContent")
     indirect_wrappers = content[1].children()
@@ -380,7 +410,10 @@ def authenticode_facts(payload):
     digest_info = indirect[1].children()
     if len(digest_info) != 2 or algorithm_oid(digest_info[0]) != OID_SHA256 or digest_info[1].tag != 0x04:
         raise ValueError("invalid Authenticode image digest")
-    signer_infos = signed[-1]
+    return digest_info[1]
+
+
+def _check_signer_info(signer_infos):
     signers = signer_infos.children()
     if signer_infos.tag != 0x31 or len(signers) != 1:
         raise ValueError("AuthentiCode must have exactly one SignerInfo")
@@ -394,7 +427,13 @@ def authenticode_facts(payload):
         raise ValueError("unsupported SignerInfo signature algorithm")
     if signer[signature_index].tag != 0x04:
         raise ValueError("missing SignerInfo signature")
-    return digest_info[1].value
+
+
+def authenticode_facts(payload):
+    signed = _signed_data(payload)
+    image_digest = _image_digest(signed[2])
+    _check_signer_info(signed[-1])
+    return image_digest.value
 
 
 def create_request(args):
@@ -414,16 +453,19 @@ def create_request(args):
     Path(args.digest_output).write_text(request_digest(document) + "\n")
 
 
-def verify(args):
+_REQUEST_FIELDS = {
+    "certificate_sha256",
+    "context",
+    "format_version",
+    "signature_algorithm",
+    "unsigned_uki_sha256",
+}
+
+
+def _load_request(args):
+    """Returns the signing request and its recorded digest after checking both against the unsigned UKI."""
     request = json.loads(Path(args.request).read_text())
-    expected = {
-        "certificate_sha256",
-        "context",
-        "format_version",
-        "signature_algorithm",
-        "unsigned_uki_sha256",
-    }
-    if set(request) != expected or request["format_version"] != REQUEST_FORMAT:
+    if set(request) != _REQUEST_FIELDS or request["format_version"] != REQUEST_FORMAT:
         raise ValueError("invalid signing request schema")
     recorded_request_digest = Path(args.request_digest).read_text().strip()
     if recorded_request_digest != request_digest(request):
@@ -432,10 +474,11 @@ def verify(args):
         raise ValueError("wrong signing context or algorithm")
     if sha256(args.unsigned_uki) != request["unsigned_uki_sha256"]:
         raise ValueError("unsigned UKI no longer matches its request")
-    expected_certificate = canonical_certificate(args.openssl, certificate_der(args.certificate))
-    fingerprint = hashlib.sha256(expected_certificate).hexdigest()
-    if fingerprint != request["certificate_sha256"]:
-        raise ValueError("signer certificate does not match request")
+    return request, recorded_request_digest
+
+
+def _verify_embedded_digest(args):
+    """Returns the Authenticode payload of the signed UKI after checking it signs the requested image."""
     unsigned_data = Path(args.unsigned_uki).read_bytes()
     signed_data = Path(args.signed_uki).read_bytes()
     payload = prove_equivalence(unsigned_data, signed_data)
@@ -443,6 +486,11 @@ def verify(args):
     computed_digest = authenticode_hash(signed_data, parse_pe(signed_data, True))
     if embedded_digest != computed_digest:
         raise ValueError("embedded Authenticode digest does not match imported PE")
+    return payload
+
+
+def _verify_signer(args, payload, expected_certificate):
+    """Checks the PKCS#7 signature with OpenSSL and that its signer is the requested certificate."""
     Path(args.pkcs7).write_bytes(payload)
     Path(args.expected_pem).write_bytes(certificate_pem(expected_certificate))
     run_tool(
@@ -466,6 +514,16 @@ def verify(args):
     verified_signer = canonical_certificate(args.openssl, certificate_der(args.verified_signer))
     if verified_signer != expected_certificate:
         raise ValueError("verified SignerInfo certificate does not match request")
+
+
+def verify(args):
+    request, recorded_request_digest = _load_request(args)
+    expected_certificate = canonical_certificate(args.openssl, certificate_der(args.certificate))
+    fingerprint = hashlib.sha256(expected_certificate).hexdigest()
+    if fingerprint != request["certificate_sha256"]:
+        raise ValueError("signer certificate does not match request")
+    payload = _verify_embedded_digest(args)
+    _verify_signer(args, payload, expected_certificate)
     shutil.copyfile(args.signed_uki, args.output)
     write_json(args.metadata, {
         "certificate_sha256": fingerprint,
@@ -477,6 +535,40 @@ def verify(args):
     })
 
 
+def _sbsign(args, key, unsigned_uki, signed_uki):
+    run_tool(
+        args.sbsign,
+        "/usr/lib/systemd/systemd-sbsign",
+        "sign",
+        "--private-key",
+        str(key),
+        "--certificate",
+        args.certificate,
+        "--output",
+        signed_uki,
+        unsigned_uki,
+    )
+
+
+def _create_ephemeral_signer(args, key):
+    run_tool(args.openssl, "/usr/bin/openssl", "genpkey", "-algorithm", "RSA", "-pkeyopt", "rsa_keygen_bits:2048", "-out", str(key))
+    run_tool(
+        args.openssl,
+        "/usr/bin/openssl",
+        "req",
+        "-new",
+        "-x509",
+        "-key",
+        str(key),
+        "-out",
+        args.certificate,
+        "-days",
+        "1",
+        "-subj",
+        "/CN=rules_mkosi ephemeral test signer/",
+    )
+
+
 def ephemeral_fixture(args):
     scratch = Path(args.scratch)
     if scratch.exists():
@@ -484,47 +576,10 @@ def ephemeral_fixture(args):
     scratch.mkdir(mode=0o700)
     key = scratch / "ephemeral-private-key.pem"
     try:
-        run_tool(args.openssl, "/usr/bin/openssl", "genpkey", "-algorithm", "RSA", "-pkeyopt", "rsa_keygen_bits:2048", "-out", str(key))
-        run_tool(
-            args.openssl,
-            "/usr/bin/openssl",
-            "req",
-            "-new",
-            "-x509",
-            "-key",
-            str(key),
-            "-out",
-            args.certificate,
-            "-days",
-            "1",
-            "-subj",
-            "/CN=rules_mkosi ephemeral test signer/",
-        )
-        run_tool(
-            args.sbsign,
-            "/usr/lib/systemd/systemd-sbsign",
-            "sign",
-            "--private-key",
-            str(key),
-            "--certificate",
-            args.certificate,
-            "--output",
-            args.signed_uki,
-            args.unsigned_uki,
-        )
+        _create_ephemeral_signer(args, key)
+        _sbsign(args, key, args.unsigned_uki, args.signed_uki)
         if args.other_unsigned:
-            run_tool(
-                args.sbsign,
-                "/usr/lib/systemd/systemd-sbsign",
-                "sign",
-                "--private-key",
-                str(key),
-                "--certificate",
-                args.certificate,
-                "--output",
-                args.other_signed,
-                args.other_unsigned,
-            )
+            _sbsign(args, key, args.other_unsigned, args.other_signed)
     finally:
         if key.exists():
             key.write_bytes(b"\0" * key.stat().st_size)
