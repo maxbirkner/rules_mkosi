@@ -178,6 +178,14 @@ jobs:
             USE_BAZEL_VERSION="$USE_BAZEL_VERSION" \
             ./ci/verify-release-reproducibility.sh
 
+      - name: Verify two-stage base reuse
+        if: matrix.suite == 'audit' && matrix.bazel == '8.5.1'
+        run: |
+          sudo -n setpriv --reuid="$(id -u)" --regid="$(id -g)" \
+            --clear-groups env HOME="$HOME" PATH="$PATH" \
+            USE_BAZEL_VERSION="$USE_BAZEL_VERSION" \
+            ./ci/verify-two-stage-cache.sh
+
       - name: Surface retained boot evidence
         id: boot_evidence
         if: always() && matrix.module != ''

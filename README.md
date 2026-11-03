@@ -506,6 +506,50 @@ for `systemd-sysupdate --transfer-source=<directory> update`. See
 [`docs/sysupdate-ab.md`](docs/sysupdate-ab.md) for the partition layout, mkosi
 and runtime configuration, health checks, and known pitfalls.
 
+A version that changes with every commit would otherwise repeat package
+installation for every commit. In a two-stage release, `mkosi_base` builds the
+version-independent part once: it installs the packages of its own
+configuration tree from the snapshot, applies version-independent payloads, and
+produces `MkosiBaseInfo` with a reproducible tar archive of the root
+(`root_tree`) and mkosi's default initrd (`initrd`). `mkosi_image(base = ...)`
+finalizes that base for one version without the snapshot; its configuration
+tree holds only version-dependent settings such as `mkosi.repart/`, the boot
+loader, the UKI, and the kernel command line:
+
+```starlark
+load("@rules_mkosi//mkosi:defs.bzl", "mkosi_base", "mkosi_image")
+
+mkosi_base(
+    name = "os_base",
+    config_tree = ":os_base_config",
+    debian_snapshot = "@my_os_debian//:repository",
+    release_seed = "00000000-0000-4000-8000-000000000001",
+    release_source_date_epoch = 1755129600,
+    rootfs_payloads = [":os_transfers"],
+)
+
+mkosi_image(
+    name = "os",
+    base = ":os_base",
+    config_tree = ":os_image_config",
+    image_id = "my-os",
+    image_version_file = ":os_version",
+    mode = "release",
+    unified_kernel_image = "unsigned",
+    verity = "hash",
+)
+```
+
+The base action has no version input, so a new version reuses the cached base
+and only repeats the finalization: `os-release`, partitions, dm-verity, and the
+UKI. The base and the image both run with network access blocked; the
+finalization must not install packages and inherits the snapshot identity,
+`Seed=`, and `SourceDateEpoch=` from the base, so `debian_snapshot`,
+`release_seed`, and `release_source_date_epoch` are not set on the image. The
+result has the same `MkosiImageInfo` contract as a one-stage release. See
+[two-stage releases](docs/sysupdate-ab.md#two-stage-releases) for which
+settings belong to which stage and for measured build times.
+
 Development and test commands are documented once in
 [CONTRIBUTING.md](CONTRIBUTING.md). The independent consumer module is
 described in [`e2e/README.md`](e2e/README.md).
@@ -629,6 +673,20 @@ fails before any package is installed when one of them is not in the snapshot.
 package that is not in the lock fails the offline build; add it to the
 specification and regenerate. Lock files without `repository.components`, such
 as the built-in lock, remain valid `main`-only locks.
+
+### `MkosiBaseInfo` output contract
+
+`mkosi_base` returns `MkosiBaseInfo`; `DefaultInfo.files` contains its
+`root_tree` and `initrd`.
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `format_version` | `string` | Always `mkosi-base-v1`. |
+| `root_tree` | `File` | Tar archive of the installed root, with members sorted by name, passed to the finalization as `BaseTrees=`. |
+| `initrd` | `File` | mkosi's default initrd built from the same snapshot, passed to the finalization as `Initrds=`. |
+| `debian_snapshot` | `DebianSnapshotInfo` | The snapshot that the base installed packages from; the image records it in its build metadata. |
+| `release_seed` | `string` | The `Seed=` UUID that the finalize configuration must also resolve to. |
+| `release_source_date_epoch` | `int` | The `SourceDateEpoch=` that the finalize configuration must also resolve to. |
 
 ### `MkosiImageInfo` output contract
 

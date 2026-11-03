@@ -15,6 +15,15 @@ it while inspecting Bazel's action graph. Run its focused unit tests with:
 bazel test //ci:action_graph_validator_test
 ```
 
+`verify-two-stage-cache.sh` builds `//mkosi/tests:two_stage_release` for two
+stamped versions in one output base, and `verify_two_stage_cache.py` checks its
+execution logs: the second version must execute the finalizing `MkosiImage`
+action but not the `MkosiBase` action. Run the log checker's unit tests with:
+
+```console
+bazel test //ci:verify_two_stage_cache_test
+```
+
 Workflow YAML formatting and syntax are maintained by `prek run --all-files`.
 This directory deliberately does not duplicate GitHub Actions' interpretation
 of workflows or test that Bazel executes targets requested through `//...`.

@@ -50,10 +50,14 @@ records the consumer lock digest and components, and that dpkg installed the
 locked version and its microcode files.
 
 `sysupdate_v1`, `sysupdate_v2`, and `sysupdate_v3` are three releases of one
-versioned dm-verity image built from `@sysupdate_debian`, a consumer lock that
-adds `systemd-container` for `systemd-sysupdate`. They share
+versioned dm-verity image. `mkosi_base` builds their shared, version-independent
+`sysupdate_base` once from `@sysupdate_debian`, a consumer lock that adds
+`systemd-container` for `systemd-sysupdate`, and each release finalizes it with
+`mkosi_image(base = ":sysupdate_base")`. The base contains
 `sysupdate_transfers` with `boot_attempts = 1`, and release 3 adds a health
-check that always fails. `sysupdate_payload_test` checks release 2's
+check that always fails as a finalize-stage payload.
+`sysupdate_base_public_provider_test` checks `MkosiBaseInfo` through the public
+API. `sysupdate_payload_test` checks release 2's
 labels, root-hash-derived partition UUIDs, payload names, and checksums
 through the public providers. `sysupdate_lifecycle_test` boots release 1 with
 `qemu_ovmf_boot_test(allow_reboot = True)`, exposes the release 2 and 3

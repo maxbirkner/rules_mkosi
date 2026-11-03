@@ -2,6 +2,7 @@ load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load(
     "@rules_mkosi//mkosi:defs.bzl",
     "managed_python_test",
+    "mkosi_base",
     "mkosi_config_tree",
     "mkosi_image",
     "mkosi_reproducibility_manifest",
@@ -18,6 +19,7 @@ load("@rules_python//python:defs.bzl", "py_binary", "py_runtime", "py_runtime_pa
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
 load(
     ":public_api_test.bzl",
+    "base_public_api_test",
     "behavior_targets",
     "generated_payload_tree",
     "image_build_metadata_file",
@@ -64,6 +66,7 @@ behavior_targets(
         ":release_demo_partition_metadata_test",
         ":release_demo_reproducibility_test",
         ":release_demo_rootfs_payload_test",
+        ":sysupdate_base_public_provider_test",
         ":sysupdate_lifecycle_test",
         ":sysupdate_payload_public_provider_test",
         ":sysupdate_payload_test",
@@ -677,6 +680,11 @@ py_test(
 )
 
 mkosi_config_tree(
+    name = "sysupdate_base_config_tree",
+    src = "testdata/sysupdate-base-config",
+)
+
+mkosi_config_tree(
     name = "sysupdate_config_tree",
     src = "testdata/sysupdate-config",
 )
@@ -720,25 +728,34 @@ genrule(
     cmd = "echo 2 > $@",
 )
 
+# The packages, the lifecycle driver, and the default initrd do not depend on
+# the release version, so all three releases finalize one cached base.
+mkosi_base(
+    name = "sysupdate_base",
+    config_tree = ":sysupdate_base_config_tree",
+    debian_snapshot = "@sysupdate_debian//:repository",
+    release_seed = "00000000-0000-4000-8000-000000000017",
+    release_source_date_epoch = 1755129600,
+    rootfs_payloads = [
+        ":sysupdate_lifecycle_driver",
+        ":sysupdate_lifecycle_preset",
+        ":sysupdate_lifecycle_service",
+        ":sysupdate_transfers",
+    ],
+)
+
 # Releases 1 and 2 are healthy; release 3 adds a health check that always
 # fails, so systemd-boot must fall back to release 2.
 [
     mkosi_image(
         name = "sysupdate_v" + version,
+        base = ":sysupdate_base",
         config_tree = ":sysupdate_config_tree",
-        debian_snapshot = "@sysupdate_debian//:repository",
         image_id = "rules-mkosi-ab",
         image_version = None if version == "2" else version,
         image_version_file = ":sysupdate_v2_version" if version == "2" else None,
         mode = "release",
-        release_seed = "00000000-0000-4000-8000-000000000017",
-        release_source_date_epoch = 1755129600,
-        rootfs_payloads = [
-            ":sysupdate_lifecycle_driver",
-            ":sysupdate_lifecycle_preset",
-            ":sysupdate_lifecycle_service",
-            ":sysupdate_transfers",
-        ] + extra_payloads,
+        rootfs_payloads = extra_payloads,
         unified_kernel_image = "unsigned",
         verity = "hash",
     )
@@ -759,6 +776,12 @@ genrule(
     )
     for version in ("2", "3")
 ]
+
+base_public_api_test(
+    name = "sysupdate_base_public_provider_test",
+    debian_snapshot = "@sysupdate_debian//:repository",
+    target_under_test = ":sysupdate_base",
+)
 
 sysupdate_public_api_test(
     name = "sysupdate_transfers_public_provider_test",

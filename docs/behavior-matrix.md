@@ -71,6 +71,21 @@ action that reads it applies the same rule to its content, which may end with
 one newline. Its version reaches mkosi, the slot-label check, the build
 metadata, and `sysupdate_payload` artifact names.
 
+<!-- behavior:BHV-IMAGE-BASE -->
+`mkosi_base` installs a release configuration's packages from its
+authenticated snapshot with network access blocked and exposes the root as a
+reproducible tar archive and mkosi's default initrd through `MkosiBaseInfo`.
+It requires `release_seed` and a non-negative `release_source_date_epoch`,
+rejects `ImageVersion=`, and none of its inputs depends on an image version.
+`mkosi_image(base = ...)` requires release mode and UEFI firmware, takes the
+snapshot identity, seed, and epoch from the base and rejects them as
+attributes, rejects `source_trees`, and finalizes the base without the
+snapshot: its configuration must not install or remove packages and must
+resolve `BaseTrees=` and `Initrds=` to exactly the declared base artifacts.
+The resulting `MkosiImageInfo` has the same contract as a one-stage release.
+A second stamped version executes only the finalization while the base is
+satisfied from the action cache.
+
 <!-- behavior:BHV-SYSUPDATE-TRANSFERS -->
 `sysupdate_transfers` validates its image id, non-negative `boot_attempts`
 (zero lists the counter-free UKI pattern first so that new UKIs are installed
@@ -219,10 +234,11 @@ that necessarily depend on those identities. Partition geometry, type, label,
 attributes, and payload changes remain observable.
 
 <!-- behavior:BHV-REPRODUCIBILITY-INDEPENDENCE -->
-Release reproducibility executes two real image and manifest action graphs in
-distinct clean Bazel output roots with cache reuse disabled, proves both
-actions executed, and compares their projections. A mismatch reports that
-immutable hashes or normalized manifests differ.
+Release reproducibility executes two real image and manifest action graphs,
+for a one-stage release and for a two-stage base and its finalization, in
+distinct clean Bazel output roots with cache reuse disabled, proves every image
+and base action executed, and compares their projections and base digests. A
+mismatch reports that immutable hashes or normalized manifests differ.
 
 ## Actions, toolchains, validation, and expected failures
 

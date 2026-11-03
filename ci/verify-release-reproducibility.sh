@@ -25,6 +25,16 @@ make_removable "$results"
 rm -rf "$results"
 mkdir -p "$results"
 
+# The two-stage subject reads its version from workspace status, like a stamped release.
+workspace_status="$results/workspace-status.sh"
+printf '#!/bin/sh\necho STABLE_RULES_MKOSI_TWO_STAGE_VERSION 1\n' >"$workspace_status"
+chmod +x "$workspace_status"
+targets=(
+  //mkosi/tests:release_reproducibility
+  //mkosi/tests:two_stage_base
+  //mkosi/tests:two_stage_reproducibility
+)
+
 build_once() {
   local name="$1"
   local output_root="$workspace/.reproducibility-output-$name"
@@ -40,22 +50,29 @@ build_once() {
     --remote_cache= \
     --noremote_accept_cached \
     --noremote_upload_local_results \
+    --workspace_status_command="$workspace_status" \
     --execution_log_json_file="$results/$name.execution.json" \
-    //mkosi/tests:release_reproducibility
+    "${targets[@]}"
   python3 ci/verify_reproducibility_execution.py \
     "$results/$name.execution.json" "$name"
+  mkdir -p "$results/$name"
   local output
-  output="$(USE_BAZEL_VERSION=8.5.1 bazel \
+  while IFS= read -r output; do
+    case "$output" in
+      *.json) cp "$output" "$results/$name/" ;;
+      # The base archive and initrd are large; their digests suffice.
+      *) (cd "$(dirname "$output")" && sha256sum "$(basename "$output")") >>"$results/$name/base.sha256" ;;
+    esac
+  done < <(USE_BAZEL_VERSION=8.5.1 bazel \
     --output_user_root="$output_root" \
     cquery --lockfile_mode=error --output=files \
-    //mkosi/tests:release_reproducibility)"
-  cp "$output" "$results/$name.json"
+    "set(${targets[*]})")
 }
 
 build_once first
 build_once second
 
-if ! diff -u "$results/first.json" "$results/second.json"; then
+if ! diff -ru "$results/first" "$results/second"; then
   echo "release reproducibility mismatch: immutable hashes or normalized manifests differ" >&2
   exit 1
 fi
