@@ -71,7 +71,7 @@ PYTHONNOUSERSITE=1 \
 PYTHONPATH="${customize%/*}:${main%/mkosi/__main__.py}:$pefile_root" \
     "$python" "$main" --version > "$TEST_TMPDIR/mkosi.version"
 IFS= read -r version < "$TEST_TMPDIR/mkosi.version"
-[ "$version" = "mkosi 27" ] || {
+[ "$version" = "mkosi 27.1" ] || {
     echo "unexpected mkosi version: $version" >&2
     exit 1
 }

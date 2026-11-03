@@ -27,7 +27,7 @@ def main() -> None:
             "compression": "none",
             "format": "disk",
             "split_artifacts": False,
-            "version": "27",
+            "version": "27.1",
         },
         "mode": mode,
     }

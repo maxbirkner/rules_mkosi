@@ -63,7 +63,7 @@ use_repo(
 )
 
 mkosi = use_extension("@rules_mkosi//mkosi:extensions.bzl", "mkosi")
-mkosi.toolchain(version = "27")
+mkosi.toolchain(version = "27.1")
 use_repo(mkosi, "mkosi_toolchains")
 
 debian_tools = use_extension("@rules_mkosi//mkosi/debian:extensions.bzl", "debian_tools")

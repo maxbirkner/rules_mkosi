@@ -27,4 +27,4 @@ local_path_override(
 )
 
 mkosi = use_extension("@rules_mkosi//mkosi:extensions.bzl", "mkosi")
-mkosi.toolchain(version = "27")
+mkosi.toolchain(version = "27.1")
