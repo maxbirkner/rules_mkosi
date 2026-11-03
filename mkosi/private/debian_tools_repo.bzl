@@ -1,16 +1,6 @@
 """Repository exposing the Debian package tree and toolchain."""
 
-def _impl(ctx):
-    ctx.file(
-        "launcher_config.json",
-        json.encode({
-            "archive_sha256": ctx.attr.archive_sha256,
-            "format_version": "debian-launcher-v1",
-        }) + "\n",
-    )
-    ctx.file(
-        "BUILD.bazel",
-        """load("@rules_cc//cc:defs.bzl", "cc_binary")
+_BUILD_TEMPLATE = """load("@rules_cc//cc:defs.bzl", "cc_binary")
 load("@rules_python//python:defs.bzl", "py_binary")
 load("@rules_mkosi//mkosi/debian:toolchain.bzl", "debian_tools_archive", "debian_tools_toolchain", "debian_tools_tree")
 load("@rules_mkosi//mkosi:versions.bzl", "DEFAULT_PYTHON_VERSION")
@@ -162,7 +152,19 @@ toolchain(
     toolchain = ":toolchain",
     toolchain_type = "@rules_mkosi//mkosi/toolchain:debian_tools_toolchain_type",
 )
-""".format(
+"""
+
+def _impl(ctx):
+    ctx.file(
+        "launcher_config.json",
+        json.encode({
+            "archive_sha256": ctx.attr.archive_sha256,
+            "format_version": "debian-launcher-v1",
+        }) + "\n",
+    )
+    ctx.file(
+        "BUILD.bazel",
+        _BUILD_TEMPLATE.format(
             repo = ctx.attr.package_repo,
             provenance = ctx.attr.provenance,
             components_label = ctx.attr.components,

@@ -1,6 +1,7 @@
 """Offline Authenticode Secure Boot rules."""
 
 load("//mkosi/private:mkosi_image.bzl", "MkosiImageInfo")
+load("//mkosi/private:python_action.bzl", "MKOSI_TOOLCHAIN_TYPE", "run_python")
 
 SecureBootSigningRequestInfo = provider(
     doc = "Typed immutable request for an external Secure Boot signer.",
@@ -33,43 +34,38 @@ SecureBootEphemeralTestFixtureInfo = provider(
     },
 )
 
-def _python(ctx):
-    return ctx.toolchains["//mkosi/toolchain:toolchain_type"].mkosi
+_EPHEMERAL_EXECUTION_REQUIREMENTS = {
+    "local": "1",
+    "no-cache": "1",
+    "no-remote": "1",
+    "no-remote-cache": "1",
+    "no-remote-exec": "1",
+}
 
-def _run(ctx, args, inputs, outputs, mnemonic, requirements = {}):
-    python = _python(ctx)
-    ctx.actions.run(
-        executable = python.python,
+def _run(ctx, args, inputs, outputs, mnemonic, **kwargs):
+    run_python(
+        ctx,
         arguments = [args],
-        inputs = depset(inputs, transitive = [python.python_runtime_files]),
-        tools = [python.python_files_to_run],
+        inputs = [ctx.file._tool, ctx.executable._debian_tools] + inputs,
         outputs = outputs,
         mnemonic = mnemonic,
-        env = {"PATH": "", "PYTHONNOUSERSITE": "1"},
-        execution_requirements = requirements,
+        **kwargs
     )
 
-def _certificate(target):
+def _single_file(target, attribute):
+    """Returns the file of the attribute, or the field of the same name of a test fixture."""
     if SecureBootEphemeralTestFixtureInfo in target:
-        return target[SecureBootEphemeralTestFixtureInfo].certificate
+        return getattr(target[SecureBootEphemeralTestFixtureInfo], attribute)
     files = target.files.to_list()
     if len(files) != 1:
-        fail("certificate must provide one File or SecureBootEphemeralTestFixtureInfo")
-    return files[0]
-
-def _signed_uki(target):
-    if SecureBootEphemeralTestFixtureInfo in target:
-        return target[SecureBootEphemeralTestFixtureInfo].signed_uki
-    files = target.files.to_list()
-    if len(files) != 1:
-        fail("signed_uki must provide one File or SecureBootEphemeralTestFixtureInfo")
+        fail("{} must provide one File or SecureBootEphemeralTestFixtureInfo".format(attribute))
     return files[0]
 
 def _request_impl(ctx):
     image = ctx.attr.image[MkosiImageInfo]
     if image.uki == None:
         fail("image must provide an unsigned UKI")
-    certificate = _certificate(ctx.attr.certificate)
+    certificate = _single_file(ctx.attr.certificate, "certificate")
     normalized_certificate = ctx.actions.declare_file(ctx.label.name + ".certificate.der")
     request = ctx.actions.declare_file(ctx.label.name + ".secure-boot-request.json")
     request_digest = ctx.actions.declare_file(ctx.label.name + ".secure-boot-request.sha256")
@@ -83,7 +79,7 @@ def _request_impl(ctx):
     args.add("--algorithm", ctx.attr.signature_algorithm)
     args.add("--output", request.path)
     args.add("--digest-output", request_digest.path)
-    _run(ctx, args, [ctx.file._tool, ctx.executable._debian_tools, image.uki, certificate], [request, request_digest, normalized_certificate], "SecureBootSigningRequest")
+    _run(ctx, args, [image.uki, certificate], [request, request_digest, normalized_certificate], "SecureBootSigningRequest")
     return [
         DefaultInfo(files = depset([request, request_digest, image.uki, normalized_certificate])),
         SecureBootSigningRequestInfo(
@@ -99,19 +95,31 @@ def _request_impl(ctx):
 secure_boot_signing_request = rule(
     implementation = _request_impl,
     attrs = {
-        "image": attr.label(mandatory = True, providers = [MkosiImageInfo]),
-        "certificate": attr.label(mandatory = True, allow_files = True),
-        "signature_algorithm": attr.string(default = "authenticode-sha256", values = ["authenticode-sha256"]),
+        "image": attr.label(
+            mandatory = True,
+            providers = [MkosiImageInfo],
+            doc = "mkosi_image with an unsigned UKI.",
+        ),
+        "certificate": attr.label(
+            mandatory = True,
+            allow_files = True,
+            doc = "Expected signer certificate: a single file or a secure_boot_ephemeral_test_fixture.",
+        ),
+        "signature_algorithm": attr.string(
+            default = "authenticode-sha256",
+            values = ["authenticode-sha256"],
+            doc = "Required embedded signature algorithm.",
+        ),
         "_tool": attr.label(default = "//mkosi/private:secure_boot.py", allow_single_file = True, cfg = "exec"),
         "_debian_tools": attr.label(default = "@mkosi_debian_tools//:launcher", executable = True, cfg = "exec"),
     },
-    doc = "Creates a cacheable unsigned-UKI and expected-certificate signing request.",
-    toolchains = ["//mkosi/toolchain:toolchain_type"],
+    doc = "Creates a request for an external signer to sign an image's unsigned UKI with the expected certificate.",
+    toolchains = [MKOSI_TOOLCHAIN_TYPE],
 )
 
 def _import_impl(ctx):
     request = ctx.attr.request[SecureBootSigningRequestInfo]
-    signed_input = _signed_uki(ctx.attr.signed_uki)
+    signed_input = _single_file(ctx.attr.signed_uki, "signed_uki")
     output = ctx.actions.declare_file(ctx.label.name + ".signed.efi")
     metadata = ctx.actions.declare_file(ctx.label.name + ".secure-boot-verification.json")
     pkcs7 = ctx.actions.declare_file(ctx.label.name + ".authenticode.der")
@@ -136,7 +144,7 @@ def _import_impl(ctx):
     _run(
         ctx,
         args,
-        [ctx.file._tool, ctx.executable._debian_tools, request.request, request.request_digest, request.unsigned_uki, request.certificate, signed_input],
+        [request.request, request.request_digest, request.unsigned_uki, request.certificate, signed_input],
         [output, metadata, pkcs7, content, verified_signer, expected_pem],
         "SecureBootImportAuthenticode",
     )
@@ -153,13 +161,24 @@ def _import_impl(ctx):
 secure_boot_import_response = rule(
     implementation = _import_impl,
     attrs = {
-        "request": attr.label(mandatory = True, providers = [SecureBootSigningRequestInfo]),
-        "signed_uki": attr.label(mandatory = True, allow_files = True),
+        "request": attr.label(
+            mandatory = True,
+            providers = [SecureBootSigningRequestInfo],
+            doc = "The secure_boot_signing_request that the signer answered.",
+        ),
+        "signed_uki": attr.label(
+            mandatory = True,
+            allow_files = True,
+            doc = "The signed UKI: a single file or a secure_boot_ephemeral_test_fixture.",
+        ),
         "_tool": attr.label(default = "//mkosi/private:secure_boot.py", allow_single_file = True, cfg = "exec"),
         "_debian_tools": attr.label(default = "@mkosi_debian_tools//:launcher", executable = True, cfg = "exec"),
     },
-    doc = "Imports only an embedded Authenticode-signed UKI equivalent to its request.",
-    toolchains = ["//mkosi/toolchain:toolchain_type"],
+    doc = """Imports an externally signed UKI.
+
+The import fails unless the UKI embeds an Authenticode signature by the requested certificate and is otherwise
+equivalent to the requested unsigned UKI.""",
+    toolchains = [MKOSI_TOOLCHAIN_TYPE],
 )
 
 def _fixture_impl(ctx):
@@ -176,24 +195,19 @@ def _fixture_impl(ctx):
     args.add("--certificate", certificate.path)
     args.add("--signed-uki", signed.path)
     args.add("--scratch", scratch)
-    _run(ctx, args, [ctx.file._tool, ctx.executable._debian_tools, unsigned], [certificate, signed], "SecureBootEphemeralFixture", {
-        "local": "1",
-        "no-cache": "1",
-        "no-remote": "1",
-        "no-remote-cache": "1",
-        "no-remote-exec": "1",
-    })
+    _run(
+        ctx,
+        args,
+        [unsigned],
+        [certificate, signed],
+        "SecureBootEphemeralFixture",
+        execution_requirements = _EPHEMERAL_EXECUTION_REQUIREMENTS,
+    )
     return [
         DefaultInfo(files = depset([certificate, signed])),
         SecureBootEphemeralTestFixtureInfo(
             certificate = certificate,
-            execution_requirements = {
-                "local": "1",
-                "no-cache": "1",
-                "no-remote": "1",
-                "no-remote-cache": "1",
-                "no-remote-exec": "1",
-            },
+            execution_requirements = _EPHEMERAL_EXECUTION_REQUIREMENTS,
             signed_uki = signed,
         ),
     ]
@@ -201,10 +215,10 @@ def _fixture_impl(ctx):
 secure_boot_ephemeral_test_fixture = rule(
     implementation = _fixture_impl,
     attrs = {
-        "unsigned_uki": attr.label(mandatory = True, allow_single_file = True),
+        "unsigned_uki": attr.label(mandatory = True, allow_single_file = True, doc = "The UKI to sign."),
         "_tool": attr.label(default = "//mkosi/private:secure_boot.py", allow_single_file = True, cfg = "exec"),
         "_debian_tools": attr.label(default = "@mkosi_debian_tools//:launcher", executable = True, cfg = "exec"),
     },
-    doc = "Creates only public outputs while its ephemeral key remains action-private.",
-    toolchains = ["//mkosi/toolchain:toolchain_type"],
+    doc = "For tests: signs a UKI with a throwaway key that never leaves the action, and outputs its certificate.",
+    toolchains = [MKOSI_TOOLCHAIN_TYPE],
 )

@@ -28,33 +28,49 @@ DebianToolsInfo = provider(
     },
 )
 
-def _python_home(executable):
-    return executable.path[:executable.path.rfind("/")]
+_LINUX_X86_64 = [
+    "@platforms//os:linux",
+    "@platforms//cpu:x86_64",
+]
 
-def _tree_impl(ctx):
-    root = ctx.actions.declare_directory(ctx.label.name + "_root")
-    python_home = _python_home(ctx.executable._python)
-    runtime_files = ctx.attr._python_runtime[DefaultInfo].files
+_STATIC_PYTHON_ATTRS = {
+    "_python": attr.label(
+        allow_files = True,
+        executable = True,
+        cfg = "exec",
+        default = "@mkosi_debian_python//:python",
+    ),
+    "_python_runtime": attr.label(
+        cfg = "exec",
+        default = "@mkosi_debian_python//:runtime",
+    ),
+}
+
+def _run_static_python(ctx, arguments, inputs, output, mnemonic, progress_message):
+    """Runs a script with the static bootstrap interpreter in isolated mode."""
+    python = ctx.executable._python
     ctx.actions.run(
-        executable = ctx.executable._python,
-        arguments = [
-            "-I",
-            ctx.file.extractor.path,
-            ctx.file.archive.path,
-            root.path,
-            ctx.attr.archive_sha256,
-        ],
-        inputs = depset(
-            [ctx.file.extractor, ctx.file.archive],
-            transitive = [runtime_files],
-        ),
-        tools = [ctx.executable._python],
-        outputs = [root],
+        executable = python,
+        arguments = ["-I"] + arguments,
+        inputs = depset(inputs, transitive = [ctx.attr._python_runtime[DefaultInfo].files]),
+        tools = [python],
+        outputs = [output],
         env = {
-            "PYTHONHOME": python_home,
+            "PYTHONHOME": python.path[:python.path.rfind("/")],
             "PYTHONNOUSERSITE": "1",
             "PATH": "",
         },
+        mnemonic = mnemonic,
+        progress_message = progress_message,
+    )
+
+def _tree_impl(ctx):
+    root = ctx.actions.declare_directory(ctx.label.name + "_root")
+    _run_static_python(
+        ctx,
+        arguments = [ctx.file.extractor.path, ctx.file.archive.path, root.path, ctx.attr.archive_sha256],
+        inputs = [ctx.file.extractor, ctx.file.archive],
+        output = root,
         mnemonic = "ExtractDebianTools",
         progress_message = "Extracting Debian tools tree %{label}",
     )
@@ -62,27 +78,12 @@ def _tree_impl(ctx):
 
 def _archive_impl(ctx):
     output = ctx.actions.declare_file("flat.tar")
-    python_home = _python_home(ctx.executable._python)
-    runtime_files = ctx.attr._python_runtime[DefaultInfo].files
-    ctx.actions.run(
-        executable = ctx.executable._python,
-        arguments = [
-            "-I",
-            ctx.file.archive_builder.path,
-            output.path,
-            ctx.file.package_manifest.path,
-        ] + [package.path for package in ctx.files.packages],
-        inputs = depset(
-            [ctx.file.archive_builder, ctx.file.package_manifest] + ctx.files.packages,
-            transitive = [runtime_files],
-        ),
-        tools = [ctx.executable._python],
-        outputs = [output],
-        env = {
-            "PYTHONHOME": python_home,
-            "PYTHONNOUSERSITE": "1",
-            "PATH": "",
-        },
+    _run_static_python(
+        ctx,
+        arguments = [ctx.file.archive_builder.path, output.path, ctx.file.package_manifest.path] +
+                    [package.path for package in ctx.files.packages],
+        inputs = [ctx.file.archive_builder, ctx.file.package_manifest] + ctx.files.packages,
+        output = output,
         mnemonic = "BuildDebianToolsArchive",
         progress_message = "Building Debian tools archive %{label}",
     )
@@ -91,65 +92,35 @@ def _archive_impl(ctx):
 debian_tools_archive = rule(
     implementation = _archive_impl,
     attrs = {
-        "packages": attr.label_list(mandatory = True, allow_files = True),
-        "package_manifest": attr.label(mandatory = True, allow_single_file = True),
+        "packages": attr.label_list(mandatory = True, allow_files = True, doc = "Pinned .deb files."),
+        "package_manifest": attr.label(
+            mandatory = True,
+            allow_single_file = True,
+            doc = "Manifest of the expected packages.",
+        ),
         "archive_builder": attr.label(
             mandatory = False,
             allow_single_file = True,
             default = "//mkosi/debian:package_archive.py",
+            doc = "Script that builds the archive.",
         ),
-        "_python": attr.label(
-            allow_files = True,
-            executable = True,
-            cfg = "exec",
-            default = "@mkosi_debian_python//:python",
-        ),
-        "_python_runtime": attr.label(
-            cfg = "exec",
-            default = "@mkosi_debian_python//:runtime",
-        ),
-    },
-    exec_compatible_with = [
-        "@platforms//os:linux",
-        "@platforms//cpu:x86_64",
-    ],
-    doc = "Constructs a Debian archive from checksum-pinned package inputs.",
+    } | _STATIC_PYTHON_ATTRS,
+    exec_compatible_with = _LINUX_X86_64,
+    doc = "Builds a flattened archive of the installed tree of checksum-pinned Debian packages.",
 )
 
 debian_tools_tree = rule(
     implementation = _tree_impl,
     attrs = {
-        "archive": attr.label(mandatory = True, allow_single_file = True),
-        "extractor": attr.label(mandatory = True, allow_single_file = True),
-        "archive_sha256": attr.string(mandatory = True),
-        "_python": attr.label(
-            allow_files = True,
-            executable = True,
-            cfg = "exec",
-            default = "@mkosi_debian_python//:python",
-        ),
-        "_python_runtime": attr.label(
-            cfg = "exec",
-            default = "@mkosi_debian_python//:runtime",
-        ),
-    },
-    exec_compatible_with = [
-        "@platforms//os:linux",
-        "@platforms//cpu:x86_64",
-    ],
-    doc = "Extracts a Debian archive with the Bazel-managed Python runtime.",
+        "archive": attr.label(mandatory = True, allow_single_file = True, doc = "debian_tools_archive output."),
+        "extractor": attr.label(mandatory = True, allow_single_file = True, doc = "Script that extracts the archive."),
+        "archive_sha256": attr.string(mandatory = True, doc = "Expected SHA-256 of the archive."),
+    } | _STATIC_PYTHON_ATTRS,
+    exec_compatible_with = _LINUX_X86_64,
+    doc = "Extracts a debian_tools_archive into a directory after verifying its digest.",
 )
 
-def _preflight_impl(ctx):
-    output = ctx.actions.declare_file(ctx.label.name + ".sh")
-    required = " ".join(ctx.attr.required_components)
-    components = ctx.file.components.short_path
-    launcher = ctx.attr.launcher[DefaultInfo].files_to_run.executable.short_path
-    provenance = ctx.file.provenance.short_path
-    ctx.actions.write(
-        output = output,
-        is_executable = True,
-        content = """#!/bin/sh
+_PREFLIGHT_SCRIPT = """#!/bin/sh
 set -eu
 PATH=
 export PATH
@@ -185,11 +156,18 @@ do
     echo "validated Debian tools component: $component"
 done
 "$launcher" --validate-only /bin/sh
-""".format(
-            launcher = repr(launcher),
-            provenance = repr(provenance),
-            components = repr(components),
-            required = required,
+"""
+
+def _preflight_impl(ctx):
+    output = ctx.actions.declare_file(ctx.label.name + ".sh")
+    ctx.actions.write(
+        output = output,
+        is_executable = True,
+        content = _PREFLIGHT_SCRIPT.format(
+            launcher = repr(ctx.attr.launcher[DefaultInfo].files_to_run.executable.short_path),
+            provenance = repr(ctx.file.provenance.short_path),
+            components = repr(ctx.file.components.short_path),
+            required = " ".join(ctx.attr.required_components),
         ),
     )
     runfiles = ctx.runfiles(files = [output, ctx.file.provenance, ctx.file.components])
@@ -301,9 +279,6 @@ debian_tools_launcher_probe = rule(
     implementation = _launcher_probe_impl,
     attrs = {},
     toolchains = ["//mkosi/toolchain:debian_tools_toolchain_type"],
-    exec_compatible_with = [
-        "@platforms//os:linux",
-        "@platforms//cpu:x86_64",
-    ],
+    exec_compatible_with = _LINUX_X86_64,
     doc = "Invokes the public DebianToolsInfo launcher through an action.",
 )
