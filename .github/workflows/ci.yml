@@ -30,8 +30,8 @@ jobs:
       fail-fast: false
       matrix:
         bazel:
-          - "8.5.1"
-          - "9.2.0"
+          - "8.8.2"
+          - "9.3.1"
         suite:
           - root
           - consumer
@@ -62,10 +62,10 @@ jobs:
             disk-cache: "false"
             external-cache: root
             repository-cache: "true"
-          - bazel: "8.5.1"
+          - bazel: "8.8.2"
             suite: audit
             label: release reproducibility and audits
-          - bazel: "9.2.0"
+          - bazel: "9.3.1"
             suite: audit
             label: audits
     env:
@@ -121,7 +121,7 @@ jobs:
             test "$(group-free bazel --version)" = "$expected_bazel_version"
           )
           preflight_configs=()
-          if [ "${{ matrix.bazel }}" = "9.2.0" ]; then
+          if [ "${{ matrix.bazel }}" = "9.3.1" ]; then
             preflight_configs=(--config=bazel9)
           fi
           group-free bazel shutdown
@@ -137,7 +137,7 @@ jobs:
         if: matrix.module != ''
         working-directory: ${{ matrix.module }}
         run: |
-          if [ "${{ matrix.bazel }}" = "9.2.0" ]; then
+          if [ "${{ matrix.bazel }}" = "9.3.1" ]; then
             # Bazel 9 uses a newer lockfile format; compatibility is tested
             # without rewriting the committed Bazel 8 lockfile.
             bazel_configs=(--config=portable --config=bazel9)
@@ -156,7 +156,7 @@ jobs:
         if: matrix.suite == 'root'
         run: |
           version_configs=()
-          if [ "${{ matrix.bazel }}" = "9.2.0" ]; then
+          if [ "${{ matrix.bazel }}" = "9.3.1" ]; then
             version_configs=(--config=bazel9)
           fi
           target=//mkosi/tests:qemu_ovmf_smoke_test
@@ -169,12 +169,12 @@ jobs:
           grep -Fx "QEMU accelerator: tcg" "$test_log"
 
       - name: Verify release reproducibility
-        if: matrix.suite == 'audit' && matrix.bazel == '8.5.1'
+        if: matrix.suite == 'audit' && matrix.bazel == '8.8.2'
         run: |
           group-free ./ci/verify-release-reproducibility.sh
 
       - name: Verify two-stage base reuse
-        if: matrix.suite == 'audit' && matrix.bazel == '8.5.1'
+        if: matrix.suite == 'audit' && matrix.bazel == '8.8.2'
         run: |
           group-free ./ci/verify-two-stage-cache.sh
 
@@ -190,7 +190,7 @@ jobs:
           mkdir -p "$evidence_dir"
           echo "has_evidence=false" >> "$GITHUB_OUTPUT"
           info_configs=()
-          if [ "${{ matrix.bazel }}" = "9.2.0" ]; then
+          if [ "${{ matrix.bazel }}" = "9.3.1" ]; then
             info_configs=(--config=bazel9)
           fi
           has_evidence=false
@@ -279,7 +279,7 @@ jobs:
         if: >-
           github.event_name == 'workflow_dispatch' &&
           inputs.upload_artifacts &&
-          matrix.bazel == '8.5.1' &&
+          matrix.bazel == '8.8.2' &&
           matrix.suite == 'root'
         run: |
           artifact_dir="$RUNNER_TEMP/mkosi-manual-test"
@@ -319,7 +319,7 @@ jobs:
         if: >-
           github.event_name == 'workflow_dispatch' &&
           inputs.upload_artifacts &&
-          matrix.bazel == '8.5.1' &&
+          matrix.bazel == '8.8.2' &&
           matrix.suite == 'root'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -332,7 +332,7 @@ jobs:
       - name: Audit Debian tools action graph
         if: matrix.suite == 'audit'
         run: |
-          if [ "${{ matrix.bazel }}" = "8.5.1" ]; then
+          if [ "${{ matrix.bazel }}" = "8.8.2" ]; then
             mode=error
           else
             mode=off
@@ -607,7 +607,7 @@ jobs:
         if: matrix.suite == 'audit'
         run: |
           mode=off
-          if [ "${{ matrix.bazel }}" = "8.5.1" ]; then
+          if [ "${{ matrix.bazel }}" = "8.8.2" ]; then
             mode=error
           fi
           graph="$(group-free bazel --bazelrc=/dev/null aquery \
@@ -629,7 +629,7 @@ jobs:
         if: matrix.suite == 'audit'
         run: |
           mode=error
-          if [ "${{ matrix.bazel }}" = "9.2.0" ]; then
+          if [ "${{ matrix.bazel }}" = "9.3.1" ]; then
             mode=off
           fi
           install_base="$(group-free bazel info --lockfile_mode="$mode" install_base)"
@@ -640,7 +640,7 @@ jobs:
     name: Namespace production contract
     runs-on: ubuntu-22.04
     env:
-      USE_BAZEL_VERSION: "8.5.1"
+      USE_BAZEL_VERSION: "8.8.2"
     steps:
       - name: Check out repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -673,7 +673,7 @@ jobs:
     name: Bazel lockfile
     runs-on: ubuntu-24.04
     env:
-      USE_BAZEL_VERSION: "8.5.1"
+      USE_BAZEL_VERSION: "8.8.2"
     steps:
       - name: Check out repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -690,7 +690,7 @@ jobs:
         run: |
           actual="$(bazel --version)"
           echo "$actual"
-          test "$actual" = "bazel 8.5.1"
+          test "$actual" = "bazel 8.8.2"
           bazel mod deps --lockfile_mode=error
 
       - name: Verify committed e2e lockfile
@@ -698,7 +698,7 @@ jobs:
         run: |
           actual="$(bazel --version)"
           echo "$actual"
-          test "$actual" = "bazel 8.5.1"
+          test "$actual" = "bazel 8.8.2"
           bazel mod deps --lockfile_mode=error
 
   module-resolution:
@@ -708,8 +708,8 @@ jobs:
       fail-fast: false
       matrix:
         bazel:
-          - "8.5.1"
-          - "9.2.0"
+          - "8.8.2"
+          - "9.3.1"
         fixture:
           - default
           - explicit
@@ -779,7 +779,7 @@ jobs:
     name: Deterministic bootstrap binaries
     runs-on: ubuntu-22.04
     env:
-      USE_BAZEL_VERSION: "8.5.1"
+      USE_BAZEL_VERSION: "8.8.2"
     steps:
       - name: Check out repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0

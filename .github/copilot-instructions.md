@@ -27,7 +27,7 @@ Linux images with mkosi.
   Executed output behavior also needs an artifact test and coverage in the
   independent `e2e/smoke` consumer module.
 - `MODULE.bazel.lock` files are generated, committed artifacts. Regenerate
-  them deliberately with Bazel 8.5.1; never edit them manually. Bazel 9
+  them deliberately with Bazel 8.8.2; never edit them manually. Bazel 9
   compatibility commands may use lockfile mode off, but CI must never update
   committed lockfiles.
 - Keep GitHub Actions permissions minimal and pin third-party actions to full
@@ -51,4 +51,4 @@ Linux images with mkosi.
   merges its own pull request.
 
 When compatibility-sensitive Starlark changes are made, repeat the root and
-consumer suites with `USE_BAZEL_VERSION=8.5.1`.
+consumer suites with `USE_BAZEL_VERSION=8.8.2`.

@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- Bazelisk, or the Bazel version in `.bazelversion` (8.5.1).
+- Bazelisk, or the Bazel version in `.bazelversion` (8.8.2).
 - [`prek`](https://prek.j178.dev/) 0.5 or newer.
 - Host Python 3.11 or newer, only for the [`tools/bazel`](tools/README.md) wrapper.
 - A host that meets the [requirements](README.md#requirements), with the Bazel server started without supplementary groups:
@@ -30,14 +30,14 @@ See [`e2e/README.md`](e2e/README.md) for the consumer and module-resolution fixt
 
 ### Bazel versions and lockfiles
 
-Bazel 8.5.1 is the default and uses `--lockfile_mode=error` for both committed lockfiles (`MODULE.bazel.lock` and `e2e/smoke/MODULE.bazel.lock`).
+Bazel 8.8.2 is the default and uses `--lockfile_mode=error` for both committed lockfiles (`MODULE.bazel.lock` and `e2e/smoke/MODULE.bazel.lock`).
 Test Bazel 9 without rewriting them:
 
 ```console
-USE_BAZEL_VERSION=9.2.0 bazel test --config=portable --config=bazel9 //...
+USE_BAZEL_VERSION=9.3.1 bazel test --config=portable --config=bazel9 //...
 ```
 
-When dependencies change, regenerate both lockfiles with Bazel 8.5.1 and `--lockfile_mode=update`.
+When dependencies change, regenerate both lockfiles with Bazel 8.8.2 and `--lockfile_mode=update`.
 Never edit lockfiles by hand.
 Module-resolution fixtures have no lockfiles.
 

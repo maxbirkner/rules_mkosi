@@ -19,7 +19,7 @@ The repository must:
 `MODULE.bazel` leaves `version` unset: the BCR publishing workflow patches it into the registry copy, and a source version causes problems for consumers using non-registry overrides.
 `compatibility_level` is omitted because it is a deprecated no-op in Bazel 8 and 9; breaking releases provide migration diagnostics and documentation instead.
 
-The baseline is Bazel 8.5.1, with a rolling policy of supporting the current and previous LTS majors (currently 8 and 9).
+The baseline is Bazel 8.8.2, with a rolling policy of supporting the current and previous LTS majors (currently 8 and 9).
 `.bazelversion` pins the version that generates the lockfiles.
 
 ## Public API boundary
@@ -65,7 +65,7 @@ Remaining test work: power interruption tests outside ordinary BCR workers, and 
 
 ## CI
 
-GitHub Actions runs the root and consumer suites on pinned Bazel 8.5.1 and 9.2.0, plus a weekly run that detects breakage from rolling releases.
+GitHub Actions runs the root and consumer suites on pinned Bazel 8.8.2 and 9.3.1, plus a weekly run that detects breakage from rolling releases.
 Bazel 8 validates the committed lockfiles strictly; Bazel 9 uses lockfile mode off and never rewrites them.
 Actions are pinned by commit SHA, permissions default to read-only, superseded branch builds are cancelled, and one conclusion job gates branch protection.
 

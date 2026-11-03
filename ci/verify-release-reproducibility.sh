@@ -12,7 +12,7 @@ make_removable() {
 cleanup() {
   for name in first second; do
     local output_root="$workspace/.reproducibility-output-$name"
-    USE_BAZEL_VERSION=8.5.1 bazel --output_user_root="$output_root" shutdown \
+    USE_BAZEL_VERSION=8.8.2 bazel --output_user_root="$output_root" shutdown \
       >/dev/null 2>&1 || true
     make_removable "$output_root"
     rm -rf "$output_root"
@@ -40,7 +40,7 @@ build_once() {
   local output_root="$workspace/.reproducibility-output-$name"
   make_removable "$output_root"
   rm -rf "$output_root"
-  USE_BAZEL_VERSION=8.5.1 bazel \
+  USE_BAZEL_VERSION=8.8.2 bazel \
     --output_user_root="$output_root" \
     build \
     --config=qualified \
@@ -63,7 +63,7 @@ build_once() {
       # The base archive and initrd are large; their digests suffice.
       *) (cd "$(dirname "$output")" && sha256sum "$(basename "$output")") >>"$results/$name/base.sha256" ;;
     esac
-  done < <(USE_BAZEL_VERSION=8.5.1 bazel \
+  done < <(USE_BAZEL_VERSION=8.8.2 bazel \
     --output_user_root="$output_root" \
     cquery --lockfile_mode=error --output=files \
     "set(${targets[*]})")

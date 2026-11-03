@@ -19,8 +19,8 @@ The monthly `Starlark coverage capability` workflow runs `ci/check-starlark-cove
 Run it locally with:
 
 ```console
-USE_BAZEL_VERSION=8.5.1 ./ci/check-starlark-coverage-support.sh
-USE_BAZEL_VERSION=9.2.0 ./ci/check-starlark-coverage-support.sh
+USE_BAZEL_VERSION=8.8.2 ./ci/check-starlark-coverage-support.sh
+USE_BAZEL_VERSION=9.3.1 ./ci/check-starlark-coverage-support.sh
 ```
 
 The script runs the probe in an isolated, temporary module and removes it afterwards.
