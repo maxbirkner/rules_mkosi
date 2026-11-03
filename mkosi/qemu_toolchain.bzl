@@ -66,14 +66,17 @@ qemu_executable = rule(
             allow_single_file = True,
             cfg = "exec",
             mandatory = True,
+            doc = "The QEMU system emulator binary.",
         ),
         "system_data": attr.label(
             allow_files = True,
             cfg = "exec",
             mandatory = True,
+            doc = "QEMU runtime data files.",
         ),
     },
     executable = True,
+    doc = "Wraps a QEMU system emulator binary and its runtime data as an executable target.",
 )
 
 def _qemu_ovmf_toolchain_impl(ctx):
@@ -112,6 +115,12 @@ def _qemu_ovmf_toolchain_impl(ctx):
         info,
     ]
 
+def _pinned_string(doc):
+    return attr.string(mandatory = True, doc = doc)
+
+def _pinned_file(doc):
+    return attr.label(allow_single_file = True, cfg = "exec", mandatory = True, doc = doc)
+
 qemu_ovmf_toolchain = rule(
     implementation = _qemu_ovmf_toolchain_impl,
     attrs = {
@@ -119,22 +128,17 @@ qemu_ovmf_toolchain = rule(
             default = "qemu-ovmf-v1",
             doc = "Output contract implemented by this toolchain.",
         ),
-        "qemu_version": attr.string(mandatory = True, doc = "Pinned QEMU version."),
-        "qemu_source_url": attr.string(mandatory = True, doc = "Immutable QEMU URL."),
-        "qemu_sha256": attr.string(mandatory = True, doc = "QEMU SHA-256 hash."),
-        "qemu_integrity": attr.string(mandatory = True, doc = "QEMU SRI integrity."),
+        "qemu_version": _pinned_string("Pinned QEMU version."),
+        "qemu_source_url": _pinned_string("Immutable QEMU URL."),
+        "qemu_sha256": _pinned_string("QEMU SHA-256 hash."),
+        "qemu_integrity": _pinned_string("QEMU SRI integrity."),
         "qemu_system": attr.label(
             cfg = "exec",
             executable = True,
             mandatory = True,
-            doc = "The QEMU system executable target.",
+            doc = "The qemu_executable target of the QEMU system emulator.",
         ),
-        "qemu_img": attr.label(
-            allow_single_file = True,
-            cfg = "exec",
-            mandatory = True,
-            doc = "The qemu-img executable.",
-        ),
+        "qemu_img": _pinned_file("The qemu-img executable."),
         "system_data": attr.label(
             allow_files = True,
             cfg = "exec",
@@ -147,39 +151,19 @@ qemu_ovmf_toolchain = rule(
             mandatory = True,
             doc = "QEMU runtime data directory.",
         ),
-        "seabios_version": attr.string(mandatory = True, doc = "Pinned SeaBIOS build identifier."),
-        "seabios": attr.label(
-            allow_single_file = True,
-            cfg = "exec",
-            mandatory = True,
-            doc = "Pinned SeaBIOS firmware.",
-        ),
-        "seabios_sha256": attr.string(mandatory = True, doc = "SeaBIOS firmware hash."),
-        "ovmf_version": attr.string(mandatory = True, doc = "Pinned OVMF version."),
-        "ovmf_source_url": attr.string(mandatory = True, doc = "Immutable OVMF URL."),
-        "ovmf_sha256": attr.string(mandatory = True, doc = "OVMF SHA-256 hash."),
-        "ovmf_integrity": attr.string(mandatory = True, doc = "OVMF SRI integrity."),
-        "ovmf_code": attr.label(
-            allow_single_file = True,
-            cfg = "exec",
-            mandatory = True,
-            doc = "OVMF_CODE firmware.",
-        ),
-        "ovmf_vars": attr.label(
-            allow_single_file = True,
-            cfg = "exec",
-            mandatory = True,
-            doc = "OVMF_VARS firmware.",
-        ),
-        "ovmf_shell": attr.label(
-            allow_single_file = True,
-            cfg = "exec",
-            mandatory = True,
-            doc = "UEFI shell executable.",
-        ),
-        "ovmf_code_sha256": attr.string(mandatory = True, doc = "OVMF_CODE hash."),
-        "ovmf_vars_sha256": attr.string(mandatory = True, doc = "OVMF_VARS hash."),
-        "ovmf_shell_sha256": attr.string(mandatory = True, doc = "UEFI shell hash."),
+        "seabios_version": _pinned_string("Pinned SeaBIOS build identifier."),
+        "seabios": _pinned_file("Pinned SeaBIOS firmware."),
+        "seabios_sha256": _pinned_string("SeaBIOS firmware hash."),
+        "ovmf_version": _pinned_string("Pinned OVMF version."),
+        "ovmf_source_url": _pinned_string("Immutable OVMF URL."),
+        "ovmf_sha256": _pinned_string("OVMF SHA-256 hash."),
+        "ovmf_integrity": _pinned_string("OVMF SRI integrity."),
+        "ovmf_code": _pinned_file("OVMF_CODE firmware."),
+        "ovmf_vars": _pinned_file("OVMF_VARS firmware."),
+        "ovmf_shell": _pinned_file("UEFI shell executable."),
+        "ovmf_code_sha256": _pinned_string("OVMF_CODE hash."),
+        "ovmf_vars_sha256": _pinned_string("OVMF_VARS hash."),
+        "ovmf_shell_sha256": _pinned_string("UEFI shell hash."),
     },
     doc = "Defines a Linux x86-64 QEMU and OVMF test toolchain.",
 )

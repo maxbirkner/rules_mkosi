@@ -4,13 +4,7 @@ load(":qemu_accelerator.bzl", "QEMU_ACCELERATOR_DOC", "qemu_accelerator_args")
 
 _QEMU_TOOLCHAIN_TYPE = "//mkosi/toolchain:qemu_toolchain_type"
 
-def _qemu_ovmf_smoke_test_impl(ctx):
-    toolchain = ctx.toolchains[_QEMU_TOOLCHAIN_TYPE].qemu
-    executable = ctx.actions.declare_file(ctx.label.name + ".sh")
-    ctx.actions.write(
-        output = executable,
-        is_executable = True,
-        content = """#!/bin/sh
+_SMOKE_TEST_SCRIPT = """#!/bin/sh
 set -eu
 PATH=
 export PATH
@@ -131,7 +125,15 @@ else
     /bin/cat "$TEST_TMPDIR/qmp.log" >&2 2>/dev/null || true
     exit 1
 fi
-""".format(
+"""
+
+def _qemu_ovmf_smoke_test_impl(ctx):
+    toolchain = ctx.toolchains[_QEMU_TOOLCHAIN_TYPE].qemu
+    executable = ctx.actions.declare_file(ctx.label.name + ".sh")
+    ctx.actions.write(
+        output = executable,
+        is_executable = True,
+        content = _SMOKE_TEST_SCRIPT.format(
             accelerator_args = " ".join(qemu_accelerator_args(ctx.attr.accelerator)),
             qemu = repr(toolchain.qemu_files_to_run.executable.short_path),
             qemu_img = repr(toolchain.qemu_img.short_path),
@@ -145,27 +147,23 @@ fi
             ovmf_shell_sha256 = repr(toolchain.ovmf_shell_sha256),
         ),
     )
-    return [
-        DefaultInfo(
-            executable = executable,
-            runfiles = ctx.runfiles(
-                files = [
-                    executable,
-                    toolchain.qemu_files_to_run.executable,
-                    toolchain.qemu_img,
-                    toolchain.system_data_anchor,
-                    toolchain.ovmf_code,
-                    toolchain.ovmf_vars,
-                    toolchain.ovmf_shell,
-                    ctx.file._firmware_validator,
-                ],
-                transitive_files = depset(transitive = [
-                    toolchain.system_data_files,
-                    toolchain.qemu_runfiles.files,
-                ]),
-            ),
-        ),
-    ]
+    runfiles = ctx.runfiles(
+        files = [
+            executable,
+            toolchain.qemu_files_to_run.executable,
+            toolchain.qemu_img,
+            toolchain.system_data_anchor,
+            toolchain.ovmf_code,
+            toolchain.ovmf_vars,
+            toolchain.ovmf_shell,
+            ctx.file._firmware_validator,
+        ],
+        transitive_files = depset(transitive = [
+            toolchain.system_data_files,
+            toolchain.qemu_runfiles.files,
+        ]),
+    )
+    return [DefaultInfo(executable = executable, runfiles = runfiles)]
 
 qemu_ovmf_smoke_test = rule(
     implementation = _qemu_ovmf_smoke_test_impl,

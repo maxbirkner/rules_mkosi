@@ -52,13 +52,15 @@ def _component_indexes(ctx):
             fail("Debian component %s must provide binary-amd64 and binary-all indexes" % component)
     return components, files
 
-def _impl(ctx):
-    if len(ctx.files.package_files) != len(ctx.attr.package_names):
-        fail("package_files and package_names must have the same length")
-    components, component_indexes = _component_indexes(ctx)
-    debian_tools = ctx.toolchains["//mkosi/toolchain:debian_tools_toolchain_type"].debian_tools
-    output = ctx.actions.declare_directory(ctx.label.name + "_repository")
-    scratch = ctx.actions.declare_directory(ctx.label.name + "_scratch")
+_METADATA_OPTIONS = [
+    ("inrelease", "inrelease"),
+    ("release", "release"),
+    ("release_gpg", "release-gpg"),
+    ("packages_xz", "packages-xz"),
+    ("packages_all_xz", "packages-all-xz"),
+]
+
+def _stager_arguments(ctx, launcher, output, scratch, component_indexes):
     arguments = ctx.actions.args()
     arguments.add("--inrelease", ctx.file.inrelease.path)
     arguments.add("--release", ctx.file.release_metadata.path)
@@ -67,15 +69,9 @@ def _impl(ctx):
     arguments.add("--packages-all-xz", ctx.file.packages_all_xz.path)
     arguments.add("--output", output.path)
     arguments.add("--scratch", scratch.path)
-    arguments.add("--launcher", debian_tools.launcher.executable.path)
+    arguments.add("--launcher", launcher.executable.path)
     arguments.add("--codename", ctx.attr.codename)
-    for name, option in [
-        ("inrelease", "inrelease"),
-        ("release", "release"),
-        ("release_gpg", "release-gpg"),
-        ("packages_xz", "packages-xz"),
-        ("packages_all_xz", "packages-all-xz"),
-    ]:
+    for name, option in _METADATA_OPTIONS:
         arguments.add("--%s-sha256" % option, ctx.attr.metadata_digests[name])
     arguments.add("--packages-path", ctx.attr.packages_path)
     arguments.add("--packages-all-path", ctx.attr.packages_all_path)
@@ -87,30 +83,46 @@ def _impl(ctx):
     for package, name in zip(ctx.files.package_files, ctx.attr.package_names):
         arguments.add("--package-file", package.path)
         arguments.add("--package-name", name)
-    runtime = debian_tools.python_files_to_run
+    return arguments
+
+def _metadata_files(ctx):
+    return [
+        ctx.file.inrelease,
+        ctx.file.release_metadata,
+        ctx.file.release_gpg,
+        ctx.file.packages_xz,
+        ctx.file.packages_all_xz,
+    ]
+
+def _stage_repository(ctx, component_indexes, output, scratch):
+    debian_tools = ctx.toolchains["//mkosi/toolchain:debian_tools_toolchain_type"].debian_tools
+    python = debian_tools.python
     ctx.actions.run(
-        executable = debian_tools.python,
-        arguments = ["-I", ctx.file._stager.path, arguments],
-        inputs = depset(
-            [
-                ctx.file.inrelease,
-                ctx.file.release_metadata,
-                ctx.file.release_gpg,
-                ctx.file.packages_xz,
-                ctx.file.packages_all_xz,
-                ctx.file._stager,
-            ] + component_indexes + ctx.files.package_files,
-        ),
-        tools = [runtime, debian_tools.launcher],
+        executable = python,
+        arguments = [
+            "-I",
+            ctx.file._stager.path,
+            _stager_arguments(ctx, debian_tools.launcher, output, scratch, component_indexes),
+        ],
+        inputs = depset(_metadata_files(ctx) + [ctx.file._stager] + component_indexes + ctx.files.package_files),
+        tools = [debian_tools.python_files_to_run, debian_tools.launcher],
         outputs = [output, scratch],
         env = {
             "PATH": "",
-            "PYTHONHOME": debian_tools.python.path[:debian_tools.python.path.rfind("/")],
+            "PYTHONHOME": python.path[:python.path.rfind("/")],
             "PYTHONNOUSERSITE": "1",
         },
         mnemonic = "StageDebianSnapshot",
         progress_message = "Staging authenticated Debian snapshot %{label}",
     )
+
+def _impl(ctx):
+    if len(ctx.files.package_files) != len(ctx.attr.package_names):
+        fail("package_files and package_names must have the same length")
+    components, component_indexes = _component_indexes(ctx)
+    output = ctx.actions.declare_directory(ctx.label.name + "_repository")
+    scratch = ctx.actions.declare_directory(ctx.label.name + "_scratch")
+    _stage_repository(ctx, component_indexes, output, scratch)
     repository = DebianSnapshotInfo(
         format_version = ctx.attr.format_version,
         distribution = ctx.attr.distribution,
@@ -124,9 +136,7 @@ def _impl(ctx):
         repository = output,
         inrelease = ctx.file.inrelease,
         release_metadata = ctx.file.release_metadata,
-        packages_metadata = depset(
-            [ctx.file.packages_xz, ctx.file.packages_all_xz] + component_indexes,
-        ),
+        packages_metadata = depset([ctx.file.packages_xz, ctx.file.packages_all_xz] + component_indexes),
         package_files = depset(ctx.files.package_files),
     )
     return [repository, DefaultInfo(files = depset([output]))]
@@ -134,24 +144,33 @@ def _impl(ctx):
 debian_snapshot = rule(
     implementation = _impl,
     attrs = {
-        "format_version": attr.string(default = "debian-snapshot-v1"),
-        "distribution": attr.string(default = "debian"),
-        "release": attr.string(default = "13"),
-        "codename": attr.string(default = "trixie"),
-        "architecture": attr.string(default = "amd64"),
-        "snapshot": attr.string(mandatory = True),
-        "snapshot_url": attr.string(mandatory = True),
-        "lock_sha256": attr.string(mandatory = True),
-        "inrelease": attr.label(mandatory = True, allow_single_file = True),
-        "release_metadata": attr.label(mandatory = True, allow_single_file = True),
-        "release_gpg": attr.label(mandatory = True, allow_single_file = True),
-        "packages_xz": attr.label(mandatory = True, allow_single_file = True),
-        "packages_all_xz": attr.label(mandatory = True, allow_single_file = True),
-        "package_files": attr.label_list(mandatory = True, allow_files = True),
-        "package_names": attr.string_list(mandatory = True),
-        "package_records": attr.string_list(mandatory = True),
-        "packages_path": attr.string(default = "dists/trixie/main/binary-amd64/Packages.xz"),
-        "packages_all_path": attr.string(default = "dists/trixie/main/binary-all/Packages.xz"),
+        "format_version": attr.string(default = "debian-snapshot-v1", doc = "Repository layout contract version."),
+        "distribution": attr.string(default = "debian", doc = "Distribution name."),
+        "release": attr.string(default = "13", doc = "Numeric Debian release."),
+        "codename": attr.string(default = "trixie", doc = "Debian codename."),
+        "architecture": attr.string(default = "amd64", doc = "Package architecture."),
+        "snapshot": attr.string(mandatory = True, doc = "Immutable snapshot identifier, such as 20250814T000000Z."),
+        "snapshot_url": attr.string(mandatory = True, doc = "Immutable snapshot URL."),
+        "lock_sha256": attr.string(mandatory = True, doc = "SHA-256 of the lock that pins the repository and packages."),
+        "inrelease": attr.label(mandatory = True, allow_single_file = True, doc = "Signed InRelease metadata."),
+        "release_metadata": attr.label(mandatory = True, allow_single_file = True, doc = "Release metadata."),
+        "release_gpg": attr.label(mandatory = True, allow_single_file = True, doc = "Detached Release.gpg signature."),
+        "packages_xz": attr.label(mandatory = True, allow_single_file = True, doc = "main binary-amd64 Packages.xz."),
+        "packages_all_xz": attr.label(mandatory = True, allow_single_file = True, doc = "main binary-all Packages.xz."),
+        "package_files": attr.label_list(mandatory = True, allow_files = True, doc = "Locked .deb files."),
+        "package_names": attr.string_list(mandatory = True, doc = "Repository-local names of package_files, in order."),
+        "package_records": attr.string_list(
+            mandatory = True,
+            doc = "name|version|architecture|filename|size|sha256|local name records of the locked packages.",
+        ),
+        "packages_path": attr.string(
+            default = "dists/trixie/main/binary-amd64/Packages.xz",
+            doc = "Repository path of packages_xz.",
+        ),
+        "packages_all_path": attr.string(
+            default = "dists/trixie/main/binary-all/Packages.xz",
+            doc = "Repository path of packages_all_xz.",
+        ),
         "component_packages": attr.label_list(
             allow_files = True,
             doc = "Packages.xz indexes of components other than main, aligned with component_package_records.",
@@ -159,7 +178,10 @@ debian_snapshot = rule(
         "component_package_records": attr.string_list(
             doc = "component|architecture|path|sha256 records for component_packages.",
         ),
-        "metadata_digests": attr.string_dict(mandatory = True),
+        "metadata_digests": attr.string_dict(
+            mandatory = True,
+            doc = "SHA-256 of inrelease, release, release_gpg, packages_xz and packages_all_xz, keyed by those names.",
+        ),
         "_stager": attr.label(
             allow_single_file = True,
             default = "//mkosi/private:debian_snapshot.py",
@@ -170,5 +192,8 @@ debian_snapshot = rule(
         "@platforms//os:linux",
         "@platforms//cpu:x86_64",
     ],
-    doc = "Materializes an authenticated local APT repository from a pinned Debian snapshot.",
+    doc = """Materializes an authenticated local APT repository from a pinned Debian snapshot.
+
+Declare it through the debian_tools.snapshot module extension, which generates these attributes from a lock.
+""",
 )

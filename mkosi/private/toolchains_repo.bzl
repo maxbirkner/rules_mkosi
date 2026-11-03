@@ -1,22 +1,6 @@
 """Repository rule that exposes registered mkosi and QEMU toolchains."""
 
-def _toolchains_repo_impl(repository_ctx):
-    repository_ctx.download_and_extract(
-        url = repository_ctx.attr.source_url,
-        sha256 = repository_ctx.attr.source_sha256,
-        stripPrefix = repository_ctx.attr.strip_prefix,
-    )
-    repository_ctx.symlink(
-        repository_ctx.path(repository_ctx.attr.seabios_source).get_child("bios-256k.bin"),
-        "seabios.bin",
-    )
-    repository_ctx.download_and_extract(
-        url = repository_ctx.attr.ovmf_source_url,
-        sha256 = repository_ctx.attr.ovmf_sha256,
-        stripPrefix = repository_ctx.attr.ovmf_strip_prefix,
-    )
-
-    mkosi_build = '''load("@rules_mkosi//mkosi:toolchain.bzl", "managed_python_tool", "mkosi_toolchain")
+_MKOSI_BUILD = '''load("@rules_mkosi//mkosi:toolchain.bzl", "managed_python_tool", "mkosi_toolchain")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -65,18 +49,9 @@ toolchain(
     toolchain = ":mkosi_toolchain",
     toolchain_type = "@rules_mkosi//mkosi/toolchain:toolchain_type",
 )
-'''.format(
-        toolchain_name = repr(repository_ctx.attr.toolchain_name),
-        version = repr(repository_ctx.attr.version),
-        source_url = repr(repository_ctx.attr.source_url),
-        source_sha256 = repr(repository_ctx.attr.source_sha256),
-        source_integrity = repr(repository_ctx.attr.source_integrity),
-        python_version = repr(repository_ctx.attr.python_version),
-        python_dependencies = repr(repository_ctx.attr.python_dependencies),
-        python_import_dependency_repr = repr(repository_ctx.attr.python_import_dependencies[0]),
-    )
+'''
 
-    qemu_build = '''load("@rules_mkosi//mkosi:defs.bzl", "qemu_executable", "qemu_ovmf_toolchain")
+_QEMU_BUILD = '''load("@rules_mkosi//mkosi:defs.bzl", "qemu_executable", "qemu_ovmf_toolchain")
 
 qemu_executable(
     name = "qemu_system_executable",
@@ -138,24 +113,65 @@ toolchain(
     toolchain = ":qemu_ovmf_toolchain",
     toolchain_type = "@rules_mkosi//mkosi/toolchain:qemu_toolchain_type",
 )
-'''.format(
-        qemu_system = repr(repository_ctx.attr.qemu_system),
-        qemu_img = repr(repository_ctx.attr.qemu_img),
-        system_data = repr(repository_ctx.attr.system_data),
-        seabios_version = repr(repository_ctx.attr.seabios_version),
-        seabios_sha256 = repr(repository_ctx.attr.seabios_sha256),
-        qemu_version = repr(repository_ctx.attr.qemu_version),
-        qemu_source_url = repr(repository_ctx.attr.qemu_source_url),
-        qemu_sha256 = repr(repository_ctx.attr.qemu_sha256),
-        qemu_integrity = repr(repository_ctx.attr.qemu_integrity),
-        ovmf_version = repr(repository_ctx.attr.ovmf_version),
-        ovmf_source_url = repr(repository_ctx.attr.ovmf_source_url),
-        ovmf_sha256 = repr(repository_ctx.attr.ovmf_sha256),
-        ovmf_integrity = repr(repository_ctx.attr.ovmf_integrity),
-        ovmf_code_sha256 = repr(repository_ctx.attr.ovmf_code_sha256),
-        ovmf_vars_sha256 = repr(repository_ctx.attr.ovmf_vars_sha256),
-        ovmf_shell_sha256 = repr(repository_ctx.attr.ovmf_shell_sha256),
+'''
+
+_MKOSI_BUILD_ATTRS = [
+    "toolchain_name",
+    "version",
+    "source_url",
+    "source_sha256",
+    "source_integrity",
+    "python_version",
+    "python_dependencies",
+]
+
+_QEMU_BUILD_ATTRS = [
+    "qemu_system",
+    "qemu_img",
+    "system_data",
+    "seabios_version",
+    "seabios_sha256",
+    "qemu_version",
+    "qemu_source_url",
+    "qemu_sha256",
+    "qemu_integrity",
+    "ovmf_version",
+    "ovmf_source_url",
+    "ovmf_sha256",
+    "ovmf_integrity",
+    "ovmf_code_sha256",
+    "ovmf_vars_sha256",
+    "ovmf_shell_sha256",
+]
+
+def _repr_attrs(attrs, names):
+    return {name: repr(getattr(attrs, name)) for name in names}
+
+def _fetch_sources(repository_ctx):
+    attrs = repository_ctx.attr
+    repository_ctx.download_and_extract(
+        url = attrs.source_url,
+        sha256 = attrs.source_sha256,
+        stripPrefix = attrs.strip_prefix,
     )
+    repository_ctx.symlink(
+        repository_ctx.path(attrs.seabios_source).get_child("bios-256k.bin"),
+        "seabios.bin",
+    )
+    repository_ctx.download_and_extract(
+        url = attrs.ovmf_source_url,
+        sha256 = attrs.ovmf_sha256,
+        stripPrefix = attrs.ovmf_strip_prefix,
+    )
+
+def _toolchains_repo_impl(repository_ctx):
+    attrs = repository_ctx.attr
+    _fetch_sources(repository_ctx)
+    mkosi_build = _MKOSI_BUILD.format(
+        python_import_dependency_repr = repr(attrs.python_import_dependencies[0]),
+        **_repr_attrs(attrs, _MKOSI_BUILD_ATTRS)
+    )
+    qemu_build = _QEMU_BUILD.format(**_repr_attrs(attrs, _QEMU_BUILD_ATTRS))
     repository_ctx.file("BUILD.bazel", mkosi_build + qemu_build)
 
     if hasattr(repository_ctx, "repo_metadata"):

@@ -110,6 +110,59 @@ def _hex32(value):
 def _rotate_right(value, count):
     return ((value >> count) | (value << (32 - count))) & _MASK
 
+def _padded_message(data):
+    """Returns the bytes of data followed by the SHA-256 padding and bit length."""
+    message = []
+    for character in data.elems():
+        if character not in _BYTE_VALUES:
+            fail("sha256_hex input must be a byte string")
+        message.append(_BYTE_VALUES[character])
+    bit_length = len(message) * 8
+    message.append(0x80)
+    message.extend([0] * ((56 - len(message) % 64) % 64))
+    message.extend([(bit_length >> shift) & 0xff for shift in range(56, -8, -8)])
+    return message
+
+def _message_schedule(message, offset):
+    """Returns the 64 schedule words of the 64-byte block at offset."""
+    schedule = [
+        (message[offset + 4 * index] << 24) |
+        (message[offset + 4 * index + 1] << 16) |
+        (message[offset + 4 * index + 2] << 8) |
+        message[offset + 4 * index + 3]
+        for index in range(16)
+    ]
+    for index in range(16, 64):
+        previous = schedule[index - 15]
+        recent = schedule[index - 2]
+        sigma0 = _rotate_right(previous, 7) ^ _rotate_right(previous, 18) ^ (previous >> 3)
+        sigma1 = _rotate_right(recent, 17) ^ _rotate_right(recent, 19) ^ (recent >> 10)
+        schedule.append((schedule[index - 16] + sigma0 + schedule[index - 7] + sigma1) & _MASK)
+    return schedule
+
+def _compress(state, schedule):
+    """Returns the state after processing one block's schedule."""
+    a, b, c, d, e, f, g, h = state
+    for index in range(64):
+        sum1 = _rotate_right(e, 6) ^ _rotate_right(e, 11) ^ _rotate_right(e, 25)
+        choice = (e & f) ^ (~e & _MASK & g)
+        first = (h + sum1 + choice + _ROUND_CONSTANTS[index] + schedule[index]) & _MASK
+        sum0 = _rotate_right(a, 2) ^ _rotate_right(a, 13) ^ _rotate_right(a, 22)
+        majority = (a & b) ^ (a & c) ^ (b & c)
+        second = (sum0 + majority) & _MASK
+        h = g
+        g = f
+        f = e
+        e = (d + first) & _MASK
+        d = c
+        c = b
+        b = a
+        a = (first + second) & _MASK
+    return [
+        (value + update) & _MASK
+        for value, update in zip(state, [a, b, c, d, e, f, g, h])
+    ]
+
 def sha256_hex(data):
     """Returns the lowercase hexadecimal SHA-256 digest of a byte string.
 
@@ -122,49 +175,8 @@ def sha256_hex(data):
     Returns:
       The 64-character lowercase hexadecimal digest.
     """
-    message = []
-    for character in data.elems():
-        if character not in _BYTE_VALUES:
-            fail("sha256_hex input must be a byte string")
-        message.append(_BYTE_VALUES[character])
-    bit_length = len(message) * 8
-    message.append(0x80)
-    message.extend([0] * ((56 - len(message) % 64) % 64))
-    message.extend([(bit_length >> shift) & 0xff for shift in range(56, -8, -8)])
-
+    message = _padded_message(data)
     state = list(_INITIAL_STATE)
     for offset in range(0, len(message), 64):
-        schedule = [
-            (message[offset + 4 * index] << 24) |
-            (message[offset + 4 * index + 1] << 16) |
-            (message[offset + 4 * index + 2] << 8) |
-            message[offset + 4 * index + 3]
-            for index in range(16)
-        ]
-        for index in range(16, 64):
-            previous = schedule[index - 15]
-            recent = schedule[index - 2]
-            sigma0 = _rotate_right(previous, 7) ^ _rotate_right(previous, 18) ^ (previous >> 3)
-            sigma1 = _rotate_right(recent, 17) ^ _rotate_right(recent, 19) ^ (recent >> 10)
-            schedule.append((schedule[index - 16] + sigma0 + schedule[index - 7] + sigma1) & _MASK)
-        a, b, c, d, e, f, g, h = state
-        for index in range(64):
-            sum1 = _rotate_right(e, 6) ^ _rotate_right(e, 11) ^ _rotate_right(e, 25)
-            choice = (e & f) ^ (~e & _MASK & g)
-            first = (h + sum1 + choice + _ROUND_CONSTANTS[index] + schedule[index]) & _MASK
-            sum0 = _rotate_right(a, 2) ^ _rotate_right(a, 13) ^ _rotate_right(a, 22)
-            majority = (a & b) ^ (a & c) ^ (b & c)
-            second = (sum0 + majority) & _MASK
-            h = g
-            g = f
-            f = e
-            e = (d + first) & _MASK
-            d = c
-            c = b
-            b = a
-            a = (first + second) & _MASK
-        state = [
-            (value + update) & _MASK
-            for value, update in zip(state, [a, b, c, d, e, f, g, h])
-        ]
+        state = _compress(state, _message_schedule(message, offset))
     return "".join([_hex32(value) for value in state])

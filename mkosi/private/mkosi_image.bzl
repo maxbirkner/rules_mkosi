@@ -1,86 +1,101 @@
-"""Implementation of the public mkosi_image rule."""
+"""Rules and providers that build mkosi images."""
 
 load("//mkosi/private:debian_snapshot.bzl", "DebianSnapshotInfo")
 load("//mkosi/private:image_identity.bzl", "validate_image_id", "validate_image_version", "validate_slot_labels")
+load(
+    ":image_metadata.bzl",
+    "IMAGE_METADATA_ATTRS",
+    "project_partition_metadata",
+    "project_uki_metadata",
+    "project_verity_metadata",
+    "write_build_metadata",
+)
+load(
+    ":mkosi_action.bzl",
+    "MKOSI_BUILD_ATTRS",
+    "MKOSI_BUILD_EXEC_CONSTRAINTS",
+    "MKOSI_BUILD_TOOLCHAINS",
+    "add_build_arguments",
+    "add_output_arguments",
+    "add_release_arguments",
+    "add_staging_arguments",
+    "mkosi_arguments",
+    "mkosi_tool_inputs",
+    "run_mkosi",
+)
+load(":python_action.bzl", "MKOSI_TOOLCHAIN_TYPE", "run_python")
+load(":staging.bzl", "executable_paths", "normalise_destination", "normalise_image_destination", "stage_inputs")
 
 MkosiImageInfo = provider(
-    doc = """Stable output contract for mkosi_image.
+    doc = """Outputs of mkosi_image.
 
-Consumers select artifacts through these fields, never by inspecting
-DefaultInfo filenames. Every artifact field is either a File or None. The
-raw_image and build_metadata fields are present for every currently supported
-mkosi_image target; release images also provide partition_metadata. Immutable
-UEFI release images additionally expose their UKI, split verity artifacts, and
-normalized metadata. DefaultInfo
-contains every non-None artifact field once.
-The image field is a compatibility alias for raw_image.
+Select artifacts through these fields rather than DefaultInfo filenames. Every artifact field is a File or None,
+and DefaultInfo contains every artifact that is not None. raw_image and build_metadata are always set, release
+images add partition_metadata, and UEFI release images add their UKI, split dm-verity artifacts and metadata.
 """,
     fields = {
-        "format_version": "Stable MkosiImageInfo contract version, currently mkosi-image-v2.",
-        "raw_image": "The raw disk image File, or None when an output mode does not produce one.",
-        "manifest": "The mkosi manifest File, or None when manifest generation is disabled.",
-        "partition_metadata": "Normalized, validated GPT partition metadata File for release images, or None.",
-        "uki": "The Unified Kernel Image File, or None when no UKI is generated.",
-        "root_image": "Split root filesystem image, or None.",
+        "format_version": "Contract version, currently mkosi-image-v2.",
+        "raw_image": "The raw disk image.",
+        "manifest": "The mkosi manifest; currently always None.",
+        "partition_metadata": "Validated, normalized GPT partition metadata of a release image, or None.",
+        "uki": "The unsigned Unified Kernel Image, or None.",
+        "root_image": "Split root filesystem partition, or None.",
         "root_hash": "ASCII dm-verity root hash, or None.",
         "root_hash_image": "Split dm-verity hash partition, or None.",
-        "root_hash_signature": "Split dm-verity signature partition, or None.",
+        "root_hash_signature": "Split dm-verity signature partition; currently always None.",
         "uki_metadata": "Normalized UKI section metadata, or None.",
         "verity_metadata": "Normalized dm-verity linkage metadata, or None.",
-        "build_metadata": "Normalized JSON build-metadata File describing this contract's output modes.",
-        "firmware": "Selected firmware tier: uefi or bios.",
-        "image_id": "Explicit os-release IMAGE_ID string, or None when not selected by the rule.",
-        "image_version": "Explicit os-release IMAGE_VERSION string known during analysis, or None.",
-        "image_version_file": """File holding the os-release IMAGE_VERSION selected through image_version_file, or None.
+        "build_metadata": "Normalized JSON metadata describing the build settings and output roles.",
+        "firmware": "Firmware tier: uefi or bios.",
+        "image_id": "os-release IMAGE_ID set by the rule, or None.",
+        "image_version": "os-release IMAGE_VERSION set by the rule during analysis, or None.",
+        "image_version_file": """File holding the os-release IMAGE_VERSION set through image_version_file, or None.
 
-The version is only known when actions run. The file holds letters, digits and '.' optionally followed by one
-newline; every rules_mkosi action that reads it validates it. At most one of image_version and image_version_file
-is set.""",
-        "image": "Deprecated compatibility alias for raw_image; use raw_image in new consumers.",
+The content is letters, digits and '.', optionally followed by one newline. At most one of image_version and
+image_version_file is set.""",
+        "image": "Deprecated alias for raw_image.",
     },
 )
 
 MkosiConfigTreeInfo = provider(
-    doc = "Explicitly typed mkosi configuration tree.",
+    doc = "An mkosi configuration directory.",
     fields = {
-        "tree": "The declared configuration directory artifact.",
-        "executable_paths": "Relative paths that must retain executable mode.",
+        "tree": "The configuration directory artifact.",
+        "executable_paths": "Relative paths that must keep their executable mode.",
         "is_generated": "Whether the tree is a generated TreeArtifact.",
     },
 )
 
 MkosiBaseInfo = provider(
-    doc = """Version-independent output of mkosi_base, finalized by mkosi_image(base = ...).
+    doc = """Version-independent root and initrd of a release image, built by mkosi_base.
 
-The base is the installed release root and the default initrd built from the same
-packages. It does not depend on an image version, so it is rebuilt only when its
-configuration, payloads, snapshot, or toolchains change.
+mkosi_image(base = ...) finalizes it for one image version.
 """,
     fields = {
-        "format_version": "Stable MkosiBaseInfo contract version, currently mkosi-base-v1.",
-        "root_tree": "Reproducible tar archive of the installed root, passed to mkosi as BaseTrees=.",
-        "initrd": "mkosi's default initrd for root_tree, passed to mkosi as Initrds=.",
-        "debian_snapshot": "The DebianSnapshotInfo whose packages root_tree and initrd contain.",
-        "release_seed": "The resolved Seed= UUID string shared by the base and its finalization.",
-        "release_source_date_epoch": "The resolved SourceDateEpoch= shared by the base and its finalization.",
+        "format_version": "Contract version, currently mkosi-base-v1.",
+        "root_tree": "Reproducible tar archive of the installed root, used as mkosi BaseTrees=.",
+        "initrd": "mkosi's default initrd for root_tree, used as mkosi Initrds=.",
+        "debian_snapshot": "DebianSnapshotInfo of the packages in root_tree and initrd.",
+        "release_seed": "Seed= UUID shared by the base and its finalization.",
+        "release_source_date_epoch": "SourceDateEpoch= shared by the base and its finalization.",
     },
 )
 
 MkosiSourceTreeInfo = provider(
-    doc = "Explicitly typed mkosi BuildSources tree.",
+    doc = "A directory mounted for mkosi BuildSources=.",
     fields = {
-        "tree": "The declared source directory artifact.",
-        "executable_paths": "Relative paths that must retain executable mode.",
+        "tree": "The source directory artifact.",
+        "executable_paths": "Relative paths that must keep their executable mode.",
         "is_generated": "Whether the tree is a generated TreeArtifact.",
     },
 )
 
 MkosiRootfsPayloadInfo = provider(
-    doc = "Typed file or tree installed into an explicit image-root destination.",
+    doc = "A file or directory installed at an absolute destination in the image root.",
     fields = {
-        "artifact": "The declared file or directory artifact.",
-        "destination": "Normalized absolute destination inside the image root.",
-        "executable_paths": "Relative tree paths, or an empty string for a file, that must be executable.",
+        "artifact": "The file or directory artifact.",
+        "destination": "Normalized absolute destination in the image root.",
+        "executable_paths": "Relative paths in a directory, or [''] for a file, that must be executable.",
         "is_tree": "Whether artifact is a directory whose contents are installed at destination.",
         "is_generated": "Whether artifact is generated rather than a source artifact.",
     },
@@ -105,13 +120,13 @@ mkosi_config_tree = rule(
         "src": attr.label(
             mandatory = True,
             allow_files = True,
-            doc = "A declared configuration directory, including mkosi.conf.",
+            doc = "A configuration directory that contains mkosi.conf.",
         ),
         "executable_paths": attr.string_list(
             doc = "Relative configuration-tree paths that must be executable.",
         ),
     },
-    doc = "Marks a label as an mkosi configuration tree.",
+    doc = "Marks a directory as an mkosi configuration tree.",
 )
 
 mkosi_source_tree = rule(
@@ -120,25 +135,31 @@ mkosi_source_tree = rule(
         "src": attr.label(
             mandatory = True,
             allow_files = True,
-            doc = "A declared directory mounted for mkosi BuildSources.",
+            doc = "A directory mounted for mkosi BuildSources=.",
         ),
         "executable_paths": attr.string_list(
             doc = "Relative source-tree paths that must be executable.",
         ),
     },
-    doc = "Marks a label as an mkosi BuildSources tree.",
+    doc = "Marks a directory as an mkosi BuildSources= tree.",
 )
+
+def _single_input(target, attribute):
+    files = target.files.to_list()
+    if len(files) != 1:
+        fail("{} must resolve to exactly one single file or directory, got {}".format(attribute, len(files)))
+    return files[0]
 
 def _rootfs_payload_impl(ctx):
     artifact = _single_input(ctx.attr.src, "src")
-    destination = _normalise_image_destination(ctx.attr.destination)
+    destination = normalise_image_destination(ctx.attr.destination)
     is_tree = artifact.is_directory
     executable_paths = ctx.attr.executable_paths
     if not is_tree and executable_paths not in ([], [""]):
         fail("file rootfs payload executable_paths must be empty or ['']")
     for path in executable_paths:
         if path:
-            _normalise_destination(path, "executable_paths")
+            normalise_destination(path, "executable_paths")
     return [
         DefaultInfo(files = depset([artifact])),
         MkosiRootfsPayloadInfo(
@@ -156,66 +177,61 @@ mkosi_rootfs_payload = rule(
         "src": attr.label(
             mandatory = True,
             allow_files = True,
-            doc = "A single source or generated Bazel file or directory artifact.",
+            doc = "A single source or generated file or directory.",
         ),
         "destination": attr.string(
             mandatory = True,
-            doc = "Normalized absolute path at which to install the file or tree.",
+            doc = "Normalized absolute path at which to install the file or the directory contents.",
         ),
         "executable_paths": attr.string_list(
-            doc = "Relative file paths to make executable; use [''] for a file payload.",
+            doc = "Relative paths in a directory to make executable; use [''] for an executable file.",
         ),
     },
-    doc = "Declares a deterministic root-owned payload for installation into an image.",
+    doc = "Declares a root-owned file or directory to install into an image.",
 )
+
+def _reproducibility_arguments(ctx, image, split_artifacts, output):
+    arguments = ctx.actions.args()
+    arguments.add(ctx.file._projector.path)
+    arguments.add("--raw-image")
+    arguments.add(image.raw_image.path)
+    arguments.add("--build-metadata")
+    arguments.add(image.build_metadata.path)
+    arguments.add("--partition-metadata")
+    arguments.add(image.partition_metadata.path)
+    for role, artifact in split_artifacts:
+        arguments.add("--artifact")
+        arguments.add(role)
+        arguments.add(artifact.path)
+    arguments.add("--output")
+    arguments.add(output.path)
+    return arguments
 
 def _mkosi_reproducibility_manifest_impl(ctx):
     image = ctx.attr.image[MkosiImageInfo]
     if image.raw_image == None or image.build_metadata == None or image.partition_metadata == None:
         fail("image must provide raw_image, build_metadata, and partition_metadata")
-
-    output = ctx.actions.declare_file(ctx.label.name + ".reproducibility.json")
-    mkosi = ctx.toolchains["//mkosi/toolchain:toolchain_type"].mkosi
-    args = ctx.actions.args()
-    args.add(ctx.file._projector.path)
-    args.add("--raw-image")
-    args.add(image.raw_image.path)
-    args.add("--build-metadata")
-    args.add(image.build_metadata.path)
-    args.add("--partition-metadata")
-    args.add(image.partition_metadata.path)
     split_artifacts = [
-        ("root_image", image.root_image),
-        ("root_hash", image.root_hash),
-        ("root_hash_image", image.root_hash_image),
-        ("uki", image.uki),
-        ("uki_metadata", image.uki_metadata),
-        ("verity_metadata", image.verity_metadata),
+        (role, getattr(image, role))
+        for role in ["root_image", "root_hash", "root_hash_image", "uki", "uki_metadata", "verity_metadata"]
+        if getattr(image, role) != None
     ]
-    for role, artifact in split_artifacts:
-        if artifact != None:
-            args.add("--artifact")
-            args.add(role)
-            args.add(artifact.path)
-    args.add("--output")
-    args.add(output.path)
-    ctx.actions.run(
-        executable = mkosi.python,
-        arguments = [args],
-        inputs = depset(
-            [image.raw_image, image.build_metadata, image.partition_metadata, ctx.file._partition_projector, ctx.file._projector] +
-            [ctx.file._gpt_partitions] +
-            [artifact for _, artifact in split_artifacts if artifact != None],
-            transitive = [mkosi.python_runtime_files],
-        ),
-        tools = [mkosi.python_files_to_run],
+    output = ctx.actions.declare_file(ctx.label.name + ".reproducibility.json")
+    arguments = _reproducibility_arguments(ctx, image, split_artifacts, output)
+    run_python(
+        ctx,
+        arguments = [arguments],
+        inputs = [
+            image.raw_image,
+            image.build_metadata,
+            image.partition_metadata,
+            ctx.file._partition_projector,
+            ctx.file._projector,
+            ctx.file._gpt_partitions,
+        ] + [artifact for _, artifact in split_artifacts],
         outputs = [output],
         mnemonic = "MkosiReproducibilityManifest",
         progress_message = "Projecting reproducibility manifest for %{label}",
-        env = {
-            "PATH": "",
-            "PYTHONNOUSERSITE": "1",
-        },
     )
     return [DefaultInfo(files = depset([output]))]
 
@@ -225,7 +241,7 @@ mkosi_reproducibility_manifest = rule(
         "image": attr.label(
             mandatory = True,
             providers = [MkosiImageInfo],
-            doc = "Release-mode image whose immutable outputs are projected.",
+            doc = "Release image whose immutable outputs are hashed.",
         ),
         "_gpt_partitions": attr.label(
             cfg = "exec",
@@ -243,310 +259,51 @@ mkosi_reproducibility_manifest = rule(
             allow_single_file = True,
         ),
     },
-    doc = "Produces a normalized JSON manifest of an image's immutable content hashes.",
-    toolchains = ["//mkosi/toolchain:toolchain_type"],
+    doc = "Writes a normalized JSON manifest of the content hashes of a release image's immutable outputs.",
+    toolchains = [MKOSI_TOOLCHAIN_TYPE],
 )
 
-def _normalise_destination(destination, attribute):
-    """Validates a path inside the staged mkosi directory."""
-    if not destination:
-        fail("{} entries must have a non-empty relative destination".format(attribute))
-    if destination.startswith("/") or "\\" in destination:
-        fail("{} destination '{}' must be relative".format(attribute, destination))
-
-    parts = destination.split("/")
-    if any([part in ("", ".", "..") for part in parts]):
-        fail("{} destination '{}' is not a normalized relative path".format(attribute, destination))
-    return "/".join(parts)
-
-def _normalise_image_destination(destination):
-    if not destination.startswith("/") or destination == "/":
-        fail("rootfs payload destination '{}' must be an absolute path below /".format(destination))
-    return "/" + _normalise_destination(destination[1:], "rootfs payload")
-
-def _single_input(target, attribute):
-    files = target.files.to_list()
-    if len(files) != 1:
-        fail("{} must resolve to exactly one single file or directory, got {}".format(attribute, len(files)))
-    return files[0]
-
-def _image_default_info(
-        raw_image,
-        manifest,
-        partition_metadata,
-        uki,
-        root_image,
-        root_hash,
-        root_hash_image,
-        root_hash_signature,
-        uki_metadata,
-        verity_metadata,
-        build_metadata):
-    """Returns the DefaultInfo projection of the MkosiImageInfo artifacts."""
-    return DefaultInfo(
-        files = depset([
-            artifact
-            for artifact in [
-                raw_image,
-                manifest,
-                partition_metadata,
-                uki,
-                root_image,
-                root_hash,
-                root_hash_image,
-                root_hash_signature,
-                uki_metadata,
-                verity_metadata,
-                build_metadata,
-            ]
-            if artifact != None
-        ]),
+def _release_from_attrs(ctx):
+    return struct(
+        snapshot = ctx.attr.debian_snapshot[DebianSnapshotInfo],
+        seed = ctx.attr.release_seed,
+        source_date_epoch = ctx.attr.release_source_date_epoch,
     )
 
-def _stage_inputs(ctx, config, config_is_directory, source_trees, rootfs_payloads):
-    staging = ctx.actions.declare_directory(ctx.label.name + ".mkosi")
-    manifest = ctx.actions.declare_file(ctx.label.name + ".mkosi.manifest")
-    mappings = []
-
-    if config_is_directory:
-        mappings.append((
-            config.path,
-            ".",
-            "generated-tree" if ctx.attr.config_tree[MkosiConfigTreeInfo].is_generated else "tree",
-        ))
-    else:
-        mappings.append((config.path, config.basename, "file"))
-
-    for destination in sorted(source_trees):
-        mappings.append((
-            source_trees[destination].tree.path,
-            destination,
-            "generated-tree" if source_trees[destination].is_generated else "tree",
-        ))
-    for payload in rootfs_payloads:
-        mappings.append((
-            payload.artifact.path,
-            "mkosi.extra" + payload.destination,
-            (
-                "generated-tree" if payload.is_tree and payload.is_generated else "tree" if payload.is_tree else "file"
-            ),
-        ))
-
-    executable_paths = []
-    if config_is_directory:
-        executable_paths += ctx.attr.config_tree[MkosiConfigTreeInfo].executable_paths
-    for destination in sorted(source_trees):
-        executable_paths += [
-            destination + "/" + path
-            for path in source_trees[destination].executable_paths
-        ]
-    for payload in rootfs_payloads:
-        prefix = "mkosi.extra" + payload.destination
-        executable_paths += [
-            prefix + (("/" + path) if path else "")
-            for path in payload.executable_paths
-        ]
-    executable_paths = [
-        _normalise_destination(path, "executable_paths")
-        for path in executable_paths
-    ]
-
-    destinations = {}
-    sources = {}
-    for source, destination, role in mappings:
-        if destination == ".":
-            destination = ""
-        elif destination:
-            destination = _normalise_destination(destination, "staged inputs")
-
-        if destination in destinations:
-            fail("duplicate staged destination '{}' from {} and {}".format(
-                destination or ".",
-                destinations[destination],
-                source,
-            ))
-        destinations[destination] = source
-        if source in sources:
-            fail("duplicate staged source '{}' at '{}' and '{}'".format(
-                source,
-                sources[source],
-                destination or ".",
-            ))
-        sources[source] = destination
-
-        # A source tree rooted below another source tree would have ambiguous
-        # ownership even when the two labels happen to contain disjoint files.
-        for other in destinations:
-            if other == destination or not other:
-                continue
-            if destination.startswith(other + "/") or other.startswith(destination + "/"):
-                fail("colliding staged destinations '{}' and '{}'".format(destination, other))
-
-    stage_args = ctx.actions.args()
-    stage_args.add(ctx.file._stage_script.path)
-    stage_args.add("--output")
-    stage_args.add(staging.path)
-    stage_args.add("--manifest")
-    stage_args.add(manifest.path)
-    for source, destination, role in mappings:
-        stage_args.add("--mapping")
-        stage_args.add(source)
-        stage_args.add(destination)
-        stage_args.add(role)
-    for path in executable_paths:
-        stage_args.add("--executable")
-        stage_args.add(path)
-
-    mkosi = ctx.toolchains["//mkosi/toolchain:toolchain_type"].mkosi
-    ctx.actions.run(
-        executable = mkosi.python,
-        arguments = [stage_args],
-        inputs = depset(
-            [config, ctx.file._stage_script] +
-            [source_trees[destination].tree for destination in sorted(source_trees)] +
-            [payload.artifact for payload in rootfs_payloads],
-            transitive = [mkosi.python_runtime_files],
-        ),
-        tools = [mkosi.python_files_to_run],
-        outputs = [staging, manifest],
-        mnemonic = "MkosiStageInputs",
-        progress_message = "Staging mkosi inputs for %{label}",
-        env = {
-            "PATH": "",
-            "PYTHONNOUSERSITE": "1",
-        },
-    )
-    return struct(tree = staging, manifest = manifest)
-
-def _execution_requirements(release_mode):
-    if release_mode:
-        return {
-            "block-network": "1",
-            "no-remote-exec": "1",
-        }
-    return {
-        "no-cache": "1",
-        "no-remote-exec": "1",
-        "requires-network": "1",
-    }
-
-def _add_toolchain_preamble(arguments, ctx, mkosi, debian_tools):
-    arguments.add(ctx.file._run_script.path)
-    arguments.add(mkosi.script.path)
-    arguments.add("--debian-tools-archive")
-    arguments.add(debian_tools.tree.path)
-    arguments.add("--debian-tools-extractor")
-    arguments.add(debian_tools.extractor.path)
-    arguments.add("--debian-tools-sha256")
-    arguments.add(debian_tools.archive_sha256)
-    arguments.add("--kernel-preflight")
-    arguments.add(ctx.executable._kernel_preflight.path)
-
-def _add_release_preamble(arguments, snapshot, release_seed, release_source_date_epoch, firmware):
-    arguments.add("--release-seed")
-    arguments.add(release_seed)
-    arguments.add("--release-source-date-epoch")
-    arguments.add(release_source_date_epoch)
-    arguments.add("--release-distribution")
-    arguments.add(snapshot.distribution)
-    arguments.add("--release-codename")
-    arguments.add(snapshot.codename)
-    arguments.add("--release-snapshot")
-    arguments.add(snapshot.snapshot)
-    arguments.add("--release-components")
-    arguments.add(",".join(snapshot.components))
-    arguments.add("--release-firmware")
-    arguments.add(firmware)
-
-def _add_executable_paths(arguments, ctx, config_is_directory, source_trees, rootfs_payloads):
-    if config_is_directory:
-        for path in ctx.attr.config_tree[MkosiConfigTreeInfo].executable_paths:
-            arguments.add("--executable-path")
-            arguments.add(path)
-    for destination in sorted(source_trees):
-        for path in source_trees[destination].executable_paths:
-            arguments.add("--executable-path")
-            arguments.add(destination + "/" + path)
-    for payload in rootfs_payloads:
-        prefix = "mkosi.extra" + payload.destination
-        for path in payload.executable_paths:
-            arguments.add("--executable-path")
-            arguments.add(prefix + (("/" + path) if path else ""))
-
-def _add_directory_arguments(arguments, output_directory, output_name, workspace):
-    arguments.add("--output-directory")
-    arguments.add(output_directory)
-    arguments.add("--output")
-    arguments.add(output_name)
-    arguments.add("--workspace-directory")
-    arguments.add(workspace)
-    arguments.add("--cache-directory")
-    arguments.add(workspace + "/cache")
-    arguments.add("--package-cache-directory")
-    arguments.add(workspace + "/package-cache")
-    arguments.add("--build-directory")
-    arguments.add(workspace + "/build")
-
-def _mkosi_environment(mkosi, snapshot, release_source_date_epoch):
-    mkosi_root = mkosi.script.path[:-len("/mkosi/__main__.py")]
-    pefile_root = mkosi.pefile.path[:-len("/pefile.py")]
-    environment = {
-        "PATH": "",
-        "PYTHONNOUSERSITE": "1",
-        "PYTHONPATH": mkosi_root + ":" + pefile_root,
-    }
-    if snapshot:
-        environment.update({
-            "MKOSI_HOST_DISTRIBUTION": snapshot.distribution,
-            "MKOSI_HOST_RELEASE": snapshot.codename,
-            "SOURCE_DATE_EPOCH": str(release_source_date_epoch),
-        })
-    return environment
-
-def _mkosi_tool_inputs(ctx, mkosi, debian_tools):
-    return [
-        mkosi.script,
-        ctx.file._run_script,
-        ctx.file._diagnostics,
-        ctx.executable._kernel_preflight,
-        mkosi.pefile,
-        debian_tools.tree,
-        debian_tools.extractor,
-    ] + ctx.files._run_script_modules
-
-def _mkosi_image_impl(ctx):
-    mkosi = ctx.toolchains["//mkosi/toolchain:toolchain_type"].mkosi
-    debian_tools = ctx.toolchains["//mkosi/toolchain:debian_tools_toolchain_type"].debian_tools
+def _output_modes(ctx):
     release_mode = ctx.attr.mode == "release"
     firmware = ctx.attr.firmware
-    uki_enabled = ctx.attr.unified_kernel_image == "unsigned"
-    verity_enabled = ctx.attr.verity == "hash"
+    uki = ctx.attr.unified_kernel_image == "unsigned"
+    verity = ctx.attr.verity == "hash"
     if ctx.attr.mode not in ("tracer", "release"):
         fail("mode must be either 'tracer' or 'release'")
     if firmware not in ("uefi", "bios"):
         fail("firmware must be either 'uefi' or 'bios'")
     if firmware == "bios" and not release_mode:
         fail("bios firmware requires release mode")
-    if firmware == "bios" and (uki_enabled or verity_enabled):
+    if firmware == "bios" and (uki or verity):
         fail("UKI and dm-verity outputs require uefi firmware")
     if ctx.attr.unified_kernel_image not in ("none", "unsigned"):
         fail("unified_kernel_image must be 'none' or 'unsigned'; signing is tracked by #23")
     if ctx.attr.verity not in ("none", "hash"):
         fail("verity must be 'none' or 'hash'; signing is tracked by #23")
-    if (uki_enabled or verity_enabled) and not release_mode:
+    if (uki or verity) and not release_mode:
         fail("UKI and dm-verity outputs are only supported in release mode")
-    if verity_enabled and not uki_enabled:
+    if verity and not uki:
         fail("verity='hash' requires unified_kernel_image='unsigned' so the root hash is linked into the UKI")
-    base = ctx.attr.base[MkosiBaseInfo] if ctx.attr.base else None
-    if base:
-        if not release_mode:
-            fail("base requires release mode")
-        if ctx.attr.debian_snapshot or ctx.attr.release_seed or ctx.attr.release_source_date_epoch >= 0:
-            fail("debian_snapshot, release_seed, and release_source_date_epoch come from base; do not set them")
-        if firmware != "uefi":
-            fail("base requires uefi firmware")
-        if ctx.attr.source_trees:
-            fail("source_trees cannot be combined with base")
+    return struct(mode = ctx.attr.mode, release_mode = release_mode, firmware = firmware, uki = uki, verity = verity)
+
+def _validate_base(ctx, modes):
+    if not modes.release_mode:
+        fail("base requires release mode")
+    if ctx.attr.debian_snapshot or ctx.attr.release_seed or ctx.attr.release_source_date_epoch >= 0:
+        fail("debian_snapshot, release_seed, and release_source_date_epoch come from base; do not set them")
+    if modes.firmware != "uefi":
+        fail("base requires uefi firmware")
+    if ctx.attr.source_trees:
+        fail("source_trees cannot be combined with base")
+
+def _validate_release_attrs(ctx, release_mode, base):
     if release_mode and not base and not ctx.attr.debian_snapshot:
         fail("release mode requires debian_snapshot")
     if not release_mode and ctx.attr.debian_snapshot:
@@ -555,22 +312,26 @@ def _mkosi_image_impl(ctx):
         fail("release mode requires release_seed")
     if release_mode and not base and ctx.attr.release_source_date_epoch < 0:
         fail("release mode requires a non-negative release_source_date_epoch")
-    if not release_mode and (
-        ctx.attr.release_seed or
-        ctx.attr.release_source_date_epoch >= 0
-    ):
+    if not release_mode and (ctx.attr.release_seed or ctx.attr.release_source_date_epoch >= 0):
         fail("release_seed and release_source_date_epoch are only supported in release mode")
-    snapshot = None
-    release_seed = None
-    release_source_date_epoch = None
+
+def _release_source(ctx, modes):
+    """Returns the MkosiBaseInfo to finalize, or None, and the release struct, or None in tracer mode."""
+    base = ctx.attr.base[MkosiBaseInfo] if ctx.attr.base else None
     if base:
-        snapshot = base.debian_snapshot
-        release_seed = base.release_seed
-        release_source_date_epoch = base.release_source_date_epoch
-    elif release_mode:
-        snapshot = ctx.attr.debian_snapshot[DebianSnapshotInfo]
-        release_seed = ctx.attr.release_seed
-        release_source_date_epoch = ctx.attr.release_source_date_epoch
+        _validate_base(ctx, modes)
+    _validate_release_attrs(ctx, modes.release_mode, base)
+    if base:
+        return base, struct(
+            snapshot = base.debian_snapshot,
+            seed = base.release_seed,
+            source_date_epoch = base.release_source_date_epoch,
+        )
+    if modes.release_mode:
+        return None, _release_from_attrs(ctx)
+    return None, None
+
+def _image_identity(ctx, verity):
     image_id = ctx.expand_make_variables("image_id", ctx.attr.image_id, {}) or None
     image_version = ctx.expand_make_variables("image_version", ctx.attr.image_version, {}) or None
     image_version_file = ctx.file.image_version_file
@@ -584,596 +345,353 @@ def _mkosi_image_impl(ctx):
         validate_image_id(image_id)
     if image_version:
         validate_image_version(image_version)
-        if verity_enabled:
+        if verity:
             validate_slot_labels(image_id, image_version)
+    return struct(image_id = image_id, image_version = image_version, image_version_file = image_version_file)
+
+def _config(ctx, release_mode):
+    """Returns the configuration artifact and its MkosiConfigTreeInfo, or None for a single file."""
     if ctx.attr.config and ctx.attr.config_tree:
         fail("set exactly one of config and config_tree")
     if not ctx.attr.config and not ctx.attr.config_tree:
         fail("one of config or config_tree is required")
+    if not ctx.attr.config_tree:
+        if release_mode:
+            fail("release mode requires config_tree so every configuration path is declared")
+        return _single_input(ctx.attr.config, "config"), None
+    config_info = ctx.attr.config_tree[MkosiConfigTreeInfo]
+    return config_info.tree, config_info
 
-    config_is_directory = bool(ctx.attr.config_tree)
-    if release_mode and not config_is_directory:
-        fail("release mode requires config_tree so every configuration path is declared")
-    config = (
-        ctx.attr.config_tree[MkosiConfigTreeInfo].tree if config_is_directory else _single_input(ctx.attr.config, "config")
+def _image_settings(ctx):
+    """Validates the mkosi_image attributes and returns the resolved build settings."""
+    modes = _output_modes(ctx)
+    base, release = _release_source(ctx, modes)
+    identity = _image_identity(ctx, modes.verity)
+    config, config_info = _config(ctx, modes.release_mode)
+    if modes.firmware == "bios" and release.snapshot.architecture != "amd64":
+        fail("bios firmware requires an amd64 Debian snapshot")
+    return struct(
+        mode = modes.mode,
+        release_mode = modes.release_mode,
+        firmware = modes.firmware,
+        uki = modes.uki,
+        verity = modes.verity,
+        base = base,
+        release = release,
+        image_id = identity.image_id,
+        image_version = identity.image_version,
+        image_version_file = identity.image_version_file,
+        config = config,
+        config_info = config_info,
+        source_trees = {destination: target[MkosiSourceTreeInfo] for destination, target in ctx.attr.source_trees.items()},
+        rootfs_payloads = [target[MkosiRootfsPayloadInfo] for target in ctx.attr.rootfs_payloads],
     )
-    source_trees = {}
-    for destination, target in ctx.attr.source_trees.items():
-        source_trees[destination] = target[MkosiSourceTreeInfo]
-    rootfs_payloads = [
-        target[MkosiRootfsPayloadInfo]
-        for target in ctx.attr.rootfs_payloads
-    ]
 
-    staging = None
-    if config_is_directory or source_trees or rootfs_payloads:
-        staging = _stage_inputs(ctx, config, config_is_directory, source_trees, rootfs_payloads)
+def _declare_file(ctx, suffix, enabled = True):
+    return ctx.actions.declare_file(ctx.label.name + suffix) if enabled else None
 
-    image = ctx.actions.declare_file(ctx.label.name + ".raw")
-    uki = ctx.actions.declare_file(ctx.label.name + ".efi") if uki_enabled else None
-    root_image = ctx.actions.declare_file(ctx.label.name + ".root.raw") if verity_enabled else None
-    root_hash = ctx.actions.declare_file(ctx.label.name + ".roothash") if verity_enabled else None
-    root_hash_image = ctx.actions.declare_file(ctx.label.name + ".root-verity.raw") if verity_enabled else None
-    root_hash_signature = None
-    uki_metadata = ctx.actions.declare_file(ctx.label.name + ".uki.json") if uki_enabled else None
-    verity_metadata = ctx.actions.declare_file(ctx.label.name + ".verity.json") if verity_enabled else None
-    partition_metadata = (
-        ctx.actions.declare_file(ctx.label.name + ".partitions.json") if release_mode else None
+def _declare_outputs(ctx, settings):
+    return struct(
+        raw_image = _declare_file(ctx, ".raw"),
+        manifest = None,
+        partition_metadata = _declare_file(ctx, ".partitions.json", settings.release_mode),
+        uki = _declare_file(ctx, ".efi", settings.uki),
+        root_image = _declare_file(ctx, ".root.raw", settings.verity),
+        root_hash = _declare_file(ctx, ".roothash", settings.verity),
+        root_hash_image = _declare_file(ctx, ".root-verity.raw", settings.verity),
+        root_hash_signature = None,
+        uki_metadata = _declare_file(ctx, ".uki.json", settings.uki),
+        verity_metadata = _declare_file(ctx, ".verity.json", settings.verity),
+        build_metadata = _declare_file(ctx, ".mkosi-image-info.json"),
     )
-    build_metadata = ctx.actions.declare_file(
-        ctx.label.name + ".mkosi-image-info.json",
-    )
-    bios_partition_definition = None
-    if firmware == "bios":
-        bios_partition_definition = ctx.actions.declare_directory(
-            ctx.label.name + ".bios-repart",
-        )
-        ctx.actions.run(
-            executable = mkosi.python,
-            arguments = [ctx.file._write_bios_repart.path, bios_partition_definition.path],
-            inputs = depset(
-                [ctx.file._write_bios_repart, ctx.file._gpt_partitions],
-                transitive = [mkosi.python_runtime_files],
-            ),
-            tools = [mkosi.python_files_to_run],
-            outputs = [bios_partition_definition],
-            mnemonic = "MkosiBiosRepart",
-            env = {
-                "PATH": "",
-                "PYTHONNOUSERSITE": "1",
-            },
-        )
-    output_name = image.basename[:-len(".raw")]
-    workspace = image.dirname + "/." + ctx.label.name + "-mkosi"
-    pefile_root = mkosi.pefile.path[:-len("/pefile.py")]
 
-    arguments = ctx.actions.args()
-    _add_toolchain_preamble(arguments, ctx, mkosi, debian_tools)
-    if release_mode:
-        if firmware == "bios" and snapshot.architecture != "amd64":
-            fail("bios firmware requires an amd64 Debian snapshot")
-        if not base:
-            arguments.add("--debian-snapshot-repository")
-            arguments.add(snapshot.repository.path)
-        _add_release_preamble(arguments, snapshot, release_seed, release_source_date_epoch, firmware)
-        if base:
-            arguments.add("--release-base-tree")
-            arguments.add(base.root_tree.path)
-            arguments.add("--release-initrd")
-            arguments.add(base.initrd.path)
-    _add_executable_paths(arguments, ctx, config_is_directory, source_trees, rootfs_payloads)
-    if staging:
-        arguments.add("--staging-manifest")
-        arguments.add(staging.manifest.path)
-    if image_version_file:
-        arguments.add("--image-version-file")
-        arguments.add(image_version_file.path)
-        if verity_enabled:
-            arguments.add("--slot-label-image-id")
-            arguments.add(image_id)
-    arguments.add("--")
-    if staging:
-        arguments.add("-C")
-        arguments.add(staging.tree.path)
-        if not config_is_directory and config.basename != "mkosi.conf":
-            arguments.add("-I")
-            arguments.add(staging.tree.path + "/" + config.basename)
-    else:
-        arguments.add("-I")
-        arguments.add(config.path)
-    arguments.add("--tools-tree")
-    arguments.add(workspace + "/debian-tools")
-    arguments.add("--extra-search-path")
-    arguments.add(pefile_root)
-    arguments.add("--format=disk")
-    arguments.add("--output-extension=raw")
-    arguments.add("--compress-output=none")
-    arguments.add("--split-artifacts={}".format(
-        "uki,partitions,roothash" if verity_enabled else "uki" if uki_enabled else "",
-    ))
-    if uki_enabled:
-        arguments.add("--unified-kernel-images=unsigned")
+def _bios_partition_definition(ctx):
+    output = ctx.actions.declare_directory(ctx.label.name + ".bios-repart")
+    run_python(
+        ctx,
+        arguments = [ctx.file._write_bios_repart.path, output.path],
+        inputs = [ctx.file._write_bios_repart, ctx.file._gpt_partitions],
+        outputs = [output],
+        mnemonic = "MkosiBiosRepart",
+    )
+    return output
+
+def _image_runner_arguments(ctx, settings, staging):
+    arguments = mkosi_arguments(ctx)
+    base = settings.base
+    if settings.release:
+        add_release_arguments(arguments, settings.release, settings.firmware, snapshot_repository = not base)
     if base:
-        arguments.add("--base-tree")
+        arguments.add("--release-base-tree")
         arguments.add(base.root_tree.path)
-        arguments.add("--initrd")
+        arguments.add("--release-initrd")
         arguments.add(base.initrd.path)
+    add_staging_arguments(
+        arguments,
+        executable_paths(settings.config_info, settings.source_trees, settings.rootfs_payloads),
+        staging,
+    )
+    if settings.image_version_file:
+        arguments.add("--image-version-file")
+        arguments.add(settings.image_version_file.path)
+        if settings.verity:
+            arguments.add("--slot-label-image-id")
+            arguments.add(settings.image_id)
+    arguments.add("--")
+    return arguments
+
+def _add_config_arguments(arguments, settings, staging):
+    if not staging:
+        arguments.add("-I")
+        arguments.add(settings.config.path)
+        return
+    arguments.add("-C")
+    arguments.add(staging.tree.path)
+    if not settings.config_info and settings.config.basename != "mkosi.conf":
+        arguments.add("-I")
+        arguments.add(staging.tree.path + "/" + settings.config.basename)
+
+_BIOS_PACKAGES = ["grub-pc-bin", "grub-common", "grub2-common", "initramfs-tools", "linux-image-amd64", "systemd-sysv"]
+
+def _add_bios_arguments(arguments, partition_definition):
+    arguments.add("--architecture=x86-64")
+    arguments.add("--bootable=yes")
+    arguments.add("--bootloader=none")
+    arguments.add("--bios-bootloader=grub")
+    for package in _BIOS_PACKAGES:
+        arguments.add("--package=" + package)
+    arguments.add("--repart-directory")
+    arguments.add(partition_definition.path)
+
+def _add_image_options(arguments, settings):
+    if settings.uki:
+        arguments.add("--unified-kernel-images=unsigned")
+    if settings.base:
+        arguments.add("--base-tree")
+        arguments.add(settings.base.root_tree.path)
+        arguments.add("--initrd")
+        arguments.add(settings.base.initrd.path)
 
         # Finalization installs no packages, so it must not try to refresh package metadata over the blocked network.
         arguments.add("--cache-only=always")
-    if image_id:
-        arguments.add("--image-id=" + image_id)
-    if image_version:
-        arguments.add("--image-version=" + image_version)
-    if firmware == "bios":
-        arguments.add("--architecture=x86-64")
-        arguments.add("--bootable=yes")
-        arguments.add("--bootloader=none")
-        arguments.add("--bios-bootloader=grub")
-        for package in ("grub-pc-bin", "grub-common", "grub2-common", "initramfs-tools", "linux-image-amd64", "systemd-sysv"):
-            arguments.add("--package=" + package)
-        arguments.add("--repart-directory")
-        arguments.add(bios_partition_definition.path)
-    _add_directory_arguments(arguments, image.dirname, output_name, workspace)
-    if not source_trees:
-        arguments.add("--build-sources=")
-    arguments.add("--no-pager")
-    if uki_enabled:
-        arguments.add("--debug")
-    arguments.add("build")
+    if settings.image_id:
+        arguments.add("--image-id=" + settings.image_id)
+    if settings.image_version:
+        arguments.add("--image-version=" + settings.image_version)
 
-    environment = _mkosi_environment(mkosi, snapshot, release_source_date_epoch)
+def _image_arguments(ctx, settings, staging, image, bios_partition_definition):
+    workspace = image.dirname + "/." + ctx.label.name + "-mkosi"
+    arguments = _image_runner_arguments(ctx, settings, staging)
+    _add_config_arguments(arguments, settings, staging)
+    split_artifacts = "uki,partitions,roothash" if settings.verity else "uki" if settings.uki else ""
+    add_output_arguments(arguments, ctx, workspace, "disk", split_artifacts)
+    _add_image_options(arguments, settings)
+    if bios_partition_definition:
+        _add_bios_arguments(arguments, bios_partition_definition)
+    add_build_arguments(
+        arguments,
+        output_directory = image.dirname,
+        output_name = image.basename[:-len(".raw")],
+        workspace = workspace,
+        build_sources = bool(settings.source_trees),
+        debug = settings.uki,
+    )
+    return arguments
 
-    ctx.actions.run(
-        executable = mkosi.python,
-        arguments = [arguments],
-        inputs = depset(
-            [config] + _mkosi_tool_inputs(ctx, mkosi, debian_tools) +
-            ([image_version_file, ctx.file._image_version] if image_version_file else []) +
-            ([bios_partition_definition] if bios_partition_definition else []) +
-            ([base.root_tree, base.initrd] if base else []) +
-            ([snapshot.repository] if release_mode and not base else []) +
-            ([staging.tree, staging.manifest] if staging else []),
-            transitive = [mkosi.runfiles_files, mkosi.python_runtime_files],
-        ),
-        tools = [
-            mkosi.python_files_to_run,
-            ctx.attr._kernel_preflight[DefaultInfo].files_to_run,
-        ],
-        outputs = [image] + (
-            [uki] if uki_enabled else []
-        ) + (
-            [root_image, root_hash, root_hash_image] if verity_enabled else []
-        ),
-        env = environment,
-        execution_requirements = _execution_requirements(release_mode),
+def _image_build_inputs(ctx, settings, staging, bios_partition_definition):
+    base = settings.base
+    image_version_file = settings.image_version_file
+    return (
+        [settings.config] + mkosi_tool_inputs(ctx) +
+        ([image_version_file, ctx.file._image_version] if image_version_file else []) +
+        ([bios_partition_definition] if bios_partition_definition else []) +
+        ([base.root_tree, base.initrd] if base else []) +
+        ([settings.release.snapshot.repository] if settings.release and not base else []) +
+        ([staging.tree, staging.manifest] if staging else [])
+    )
+
+def _build_image(ctx, settings, staging, outputs):
+    bios_partition_definition = _bios_partition_definition(ctx) if settings.firmware == "bios" else None
+    built = [outputs.raw_image, outputs.uki, outputs.root_image, outputs.root_hash, outputs.root_hash_image]
+    run_mkosi(
+        ctx,
+        arguments = _image_arguments(ctx, settings, staging, outputs.raw_image, bios_partition_definition),
+        inputs = _image_build_inputs(ctx, settings, staging, bios_partition_definition),
+        outputs = [output for output in built if output != None],
+        release = settings.release,
         mnemonic = "MkosiImage",
         progress_message = "Building mkosi image %{label}",
     )
 
-    if release_mode:
-        partition_arguments = ctx.actions.args()
-        partition_arguments.add(ctx.file._partition_metadata.path)
-        partition_arguments.add("--image")
-        partition_arguments.add(image.path)
-        partition_arguments.add("--output")
-        partition_arguments.add(partition_metadata.path)
-        partition_arguments.add("--firmware")
-        partition_arguments.add(firmware)
-        slot_version_inputs = []
-        if image_version and verity_enabled:
-            partition_arguments.add("--slot-label")
-            partition_arguments.add(image_id + "_" + image_version)
-        if image_version_file and verity_enabled:
-            partition_arguments.add("--slot-label-image-id")
-            partition_arguments.add(image_id)
-            partition_arguments.add("--image-version-file")
-            partition_arguments.add(image_version_file.path)
-            slot_version_inputs = [image_version_file, ctx.file._image_version]
-        ctx.actions.run(
-            executable = mkosi.python,
-            arguments = [partition_arguments],
-            inputs = depset(
-                [ctx.file._partition_metadata, ctx.file._gpt_partitions, image] + slot_version_inputs,
-                transitive = [mkosi.python_runtime_files],
-            ),
-            tools = [
-                mkosi.python_files_to_run,
-            ],
-            outputs = [partition_metadata],
-            env = {
-                "PATH": "",
-                "PYTHONNOUSERSITE": "1",
-            },
-            execution_requirements = _execution_requirements(True),
-            mnemonic = "MkosiPartitionMetadata",
-            progress_message = "Projecting GPT metadata for %{label}",
-        )
+_ARTIFACT_FIELDS = [
+    "raw_image",
+    "manifest",
+    "partition_metadata",
+    "uki",
+    "root_image",
+    "root_hash",
+    "root_hash_image",
+    "root_hash_signature",
+    "uki_metadata",
+    "verity_metadata",
+    "build_metadata",
+]
 
-    if uki_enabled:
-        uki_arguments = ctx.actions.args()
-        uki_arguments.add(ctx.file._uki_metadata.path)
-        uki_arguments.add("--uki")
-        uki_arguments.add(uki.path)
-        if root_hash:
-            uki_arguments.add("--root-hash")
-            uki_arguments.add(root_hash.path)
-        uki_arguments.add("--output")
-        uki_arguments.add(uki_metadata.path)
-        ctx.actions.run(
-            executable = mkosi.python,
-            arguments = [uki_arguments],
-            inputs = depset(
-                [ctx.file._uki_metadata, mkosi.pefile, uki] + ([root_hash] if root_hash else []),
-                transitive = [mkosi.python_runtime_files, mkosi.runfiles_files],
-            ),
-            tools = [mkosi.python_files_to_run],
-            outputs = [uki_metadata],
-            env = {
-                "PATH": "",
-                "PYTHONNOUSERSITE": "1",
-                "PYTHONPATH": pefile_root,
-            },
-            mnemonic = "MkosiUkiMetadata",
-        )
-
-    if verity_enabled:
-        verity_arguments = ctx.actions.args()
-        verity_arguments.add(ctx.file._verity_metadata.path)
-        verity_arguments.add("--root-hash")
-        verity_arguments.add(root_hash.path)
-        verity_arguments.add("--partition-metadata")
-        verity_arguments.add(partition_metadata.path)
-        verity_arguments.add("--root-image")
-        verity_arguments.add(root_image.path)
-        verity_arguments.add("--hash-image")
-        verity_arguments.add(root_hash_image.path)
-        verity_arguments.add("--output")
-        verity_arguments.add(verity_metadata.path)
-        ctx.actions.run(
-            executable = mkosi.python,
-            arguments = [verity_arguments],
-            inputs = depset(
-                [ctx.file._verity_metadata, ctx.file._gpt_partitions, root_hash, partition_metadata, root_image, root_hash_image],
-                transitive = [mkosi.python_runtime_files],
-            ),
-            tools = [mkosi.python_files_to_run],
-            outputs = [verity_metadata],
-            env = {"PATH": "", "PYTHONNOUSERSITE": "1"},
-            mnemonic = "MkosiVerityMetadata",
-        )
-
-    # This projection deliberately records output roles and normalized mkosi
-    # settings rather than deriving meaning from output filenames or binaries.
-    metadata = {
-        "artifacts": {
-            "build_metadata": True,
-            "manifest": False,
-            "partition_metadata": release_mode,
-            "raw_image": True,
-            "uki": uki_enabled,
-            "root_image": verity_enabled,
-            "root_hash": verity_enabled,
-            "root_hash_image": verity_enabled,
-            "root_hash_signature": False,
-            "uki_metadata": uki_enabled,
-            "verity_metadata": verity_enabled,
-        },
-        "format_version": "mkosi-image-build-metadata-v2",
-        "mkosi": {
-            "compression": "none",
-            "format": "disk",
-            "split_artifacts": verity_enabled or uki_enabled,
-            "version": mkosi.version,
-        },
-        "mode": ctx.attr.mode,
-        "firmware": firmware,
-    }
-    if image_id:
-        metadata["image"] = {"id": image_id, "version": image_version}
-    if release_mode:
-        metadata["debian_snapshot"] = {
-            "architecture": snapshot.architecture,
-            "codename": snapshot.codename,
-            "components": snapshot.components,
-            "format_version": snapshot.format_version,
-            "lock_sha256": snapshot.lock_sha256,
-            "snapshot": snapshot.snapshot,
-            "snapshot_url": snapshot.snapshot_url,
-        }
-        metadata["reproducibility"] = {
-            "seed": release_seed,
-            "source_date_epoch": release_source_date_epoch,
-        }
-
-    if image_version_file:
-        # The version is only known at execution time; the action records it in the same schema.
-        metadata_arguments = ctx.actions.args()
-        metadata_arguments.add(ctx.file._image_version.path)
-        metadata_arguments.add("build-metadata")
-        metadata_arguments.add("--metadata-json")
-        metadata_arguments.add(json.encode(metadata))
-        metadata_arguments.add("--image-version-file")
-        metadata_arguments.add(image_version_file.path)
-        metadata_arguments.add("--output")
-        metadata_arguments.add(build_metadata.path)
-        ctx.actions.run(
-            executable = mkosi.python,
-            arguments = [metadata_arguments],
-            inputs = depset(
-                [ctx.file._image_version, image_version_file],
-                transitive = [mkosi.python_runtime_files],
-            ),
-            tools = [mkosi.python_files_to_run],
-            outputs = [build_metadata],
-            env = {
-                "PATH": "",
-                "PYTHONNOUSERSITE": "1",
-            },
-            mnemonic = "MkosiBuildMetadata",
-            progress_message = "Recording build metadata for %{label}",
-        )
-    else:
-        ctx.actions.write(
-            output = build_metadata,
-            content = json.encode(metadata) + "\n",
-        )
-
+def _image_providers(settings, outputs):
+    artifacts = {field: getattr(outputs, field) for field in _ARTIFACT_FIELDS}
     return [
-        _image_default_info(
-            raw_image = image,
-            manifest = None,
-            partition_metadata = partition_metadata,
-            uki = uki,
-            root_image = root_image,
-            root_hash = root_hash,
-            root_hash_image = root_hash_image,
-            root_hash_signature = root_hash_signature,
-            uki_metadata = uki_metadata,
-            verity_metadata = verity_metadata,
-            build_metadata = build_metadata,
-        ),
+        DefaultInfo(files = depset([artifact for artifact in artifacts.values() if artifact != None])),
         MkosiImageInfo(
             format_version = "mkosi-image-v2",
-            raw_image = image,
-            manifest = None,
-            partition_metadata = partition_metadata,
-            uki = uki,
-            root_image = root_image,
-            root_hash = root_hash,
-            root_hash_image = root_hash_image,
-            root_hash_signature = root_hash_signature,
-            uki_metadata = uki_metadata,
-            verity_metadata = verity_metadata,
-            build_metadata = build_metadata,
-            firmware = firmware,
-            image_id = image_id,
-            image_version = image_version,
-            image_version_file = image_version_file,
-            image = image,
+            firmware = settings.firmware,
+            image_id = settings.image_id,
+            image_version = settings.image_version,
+            image_version_file = settings.image_version_file,
+            image = outputs.raw_image,
+            **artifacts
         ),
     ]
+
+def _mkosi_image_impl(ctx):
+    settings = _image_settings(ctx)
+    staging = None
+    if settings.config_info or settings.source_trees or settings.rootfs_payloads:
+        staging = stage_inputs(ctx, settings.config, settings.config_info, settings.source_trees, settings.rootfs_payloads)
+    outputs = _declare_outputs(ctx, settings)
+    _build_image(ctx, settings, staging, outputs)
+    if settings.release_mode:
+        project_partition_metadata(ctx, settings, outputs)
+    if settings.uki:
+        project_uki_metadata(ctx, outputs)
+    if settings.verity:
+        project_verity_metadata(ctx, outputs)
+    write_build_metadata(ctx, settings, outputs.build_metadata)
+    return _image_providers(settings, outputs)
 
 mkosi_image = rule(
     implementation = _mkosi_image_impl,
     attrs = {
         "mode": attr.string(
             default = "tracer",
-            doc = """Image build mode: "tracer" permits network-backed package acquisition and is non-cacheable; "release" uses only debian_snapshot with network blocked and may use Bazel caches.
-
-Release mode remains local-execution-only until its Linux execution platform is qualified for remote execution.
-""",
+            doc = """"tracer" (default) installs packages from the network and is never cached; "release" installs packages
+only from debian_snapshot or base with the network blocked and may be cached. Both run locally only.""",
         ),
         "firmware": attr.string(
             default = "uefi",
-            doc = """Firmware tier. "uefi" preserves the default behavior; "bios" is an explicitly selected x86-64 release-only compatibility tier using GRUB i386-pc and a GPT BIOS boot partition.""",
+            doc = """"uefi" (default) or "bios", a release-only x86-64 tier that boots with GRUB i386-pc from a GPT BIOS
+boot partition.""",
         ),
         "base": attr.label(
             providers = [MkosiBaseInfo],
-            doc = """Version-independent mkosi_base to finalize instead of installing packages.
+            doc = """mkosi_base to finalize for this image version instead of installing packages.
 
-Requires release mode and uefi firmware. The base supplies the Debian snapshot identity, Seed= and
-SourceDateEpoch=, so debian_snapshot, release_seed, and release_source_date_epoch must be unset. The image
-action receives the base root as BaseTrees= and its default initrd as Initrds=, does not read the Debian
-snapshot, and rejects configurations that install or remove packages. config_tree then holds only the
-version-dependent settings, such as mkosi.repart/, the boot loader, UKI and kernel command line settings.
+Requires release mode and uefi firmware. The base provides the Debian snapshot, Seed= and SourceDateEpoch=, so
+debian_snapshot, release_seed and release_source_date_epoch must be unset. The configuration must not install or
+remove packages and holds only version-dependent settings, such as mkosi.repart/, the boot loader, the UKI and the
+kernel command line.
 """,
         ),
         "debian_snapshot": attr.label(
             providers = [DebianSnapshotInfo],
-            doc = "Authenticated Debian snapshot repository required by release mode unless base is set.",
+            doc = "Authenticated Debian snapshot; required in release mode unless base is set.",
         ),
         "release_seed": attr.string(
-            doc = "Required fixed UUID that must match the release configuration's resolved Seed=.",
+            doc = "Fixed UUID matching the configuration's resolved Seed=; required in release mode unless base is set.",
         ),
         "release_source_date_epoch": attr.int(
             default = -1,
-            doc = "Required non-negative value that must match the release configuration's resolved SourceDateEpoch=.",
+            doc = """Non-negative timestamp matching the configuration's resolved SourceDateEpoch=; required in release
+mode unless base is set.""",
         ),
         "unified_kernel_image": attr.string(
             default = "none",
-            doc = "UKI mode: 'none' (default) or unsigned 'unsigned'. Signing is outside this rule.",
+            doc = """"none" (default) or "unsigned" to build an unsigned UKI. Requires release mode and uefi firmware;
+sign it with secure_boot_signing_request.""",
         ),
         "verity": attr.string(
             default = "none",
-            doc = "dm-verity mode: 'none' (default) or unsigned 'hash'.",
+            doc = """"none" (default) or "hash" to split the root into dm-verity data and hash partitions. Requires
+unified_kernel_image = "unsigned".""",
         ),
         "config": attr.label(
             allow_files = True,
-            doc = "A single mkosi configuration file (legacy compatibility API).",
+            doc = "A single mkosi configuration file. Set exactly one of config and config_tree; release mode requires " +
+                  "config_tree.",
         ),
         "config_tree": attr.label(
             providers = [MkosiConfigTreeInfo],
-            doc = "An explicitly typed complete mkosi configuration tree.",
+            doc = "A complete mkosi configuration tree from mkosi_config_tree.",
         ),
         "source_trees": attr.string_keyed_label_dict(
             allow_files = True,
             providers = [MkosiSourceTreeInfo],
-            doc = """Source directories staged at the relative paths used by BuildSources.
-
-The keys are normalized relative paths such as "src". Each value must resolve
-to an explicitly typed directory tree. The directory contents, rather than
-its label basename, are copied to that key.
-""",
+            doc = """mkosi_source_tree targets keyed by the normalized relative BuildSources= path, such as "src", at
+which their contents are staged.""",
         ),
         "rootfs_payloads": attr.label_list(
             providers = [MkosiRootfsPayloadInfo],
-            doc = "Typed payloads installed at explicit image-root destinations through mkosi.extra.",
+            doc = "mkosi_rootfs_payload targets installed into the image root through mkosi.extra.",
         ),
         "image_id": attr.string(
             doc = """os-release IMAGE_ID passed to mkosi as ImageId=, overriding the configuration.
 
-Lowercase letters, digits, '.', '-' and '_' only. Make variables are expanded as for image_version.
+Lowercase letters, digits, '.', '-' and '_' only. Make variables are expanded.
 """,
         ),
         "image_version": attr.string(
             doc = """os-release IMAGE_VERSION passed to mkosi as ImageVersion=, overriding the configuration.
 
-Requires image_id and excludes image_version_file. Letters, digits and '.' only: systemd-sysupdate accepts only letters, digits and ".,_-+" in
-a version, '_' separates the id from the version, and '+'/'-' remain free for systemd-boot boot counting. Make
-variables are expanded, so a release version can come from a build setting through a TemplateVariableInfo target in
-the common `toolchains` attribute, e.g. image_version = "$(OS_VERSION)".
-With verity='hash', the populated root and verity partitions must be labelled
-'<image_id>_<image_version>' and '<image_id>_<image_version>_verity' (repart 'Label=%M_%A' and
-'Label=%M_%A_verity'), and inactive A/B slots must be labelled '_empty', following the
-systemd-sysupdate partition conventions used by sysupdate_transfers and sysupdate_payload. GPT partition names
-hold at most 36 characters, so the longer label, '<image_id>_<image_version>_verity', must fit in 36 characters;
-analysis fails otherwise.
+Requires image_id and excludes image_version_file. Letters, digits and '.' only, so that systemd-sysupdate can
+split '<image_id>_<image_version>' and '+'/'-' stay free for systemd-boot boot counting. Make variables are
+expanded, e.g. image_version = "$(OS_VERSION)" with a TemplateVariableInfo target in `toolchains`.
+
+With verity = "hash", the populated root and verity partitions must be labelled '<image_id>_<image_version>' and
+'<image_id>_<image_version>_verity' (repart Label=%M_%A and Label=%M_%A_verity), and inactive A/B slots '_empty',
+as sysupdate_transfers and sysupdate_payload expect. The verity label must fit the 36-character GPT partition
+name limit.
 """,
         ),
         "image_version_file": attr.label(
             allow_single_file = True,
-            doc = """File whose content is the os-release IMAGE_VERSION, for versions only known at execution time.
+            doc = """File containing the os-release IMAGE_VERSION, for versions known only at execution time.
 
-Requires image_id and excludes image_version. Use it for versions derived from the build, such as a stamped
-genrule that reads bazel-out/stable-status.txt. The file must contain letters, digits and '.' only, optionally
-followed by one newline; this is the image_version rule, enforced when the actions that read the file run. The
-version is passed to mkosi as ImageVersion=, checked against the populated A/B slot labels, recorded in the build
-metadata, and used by sysupdate_payload. With verity='hash', '<image_id>_<version>_verity' must also fit the
-36-character GPT partition name limit, which the image action checks before it starts mkosi.
-MkosiImageInfo.image_version is None and MkosiImageInfo.image_version_file is this file.
+Use it for build-derived versions, such as a stamped genrule. Requires image_id and excludes image_version. The
+content must satisfy the image_version constraints, optionally followed by one newline; the actions that read the
+file enforce them. MkosiImageInfo then sets image_version_file instead of image_version.
 """,
-        ),
-        "_image_version": attr.label(
-            cfg = "exec",
-            default = "//mkosi/private:image_version.py",
-            allow_single_file = True,
-        ),
-        "_stage_script": attr.label(
-            cfg = "exec",
-            default = "//mkosi/private:stage_inputs.py",
-            allow_single_file = True,
         ),
         "_write_bios_repart": attr.label(
             cfg = "exec",
             default = "//mkosi/private:write_bios_repart.py",
             allow_single_file = True,
         ),
-        "_run_script": attr.label(
-            cfg = "exec",
-            default = "//mkosi/private:run_mkosi.py",
-            allow_single_file = True,
-        ),
-        "_run_script_modules": attr.label(
-            cfg = "exec",
-            default = "//mkosi/private:run_mkosi_modules",
-            allow_files = True,
-        ),
-        "_kernel_preflight": attr.label(
-            cfg = "exec",
-            default = "//mkosi/private:kernel_preflight",
-            executable = True,
-        ),
-        "_gpt_partitions": attr.label(
-            cfg = "exec",
-            default = "//mkosi/private:gpt_partitions.py",
-            allow_single_file = True,
-        ),
-        "_partition_metadata": attr.label(
-            cfg = "exec",
-            default = "//mkosi/private:partition_metadata.py",
-            allow_single_file = True,
-        ),
-        "_uki_metadata": attr.label(
-            cfg = "exec",
-            default = "//mkosi/private:uki_metadata.py",
-            allow_single_file = True,
-        ),
-        "_verity_metadata": attr.label(
-            cfg = "exec",
-            default = "//mkosi/private:verity_metadata.py",
-            allow_single_file = True,
-        ),
-        "_diagnostics": attr.label(
-            cfg = "exec",
-            default = "//mkosi/private:diagnostics.py",
-            allow_single_file = True,
-        ),
-    },
-    doc = """Builds a raw disk image using the pinned mkosi and Debian toolchains.
+    } | MKOSI_BUILD_ATTRS | IMAGE_METADATA_ATTRS,
+    doc = """Builds a raw disk image with the pinned mkosi and Debian toolchains.
 
-The default tracer mode downloads target Debian packages over the network and
-is intentionally non-cacheable. Release mode requires an authenticated
-debian_snapshot, materializes it as mkosi's only local APT mirror, blocks
-network access, and permits Bazel cache reuse. With base, a release image
-instead finalizes a cached mkosi_base for its version without reading the
-snapshot or installing packages. Both modes require the Linux
-namespace and mount capabilities documented by the host-kernel contract;
-release mode does not claim remote-execution portability. MkosiImageInfo.raw_image
-and MkosiImageInfo.build_metadata are present; release images also provide
-validated normalized partition_metadata, while manifest and uki are None.
-DefaultInfo includes every provided artifact, so
-consumers that need a particular artifact must select its MkosiImageInfo field.
+Tracer mode installs packages from the network and is never cached. Release mode installs packages only from an
+authenticated debian_snapshot with the network blocked, so its outputs may be cached; with base, it finalizes a
+cached mkosi_base for one version instead. Builds run locally and need the Linux namespace and mount capabilities
+of the host-kernel contract.
+
+Select outputs through MkosiImageInfo; DefaultInfo contains every produced artifact.
 """,
     provides = [MkosiImageInfo],
-    toolchains = [
-        "//mkosi/toolchain:toolchain_type",
-        "//mkosi/toolchain:debian_tools_toolchain_type",
-    ],
-    exec_compatible_with = [
-        "@platforms//os:linux",
-        "@platforms//cpu:x86_64",
-    ],
+    toolchains = MKOSI_BUILD_TOOLCHAINS,
+    exec_compatible_with = MKOSI_BUILD_EXEC_CONSTRAINTS,
 )
 
-def _mkosi_base_impl(ctx):
-    mkosi = ctx.toolchains["//mkosi/toolchain:toolchain_type"].mkosi
-    debian_tools = ctx.toolchains["//mkosi/toolchain:debian_tools_toolchain_type"].debian_tools
-    if not ctx.attr.release_seed:
-        fail("mkosi_base requires release_seed")
-    if ctx.attr.release_source_date_epoch < 0:
-        fail("mkosi_base requires a non-negative release_source_date_epoch")
-    snapshot = ctx.attr.debian_snapshot[DebianSnapshotInfo]
-    config_info = ctx.attr.config_tree[MkosiConfigTreeInfo]
-    rootfs_payloads = [target[MkosiRootfsPayloadInfo] for target in ctx.attr.rootfs_payloads]
-    staging = _stage_inputs(ctx, config_info.tree, True, {}, rootfs_payloads)
-
-    root_tree = ctx.actions.declare_file(ctx.label.name + ".mkosi-base/root.tar")
-    initrd = ctx.actions.declare_file(ctx.label.name + ".initrd")
+def _base_arguments(ctx, release, config_info, rootfs_payloads, staging, root_tree, initrd):
     output_directory = root_tree.dirname
     workspace = output_directory + ".workspace"
-
-    arguments = ctx.actions.args()
-    _add_toolchain_preamble(arguments, ctx, mkosi, debian_tools)
-    arguments.add("--debian-snapshot-repository")
-    arguments.add(snapshot.repository.path)
-    _add_release_preamble(arguments, snapshot, ctx.attr.release_seed, ctx.attr.release_source_date_epoch, "uefi")
-    _add_executable_paths(arguments, ctx, True, {}, rootfs_payloads)
-    arguments.add("--staging-manifest")
-    arguments.add(staging.manifest.path)
+    arguments = mkosi_arguments(ctx)
+    add_release_arguments(arguments, release, "uefi", snapshot_repository = True)
+    add_staging_arguments(arguments, executable_paths(config_info, {}, rootfs_payloads), staging)
     arguments.add("--release-base-initrd-output")
     arguments.add(initrd.path)
     arguments.add("--")
     arguments.add("-C")
     arguments.add(staging.tree.path)
-    arguments.add("--tools-tree")
-    arguments.add(workspace + "/debian-tools")
-    arguments.add("--extra-search-path")
-    arguments.add(mkosi.pefile.path[:-len("/pefile.py")])
-    arguments.add("--format=tar")
-    arguments.add("--output-extension=tar")
-    arguments.add("--compress-output=none")
-    arguments.add("--split-artifacts=")
+    add_output_arguments(arguments, ctx, workspace, "tar", "")
 
     # Without a kernel installation the base contains no UKI or boot loader, which depend on the version. The
     # default initrd is requested explicitly because mkosi builds it only for bootable images, and INITRD=No keeps
@@ -1181,26 +699,26 @@ def _mkosi_base_impl(ctx):
     arguments.add("--bootable=no")
     arguments.add("--initrd=default")
     arguments.add("--environment=INITRD=No")
-    _add_directory_arguments(arguments, output_directory, "root", workspace)
-    arguments.add("--build-sources=")
-    arguments.add("--no-pager")
-    arguments.add("build")
+    add_build_arguments(arguments, output_directory, "root", workspace, build_sources = False, debug = False)
+    return arguments
 
-    ctx.actions.run(
-        executable = mkosi.python,
-        arguments = [arguments],
-        inputs = depset(
-            [config_info.tree, snapshot.repository, staging.tree, staging.manifest] +
-            _mkosi_tool_inputs(ctx, mkosi, debian_tools),
-            transitive = [mkosi.runfiles_files, mkosi.python_runtime_files],
-        ),
-        tools = [
-            mkosi.python_files_to_run,
-            ctx.attr._kernel_preflight[DefaultInfo].files_to_run,
-        ],
+def _mkosi_base_impl(ctx):
+    if not ctx.attr.release_seed:
+        fail("mkosi_base requires release_seed")
+    if ctx.attr.release_source_date_epoch < 0:
+        fail("mkosi_base requires a non-negative release_source_date_epoch")
+    release = _release_from_attrs(ctx)
+    config_info = ctx.attr.config_tree[MkosiConfigTreeInfo]
+    rootfs_payloads = [target[MkosiRootfsPayloadInfo] for target in ctx.attr.rootfs_payloads]
+    staging = stage_inputs(ctx, config_info.tree, config_info, {}, rootfs_payloads)
+    root_tree = ctx.actions.declare_file(ctx.label.name + ".mkosi-base/root.tar")
+    initrd = ctx.actions.declare_file(ctx.label.name + ".initrd")
+    run_mkosi(
+        ctx,
+        arguments = _base_arguments(ctx, release, config_info, rootfs_payloads, staging, root_tree, initrd),
+        inputs = [config_info.tree, release.snapshot.repository, staging.tree, staging.manifest] + mkosi_tool_inputs(ctx),
         outputs = [root_tree, initrd],
-        env = _mkosi_environment(mkosi, snapshot, ctx.attr.release_source_date_epoch),
-        execution_requirements = _execution_requirements(True),
+        release = release,
         mnemonic = "MkosiBase",
         progress_message = "Building mkosi base %{label}",
     )
@@ -1210,9 +728,9 @@ def _mkosi_base_impl(ctx):
             format_version = "mkosi-base-v1",
             root_tree = root_tree,
             initrd = initrd,
-            debian_snapshot = snapshot,
-            release_seed = ctx.attr.release_seed,
-            release_source_date_epoch = ctx.attr.release_source_date_epoch,
+            debian_snapshot = release.snapshot,
+            release_seed = release.seed,
+            release_source_date_epoch = release.source_date_epoch,
         ),
     ]
 
@@ -1222,69 +740,33 @@ mkosi_base = rule(
         "config_tree": attr.label(
             mandatory = True,
             providers = [MkosiConfigTreeInfo],
-            doc = """mkosi configuration tree for the version-independent part of a release.
-
-It installs packages from debian_snapshot and holds settings such as Packages=, RemoveFiles=, and mkosi.extra
-content. The base is built with Format=tar, Bootable=no, and mkosi's default initrd. It must not set
-ImageVersion=; the version belongs to the mkosi_image that finalizes the base.
-""",
+            doc = """Configuration of the version-independent part of a release, such as Packages=, RemoveFiles= and
+mkosi.extra content. It is built with Format=tar and Bootable=no and must not set ImageVersion=.""",
         ),
         "debian_snapshot": attr.label(
             mandatory = True,
             providers = [DebianSnapshotInfo],
-            doc = "Authenticated Debian snapshot repository; the only package source of the network-blocked action.",
+            doc = "Authenticated Debian snapshot; the only package source of the network-blocked build.",
         ),
         "release_seed": attr.string(
-            doc = "Required fixed UUID that must match the base configuration's resolved Seed=.",
+            doc = "Required fixed UUID matching the configuration's resolved Seed=.",
         ),
         "release_source_date_epoch": attr.int(
             default = -1,
-            doc = "Required non-negative value that must match the base configuration's resolved SourceDateEpoch=.",
+            doc = "Required non-negative timestamp matching the configuration's resolved SourceDateEpoch=.",
         ),
         "rootfs_payloads": attr.label_list(
             providers = [MkosiRootfsPayloadInfo],
-            doc = "Version-independent typed payloads installed at explicit image-root destinations.",
+            doc = "Version-independent mkosi_rootfs_payload targets installed into the image root.",
         ),
-        "_stage_script": attr.label(
-            cfg = "exec",
-            default = "//mkosi/private:stage_inputs.py",
-            allow_single_file = True,
-        ),
-        "_run_script": attr.label(
-            cfg = "exec",
-            default = "//mkosi/private:run_mkosi.py",
-            allow_single_file = True,
-        ),
-        "_run_script_modules": attr.label(
-            cfg = "exec",
-            default = "//mkosi/private:run_mkosi_modules",
-            allow_files = True,
-        ),
-        "_kernel_preflight": attr.label(
-            cfg = "exec",
-            default = "//mkosi/private:kernel_preflight",
-            executable = True,
-        ),
-        "_diagnostics": attr.label(
-            cfg = "exec",
-            default = "//mkosi/private:diagnostics.py",
-            allow_single_file = True,
-        ),
-    },
+    } | MKOSI_BUILD_ATTRS,
     doc = """Builds the version-independent root and default initrd of a release image.
 
-The action installs packages from the authenticated debian_snapshot with network access blocked and applies the
-configuration and rootfs payloads, but it neither installs a kernel nor writes partitions, so it does not depend
-on any image version. mkosi_image(base = ...) finalizes it for one version. A new version therefore reuses the
-cached base and only repeats the finalization: os-release, partitions, dm-verity, and the UKI.
+Packages are installed from the authenticated debian_snapshot with the network blocked. The base has no partitions,
+boot loader or UKI, so it does not depend on an image version: mkosi_image(base = ...) finalizes it for one version,
+and a new version reuses the cached base.
 """,
     provides = [MkosiBaseInfo],
-    toolchains = [
-        "//mkosi/toolchain:toolchain_type",
-        "//mkosi/toolchain:debian_tools_toolchain_type",
-    ],
-    exec_compatible_with = [
-        "@platforms//os:linux",
-        "@platforms//cpu:x86_64",
-    ],
+    toolchains = MKOSI_BUILD_TOOLCHAINS,
+    exec_compatible_with = MKOSI_BUILD_EXEC_CONSTRAINTS,
 )
