@@ -5,13 +5,10 @@ so that run_mkosi.py recognizes the same options as the mkosi version that it ru
 """
 
 import functools
-import re
 from dataclasses import dataclass
 
 # The mkosi argument parser destination of -C/--directory, which is a command-line option rather than a setting.
 DIRECTORY = "directory"
-
-_NEGATIVE_NUMBER = re.compile(r"^-\d+$|^-\d*\.\d+$")
 
 
 @dataclass(frozen=True)
@@ -70,11 +67,18 @@ class Occurrence:
 
 
 @functools.cache
+def _parser():
+    import mkosi.config
+
+    return mkosi.config.create_argument_parser(chdir=False)
+
+
+@functools.cache
 def option_table():
     """Returns mkosi's options by spelling, read from mkosi's argument parser and settings table."""
     import mkosi.config
 
-    parser = mkosi.config.create_argument_parser(chdir=False)
+    parser = _parser()
     classify = _PathClassifier(mkosi.config)
     table = {}
     # argparse exposes its option actions only through this attribute.
@@ -175,9 +179,11 @@ def _scan(table, arguments, index, found):
         prefix += explicit[0]
         explicit = explicit[1:]
         if explicit.startswith("="):
+            # -fC= gives -C an empty value, like --directory=.
             prefix += "="
             explicit = explicit[1:]
-        explicit = explicit or None
+        elif not explicit:
+            explicit = None
     current = table[spelling]
     if current.arguments == "none" or explicit is not None:
         found.append(Occurrence(current, spelling, index, prefix, explicit))
@@ -210,4 +216,12 @@ def _is_option(table, argument):
         return False
     if _parse_option(table, argument) is not None:
         return True
-    return not _NEGATIVE_NUMBER.match(argument) and " " not in argument
+    return not _is_negative_number(argument) and " " not in argument
+
+
+def _is_negative_number(argument):
+    """Returns whether mkosi's argument parser reads argument as a negative number, which is a value."""
+    # argparse exposes its negative number rule only through these attributes.
+    parser = _parser()
+    negative = parser._negative_number_matcher.match(argument)  # noqa: SLF001
+    return bool(negative) and not parser._has_negative_number_optionals  # noqa: SLF001
