@@ -1,5 +1,7 @@
 """Public rule for a content-addressed Debian APT snapshot tree."""
 
+load(":python_action.bzl", "run_python", "static_python_interpreter")
+
 DebianSnapshotInfo = provider(
     doc = "Authenticated, content-addressed Debian snapshot repository.",
     fields = {
@@ -96,23 +98,17 @@ def _metadata_files(ctx):
 
 def _stage_repository(ctx, component_indexes, output, scratch):
     debian_tools = ctx.toolchains["//mkosi/toolchain:debian_tools_toolchain_type"].debian_tools
-    python = debian_tools.python
-    ctx.actions.run(
-        executable = python,
+    run_python(
+        ctx,
         arguments = [
-            "-I",
             ctx.file._stager.path,
             _stager_arguments(ctx, debian_tools.launcher, output, scratch, component_indexes),
         ],
-        inputs = depset(_metadata_files(ctx) + [ctx.file._stager] + ctx.files._stager_modules + component_indexes + ctx.files.package_files),
-        tools = [debian_tools.python_files_to_run, debian_tools.launcher],
+        inputs = _metadata_files(ctx) + [ctx.file._stager] + ctx.files._stager_modules + component_indexes + ctx.files.package_files,
         outputs = [output, scratch],
-        env = {
-            "PATH": "",
-            "PYTHONHOME": python.path[:python.path.rfind("/")],
-            "PYTHONNOUSERSITE": "1",
-        },
         mnemonic = "StageDebianSnapshot",
+        tools = [debian_tools.launcher],
+        interpreter = static_python_interpreter(debian_tools.python, debian_tools.python_files_to_run),
         progress_message = "Staging authenticated Debian snapshot %{label}",
     )
 
@@ -184,10 +180,12 @@ debian_snapshot = rule(
         ),
         "_stager": attr.label(
             allow_single_file = True,
+            cfg = "exec",
             default = "//mkosi/private:debian_snapshot.py",
         ),
         "_stager_modules": attr.label_list(
             allow_files = True,
+            cfg = "exec",
             default = [
                 "//mkosi/private:debian_control.py",
                 "//mkosi/private:file_hashing.py",
