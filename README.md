@@ -29,6 +29,9 @@ Image actions never run remotely (`no-remote-exec`).
 | OVMF | `edk2-stable202605-r1` |
 | SeaBIOS | `rel-1.17.0-0-gb52ca86e094d-prebuilt.qemu.org` |
 
+Supported mkosi versions: 27 only, pinned to the commit above.
+Release builds fail if mkosi differs from the version rules_mkosi was verified with, so newer mkosi releases need a rules_mkosi update.
+
 ## Setup
 
 rules_mkosi is not yet published to the Bazel Central Registry; use an override.

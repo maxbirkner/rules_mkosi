@@ -161,6 +161,7 @@ behavior_targets(
         ":image_version_test",
         ":immutable_release_provider_test",
         ":mkosi_base_analysis_tests",
+        ":mkosi_contract_test",
         ":mkosi_staging_artifact_test",
         ":mkosi_staging_metadata_test",
         ":mkosi_staging_role_test",
@@ -706,6 +707,25 @@ py_test(
         "@mkosi_toolchains//:mkosi_script",
     ],
     main = "run_mkosi_metadata_test.py",
+)
+
+py_test(
+    name = "mkosi_contract_test",
+    srcs = ["mkosi_contract_test.py"],
+    args = [
+        "$(rootpath //mkosi/private:run_mkosi.py)",
+        "$(rootpath @mkosi_toolchains//:mkosi_script)",
+        "$(rootpath //mkosi:versions.bzl)",
+    ],
+    data = [
+        "//mkosi:versions.bzl",
+        "//mkosi/private:diagnostics.py",
+        "//mkosi/private:run_mkosi.py",
+        "//mkosi/private:run_mkosi_modules",
+        "@mkosi_toolchains//:mkosi_runfiles",
+        "@mkosi_toolchains//:mkosi_script",
+    ],
+    main = "mkosi_contract_test.py",
 )
 
 py_test(
