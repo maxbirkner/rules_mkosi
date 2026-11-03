@@ -9,7 +9,9 @@ SysupdatePayloadInfo = provider(
     fields = {
         "directory": "TreeArtifact with the root, verity and UKI artifacts plus SHA256SUMS.",
         "image_id": "os-release IMAGE_ID of the payload.",
-        "image_version": "os-release IMAGE_VERSION of the payload.",
+        "image_version": "os-release IMAGE_VERSION string of the payload when known during analysis, or None.",
+        "image_version_file": """File holding the payload's os-release IMAGE_VERSION when the image selected it through
+mkosi_image.image_version_file, or None. Exactly one of image_version and image_version_file is set.""",
     },
 )
 
@@ -82,8 +84,11 @@ that never reaches boot-complete.target falls back to the previous one.
 
 def _sysupdate_payload_impl(ctx):
     image = ctx.attr.image[MkosiImageInfo]
-    if not image.image_version:
-        fail("image must set image_id and image_version")
+
+    # MkosiImageInfo values constructed outside mkosi_image may predate image_version_file.
+    image_version_file = getattr(image, "image_version_file", None)
+    if not image.image_version and not image_version_file:
+        fail("image must set image_id and image_version or image_version_file")
     if image.root_image == None or image.root_hash == None or image.root_hash_image == None or image.uki == None:
         fail("image must use unified_kernel_image = 'unsigned' and verity = 'hash'")
     output = ctx.actions.declare_directory(ctx.label.name)
@@ -92,7 +97,11 @@ def _sysupdate_payload_impl(ctx):
     arguments.add(ctx.file._tool)
     arguments.add("payload")
     arguments.add("--image-id", image.image_id)
-    arguments.add("--image-version", image.image_version)
+    if image_version_file:
+        inputs += [image_version_file, ctx.file._image_version]
+        arguments.add("--image-version-file", image_version_file)
+    else:
+        arguments.add("--image-version", image.image_version)
     arguments.add("--root-hash", image.root_hash)
     arguments.add("--partition-metadata", image.partition_metadata)
     arguments.add("--root-image", image.root_image)
@@ -110,7 +119,8 @@ def _sysupdate_payload_impl(ctx):
         SysupdatePayloadInfo(
             directory = output,
             image_id = image.image_id,
-            image_version = image.image_version,
+            image_version = image.image_version if not image_version_file else None,
+            image_version_file = image_version_file,
         ),
     ]
 
@@ -129,6 +139,7 @@ sysupdate_payload = rule(
 The payload action fails with SYSUPDATE_INVALID unless the signing request was created for this image's
 unsigned UKI.""",
         ),
+        "_image_version": attr.label(default = "//mkosi/private:image_version.py", allow_single_file = True),
         "_tool": attr.label(default = "//mkosi/private:sysupdate.py", allow_single_file = True),
     },
     doc = """Projects a versioned mkosi_image into an update directory for sysupdate_transfers.
@@ -136,6 +147,7 @@ unsigned UKI.""",
 The directory contains '<id>_<version>.root.<uuid>.raw', '<id>_<version>.root-verity.<uuid>.raw',
 '<id>_<version>.efi' and a SHA256SUMS manifest. Partition UUIDs are the dm-verity root-hash-derived
 UUIDs that the UKI's roothash= locates at boot; they are cross-checked against the image's GPT.
+For an image versioned through image_version_file, the action reads and validates the version from that file.
 """,
     provides = [SysupdatePayloadInfo],
     toolchains = ["//mkosi/toolchain:toolchain_type"],

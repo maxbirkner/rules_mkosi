@@ -3,11 +3,14 @@
 import os
 import ast
 import inspect
+import json
 import struct
+import sys
 import tempfile
 import unittest
 import uuid
 import zlib
+from unittest import mock
 
 from mkosi.private import partition_metadata
 
@@ -391,6 +394,53 @@ class ProjectionTest(unittest.TestCase):
     def test_inactive_slots_are_optional(self):
         projected = self.project_slots(self.ab_entries()[:2])
         self.assertEqual(2, len(projected["partitions"]))
+
+    def run_main(self, version_content, entries=None, image_id="ab"):
+        with open(self.path, "wb") as output:
+            output.write(image(entries=entries or self.ab_entries()))
+        version_file = os.path.join(self.directory.name, "version.txt")
+        with open(version_file, "wb") as output:
+            output.write(version_content)
+        metadata = os.path.join(self.directory.name, "partitions.json")
+        argv = [
+            "partition_metadata.py",
+            "--image",
+            self.path,
+            "--output",
+            metadata,
+            "--slot-label-image-id",
+            image_id,
+            "--image-version-file",
+            version_file,
+        ]
+        with mock.patch.object(sys, "argv", argv):
+            partition_metadata.main()
+        with open(metadata, encoding="utf-8") as projected:
+            return json.load(projected)
+
+    def test_slot_label_version_is_read_from_file(self):
+        projected = self.run_main(b"1\n")
+        self.assertEqual(
+            ["ab_1", "ab_1_verity", "_empty", "_empty"],
+            [partition["label"] for partition in projected["partitions"]],
+        )
+        with self.assertRaisesRegex(ValueError, "populated root partition labelled 'ab_2'"):
+            self.run_main(b"2")
+
+    def test_version_file_label_beyond_gpt_limit_is_rejected(self):
+        # 'ab_<version>_verity' is 37 characters, one more than a GPT partition name holds.
+        with self.assertRaisesRegex(
+            SystemExit,
+            "IMAGE_VERSION_INVALID: invalid image_version_file .*'ab_123456789012345678901234567_verity' is 37 "
+            "characters, but GPT partition names are limited to 36",
+        ):
+            self.run_main(b"123456789012345678901234567\n")
+
+    def test_invalid_version_file_is_rejected(self):
+        for content in (b"", b"\n", b"1-2\n", b"1\n\n", b" 1"):
+            with self.subTest(content=content):
+                with self.assertRaisesRegex(SystemExit, "IMAGE_VERSION_INVALID: invalid image_version_file"):
+                    self.run_main(content)
 
 
 if __name__ == "__main__":

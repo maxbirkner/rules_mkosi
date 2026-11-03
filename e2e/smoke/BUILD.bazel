@@ -67,6 +67,7 @@ behavior_targets(
         ":sysupdate_lifecycle_test",
         ":sysupdate_payload_public_provider_test",
         ":sysupdate_payload_test",
+        ":sysupdate_string_version_payload_public_provider_test",
         ":sysupdate_transfers_public_provider_test",
         ":tree_demo_build_test",
         ":tree_demo_semantics_test",
@@ -711,6 +712,14 @@ mkosi_rootfs_payload(
     destination = "/usr/lib/systemd/system/rules-mkosi-ab-health.service",
 )
 
+# Release 2 reads its version from a generated file at execution time, as a
+# version derived from a stamped genrule would be.
+genrule(
+    name = "sysupdate_v2_version",
+    outs = ["sysupdate_v2_version.txt"],
+    cmd = "echo 2 > $@",
+)
+
 # Releases 1 and 2 are healthy; release 3 adds a health check that always
 # fails, so systemd-boot must fall back to release 2.
 [
@@ -719,7 +728,8 @@ mkosi_rootfs_payload(
         config_tree = ":sysupdate_config_tree",
         debian_snapshot = "@sysupdate_debian//:repository",
         image_id = "rules-mkosi-ab",
-        image_version = version,
+        image_version = None if version == "2" else version,
+        image_version_file = ":sysupdate_v2_version" if version == "2" else None,
         mode = "release",
         release_seed = "00000000-0000-4000-8000-000000000017",
         release_source_date_epoch = 1755129600,
@@ -757,9 +767,16 @@ sysupdate_public_api_test(
 
 sysupdate_public_api_test(
     name = "sysupdate_payload_public_provider_test",
-    expected_version = "2",
+    expected_version_file = ":sysupdate_v2_version",
     image = ":sysupdate_v2",
     target_under_test = ":sysupdate_v2_payload",
+)
+
+sysupdate_public_api_test(
+    name = "sysupdate_string_version_payload_public_provider_test",
+    expected_version = "3",
+    image = ":sysupdate_v3",
+    target_under_test = ":sysupdate_v3_payload",
 )
 
 image_partition_metadata_file(

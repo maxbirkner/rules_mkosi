@@ -63,6 +63,7 @@ def _provider_test_impl(ctx):
     asserts.equals(env, "uefi", info.firmware)
     asserts.equals(env, None, info.image_id)
     asserts.equals(env, None, info.image_version)
+    asserts.equals(env, None, info.image_version_file)
     asserts.equals(env, ctx.attr.expected_metadata, info.build_metadata.basename)
     asserts.equals(
         env,
@@ -385,6 +386,7 @@ def _image_info_fixture_impl(ctx):
             firmware = "uefi",
             image_id = None,
             image_version = None,
+            image_version_file = None,
             image = raw_image,
         ),
     ]

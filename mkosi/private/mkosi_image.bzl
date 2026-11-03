@@ -1,7 +1,7 @@
 """Implementation of the public mkosi_image rule."""
 
 load("//mkosi/private:debian_snapshot.bzl", "DebianSnapshotInfo")
-load("//mkosi/private:image_identity.bzl", "validate_image_id", "validate_image_version")
+load("//mkosi/private:image_identity.bzl", "validate_image_id", "validate_image_version", "validate_slot_labels")
 
 MkosiImageInfo = provider(
     doc = """Stable output contract for mkosi_image.
@@ -30,7 +30,12 @@ The image field is a compatibility alias for raw_image.
         "build_metadata": "Normalized JSON build-metadata File describing this contract's output modes.",
         "firmware": "Selected firmware tier: uefi or bios.",
         "image_id": "Explicit os-release IMAGE_ID string, or None when not selected by the rule.",
-        "image_version": "Explicit os-release IMAGE_VERSION string, or None when not selected by the rule.",
+        "image_version": "Explicit os-release IMAGE_VERSION string known during analysis, or None.",
+        "image_version_file": """File holding the os-release IMAGE_VERSION selected through image_version_file, or None.
+
+The version is only known when actions run. The file holds letters, digits and '.' optionally followed by one
+newline; every rules_mkosi action that reads it validates it. At most one of image_version and image_version_file
+is set.""",
         "image": "Deprecated compatibility alias for raw_image; use raw_image in new consumers.",
     },
 )
@@ -440,12 +445,19 @@ def _mkosi_image_impl(ctx):
         fail("release_seed and release_source_date_epoch are only supported in release mode")
     image_id = ctx.expand_make_variables("image_id", ctx.attr.image_id, {}) or None
     image_version = ctx.expand_make_variables("image_version", ctx.attr.image_version, {}) or None
+    image_version_file = ctx.file.image_version_file
+    if image_version and image_version_file:
+        fail("set at most one of image_version and image_version_file")
     if image_version and not image_id:
         fail("image_version requires image_id")
+    if image_version_file and not image_id:
+        fail("image_version_file requires image_id")
     if image_id:
         validate_image_id(image_id)
     if image_version:
         validate_image_version(image_version)
+        if verity_enabled:
+            validate_slot_labels(image_id, image_version)
     if ctx.attr.config and ctx.attr.config_tree:
         fail("set exactly one of config and config_tree")
     if not ctx.attr.config and not ctx.attr.config_tree:
@@ -555,6 +567,12 @@ def _mkosi_image_impl(ctx):
     if staging:
         arguments.add("--staging-manifest")
         arguments.add(staging.manifest.path)
+    if image_version_file:
+        arguments.add("--image-version-file")
+        arguments.add(image_version_file.path)
+        if verity_enabled:
+            arguments.add("--slot-label-image-id")
+            arguments.add(image_id)
     arguments.add("--")
     if staging:
         arguments.add("-C")
@@ -627,6 +645,7 @@ def _mkosi_image_impl(ctx):
         arguments = [arguments],
         inputs = depset(
             [config, mkosi.script, ctx.file._run_script, ctx.file._diagnostics, ctx.executable._kernel_preflight, mkosi.pefile, debian_tools.tree, debian_tools.extractor] +
+            ([image_version_file, ctx.file._image_version] if image_version_file else []) +
             ([bios_partition_definition] if bios_partition_definition else []) +
             (
                 [ctx.attr.debian_snapshot[DebianSnapshotInfo].repository] if release_mode else []
@@ -658,14 +677,21 @@ def _mkosi_image_impl(ctx):
         partition_arguments.add(partition_metadata.path)
         partition_arguments.add("--firmware")
         partition_arguments.add(firmware)
+        slot_version_inputs = []
         if image_version and verity_enabled:
             partition_arguments.add("--slot-label")
             partition_arguments.add(image_id + "_" + image_version)
+        if image_version_file and verity_enabled:
+            partition_arguments.add("--slot-label-image-id")
+            partition_arguments.add(image_id)
+            partition_arguments.add("--image-version-file")
+            partition_arguments.add(image_version_file.path)
+            slot_version_inputs = [image_version_file, ctx.file._image_version]
         ctx.actions.run(
             executable = mkosi.python,
             arguments = [partition_arguments],
             inputs = depset(
-                [ctx.file._partition_metadata, image],
+                [ctx.file._partition_metadata, image] + slot_version_inputs,
                 transitive = [mkosi.python_runtime_files],
             ),
             tools = [
@@ -778,10 +804,38 @@ def _mkosi_image_impl(ctx):
             "source_date_epoch": ctx.attr.release_source_date_epoch,
         }
 
-    ctx.actions.write(
-        output = build_metadata,
-        content = json.encode(metadata) + "\n",
-    )
+    if image_version_file:
+        # The version is only known at execution time; the action records it in the same schema.
+        metadata_arguments = ctx.actions.args()
+        metadata_arguments.add(ctx.file._image_version.path)
+        metadata_arguments.add("build-metadata")
+        metadata_arguments.add("--metadata-json")
+        metadata_arguments.add(json.encode(metadata))
+        metadata_arguments.add("--image-version-file")
+        metadata_arguments.add(image_version_file.path)
+        metadata_arguments.add("--output")
+        metadata_arguments.add(build_metadata.path)
+        ctx.actions.run(
+            executable = mkosi.python,
+            arguments = [metadata_arguments],
+            inputs = depset(
+                [ctx.file._image_version, image_version_file],
+                transitive = [mkosi.python_runtime_files],
+            ),
+            tools = [mkosi.python_files_to_run],
+            outputs = [build_metadata],
+            env = {
+                "PATH": "",
+                "PYTHONNOUSERSITE": "1",
+            },
+            mnemonic = "MkosiBuildMetadata",
+            progress_message = "Recording build metadata for %{label}",
+        )
+    else:
+        ctx.actions.write(
+            output = build_metadata,
+            content = json.encode(metadata) + "\n",
+        )
 
     return [
         _image_default_info(
@@ -813,6 +867,7 @@ def _mkosi_image_impl(ctx):
             firmware = firmware,
             image_id = image_id,
             image_version = image_version,
+            image_version_file = image_version_file,
             image = image,
         ),
     ]
@@ -881,15 +936,35 @@ Lowercase letters, digits, '.', '-' and '_' only. Make variables are expanded as
         "image_version": attr.string(
             doc = """os-release IMAGE_VERSION passed to mkosi as ImageVersion=, overriding the configuration.
 
-Requires image_id. Letters, digits and '.' only: systemd-sysupdate accepts only letters, digits and ".,_-+" in
+Requires image_id and excludes image_version_file. Letters, digits and '.' only: systemd-sysupdate accepts only letters, digits and ".,_-+" in
 a version, '_' separates the id from the version, and '+'/'-' remain free for systemd-boot boot counting. Make
 variables are expanded, so a release version can come from a build setting through a TemplateVariableInfo target in
 the common `toolchains` attribute, e.g. image_version = "$(OS_VERSION)".
 With verity='hash', the populated root and verity partitions must be labelled
 '<image_id>_<image_version>' and '<image_id>_<image_version>_verity' (repart 'Label=%M_%A' and
 'Label=%M_%A_verity'), and inactive A/B slots must be labelled '_empty', following the
-systemd-sysupdate partition conventions used by sysupdate_transfers and sysupdate_payload.
+systemd-sysupdate partition conventions used by sysupdate_transfers and sysupdate_payload. GPT partition names
+hold at most 36 characters, so the longer label, '<image_id>_<image_version>_verity', must fit in 36 characters;
+analysis fails otherwise.
 """,
+        ),
+        "image_version_file": attr.label(
+            allow_single_file = True,
+            doc = """File whose content is the os-release IMAGE_VERSION, for versions only known at execution time.
+
+Requires image_id and excludes image_version. Use it for versions derived from the build, such as a stamped
+genrule that reads bazel-out/stable-status.txt. The file must contain letters, digits and '.' only, optionally
+followed by one newline; this is the image_version rule, enforced when the actions that read the file run. The
+version is passed to mkosi as ImageVersion=, checked against the populated A/B slot labels, recorded in the build
+metadata, and used by sysupdate_payload. With verity='hash', '<image_id>_<version>_verity' must also fit the
+36-character GPT partition name limit, which the image action checks before it starts mkosi.
+MkosiImageInfo.image_version is None and MkosiImageInfo.image_version_file is this file.
+""",
+        ),
+        "_image_version": attr.label(
+            cfg = "exec",
+            default = "//mkosi/private:image_version.py",
+            allow_single_file = True,
         ),
         "_stage_script": attr.label(
             cfg = "exec",

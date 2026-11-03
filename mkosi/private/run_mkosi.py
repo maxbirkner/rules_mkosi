@@ -24,6 +24,38 @@ def _load_diagnostics():
 
 diagnostics = _load_diagnostics()
 
+
+def _image_version_from_file(path, slot_label_image_id=None):
+    """Returns the validated version in path using the sibling image_version.py helper."""
+    helper = Path(__file__).with_name("image_version.py")
+    spec = importlib.util.spec_from_file_location("rules_mkosi_image_version", helper)
+    if spec is None or spec.loader is None:
+        raise RuntimeError("image version helper cannot be loaded: {}".format(helper))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    try:
+        return module.read_image_version(path, slot_label_image_id)
+    except (OSError, ValueError) as error:
+        raise SystemExit("IMAGE_VERSION_INVALID: {}".format(error)) from None
+
+
+def _with_image_version(arguments, image_version):
+    """Passes image_version to mkosi next to the --image-id= option that it qualifies."""
+    image_ids = [index for index, argument in enumerate(arguments) if argument.startswith("--image-id=")]
+    if len(image_ids) != 1:
+        raise SystemExit("--image-version-file requires exactly one --image-id= mkosi argument")
+    return arguments[: image_ids[0] + 1] + ["--image-version=" + image_version] + arguments[image_ids[0] + 1 :]
+
+
+def _preamble_value(argv, option):
+    """Returns the value of a run_mkosi.py preamble option, or None."""
+    for index, argument in enumerate(argv[:-1]):
+        if argument == "--":
+            break
+        if argument == option:
+            return argv[index + 1]
+    return None
+
 _EPOCH = (0, 0)
 _RELEASE_PASSWD = "root:x:0:0:root:/root:/bin/sh\n"
 _RELEASE_GROUP = "root:x:0:\n"
@@ -615,6 +647,11 @@ def main():
         raise SystemExit("usage: run_mkosi.py MKOSI_SCRIPT [--executable-path PATH] -- [mkosi arguments]")
     release_child = os.environ.get("RULES_MKOSI_RELEASE_CHILD") == "1"
     if "--debian-snapshot-repository" in sys.argv[2:] and not release_child:
+        # Reject an invalid version before the release child starts, so that the failure is not reported as an
+        # mkosi assembly failure.
+        image_version_file = _preamble_value(sys.argv[2:], "--image-version-file")
+        if image_version_file is not None:
+            _image_version_from_file(image_version_file, _preamble_value(sys.argv[2:], "--slot-label-image-id"))
         environment = dict(os.environ)
         environment["RULES_MKOSI_RELEASE_CHILD"] = "1"
         _run_mkosi(
@@ -640,6 +677,8 @@ def main():
     release_snapshot = None
     release_firmware = None
     release_components = None
+    image_version_file = None
+    slot_label_image_id = None
     while preamble_end < len(sys.argv) and sys.argv[preamble_end] != "--":
         option = sys.argv[preamble_end]
         if option == "--executable-path" and preamble_end + 1 < len(sys.argv):
@@ -684,6 +723,12 @@ def main():
         elif option == "--release-firmware" and preamble_end + 1 < len(sys.argv):
             release_firmware = sys.argv[preamble_end + 1]
             preamble_end += 2
+        elif option == "--image-version-file" and preamble_end + 1 < len(sys.argv):
+            image_version_file = os.path.abspath(sys.argv[preamble_end + 1])
+            preamble_end += 2
+        elif option == "--slot-label-image-id" and preamble_end + 1 < len(sys.argv):
+            slot_label_image_id = sys.argv[preamble_end + 1]
+            preamble_end += 2
         elif option == "--release-components" and preamble_end + 1 < len(sys.argv):
             release_components = tuple(sys.argv[preamble_end + 1].split(","))
             if "main" not in release_components or "" in release_components:
@@ -706,6 +751,11 @@ def main():
             for path in sys.path
         ]
     arguments = _absolute_paths(sys.argv[preamble_end + 1 :])
+    if image_version_file is not None:
+        arguments = _with_image_version(
+            arguments,
+            _image_version_from_file(image_version_file, slot_label_image_id),
+        )
     diagnostics.run_kernel_preflight(kernel_preflight, "mkosi image assembly")
     debian_options = (
         debian_tools_archive,

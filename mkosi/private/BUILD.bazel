@@ -21,6 +21,7 @@ exports_files([
     "secure_boot.bzl",
     "secure_boot.py",
     "image_identity.bzl",
+    "image_version.py",
     "sysupdate.bzl",
     "sysupdate.py",
     "stage_inputs.py",
