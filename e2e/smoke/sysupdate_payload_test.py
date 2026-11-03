@@ -10,10 +10,18 @@ ROOT_VERITY = "2c7357ed-ebd2-46d9-aec1-23d437ec2bf5"
 
 
 def main() -> None:
-    payload, partitions, build_metadata, transfers = (pathlib.Path(argument) for argument in sys.argv[1:5])
+    payload, partitions, build_metadata, transfers, manifest = (pathlib.Path(argument) for argument in sys.argv[1:6])
 
     metadata = json.loads(build_metadata.read_text(encoding="utf-8"))
     assert metadata["image"] == {"id": "rules-mkosi-ab", "version": "2"}, metadata["image"]
+    assert metadata["artifacts"]["manifest"] is True
+
+    # The release finalizes a base, which installed every package of the image.
+    packages = json.loads(manifest.read_text(encoding="utf-8"))
+    assert packages["config"]["name"] == "rules-mkosi-ab", packages["config"]
+    assert packages["config"]["version"] == "2", packages["config"]
+    names = {package["name"] for package in packages["packages"]}
+    assert {"linux-image-amd64", "systemd", "systemd-boot"} <= names, sorted(names)
 
     slots = json.loads(partitions.read_text(encoding="utf-8"))["partitions"]
     labels = {(slot["type_guid"], slot["label"]): slot for slot in slots}

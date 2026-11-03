@@ -5,6 +5,7 @@ mkosi in-process. mkosi_contract.py pins the patched internals of each supported
 before patching a different mkosi.
 """
 
+import datetime
 import os
 from dataclasses import replace
 from pathlib import Path
@@ -39,6 +40,25 @@ def activate_release_mode(mirror, settings, allowed_paths, allowed_extra_tree):
     if settings.stage == "base":
         # The base root crosses Bazel's cache as an archive, so its bytes must depend only on the tree.
         mkosi.make_tar = deterministic_make_tar
+    if settings.stage == "finalize":
+        include_base_packages_in_manifest()
+
+
+def include_base_packages_in_manifest():
+    """Lists the packages of the base tree in the manifest of a finalized image.
+
+    With BaseTrees=, mkosi v27 omits packages installed before the build started from the manifest. Finalization
+    installs no packages, so that would leave the manifest empty; every package of the image comes from the base.
+    """
+    from mkosi.manifest import Manifest
+
+    original = Manifest.record_deb_packages
+
+    def record_deb_packages(self):
+        self._init_timestamp = datetime.datetime.min
+        original(self)
+
+    Manifest.record_deb_packages = record_deb_packages
 
 
 def _serve_local_mirror(mirror, components):

@@ -232,6 +232,27 @@ class MkosiContractTest(unittest.TestCase):
             self.assertEqual(workspace / "repository", context.repository)
             self.assertTrue((workspace / "repository").is_dir())
 
+    def test_finalized_manifest_lists_the_packages_of_the_base_tree(self):
+        import mkosi.manifest
+
+        dpkg = types.SimpleNamespace(stdout="bash\tbash\t5.2.37-2\tamd64\t7000\t0\n")
+        self._replace(mkosi.manifest, "run", lambda *args, **kwargs: dpkg)
+        self._replace(
+            mkosi.manifest.Manifest, "record_deb_packages", vars(mkosi.manifest.Manifest)["record_deb_packages"]
+        )
+        config = types.SimpleNamespace(base_trees=[pathlib.Path("/base")], manifest_format=[])
+        context = types.SimpleNamespace(config=config, root=pathlib.Path("/root"), sandbox=lambda **kwargs: None)
+
+        def recorded_packages():
+            manifest = mkosi.manifest.Manifest(context)
+            manifest.record_deb_packages()
+            return [package.name for package in manifest.packages]
+
+        # mkosi omits packages installed before the build of an image with BaseTrees=.
+        self.assertEqual([], recorded_packages())
+        self.release_patches.include_base_packages_in_manifest()
+        self.assertEqual(["bash"], recorded_packages())
+
     def test_parse_ini_reports_the_sections_that_release_mode_validates(self):
         with tempfile.TemporaryDirectory() as directory:
             path = pathlib.Path(directory) / "mkosi.conf"

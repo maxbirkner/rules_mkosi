@@ -112,6 +112,11 @@ CONTRACTS = {
                 "939b475f25dcea19491ee4925fa93af5c487b0e1a7c0b59fcde5c44764237ab2",
                 callers=("mkosi:build_image",),
             ),
+            Patched(
+                "mkosi.manifest:Manifest.record_deb_packages",
+                "include_base_packages_in_manifest",
+                "39dadbf7082a59af18a2c3ee67059e5b648414f0bc38a3b9695e81822cbc14ea",
+            ),
         ),
         inherited=(("mkosi.installer.apt:Apt", "mounts"),),
         signatures={
@@ -142,6 +147,7 @@ CONTRACTS = {
                 "proxy_client_key",
             ),
             "mkosi.installer.apt:AptRepository": ("url", "components"),
+            "mkosi.manifest:Manifest": ("_init_timestamp",),
         },
     ),
 }

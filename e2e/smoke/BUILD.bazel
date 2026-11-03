@@ -23,6 +23,7 @@ load(
     "behavior_targets",
     "generated_payload_tree",
     "image_build_metadata_file",
+    "image_manifest_file",
     "image_partition_metadata_file",
     "image_public_api_test",
     "mkosi_python_override_test",
@@ -758,6 +759,7 @@ mkosi_base(
         image_id = "rules-mkosi-ab",
         image_version = None if version == "2" else version,
         image_version_file = ":sysupdate_v2_version" if version == "2" else None,
+        manifest = True,
         mode = "release",
         rootfs_payloads = extra_payloads,
         unified_kernel_image = "unsigned",
@@ -816,6 +818,11 @@ image_build_metadata_file(
     image = ":sysupdate_v2",
 )
 
+image_manifest_file(
+    name = "sysupdate_v2_manifest",
+    image = ":sysupdate_v2",
+)
+
 py_test(
     name = "sysupdate_payload_test",
     srcs = ["sysupdate_payload_test.py"],
@@ -824,10 +831,12 @@ py_test(
         "$(rootpath :sysupdate_v2_partition_metadata)",
         "$(rootpath :sysupdate_v2_build_metadata)",
         "$(rootpath :sysupdate_transfers)",
+        "$(rootpath :sysupdate_v2_manifest)",
     ],
     data = [
         ":sysupdate_transfers",
         ":sysupdate_v2_build_metadata",
+        ":sysupdate_v2_manifest",
         ":sysupdate_v2_partition_metadata",
         ":sysupdate_v2_payload",
     ],
