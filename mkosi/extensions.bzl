@@ -20,6 +20,27 @@ load(
 load("//mkosi:versions.bzl", "DEFAULT_MKOSI_VERSION", "MKOSI_VERSIONS")
 load("//mkosi/private:toolchains_repo.bzl", "toolchains_repo")
 
+_QEMU_REPOSITORY_ATTRS = {
+    "qemu_system": "@qemu_system_bin_prebuilt_linux_amd64_x86_64_softmmu//:qemu-system-x86_64",
+    "qemu_img": "@qemu_img_prebuilt_linux_amd64//:qemu-img",
+    "system_data": "@qemu_system_data_prebuilt_linux_amd64//:qemu-system-data",
+    "seabios_source": "@qemu_system_data_prebuilt_linux_amd64//:share/qemu",
+    "seabios_version": SEABIOS_VERSION,
+    "seabios_sha256": SEABIOS_SHA256,
+    "qemu_version": QEMU_VERSION,
+    "qemu_source_url": QEMU_SYSTEM_URL,
+    "qemu_sha256": QEMU_SYSTEM_SHA256,
+    "qemu_integrity": QEMU_SYSTEM_INTEGRITY,
+    "ovmf_version": OVMF_VERSION,
+    "ovmf_source_url": OVMF_URL,
+    "ovmf_sha256": OVMF_SHA256,
+    "ovmf_integrity": OVMF_INTEGRITY,
+    "ovmf_code_sha256": OVMF_CODE_SHA256,
+    "ovmf_vars_sha256": OVMF_VARS_SHA256,
+    "ovmf_shell_sha256": OVMF_SHELL_SHA256,
+    "ovmf_strip_prefix": OVMF_STRIP_PREFIX,
+}
+
 _toolchain = tag_class(
     attrs = {
         "name": attr.string(
@@ -33,6 +54,15 @@ _toolchain = tag_class(
     },
 )
 
+def _unsupported_version(version):
+    return struct(
+        error = "Unsupported mkosi version {}. Supported versions: {}.".format(
+            version,
+            ", ".join(sorted(MKOSI_VERSIONS.keys())),
+        ),
+        version = None,
+    )
+
 def resolve_mkosi_version(root_version, dependency_versions):
     """Select a supported version and report any module-graph conflict.
 
@@ -43,18 +73,8 @@ def resolve_mkosi_version(root_version, dependency_versions):
     Returns:
       A struct containing selected version and an error message.
     """
-    requested_versions = [version for version in dependency_versions]
-    if root_version != None:
-        requested_versions.append(root_version)
-
     if root_version != None and root_version not in MKOSI_VERSIONS:
-        return struct(
-            error = "Unsupported mkosi version {}. Supported versions: {}.".format(
-                root_version,
-                ", ".join(sorted(MKOSI_VERSIONS.keys())),
-            ),
-            version = None,
-        )
+        return _unsupported_version(root_version)
 
     selected_version = root_version or DEFAULT_MKOSI_VERSION
     for version in dependency_versions:
@@ -66,15 +86,6 @@ def resolve_mkosi_version(root_version, dependency_versions):
                 ),
                 version = None,
             )
-    for version in requested_versions:
-        if version not in MKOSI_VERSIONS:
-            return struct(
-                error = "Unsupported mkosi version {}. Supported versions: {}.".format(
-                    version,
-                    ", ".join(sorted(MKOSI_VERSIONS.keys())),
-                ),
-                version = None,
-            )
     return struct(error = "", version = selected_version)
 
 def resolve_mkosi_name(names):
@@ -82,11 +93,11 @@ def resolve_mkosi_name(names):
         return struct(error = "Only one mkosi toolchain may be configured.", name = None)
     return struct(error = "", name = names[0] if names else "mkosi")
 
-def _mkosi_impl(module_ctx):
+def _requested_toolchains(module_ctx):
+    """Returns the requested toolchain names, the root module's version or None, and the dependency versions."""
     names = []
     versions = []
     root_version = None
-
     for mod in module_ctx.modules:
         for toolchain in mod.tags.toolchain:
             if toolchain.name != "mkosi" and not mod.is_root:
@@ -99,20 +110,21 @@ def _mkosi_impl(module_ctx):
                 root_version = toolchain.version
             elif toolchain.version not in versions:
                 versions.append(toolchain.version)
+    return names, root_version, versions
 
+def _mkosi_impl(module_ctx):
+    names, root_version, versions = _requested_toolchains(module_ctx)
     name_selection = resolve_mkosi_name(names)
     if name_selection.error:
         fail(name_selection.error)
-
     selection = resolve_mkosi_version(root_version, versions)
     if selection.error:
         fail(selection.error)
-    selected_version = selection.version
-    release = MKOSI_VERSIONS[selected_version]
+    release = MKOSI_VERSIONS[selection.version]
     toolchains_repo(
         name = "mkosi_toolchains",
         toolchain_name = name_selection.name,
-        version = selected_version,
+        version = selection.version,
         source_url = release.source_url,
         source_sha256 = release.source_sha256,
         source_integrity = release.source_integrity,
@@ -120,26 +132,8 @@ def _mkosi_impl(module_ctx):
         python_version = release.python_version,
         python_dependencies = release.python_dependencies,
         python_import_dependencies = release.python_import_dependencies,
-        qemu_system = "@qemu_system_bin_prebuilt_linux_amd64_x86_64_softmmu//:qemu-system-x86_64",
-        qemu_img = "@qemu_img_prebuilt_linux_amd64//:qemu-img",
-        system_data = "@qemu_system_data_prebuilt_linux_amd64//:qemu-system-data",
-        seabios_source = "@qemu_system_data_prebuilt_linux_amd64//:share/qemu",
-        seabios_version = SEABIOS_VERSION,
-        seabios_sha256 = SEABIOS_SHA256,
-        qemu_version = QEMU_VERSION,
-        qemu_source_url = QEMU_SYSTEM_URL,
-        qemu_sha256 = QEMU_SYSTEM_SHA256,
-        qemu_integrity = QEMU_SYSTEM_INTEGRITY,
-        ovmf_version = OVMF_VERSION,
-        ovmf_source_url = OVMF_URL,
-        ovmf_sha256 = OVMF_SHA256,
-        ovmf_integrity = OVMF_INTEGRITY,
-        ovmf_code_sha256 = OVMF_CODE_SHA256,
-        ovmf_vars_sha256 = OVMF_VARS_SHA256,
-        ovmf_shell_sha256 = OVMF_SHELL_SHA256,
-        ovmf_strip_prefix = OVMF_STRIP_PREFIX,
+        **_QEMU_REPOSITORY_ATTRS
     )
-
     return module_ctx.extension_metadata(reproducible = True)
 
 mkosi = module_extension(

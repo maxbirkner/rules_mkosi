@@ -1,20 +1,24 @@
 """Repository rule for checksum-pinned Debian package inputs."""
 
-load(":debian_snapshot_repo.bzl", "validate_lock")
+load(":debian_snapshot_repo.bzl", "local_package_name", "locked_packages", "validate_lock")
+
+_BUILD_TEMPLATE = """package(default_visibility = ["//visibility:public"])
+
+exports_files({files} + ["package_manifest.txt"])
+
+filegroup(
+    name = "all",
+    srcs = {files},
+)
+"""
 
 def _impl(ctx):
     lock = json.decode(ctx.read(ctx.attr.lock))
     validate_lock(lock)
-    packages = sorted(lock["packages"], key = lambda package: package["key"])
     files = []
     manifest = []
-    for index, package in enumerate(packages):
-        index_string = str(index)
-        if index < 10:
-            index_string = "00" + index_string
-        elif index < 100:
-            index_string = "0" + index_string
-        output = "pkg_" + index_string + ".deb"
+    for index, package in enumerate(locked_packages(lock)):
+        output = local_package_name(index)
         ctx.download(
             url = package["urls"][0],
             output = output,
@@ -23,18 +27,7 @@ def _impl(ctx):
         files.append(output)
         manifest.append("%s|%s|%s" % (output, package["sha256"], package["key"]))
     ctx.file("package_manifest.txt", "\n".join(manifest) + "\n")
-    ctx.file(
-        "BUILD.bazel",
-        """package(default_visibility = ["//visibility:public"])
-
-exports_files({files} + ["package_manifest.txt"])
-
-filegroup(
-    name = "all",
-    srcs = {files},
-)
-""".format(files = repr(files)),
-    )
+    ctx.file("BUILD.bazel", _BUILD_TEMPLATE.format(files = repr(files)))
     if hasattr(ctx, "repo_metadata"):
         return ctx.repo_metadata(reproducible = True)
     return None
@@ -42,6 +35,6 @@ filegroup(
 debian_package_repo = repository_rule(
     implementation = _impl,
     attrs = {
-        "lock": attr.label(mandatory = True, allow_single_file = True),
+        "lock": attr.label(mandatory = True, allow_single_file = True, doc = "Debian snapshot lock."),
     },
 )

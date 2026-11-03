@@ -2,6 +2,7 @@
 
 load("//mkosi/private:image_identity.bzl", "validate_image_id")
 load("//mkosi/private:mkosi_image.bzl", "MkosiImageInfo", "MkosiRootfsPayloadInfo")
+load("//mkosi/private:python_action.bzl", "MKOSI_TOOLCHAIN_TYPE", "run_python")
 load("//mkosi/private:secure_boot.bzl", "SecureBootSignedUkiInfo")
 
 SysupdatePayloadInfo = provider(
@@ -15,15 +16,12 @@ mkosi_image.image_version_file, or None. Exactly one of image_version and image_
     },
 )
 
-def _python_action(ctx, arguments, inputs, outputs, mnemonic):
-    python = ctx.toolchains["//mkosi/toolchain:toolchain_type"].mkosi
-    ctx.actions.run(
-        executable = python.python,
+def _run_sysupdate(ctx, arguments, inputs, output, mnemonic):
+    run_python(
+        ctx,
         arguments = [arguments],
-        inputs = depset([ctx.file._tool, ctx.file._gpt_partitions, ctx.file._sibling_loader] + inputs, transitive = [python.python_runtime_files]),
-        tools = [python.python_files_to_run],
-        outputs = outputs,
-        env = {"PATH": "", "PYTHONNOUSERSITE": "1"},
+        inputs = [ctx.file._tool, ctx.file._gpt_partitions, ctx.file._sibling_loader] + inputs,
+        outputs = [output],
         mnemonic = mnemonic,
     )
 
@@ -41,7 +39,7 @@ def _sysupdate_transfers_impl(ctx):
     arguments.add("--boot-attempts", str(ctx.attr.boot_attempts))
     arguments.add("--instances", str(ctx.attr.instances))
     arguments.add("--output", output.path)
-    _python_action(ctx, arguments, [], [output], "MkosiSysupdateTransfers")
+    _run_sysupdate(ctx, arguments, [], output, "MkosiSysupdateTransfers")
     return [
         DefaultInfo(files = depset([output])),
         MkosiRootfsPayloadInfo(
@@ -59,10 +57,7 @@ sysupdate_transfers = rule(
         "image_id": attr.string(mandatory = True, doc = "IMAGE_ID shared by every release of the image."),
         "boot_attempts": attr.int(
             default = 3,
-            doc = """systemd-boot boot-counting attempts for a newly installed UKI (TriesLeft=).
-
-0 disables boot counting by listing the counter-free '<id>_@v.efi' first in the UKI target MatchPattern=, because
-systemd-sysupdate names new files after the first pattern and otherwise defaults to TriesLeft=3.""",
+            doc = "systemd-boot boot-counting attempts (TriesLeft=) of a newly installed UKI; 0 disables boot counting.",
         ),
         "instances": attr.int(default = 2, doc = "Number of A/B slots (InstancesMax=)."),
         "destination": attr.string(
@@ -75,25 +70,16 @@ systemd-sysupdate names new files after the first pattern and otherwise defaults
     },
     doc = """Generates systemd-sysupdate transfer definitions for A/B root, verity and UKI updates.
 
-Add the target to mkosi_image(rootfs_payloads = [...]). Sources use PathRelativeTo=explicit, so updates
-are applied with `systemd-sysupdate --transfer-source=<payload directory> update`. Each transfer protects
-the running version, and unless boot_attempts = 0, new UKIs use systemd-boot boot counting so that a release
-that never reaches boot-complete.target falls back to the previous one.
+Add the target to mkosi_image(rootfs_payloads = [...]) and apply updates with
+`systemd-sysupdate --transfer-source=<payload directory> update`. The running version is protected, and unless
+boot_attempts = 0, a release that never reaches boot-complete.target falls back to the previous one.
 """,
     provides = [MkosiRootfsPayloadInfo],
-    toolchains = ["//mkosi/toolchain:toolchain_type"],
+    toolchains = [MKOSI_TOOLCHAIN_TYPE],
 )
 
-def _sysupdate_payload_impl(ctx):
-    image = ctx.attr.image[MkosiImageInfo]
-
-    # MkosiImageInfo values constructed outside mkosi_image may predate image_version_file.
-    image_version_file = getattr(image, "image_version_file", None)
-    if not image.image_version and not image_version_file:
-        fail("image must set image_id and image_version or image_version_file")
-    if image.root_image == None or image.root_hash == None or image.root_hash_image == None or image.uki == None:
-        fail("image must use unified_kernel_image = 'unsigned' and verity = 'hash'")
-    output = ctx.actions.declare_directory(ctx.label.name)
+def _payload_arguments(ctx, image, image_version_file, output):
+    """Returns the arguments and inputs of the payload action."""
     inputs = [image.root_hash, image.partition_metadata, image.root_image, image.root_hash_image, image.uki]
     arguments = ctx.actions.args()
     arguments.add(ctx.file._tool)
@@ -115,7 +101,20 @@ def _sysupdate_payload_impl(ctx):
         arguments.add("--signed-uki", signed.signed_uki)
         arguments.add("--signing-request", signed.request)
     arguments.add("--output", output.path)
-    _python_action(ctx, arguments, inputs, [output], "MkosiSysupdatePayload")
+    return arguments, inputs
+
+def _sysupdate_payload_impl(ctx):
+    image = ctx.attr.image[MkosiImageInfo]
+
+    # MkosiImageInfo values constructed outside mkosi_image may lack image_version_file.
+    image_version_file = getattr(image, "image_version_file", None)
+    if not image.image_version and not image_version_file:
+        fail("image must set image_id and image_version or image_version_file")
+    if image.root_image == None or image.root_hash == None or image.root_hash_image == None or image.uki == None:
+        fail("image must use unified_kernel_image = 'unsigned' and verity = 'hash'")
+    output = ctx.actions.declare_directory(ctx.label.name)
+    arguments, inputs = _payload_arguments(ctx, image, image_version_file, output)
+    _run_sysupdate(ctx, arguments, inputs, output, "MkosiSysupdatePayload")
     return [
         DefaultInfo(files = depset([output])),
         SysupdatePayloadInfo(
@@ -136,10 +135,9 @@ sysupdate_payload = rule(
         ),
         "signed_uki": attr.label(
             providers = [SecureBootSignedUkiInfo],
-            doc = """Optional externally signed replacement for the image's unsigned UKI.
+            doc = """Externally signed replacement for the image's unsigned UKI.
 
-The payload action fails with SYSUPDATE_INVALID unless the signing request was created for this image's
-unsigned UKI.""",
+The build fails with SYSUPDATE_INVALID unless its signing request was created for this image's unsigned UKI.""",
         ),
         "_gpt_partitions": attr.label(default = "//mkosi/private:gpt_partitions.py", allow_single_file = True),
         "_sibling_loader": attr.label(default = "//mkosi/private:sibling_loader.py", allow_single_file = True),
@@ -149,10 +147,9 @@ unsigned UKI.""",
     doc = """Projects a versioned mkosi_image into an update directory for sysupdate_transfers.
 
 The directory contains '<id>_<version>.root.<uuid>.raw', '<id>_<version>.root-verity.<uuid>.raw',
-'<id>_<version>.efi' and a SHA256SUMS manifest. Partition UUIDs are the dm-verity root-hash-derived
-UUIDs that the UKI's roothash= locates at boot; they are cross-checked against the image's GPT.
-For an image versioned through image_version_file, the action reads and validates the version from that file.
+'<id>_<version>.efi' and a SHA256SUMS manifest. The partition UUIDs are those derived from the dm-verity root
+hash, which the UKI's roothash= locates at boot, and must match the image's GPT.
 """,
     provides = [SysupdatePayloadInfo],
-    toolchains = ["//mkosi/toolchain:toolchain_type"],
+    toolchains = [MKOSI_TOOLCHAIN_TYPE],
 )

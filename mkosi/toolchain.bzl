@@ -49,26 +49,29 @@ MkosiToolchainInfo = provider(
     },
 )
 
-def _managed_python_tool_impl(ctx):
-    runtime = ctx.toolchains[_PYTHON_TOOLCHAIN_TYPE].py3_runtime
-    if runtime == None or runtime.interpreter == None:
-        fail("managed_python_tool requires an in-build Python interpreter")
+def _resolved_python_version(runtime, required_version):
+    """Returns the runtime's full version after checking that it matches the required major and minor version."""
     version_info = runtime.interpreter_version_info
     if version_info == None:
         fail("the selected Python runtime must declare interpreter_version_info")
-
-    required = ctx.attr.python_version.split(".")
+    required = required_version.split(".")
     actual_minor = "{}.{}".format(version_info.major, version_info.minor)
     if len(required) < 2 or actual_minor != ".".join(required[:2]):
         fail(
             "the selected Python runtime is {}, but rules_mkosi requires {}.x".format(
                 actual_minor,
-                ctx.attr.python_version,
+                required_version,
             ),
         )
-    actual = actual_minor
     if version_info.micro != None:
-        actual += "." + str(version_info.micro)
+        return actual_minor + "." + str(version_info.micro)
+    return actual_minor
+
+def _managed_python_tool_impl(ctx):
+    runtime = ctx.toolchains[_PYTHON_TOOLCHAIN_TYPE].py3_runtime
+    if runtime == None or runtime.interpreter == None:
+        fail("managed_python_tool requires an in-build Python interpreter")
+    actual = _resolved_python_version(runtime, ctx.attr.python_version)
 
     executable = ctx.actions.declare_file("python3")
     ctx.actions.symlink(
@@ -106,19 +109,19 @@ managed_python_tool = rule(
     doc = "Exposes the root-selected compatible Python toolchain as an executable.",
 )
 
+def _pefile(files):
+    for file in files:
+        if file.basename == "pefile.py":
+            return file
+    fail("The mkosi Python dependency must provide pefile.py.")
+
 def _mkosi_toolchain_impl(ctx):
     if ctx.attr.version not in MKOSI_VERSIONS:
         fail("Unsupported mkosi version {}.".format(ctx.attr.version))
     python = ctx.attr.python[DefaultInfo]
     managed_python = ctx.attr.python[_ManagedPythonRuntimeInfo]
     python_runtime_files = managed_python.runtime_files
-    pefile = None
-    for file in ctx.files.python_dependency:
-        if file.basename == "pefile.py":
-            pefile = file
-            break
-    if pefile == None:
-        fail("The mkosi Python dependency must provide pefile.py.")
+    pefile = _pefile(ctx.files.python_dependency)
     runfiles_files = depset(
         [ctx.file.script, pefile],
         transitive = [

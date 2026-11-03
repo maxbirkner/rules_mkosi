@@ -68,6 +68,16 @@ def _src_arg(src):
     ]
 
 def managed_python_test(name, src, args = [], data = [], timeout = "moderate", tags = []):
+    """Tests the Python script src with rules_mkosi's managed interpreter, independent of the consumer's Python.
+
+    Args:
+      name: Test name.
+      src: Python script to run.
+      args: Arguments passed to src.
+      data: Files available to the test at run time.
+      timeout: Bazel test timeout category.
+      tags: Test tags.
+    """
     _managed_python_test(
         name = name,
         src = src,
