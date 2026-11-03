@@ -30,16 +30,18 @@ def python_interpreter(executable, files_to_run, runtime_files = depset(), optio
         env = env,
     )
 
-def static_python_interpreter(executable, files_to_run):
+def static_python_interpreter(executable, files_to_run, runtime_files = depset()):
     """Describes a static interpreter that runs in isolated mode with its standard library next to it.
 
     Args:
       executable: Interpreter executable File.
       files_to_run: FilesToRunProvider of the interpreter.
+      runtime_files: Depset of runtime files read by the interpreter.
     """
     return python_interpreter(
         executable,
         files_to_run,
+        runtime_files = runtime_files,
         options = ["-I"],
         env = {"PYTHONHOME": executable.dirname},
     )
