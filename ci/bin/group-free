@@ -8,7 +8,7 @@ if [[ $# -eq 0 ]]; then
   exit 2
 fi
 
-environment=(HOME="$HOME" PATH="$PATH")
+environment=(HOME="$HOME" PATH="$PATH" USER="$(id -un)")
 if [[ -n "${USE_BAZEL_VERSION:-}" ]]; then
   environment+=(USE_BAZEL_VERSION="$USE_BAZEL_VERSION")
 fi
