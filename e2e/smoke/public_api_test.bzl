@@ -80,7 +80,7 @@ def _image_public_api_test_impl(ctx):
     target = analysistest.target_under_test(env)
     asserts.true(env, MkosiImageInfo in target)
     info = target[MkosiImageInfo]
-    asserts.equals(env, "mkosi-image-v2", info.format_version)
+    asserts.equals(env, "mkosi-image-v3", info.format_version)
     asserts.equals(env, "demo.raw", info.raw_image.basename)
     asserts.equals(env, info.raw_image, info.image)
     asserts.equals(env, None, info.manifest)
@@ -216,7 +216,7 @@ def _verity_corrupted_image_impl(ctx):
     return [
         DefaultInfo(files = depset([output])),
         MkosiImageInfo(
-            format_version = "mkosi-image-v2",
+            format_version = "mkosi-image-v3",
             raw_image = output,
             manifest = None,
             partition_metadata = info.partition_metadata,

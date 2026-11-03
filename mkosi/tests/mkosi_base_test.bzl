@@ -117,7 +117,7 @@ def _finalize_test_impl(ctx):
 
     metadata_action = _action(env, "MkosiBuildMetadata")
     metadata = json.decode(_option_value(metadata_action.argv, "--metadata-json"))
-    asserts.equals(env, "mkosi-image-build-metadata-v2", metadata["format_version"])
+    asserts.equals(env, "mkosi-image-build-metadata-v3", metadata["format_version"])
     asserts.equals(env, base.debian_snapshot.lock_sha256, metadata["debian_snapshot"]["lock_sha256"])
     asserts.equals(
         env,

@@ -177,7 +177,7 @@ def _build_metadata(ctx, settings):
     # filenames or binaries.
     metadata = {
         "artifacts": _artifact_roles(settings),
-        "format_version": "mkosi-image-build-metadata-v2",
+        "format_version": "mkosi-image-build-metadata-v3",
         "mkosi": {
             "compression": "none",
             "format": "disk",

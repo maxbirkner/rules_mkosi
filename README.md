@@ -353,12 +353,12 @@ Select artifacts by field, never by file name or `DefaultInfo` order.
 
 | Field | Type | Present |
 | --- | --- | --- |
-| `format_version` | `string` | Always `mkosi-image-v2`. |
+| `format_version` | `string` | Always `mkosi-image-v3`. |
 | `firmware` | `string` | `uefi` or `bios`. |
 | `image_id`, `image_version` | `string` or `None` | When set on the rule. |
 | `image_version_file` | `File` or `None` | When set on the rule; contains the version and an optional newline. |
 | `raw_image` | `File` | Always. |
-| `build_metadata` | `File` | Always. JSON, schema `mkosi-image-build-metadata-v2`: mode, outputs, and for release images the snapshot, lock digest, seed, and epoch. |
+| `build_metadata` | `File` | Always. JSON, schema `mkosi-image-build-metadata-v3`: mode, outputs, and for release images the snapshot, lock digest, seed, and epoch. |
 | `partition_metadata` | `File` or `None` | Release images: normalized GPT layout. |
 | `uki`, `uki_metadata` | `File` or `None` | `unified_kernel_image = "unsigned"`. |
 | `root_image`, `root_hash`, `root_hash_image`, `verity_metadata` | `File` or `None` | `verity = "hash"`. `root_hash` is the lowercase hex root hash. |

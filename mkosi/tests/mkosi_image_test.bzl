@@ -54,7 +54,7 @@ def _provider_test_impl(ctx):
 
     asserts.true(env, MkosiImageInfo in target)
     info = target[MkosiImageInfo]
-    asserts.equals(env, "mkosi-image-v2", info.format_version)
+    asserts.equals(env, "mkosi-image-v3", info.format_version)
     asserts.equals(env, ctx.attr.expected_output, info.raw_image.basename)
     asserts.equals(env, info.raw_image, info.image)
     asserts.equals(env, None, info.manifest)
@@ -371,7 +371,7 @@ def _image_info_fixture_impl(ctx):
     return [
         DefaultInfo(files = depset([artifact for artifact in artifacts if artifact != None])),
         MkosiImageInfo(
-            format_version = "mkosi-image-v2",
+            format_version = "mkosi-image-v3",
             raw_image = raw_image,
             manifest = manifest,
             partition_metadata = partition_metadata,
@@ -405,7 +405,7 @@ def _image_info_contract_test_impl(ctx):
     env = analysistest.begin(ctx)
     target = analysistest.target_under_test(env)
     info = target[MkosiImageInfo]
-    asserts.equals(env, "mkosi-image-v2", info.format_version)
+    asserts.equals(env, "mkosi-image-v3", info.format_version)
     artifacts = [
         info.raw_image,
         info.manifest,
@@ -497,7 +497,7 @@ def _release_provider_test_impl(ctx):
     asserts.equals(env, "main", argv[components + 1])
     asserts.equals(env, "0", image_action.env["SOURCE_DATE_EPOCH"])
     info = target[MkosiImageInfo]
-    asserts.equals(env, "mkosi-image-v2", info.format_version)
+    asserts.equals(env, "mkosi-image-v3", info.format_version)
     asserts.equals(env, "release_subject.raw", info.raw_image.basename)
     asserts.equals(env, info.raw_image, info.image)
     asserts.equals(env, "release_subject.mkosi-image-info.json", info.build_metadata.basename)
@@ -552,7 +552,7 @@ def _immutable_release_provider_test_impl(ctx):
     env = analysistest.begin(ctx)
     target = analysistest.target_under_test(env)
     info = target[MkosiImageInfo]
-    asserts.equals(env, "mkosi-image-v2", info.format_version)
+    asserts.equals(env, "mkosi-image-v3", info.format_version)
     asserts.equals(env, "immutable_release_subject.efi", info.uki.basename)
     asserts.equals(env, "immutable_release_subject.root.raw", info.root_image.basename)
     asserts.equals(env, "immutable_release_subject.roothash", info.root_hash.basename)

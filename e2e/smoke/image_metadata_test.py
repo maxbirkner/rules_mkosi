@@ -7,7 +7,7 @@ import sys
 
 def main() -> None:
     metadata = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
-    assert metadata["format_version"] == "mkosi-image-build-metadata-v2"
+    assert metadata["format_version"] == "mkosi-image-build-metadata-v3"
     immutable = len(sys.argv) > 3 and sys.argv[3] == "immutable"
     assert metadata["mkosi"] == {
         "compression": "none",

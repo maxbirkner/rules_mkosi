@@ -21,7 +21,7 @@ def main() -> None:
             "uki_metadata": False,
             "verity_metadata": False,
         },
-        "format_version": "mkosi-image-build-metadata-v2",
+        "format_version": "mkosi-image-build-metadata-v3",
         "firmware": "uefi",
         "mkosi": {
             "compression": "none",

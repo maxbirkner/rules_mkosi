@@ -34,7 +34,7 @@ and DefaultInfo contains every artifact that is not None. raw_image and build_me
 images add partition_metadata, and UEFI release images add their UKI, split dm-verity artifacts and metadata.
 """,
     fields = {
-        "format_version": "Contract version, currently mkosi-image-v2.",
+        "format_version": "Contract version, currently mkosi-image-v3.",
         "raw_image": "The raw disk image.",
         "manifest": "The mkosi manifest; currently always None.",
         "partition_metadata": "Validated, normalized GPT partition metadata of a release image, or None.",
@@ -545,7 +545,7 @@ def _image_providers(settings, outputs):
     return [
         DefaultInfo(files = depset([artifact for artifact in artifacts.values() if artifact != None])),
         MkosiImageInfo(
-            format_version = "mkosi-image-v2",
+            format_version = "mkosi-image-v3",
             firmware = settings.firmware,
             image_id = settings.image_id,
             image_version = settings.image_version,
