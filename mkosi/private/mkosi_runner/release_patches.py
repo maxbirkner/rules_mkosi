@@ -1,14 +1,15 @@
 """Patches mkosi v27 internals so that a release build reads only declared inputs and is reproducible.
 
 mkosi has no options for these constraints, so its functions are replaced in the release child process, which runs
-mkosi in-process.
+mkosi in-process. mkosi_contract.py pins the patched internals of each supported mkosi version, and release mode fails
+before patching a different mkosi.
 """
 
 import os
 from dataclasses import replace
 from pathlib import Path
 
-from . import release_sandbox, tree
+from . import mkosi_contract, release_sandbox, tree
 from .release_validation import (
     is_declared,
     release_apt_components,
@@ -27,6 +28,7 @@ def activate_release_mode(mirror, settings, allowed_paths, allowed_extra_tree):
     import mkosi
     import mkosi.distribution.debian
 
+    mkosi_contract.verify()
     if (mirror is None) != (settings.stage == "finalize"):
         raise SystemExit("only the release finalize stage runs without the Debian snapshot mirror")
     if mirror is not None:
