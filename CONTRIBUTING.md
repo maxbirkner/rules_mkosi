@@ -68,6 +68,12 @@ Pass runfiles as `$(rlocationpath ...)` arguments and resolve them in the script
 The consumer lock fixtures are regenerated from `e2e/smoke` as described in their READMEs; `//mkosi/debian:generate_lock_test` covers the generator.
 The built-in `mkosi/debian/debian13.lock.json` is pinned by `DEBIAN_TOOLS_LOCK_SHA256`; changing it also changes the Debian tools archive digest.
 
+### mkosi versions
+
+Release mode patches mkosi internals in `mkosi/private/mkosi_runner/release_patches.py`.
+Adding or changing an entry in `mkosi/versions.bzl` requires reviewing those patches against the new mkosi and recording its contract in `mkosi/private/mkosi_runner/mkosi_contract.py`.
+`//mkosi/tests:mkosi_contract_test` lists every changed internal until then.
+
 ## Pull requests
 
 - Use [Conventional Commits](https://www.conventionalcommits.org/) for commit messages.
