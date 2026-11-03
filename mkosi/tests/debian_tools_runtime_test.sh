@@ -1,49 +1,12 @@
-#!/bin/sh
-set -eu
-
+# Sourced by run_with_runfiles.sh; arguments are rlocation paths.
 # This test intentionally uses only POSIX shell builtins outside the
 # advertised launcher.  All commands inspected below are from the packaged
 # Debian root, never from the host PATH.
 PATH=
 export PATH
-runfiles_root="${RUNFILES_DIR:-$0.runfiles}"
-launcher=
-mapping="$runfiles_root/_repo_mapping"
-if [ -f "$mapping" ]; then
-    while IFS= read -r mapping_line
-    do
-        case "$mapping_line" in
-            ",mkosi_debian_tools,"*)
-                repository="${mapping_line#*,mkosi_debian_tools,}"
-                launcher="$runfiles_root/$repository/launcher"
-                break
-                ;;
-        esac
-    done < "$mapping"
-fi
-[ -x "$launcher" ] || {
-    echo "advertised Debian launcher is missing" >&2
-    exit 1
-}
-setup_script="$runfiles_root/_main/mkosi/tests/debian_tools_runtime_setup.py"
-python=
-mapping="$runfiles_root/_repo_mapping"
-if [ -f "$mapping" ]; then
-    while IFS= read -r mapping_line
-    do
-        case "$mapping_line" in
-            ",mkosi_debian_python,"*)
-                repository="${mapping_line#*,mkosi_debian_python,}"
-                python="$runfiles_root/$repository/python"
-                break
-                ;;
-        esac
-    done < "$mapping"
-fi
-[ -x "$python" ] || {
-    echo "managed Python runtime is missing" >&2
-    exit 1
-}
+launcher="$(rlocation "$1")"
+python="$(rlocation "$2")"
+setup_script="$(rlocation "$3")"
 bind_source="/dev/shm"
 bind_directory="$bind_source/rules-mkosi-${TEST_TMPDIR##*/}"
 python_home="${python%/python}"

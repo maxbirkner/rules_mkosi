@@ -150,7 +150,7 @@ def project_verity_metadata(ctx, outputs):
 def _artifact_roles(settings):
     return {
         "build_metadata": True,
-        "manifest": False,
+        "manifest": settings.manifest,
         "partition_metadata": settings.release_mode,
         "raw_image": True,
         "uki": settings.uki,

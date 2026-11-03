@@ -362,7 +362,7 @@ Select artifacts by field, never by file name or `DefaultInfo` order.
 | `partition_metadata` | `File` or `None` | Release images: normalized GPT layout. |
 | `uki`, `uki_metadata` | `File` or `None` | `unified_kernel_image = "unsigned"`. |
 | `root_image`, `root_hash`, `root_hash_image`, `verity_metadata` | `File` or `None` | `verity = "hash"`. `root_hash` is the lowercase hex root hash. |
-| `manifest` | `None` | Reserved. |
+| `manifest` | `File` or `None` | `manifest = True`: mkosi's JSON list of the installed packages, including those of a finalized `base`. |
 | `image` | `File` | Deprecated alias of `raw_image`. |
 
 ### `MkosiBaseInfo`

@@ -251,50 +251,24 @@ verity_corrupted_image = rule(
     },
 )
 
-def _image_build_metadata_file_impl(ctx):
-    """Selects metadata through MkosiImageInfo rather than output names."""
-    metadata = ctx.attr.image[MkosiImageInfo].build_metadata
-    if metadata == None:
-        fail("image must provide MkosiImageInfo.build_metadata")
-    return [DefaultInfo(files = depset([metadata]))]
+def _image_artifact_file_impl(ctx):
+    """Selects an artifact through MkosiImageInfo rather than output names."""
+    artifact = getattr(ctx.attr.image[MkosiImageInfo], ctx.attr._field)
+    if artifact == None:
+        fail("image must provide MkosiImageInfo." + ctx.attr._field)
+    return [DefaultInfo(files = depset([artifact]))]
 
-image_build_metadata_file = rule(
-    implementation = _image_build_metadata_file_impl,
-    attrs = {
-        "image": attr.label(
-            mandatory = True,
-            providers = [MkosiImageInfo],
-        ),
-    },
-)
+def _image_artifact_file(field):
+    return rule(
+        implementation = _image_artifact_file_impl,
+        attrs = {
+            "image": attr.label(mandatory = True, providers = [MkosiImageInfo]),
+            "_field": attr.string(default = field),
+        },
+        doc = "Selects MkosiImageInfo.%s through the public image provider." % field,
+    )
 
-def _image_partition_metadata_file_impl(ctx):
-    metadata = ctx.attr.image[MkosiImageInfo].partition_metadata
-    if metadata == None:
-        fail("image must provide MkosiImageInfo.partition_metadata")
-    return [DefaultInfo(files = depset([metadata]))]
-
-image_partition_metadata_file = rule(
-    implementation = _image_partition_metadata_file_impl,
-    attrs = {
-        "image": attr.label(mandatory = True, providers = [MkosiImageInfo]),
-    },
-    doc = "Selects partition metadata through the public image provider.",
-)
-
-def _raw_image_file_impl(ctx):
-    """Selects a raw disk artifact through MkosiImageInfo."""
-    raw_image = ctx.attr.image[MkosiImageInfo].raw_image
-    if raw_image == None:
-        fail("image must provide MkosiImageInfo.raw_image")
-    return [DefaultInfo(files = depset([raw_image]))]
-
-raw_image_file = rule(
-    implementation = _raw_image_file_impl,
-    attrs = {
-        "image": attr.label(
-            mandatory = True,
-            providers = [MkosiImageInfo],
-        ),
-    },
-)
+image_build_metadata_file = _image_artifact_file("build_metadata")
+image_manifest_file = _image_artifact_file("manifest")
+image_partition_metadata_file = _image_artifact_file("partition_metadata")
+raw_image_file = _image_artifact_file("raw_image")

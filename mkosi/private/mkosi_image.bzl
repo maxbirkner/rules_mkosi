@@ -36,7 +36,7 @@ images add partition_metadata, and UEFI release images add their UKI, split dm-v
     fields = {
         "format_version": "Contract version, currently mkosi-image-v3.",
         "raw_image": "The raw disk image.",
-        "manifest": "The mkosi manifest; currently always None.",
+        "manifest": "mkosi JSON manifest of the installed packages when the rule sets manifest = True, or None.",
         "partition_metadata": "Validated, normalized GPT partition metadata of a release image, or None.",
         "uki": "The unsigned Unified Kernel Image, or None.",
         "root_image": "Split root filesystem partition, or None.",
@@ -386,6 +386,7 @@ def _image_settings(ctx):
         image_id = identity.image_id,
         image_version = identity.image_version,
         image_version_file = identity.image_version_file,
+        manifest = ctx.attr.manifest,
         config = config,
         config_info = config_info,
         source_trees = {destination: target[MkosiSourceTreeInfo] for destination, target in ctx.attr.source_trees.items()},
@@ -398,7 +399,7 @@ def _declare_file(ctx, suffix, enabled = True):
 def _declare_outputs(ctx, settings):
     return struct(
         raw_image = _declare_file(ctx, ".raw"),
-        manifest = None,
+        manifest = _declare_file(ctx, ".manifest", settings.manifest),
         partition_metadata = _declare_file(ctx, ".partitions.json", settings.release_mode),
         uki = _declare_file(ctx, ".efi", settings.uki),
         root_image = _declare_file(ctx, ".root.raw", settings.verity),
@@ -482,6 +483,8 @@ def _add_image_options(arguments, settings):
         arguments.add("--image-id=" + settings.image_id)
     if settings.image_version:
         arguments.add("--image-version=" + settings.image_version)
+    if settings.manifest:
+        arguments.add("--manifest-format=json")
 
 def _image_arguments(ctx, settings, staging, image, bios_partition_definition):
     workspace = image.dirname + "/." + ctx.label.name + "-mkosi"
@@ -516,7 +519,7 @@ def _image_build_inputs(ctx, settings, staging, bios_partition_definition):
 
 def _build_image(ctx, settings, staging, outputs):
     bios_partition_definition = _bios_partition_definition(ctx) if settings.firmware == "bios" else None
-    built = [outputs.raw_image, outputs.uki, outputs.root_image, outputs.root_hash, outputs.root_hash_image]
+    built = [outputs.raw_image, outputs.manifest, outputs.uki, outputs.root_image, outputs.root_hash, outputs.root_hash_image]
     run_mkosi(
         ctx,
         arguments = _image_arguments(ctx, settings, staging, outputs.raw_image, bios_partition_definition),
@@ -662,6 +665,9 @@ Use it for build-derived versions, such as a stamped genrule. Requires image_id 
 content must satisfy the image_version constraints, optionally followed by one newline; the actions that read the
 file enforce them. MkosiImageInfo then sets image_version_file instead of image_version.
 """,
+        ),
+        "manifest": attr.bool(
+            doc = "Also output mkosi's JSON manifest of the installed packages as MkosiImageInfo.manifest.",
         ),
         "_write_bios_repart": attr.label(
             cfg = "exec",
