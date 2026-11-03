@@ -19,6 +19,8 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include "mkosi/private/write_all.h"
+
 #ifndef SYS_mount_setattr
 #define SYS_mount_setattr 442
 #endif
@@ -51,7 +53,6 @@
 #define NORETURN __attribute__((noreturn))
 
 #define OLD_ROOT_NAME ".namespace-oldroot"
-#define BIND_FILES_NAME ".namespace-bind-files"
 
 enum { PATH_BUFFER_SIZE = 4096 };
 
@@ -66,16 +67,20 @@ struct mkosi_mount_attr {
 };
 
 /*
- * Device and inode a bind source must still have when it is pinned. A zero
- * device means no identity was validated beforehand, so the path is inspected
- * immediately before it is pinned.
+ * Device and inode a bind source must still have when it is pinned. Without a
+ * validated identity the path is inspected immediately before it is pinned.
  */
 struct mount_identity {
+  bool validated;
   unsigned long long device;
   unsigned long long inode;
 };
 
-static const struct mount_identity unknown_identity = {0, 0};
+static const struct mount_identity unknown_identity = {
+    .validated = false,
+    .device = 0,
+    .inode = 0,
+};
 
 struct runner_layout {
   const char *root;
@@ -159,19 +164,6 @@ static void reset_inherited_signals(void) {
   }
 }
 
-static bool write_proc_file(const char *path, const char *contents,
-                            int length) {
-  int file = open(path, O_WRONLY | O_CLOEXEC);
-  if (file < 0 || write(file, contents, (size_t)length) != length) {
-    if (file >= 0) {
-      close(file);
-    }
-    return false;
-  }
-  close(file);
-  return true;
-}
-
 static void write_child_mapping(pid_t child, const char *name,
                                 unsigned long value) {
   char path[128];
@@ -181,8 +173,9 @@ static void write_child_mapping(pid_t child, const char *name,
   int length = format_or_fail(mapping, sizeof(mapping),
                               "namespace mapping is too long", "0 %lu 1\n",
                               value);
-  if (!write_proc_file(path, mapping, length)) {
-    fail("cannot write %s: %s", path, strerror(errno));
+  int result = rules_mkosi_write_file(path, mapping, (size_t)length);
+  if (result < 0) {
+    fail("cannot write %s: %s", path, strerror(-result));
   }
 }
 
@@ -190,8 +183,9 @@ static void deny_child_setgroups(pid_t child) {
   char path[128];
   format_or_fail(path, sizeof(path), "setgroups path is too long",
                  "/proc/%ld/setgroups", (long)child);
-  if (!write_proc_file(path, "deny\n", 5)) {
-    fail_errno("cannot disable supplementary groups");
+  int result = rules_mkosi_write_file(path, "deny\n", strlen("deny\n"));
+  if (result < 0) {
+    fail("cannot disable supplementary groups: %s", strerror(-result));
   }
 }
 
@@ -354,6 +348,7 @@ static int open_tree_path(const char *path, bool recursive) {
 
 static struct mount_identity identity_of(const struct stat *status) {
   struct mount_identity identity = {
+      .validated = true,
       .device = (unsigned long long)status->st_dev,
       .inode = (unsigned long long)status->st_ino,
   };
@@ -366,27 +361,45 @@ static bool has_identity(const struct stat *status,
          (unsigned long long)status->st_ino == expected.inode;
 }
 
+static int inspect_identity(const char *path, struct mount_identity *identity) {
+  struct stat current;
+  if (stat(path, &current) < 0) {
+    return -1;
+  }
+  *identity = identity_of(&current);
+  return 0;
+}
+
+/* Fails with EAGAIN when the pinned tree is not the expected object. */
+static int verify_pinned_tree(int mount_tree, bool directory,
+                              struct mount_identity expected) {
+  struct stat actual;
+  if (fstat(mount_tree, &actual) < 0) {
+    return -1;
+  }
+  if (!has_identity(&actual, expected) ||
+      S_ISDIR(actual.st_mode) != directory) {
+    errno = EAGAIN;
+    return -1;
+  }
+  return 0;
+}
+
 /*
  * Clones PATH into a detached mount and verifies that the clone still has the
  * expected identity and type, so a path swapped after validation is rejected.
  */
 static int pin_mount_path(const char *path, bool directory,
                           struct mount_identity expected) {
-  if (expected.device == 0) {
-    struct stat current;
-    if (stat(path, &current) < 0) {
-      return -1;
-    }
-    expected = identity_of(&current);
+  if (!expected.validated && inspect_identity(path, &expected) < 0) {
+    return -1;
   }
   int mount_tree = open_tree_path(path, directory);
   if (mount_tree < 0) {
     return -1;
   }
-  struct stat actual;
-  if (fstat(mount_tree, &actual) < 0 || !has_identity(&actual, expected) ||
-      S_ISDIR(actual.st_mode) != directory) {
-    int error = errno == 0 ? EAGAIN : errno;
+  if (verify_pinned_tree(mount_tree, directory, expected) < 0) {
+    int error = errno;
     close(mount_tree);
     errno = error;
     return -1;
@@ -413,7 +426,7 @@ static void verify_pinned_source(int source_fd, struct mount_identity expected,
   if (fstat(source_fd, &source_stat) < 0) {
     fail_errno("cannot inspect pinned bind source");
   }
-  if ((expected.device != 0 && !has_identity(&source_stat, expected)) ||
+  if ((expected.validated && !has_identity(&source_stat, expected)) ||
       S_ISDIR(source_stat.st_mode) != directory) {
     fail("pinned bind source changed after validation");
   }
@@ -518,8 +531,6 @@ static void prepare_extracted_root(const char *root) {
   }
   mount_extracted_root(root);
   make_root_directory(root, OLD_ROOT_NAME, "cannot prepare old root");
-  make_root_directory(root, BIND_FILES_NAME,
-                      "cannot prepare pinned bind directory");
   remount_bind(root, true, "cannot make extracted root read-only");
 }
 
@@ -540,9 +551,6 @@ static void enter_root(const char *root) {
   remount_bind("/", false, "cannot temporarily update private root");
   if (rmdir("/" OLD_ROOT_NAME) < 0) {
     fail_errno("cannot remove old root marker");
-  }
-  if (rmdir("/" BIND_FILES_NAME) < 0) {
-    fail_errno("cannot remove pinned bind directory");
   }
   remount_bind("/", true, "cannot make private root read-only");
 }
@@ -615,15 +623,30 @@ static bool is_mount_type(const char *type) {
   return strcmp(type, "dir") == 0 || strcmp(type, "file") == 0;
 }
 
+/*
+ * Accepts only a positive decimal number that fits the identity field. Signs,
+ * whitespace, and zero are rejected: zero is never a valid device or inode.
+ */
+static bool parse_identity_number(const char *text,
+                                  unsigned long long *value) {
+  if (text[0] < '0' || text[0] > '9') {
+    return false;
+  }
+  char *end;
+  errno = 0;
+  *value = strtoull(text, &end, 10);
+  return errno == 0 && *end == '\0' && *value != 0;
+}
+
+/* A typed mount must carry a usable identity; it is never inspected late. */
 static struct mount_identity parse_mount_identity(const char *device,
                                                   const char *inode) {
-  char *device_end;
-  char *inode_end;
-  struct mount_identity identity;
-  identity.device = strtoull(device, &device_end, 10);
-  identity.inode = strtoull(inode, &inode_end, 10);
-  if (*device_end != '\0' || *inode_end != '\0') {
-    fail("namespace mount identity is invalid");
+  struct mount_identity identity = {.validated = true};
+  if (!parse_identity_number(device, &identity.device) ||
+      !parse_identity_number(inode, &identity.inode)) {
+    fail("namespace mount identity is invalid: device \"%s\" and inode "
+         "\"%s\" must be positive decimal integers",
+         device, inode);
   }
   return identity;
 }
@@ -741,14 +764,14 @@ static int run_child(int argc, char **argv, uid_t uid, gid_t gid) {
   run_namespace_init(argc, argv, &layout);
 }
 
-static bool create_file_with_contents(const char *path, const char *contents,
-                                      ssize_t length) {
+static bool create_file_with_contents(const char *path, const char *contents) {
   int file = open(path, O_WRONLY | O_CREAT | O_CLOEXEC, 0644);
-  if (file < 0 || write(file, contents, (size_t)length) != length) {
+  if (file < 0) {
     return false;
   }
+  int result = rules_mkosi_write_all(file, contents, strlen(contents));
   close(file);
-  return true;
+  return result == 0;
 }
 
 static bool create_empty_file(const char *path) {
@@ -798,7 +821,7 @@ static bool prepare_recursive_readonly_fixture(void) {
       mount("tmpfs", RO_TEST_NESTED, "tmpfs", 0, "mode=755") < 0) {
     return false;
   }
-  return create_file_with_contents(RO_TEST_SOURCE_MARKER, "source\n", 7);
+  return create_file_with_contents(RO_TEST_SOURCE_MARKER, "source\n");
 }
 
 static bool nested_bind_is_readonly(void) {
@@ -877,6 +900,7 @@ static int pinned_identity(int pinned_fd, struct mount_identity *identity) {
 #define SWAP_READONLY_SOURCE SWAP_TEST_BASE "/readonly-source"
 #define SWAP_READONLY_DESTINATION SWAP_TEST_DESTINATIONS "/readonly"
 #define SWAP_READONLY_REPLACEMENT SWAP_TEST_DESTINATIONS "/readonly-replacement"
+#define SWAP_REPLACEMENT_CONTENTS "replacement\n"
 
 /* Swaps the destination between mount_setattr and move_mount. */
 static bool attach_readonly_after_destination_swap(int readonly_fd) {
@@ -891,27 +915,38 @@ static bool attach_readonly_after_destination_swap(int readonly_fd) {
   return true;
 }
 
-static bool readonly_bind_reached_only_new_destination(void) {
-  int file = open(SWAP_READONLY_DESTINATION, O_WRONLY | O_CLOEXEC);
-  if (file >= 0 || !is_readonly_error(errno)) {
-    if (file >= 0) {
-      close(file);
-    }
+static bool destination_is_readonly(const char *path) {
+  int file = open(path, O_WRONLY | O_CLOEXEC);
+  if (file >= 0) {
+    close(file);
     return false;
   }
-  file = open(SWAP_READONLY_REPLACEMENT, O_WRONLY | O_CLOEXEC);
-  if (file < 0 || write(file, "replacement\n", 11) != 11) {
-    if (file >= 0) {
-      close(file);
-    }
+  return is_readonly_error(errno);
+}
+
+/* The renamed-away destination must still accept and keep a complete write. */
+static bool replacement_stays_writable(void) {
+  int file = open(SWAP_READONLY_REPLACEMENT, O_WRONLY | O_CLOEXEC);
+  if (file < 0) {
     return false;
   }
+  int result = rules_mkosi_write_all(file, SWAP_REPLACEMENT_CONTENTS,
+                                     strlen(SWAP_REPLACEMENT_CONTENTS));
   close(file);
-  return true;
+  char contents[16] = {0};
+  ssize_t length = read_file_prefix(SWAP_READONLY_REPLACEMENT, contents,
+                                    sizeof(contents));
+  return result == 0 &&
+         has_contents(contents, length, SWAP_REPLACEMENT_CONTENTS);
+}
+
+static bool readonly_bind_reached_only_new_destination(void) {
+  return destination_is_readonly(SWAP_READONLY_DESTINATION) &&
+         replacement_stays_writable();
 }
 
 static bool readonly_swap_scenario(void) {
-  if (!create_file_with_contents(SWAP_READONLY_SOURCE, "readonly\n", 9) ||
+  if (!create_file_with_contents(SWAP_READONLY_SOURCE, "readonly\n") ||
       !create_empty_file(SWAP_READONLY_DESTINATION)) {
     return false;
   }
@@ -935,12 +970,12 @@ static bool readonly_swap_scenario(void) {
 static bool replace_file_source_after_pin(void) {
   return create_empty_file(SWAP_FILE_DESTINATION) &&
          rename(SWAP_FILE_SOURCE, SWAP_FILE_REPLACEMENT) == 0 &&
-         create_file_with_contents(SWAP_FILE_SOURCE, "changed\n", 8);
+         create_file_with_contents(SWAP_FILE_SOURCE, "changed\n");
 }
 
 /* A file renamed away after pinning must still be the one that is mounted. */
 static enum scenario_result file_swap_scenario(void) {
-  if (!create_file_with_contents(SWAP_FILE_SOURCE, "original\n", 9)) {
+  if (!create_file_with_contents(SWAP_FILE_SOURCE, "original\n")) {
     return SCENARIO_ABORTED;
   }
   int source_fd = pin_mount_path(SWAP_FILE_SOURCE, false, unknown_identity);
@@ -977,6 +1012,7 @@ static enum scenario_result file_swap_scenario(void) {
 #define SWAP_DIRECTORY_SOURCE SWAP_TEST_BASE "/directory-source"
 #define SWAP_DIRECTORY_REPLACEMENT SWAP_TEST_BASE "/directory-replacement"
 #define SWAP_DIRECTORY_MARKER SWAP_DIRECTORY_SOURCE "/marker"
+#define SWAP_DIRECTORY_REPLACEMENT_MARKER SWAP_DIRECTORY_REPLACEMENT "/marker"
 #define SWAP_DIRECTORY_DESTINATION SWAP_TEST_DESTINATIONS "/directory"
 #define SWAP_DIRECTORY_DESTINATION_MARKER SWAP_DIRECTORY_DESTINATION "/marker"
 
@@ -999,10 +1035,9 @@ static bool directory_bind_onto_file_is_rejected(
 static void remove_directory_swap_fixture(int directory_fd) {
   umount2(SWAP_DIRECTORY_DESTINATION, MNT_DETACH);
   close(directory_fd);
-  unlink(SWAP_DIRECTORY_DESTINATION_MARKER);
   rmdir(SWAP_DIRECTORY_DESTINATION);
-  unlink(SWAP_DIRECTORY_MARKER);
   rmdir(SWAP_DIRECTORY_SOURCE);
+  unlink(SWAP_DIRECTORY_REPLACEMENT_MARKER);
   rmdir(SWAP_DIRECTORY_REPLACEMENT);
 }
 
@@ -1012,7 +1047,7 @@ static void remove_directory_swap_fixture(int directory_fd) {
  */
 static enum scenario_result directory_swap_scenario(void) {
   if (mkdir(SWAP_DIRECTORY_SOURCE, 0700) < 0 ||
-      !create_file_with_contents(SWAP_DIRECTORY_MARKER, "directory\n", 10)) {
+      !create_file_with_contents(SWAP_DIRECTORY_MARKER, "directory\n")) {
     return SCENARIO_ABORTED;
   }
   int directory_fd =
@@ -1038,12 +1073,13 @@ static enum scenario_result directory_swap_scenario(void) {
 #define SWAP_ANCESTOR SWAP_TEST_BASE "/ancestor"
 #define SWAP_ANCESTOR_SOURCE SWAP_ANCESTOR "/source"
 #define SWAP_ANCESTOR_REPLACEMENT SWAP_TEST_BASE "/ancestor-replacement"
+#define SWAP_ANCESTOR_REPLACEMENT_SOURCE SWAP_ANCESTOR_REPLACEMENT "/source"
 #define SWAP_ANCESTOR_DESTINATION SWAP_TEST_DESTINATIONS "/ancestor"
 
 /* Replacing an ancestor directory after pinning must not redirect the bind. */
 static enum scenario_result ancestor_swap_scenario(void) {
   if (mkdir(SWAP_ANCESTOR, 0700) < 0 ||
-      !create_file_with_contents(SWAP_ANCESTOR_SOURCE, "ancestor\n", 9)) {
+      !create_file_with_contents(SWAP_ANCESTOR_SOURCE, "ancestor\n")) {
     return SCENARIO_ABORTED;
   }
   int ancestor_fd = pin_mount_path(SWAP_ANCESTOR_SOURCE, false,
@@ -1063,8 +1099,8 @@ static enum scenario_result ancestor_swap_scenario(void) {
   umount2(SWAP_ANCESTOR_DESTINATION, MNT_DETACH);
   close(ancestor_fd);
   unlink(SWAP_ANCESTOR_DESTINATION);
-  unlink(SWAP_ANCESTOR_SOURCE);
   rmdir(SWAP_ANCESTOR);
+  unlink(SWAP_ANCESTOR_REPLACEMENT_SOURCE);
   rmdir(SWAP_ANCESTOR_REPLACEMENT);
   return scenario_result_of(has_contents(contents, length, "ancestor\n"));
 }
@@ -1077,6 +1113,13 @@ static bool prepare_fd_swap_fixture(void) {
   return mkdir(SWAP_TEST_BASE, 0700) == 0 &&
          mkdir(SWAP_TEST_DESTINATIONS, 0700) == 0 &&
          mount("tmpfs", SWAP_TEST_DESTINATIONS, "tmpfs", 0, "mode=755") == 0;
+}
+
+/* Fails unless every scenario removed everything it created. */
+static bool remove_fd_swap_fixture(void) {
+  umount2(SWAP_TEST_DESTINATIONS, MNT_DETACH);
+  rmdir(SWAP_TEST_DESTINATIONS);
+  return rmdir(SWAP_TEST_BASE) == 0;
 }
 
 static int fd_swap_self_test(void) {
@@ -1096,11 +1139,8 @@ static int fd_swap_self_test(void) {
   if (ancestor == SCENARIO_ABORTED) {
     return 1;
   }
-  umount2(SWAP_TEST_DESTINATIONS, MNT_DETACH);
-  rmdir(SWAP_TEST_DESTINATIONS);
-  rmdir(SWAP_TEST_BASE);
-  return file == SCENARIO_PASSED && directory == SCENARIO_PASSED &&
-                 ancestor == SCENARIO_PASSED
+  return remove_fd_swap_fixture() && file == SCENARIO_PASSED &&
+                 directory == SCENARIO_PASSED && ancestor == SCENARIO_PASSED
              ? 0
              : 1;
 }

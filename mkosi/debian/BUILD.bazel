@@ -1,3 +1,4 @@
+load("@rules_cc//cc:defs.bzl", "cc_library", "cc_test")
 load("@rules_python//python:defs.bzl", "py_binary", "py_test")
 
 package(default_visibility = ["//visibility:public"])
@@ -35,6 +36,21 @@ py_test(
     main = "generate_lock_test.py",
 )
 
+cc_library(
+    name = "namespace_runner_source",
+    testonly = True,
+    textual_hdrs = ["namespace_runner.c"],
+    visibility = ["//visibility:private"],
+    deps = ["//mkosi/private:write_all"],
+)
+
+cc_test(
+    name = "namespace_runner_test",
+    srcs = ["namespace_runner_test.c"],
+    linkstatic = True,
+    deps = [":namespace_runner_source"],
+)
+
 py_test(
     name = "debian_tools_security_test",
     srcs = [
@@ -46,6 +62,7 @@ py_test(
     data = [
         "namespace_runner.c",
         "provenance.bzl",
+        "@mkosi_debian_tools//:namespace_runner",
         "@mkosi_debian_tools//:tree",
     ],
     main = "debian_tools_security_test.py",
