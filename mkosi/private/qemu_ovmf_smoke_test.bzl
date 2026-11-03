@@ -73,11 +73,13 @@ qmp_fifo="$TEST_TMPDIR/qmp.fifo"
 exec 3<> "$qmp_fifo"
 TMPDIR="$TEST_TMPDIR"
 export TMPDIR
+# The ESP uses virtio-blk like the image boot tests. With KVM, the io_uring main loop of QEMU 11.0.0 can miss the
+# wakeup for a request that a vCPU submits to the q35 default AHCI disk, so OVMF would poll that disk forever.
 "$qemu" -L "$system_data" -machine q35 {accelerator_args} -m 128M \
     -nodefaults -nographic -serial "file:$serial_log" -qmp stdio \
     -drive "if=pflash,format=raw,readonly=on,file=$ovmf_code" \
     -drive "if=pflash,format=raw,file=$vars_copy" \
-    -drive "file=fat:rw:$esp_dir,format=raw" >"$TEST_TMPDIR/qmp.log" 2>"$qemu_log" <&3 &
+    -drive "if=virtio,file=fat:rw:$esp_dir,format=raw" >"$TEST_TMPDIR/qmp.log" 2>"$qemu_log" <&3 &
 qemu_pid=$!
 ready=0
 iteration=0
