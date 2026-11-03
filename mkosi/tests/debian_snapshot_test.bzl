@@ -14,15 +14,15 @@ def _provider_test_impl(ctx):
     asserts.equals(env, "trixie", info.codename)
     asserts.equals(env, "amd64", info.architecture)
     asserts.equals(env, ["main"], info.components)
-    asserts.equals(env, "20250814T000000Z", info.snapshot)
+    asserts.equals(env, "20260912T080811Z", info.snapshot)
     asserts.equals(
         env,
-        "https://snapshot.debian.org/archive/debian/20250814T000000Z",
+        "https://snapshot.debian.org/archive/debian/20260912T080811Z",
         info.snapshot_url,
     )
     asserts.equals(
         env,
-        "fa4e9f106cf6fb20b8b2c2b9206375e4af25abb7fd885fbfd9613ecb7bb191ce",
+        "38c9e6d7e3585c0b6ce5ccd71b03eababc0d6e2a0f0ffce77d1e6843e11fb4d8",
         info.lock_sha256,
     )
     asserts.equals(env, "repository_repository", info.repository.basename)

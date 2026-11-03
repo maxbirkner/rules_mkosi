@@ -203,7 +203,7 @@ class MkosiContractTest(unittest.TestCase):
             source_date_epoch=0,
             distribution="debian",
             codename="trixie",
-            snapshot="20250814T000000Z",
+            snapshot="20260912T080811Z",
             stage="finalize",
         )
         with self.assertRaisesRegex(SystemExit, "mkosi 27\\.1 is not supported by release mode"):

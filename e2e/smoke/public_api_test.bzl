@@ -32,7 +32,7 @@ def _public_api_test_impl(ctx):
     asserts.true(env, DebianToolsInfo in target)
     asserts.equals(env, "debian", target[DebianToolsInfo].distribution)
     asserts.equals(env, "13", target[DebianToolsInfo].release)
-    asserts.equals(env, "3.14.7", target[DebianToolsInfo].python_version)
+    asserts.equals(env, "3.14.10", target[DebianToolsInfo].python_version)
     asserts.true(env, target[DebianToolsInfo].launcher.executable != None)
     return analysistest.end(env)
 
@@ -61,7 +61,7 @@ def _snapshot_public_api_test_impl(ctx):
     asserts.equals(env, "13", info.release)
     asserts.equals(env, "trixie", info.codename)
     asserts.equals(env, "amd64", info.architecture)
-    asserts.equals(env, "20250814T000000Z", info.snapshot)
+    asserts.equals(env, ctx.attr.expected_snapshot, info.snapshot)
     asserts.equals(env, ctx.attr.expected_components, info.components)
     asserts.equals(env, "repository_repository", info.repository.basename)
     asserts.equals(env, 2 * len(ctx.attr.expected_components), len(info.packages_metadata.to_list()))
@@ -72,6 +72,7 @@ snapshot_public_api_test = analysistest.make(
     _snapshot_public_api_test_impl,
     attrs = {
         "expected_components": attr.string_list(default = ["main"]),
+        "expected_snapshot": attr.string(default = "20260912T080811Z"),
     },
 )
 

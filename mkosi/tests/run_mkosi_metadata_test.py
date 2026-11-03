@@ -13,7 +13,7 @@ import unittest
 import uuid
 
 SEED = "00000000-0000-4000-8000-000000000015"
-SNAPSHOT = "20250814T000000Z"
+SNAPSHOT = "20260912T080811Z"
 
 
 def _load_wrapper(path):

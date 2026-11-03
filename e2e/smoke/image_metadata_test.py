@@ -35,9 +35,9 @@ def main() -> None:
             "codename": "trixie",
             "components": ["main"],
             "format_version": "debian-snapshot-v1",
-            "lock_sha256": "fa4e9f106cf6fb20b8b2c2b9206375e4af25abb7fd885fbfd9613ecb7bb191ce",
-            "snapshot": "20250814T000000Z",
-            "snapshot_url": "https://snapshot.debian.org/archive/debian/20250814T000000Z",
+            "lock_sha256": "38c9e6d7e3585c0b6ce5ccd71b03eababc0d6e2a0f0ffce77d1e6843e11fb4d8",
+            "snapshot": "20260912T080811Z",
+            "snapshot_url": "https://snapshot.debian.org/archive/debian/20260912T080811Z",
         }
         assert metadata["reproducibility"] == {
             "seed": "00000000-0000-4000-8000-000000000015",

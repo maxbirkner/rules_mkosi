@@ -102,7 +102,7 @@ def _provider_test_impl(ctx):
     asserts.equals(env, "--debian-tools-sha256", argv[7])
     asserts.equals(
         env,
-        "93c520f0935e74d47111d74ab4de55300ca24422a8ee611cc9d3cf188252b6b7",
+        "95049fee1d6eda13d3390aec5c473ab73e96dc7fe3b644ee58d941ecce2404e3",
         argv[8],
     )
     kernel_preflight = argv.index("--kernel-preflight")
@@ -222,26 +222,26 @@ def _debian_tools_provider_test_impl(ctx):
     asserts.equals(env, "13", info.release)
     asserts.equals(
         env,
-        "93c520f0935e74d47111d74ab4de55300ca24422a8ee611cc9d3cf188252b6b7",
+        "95049fee1d6eda13d3390aec5c473ab73e96dc7fe3b644ee58d941ecce2404e3",
         info.archive_sha256,
     )
     asserts.equals(env, "trixie", info.codename)
     asserts.equals(env, "amd64", info.architecture)
-    asserts.equals(env, "20250814T000000Z", info.snapshot)
+    asserts.equals(env, "20260912T080811Z", info.snapshot)
     asserts.equals(
         env,
-        "fa4e9f106cf6fb20b8b2c2b9206375e4af25abb7fd885fbfd9613ecb7bb191ce",
+        "38c9e6d7e3585c0b6ce5ccd71b03eababc0d6e2a0f0ffce77d1e6843e11fb4d8",
         info.lock_sha256,
     )
     asserts.equals(
         env,
-        "https://snapshot.debian.org/archive/debian/20250814T000000Z",
+        "https://snapshot.debian.org/archive/debian/20260912T080811Z",
         info.snapshot_url,
     )
     asserts.equals(env, "flat.tar", info.tree.basename)
     asserts.equals(env, "tree_root_root", info.tree_root.basename)
     asserts.equals(env, "launcher", info.launcher.executable.basename)
-    asserts.equals(env, "3.14.7", info.python_version)
+    asserts.equals(env, "3.14.10", info.python_version)
     asserts.equals(env, "python", info.python.basename)
     asserts.true(env, info.launcher.executable != None)
     asserts.true(env, info.tree_files_to_run.executable == None)

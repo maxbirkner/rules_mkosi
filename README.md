@@ -26,7 +26,7 @@ As a consequence, `ForeignUIDRange=yes` is not supported and fails the build.
 | --- | --- |
 | mkosi | 27.1 (`systemd/mkosi@ecf7f5702bb2052b7a69cab3fe7d37bc3b9ad77b`) |
 | Python for mkosi | 3.14, from rules_python |
-| Debian tools and snapshot | Debian 13, snapshot `20250814T000000Z` |
+| Debian tools and snapshot | Debian 13, snapshot `20260912T080811Z` |
 | QEMU | 11.0.0.1, from [rules_qemu](https://github.com/hermeticbuild/rules_qemu) |
 | OVMF | `edk2-stable202605-r1` |
 | SeaBIOS | `rel-1.17.0-0-gb52ca86e094d-prebuilt.qemu.org` |
@@ -95,7 +95,7 @@ sudo -n setpriv --reuid="$(id -u)" --regid="$(id -g)" --clear-groups \
 [Distribution]
 Distribution=debian
 Release=trixie
-Snapshot=20250814T000000Z
+Snapshot=20260912T080811Z
 
 [Output]
 Format=disk
@@ -206,7 +206,7 @@ mkosi_image(
     mode = "release",
     debian_snapshot = "@mkosi_debian_snapshot//:repository",
     release_seed = "00000000-0000-4000-8000-000000000015",
-    release_source_date_epoch = 1755129600,
+    release_source_date_epoch = 1789200491,
 )
 ```
 
@@ -222,7 +222,7 @@ Release images do not keep an APT source; build a new image from a new snapshot 
 Use `rootfs_payloads` instead of scripts for extra content.
 
 A `release_source_date_epoch` of `0` makes systemd-sysusers record a 1970 password change, which forces a password change on first login.
-Use a real epoch, such as the snapshot time (`1755129600` for `20250814T000000Z`).
+Use a real epoch, such as the snapshot time (`1789200491` for `20260912T080811Z`).
 
 ### Legacy BIOS
 
@@ -253,7 +253,7 @@ See [image identity](docs/sysupdate-ab.md#image-identity) for A/B partition labe
 `@mkosi_debian_snapshot//:repository` is the built-in snapshot: Debian 13, amd64, `main` only, with a small package set (the Debian tools closure).
 For other packages, components, or a different snapshot time, lock your own.
 
-1. Write a specification in the format of [`debian13.yaml`](mkosi/debian/debian13.yaml), as JSON:
+1. Write a JSON specification in the format of [`debian13.spec.json`](mkosi/debian/debian13.spec.json):
 
    ```json
    {
@@ -261,7 +261,7 @@ For other packages, components, or a different snapshot time, lock your own.
      "sources": [
        {
          "channel": "trixie main non-free-firmware",
-         "url": "https://snapshot.debian.org/archive/debian/20250814T000000Z"
+         "url": "https://snapshot.debian.org/archive/debian/20260912T080811Z"
        }
      ],
      "archs": ["amd64"],
@@ -302,7 +302,7 @@ For other packages, components, or a different snapshot time, lock your own.
    [Distribution]
    Distribution=debian
    Release=trixie
-   Snapshot=20250814T000000Z
+   Snapshot=20260912T080811Z
    Repositories=non-free-firmware
    ```
 
