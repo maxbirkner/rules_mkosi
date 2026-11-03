@@ -545,6 +545,113 @@ class BootLifecycleTest(unittest.TestCase):
                 left.close()
                 right.close()
 
+    def _qmp_session(self, *replies):
+        """Runs the QMP handshake against scripted replies and returns its result and the commands sent."""
+        left, right = socket.socketpair()
+        try:
+            right.sendall(b'{"QMP": {"version": {}}}\n{"return": {}}\n' + b"".join(replies))
+            result = boot_test._perform_qmp_handshake(left, 0.2)
+            right.settimeout(0.2)
+            commands = right.recv(4096).decode()
+            return result, commands
+        finally:
+            left.close()
+            right.close()
+
+    def test_qmp_handshake_reports_the_accelerator_qemu_selected(self):
+        for enabled, expected in ((b"true", "kvm"), (b"false", "tcg")):
+            with self.subTest(expected=expected):
+                accelerator, commands = self._qmp_session(
+                    b'{"event": "RESUME", "timestamp": {}}\n',
+                    b'{"return": {"enabled": ' + enabled + b', "present": true}}\n',
+                )
+                self.assertEqual(expected, accelerator)
+                self.assertEqual(
+                    '{"execute":"qmp_capabilities"}\r\n{"execute":"query-kvm"}\r\n',
+                    commands,
+                )
+
+    def test_qmp_accelerator_query_failure_is_a_handshake_error(self):
+        for reply in (
+            b'{"error": {"class": "CommandNotFound", "desc": "query-kvm"}}\n',
+            b'{"return": {"present": true}}\n',
+            b"not-json\n",
+            b"",
+        ):
+            with self.subTest(reply=reply):
+                with self.assertRaises(boot_test.QmpHandshakeError):
+                    self._qmp_session(reply)
+
+    def test_accelerator_arguments_are_passed_and_selected_accelerator_is_recorded(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            outputs = root / "outputs"
+            (root / "guest-serial.log").write_bytes(b"READY\nSHUTDOWN\n")
+            observed = {}
+
+            def factory(command, **_kwargs):
+                observed["command"] = command
+                return _Process()
+
+            stdout = io.StringIO()
+            with contextlib.redirect_stdout(stdout):
+                with mock.patch.dict(
+                    "os.environ",
+                    {"TEST_TMPDIR": directory, "TEST_UNDECLARED_OUTPUTS_DIR": str(outputs)},
+                    clear=True,
+                ):
+                    boot_test._boot(
+                        "image.raw",
+                        "qemu",
+                        "qemu-data",
+                        qemu_args=("-machine", "q35"),
+                        accelerator_args=("-accel", "kvm", "-accel", "tcg"),
+                        readiness_marker="READY",
+                        shutdown_markers=("SHUTDOWN",),
+                        process_factory=factory,
+                        qmp_handshake=lambda *_args: "kvm",
+                        sleep=lambda _seconds: None,
+                    )
+
+            command = observed["command"]
+            self.assertEqual(
+                ["-machine", "q35", "-accel", "kvm", "-accel", "tcg", "-nodefaults"],
+                command[3:10],
+            )
+            self.assertIn("QEMU accelerator: kvm\n", stdout.getvalue())
+            self.assertEqual(
+                "[qemu] accelerator: kvm",
+                (outputs / "boot-evidence.log").read_text().splitlines()[0],
+            )
+
+    def test_failed_qmp_handshake_records_unknown_accelerator(self):
+        def handshake(*_args):
+            raise boot_test.QmpHandshakeError("no greeting")
+
+        with tempfile.TemporaryDirectory() as directory:
+            outputs = pathlib.Path(directory) / "outputs"
+            with contextlib.redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit):
+                    with mock.patch.dict(
+                        "os.environ",
+                        {"TEST_TMPDIR": directory, "TEST_UNDECLARED_OUTPUTS_DIR": str(outputs)},
+                        clear=True,
+                    ):
+                        boot_test._boot(
+                            "image.raw",
+                            "qemu",
+                            "qemu-data",
+                            readiness_marker="READY",
+                            shutdown_markers=("SHUTDOWN",),
+                            process_factory=lambda *_args, **_kwargs: _Process(),
+                            qmp_handshake=handshake,
+                            sleep=lambda _seconds: None,
+                        )
+            self.assertEqual(
+                "[qemu] accelerator: unknown",
+                (outputs / "boot-evidence.log").read_text().splitlines()[0],
+            )
+
     def test_config_is_json_and_preserves_exact_markers(self):
         value = json.dumps(
             {

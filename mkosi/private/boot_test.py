@@ -75,7 +75,7 @@ def _bounded_content(data, limit):
     return data[:head] + marker + data[-(remaining - head) :]
 
 
-def _actual_boot_evidence(firmware, serial, limit, markers=()):
+def _actual_boot_evidence(firmware, serial, limit, markers=(), accelerator=None):
     stages = (
         ("firmware", firmware, (b"SeaBIOS", b"Booting from Hard Disk", b"Booting from 0000:7c00")),
         (
@@ -91,7 +91,7 @@ def _actual_boot_evidence(firmware, serial, limit, markers=()):
             + tuple(marker.encode() for marker in markers if marker),
         ),
     )
-    output = []
+    output = [b"[qemu] accelerator: " + (accelerator or "unknown").encode()]
     for source, content, markers in stages:
         for line in content.splitlines():
             if any(marker in line for marker in markers):
@@ -99,7 +99,7 @@ def _actual_boot_evidence(firmware, serial, limit, markers=()):
     return _bounded_content(b"\n".join(output) + b"\n", limit)
 
 
-def _export_boot_logs(serial_log, firmware_log, qemu_log, diagnostic_bytes, markers=()):
+def _export_boot_logs(serial_log, firmware_log, qemu_log, diagnostic_bytes, markers=(), accelerator=None):
     output_directory = os.environ.get("TEST_UNDECLARED_OUTPUTS_DIR")
     if not output_directory:
         return
@@ -113,7 +113,7 @@ def _export_boot_logs(serial_log, firmware_log, qemu_log, diagnostic_bytes, mark
             ("guest-serial.log", serial),
             ("firmware.log", firmware),
             ("qemu.log", _read_log(qemu_log)),
-            ("boot-evidence.log", _actual_boot_evidence(firmware, serial, limit, markers)),
+            ("boot-evidence.log", _actual_boot_evidence(firmware, serial, limit, markers, accelerator)),
         ):
             (destination / name).write_bytes(_bounded_content(content, limit))
     except OSError as error:
@@ -168,13 +168,36 @@ def _perform_qmp_handshake(connection, timeout):
             ) from error
         if not isinstance(response, dict) or "return" not in response:
             raise QmpHandshakeError("QMP capabilities command failed")
+
+        connection.sendall(b'{"execute":"query-kvm"}\r\n')
+        while True:
+            reply_line = reader.readline()
+            if not reply_line:
+                raise QmpHandshakeError("QMP query-kvm response was empty")
+            try:
+                reply = json.loads(reply_line)
+            except json.JSONDecodeError as error:
+                raise QmpHandshakeError("QMP query-kvm response was not valid JSON") from error
+            # Asynchronous QMP events may precede the command reply.
+            if not isinstance(reply, dict) or "event" not in reply:
+                return _accelerator_from_query_kvm(reply)
     except socket.timeout as error:
         raise QmpHandshakeError("QMP handshake timed out") from error
     finally:
         reader.close()
 
 
+def _accelerator_from_query_kvm(reply):
+    """Returns the accelerator QEMU selected, "kvm" or "tcg", from a QMP query-kvm reply."""
+    result = reply.get("return") if isinstance(reply, dict) else None
+    enabled = result.get("enabled") if isinstance(result, dict) else None
+    if not isinstance(enabled, bool):
+        raise QmpHandshakeError("QMP query-kvm command failed")
+    return "kvm" if enabled else "tcg"
+
+
 def _qmp_handshake(process, socket_path, timeout, monotonic=time.monotonic, sleep=time.sleep):
+    """Completes the QMP handshake and returns the accelerator QEMU selected."""
     deadline = monotonic() + timeout
     last_error = "QMP socket was not ready"
     while monotonic() < deadline:
@@ -187,8 +210,7 @@ def _qmp_handshake(process, socket_path, timeout, monotonic=time.monotonic, slee
         try:
             connection.settimeout(max(0.1, deadline - monotonic()))
             connection.connect(socket_path)
-            _perform_qmp_handshake(connection, max(0.1, deadline - monotonic()))
-            return
+            return _perform_qmp_handshake(connection, max(0.1, deadline - monotonic()))
         except (OSError, QmpHandshakeError) as error:
             last_error = str(error)
         finally:
@@ -350,6 +372,7 @@ def _boot(
     firmware=None,
     firmware_kind="",
     disk_interface="virtio",
+    accelerator_args=(),
     kernel_preflight=None,
     readiness_marker="",
     progress_markers=(),
@@ -385,6 +408,7 @@ def _boot(
     qmp_socket = "qmp.sock"
     qmp_socket_file = scratch / qmp_socket
     process = None
+    accelerator = None
     try:
         if kernel_preflight:
             diagnostics.run_kernel_preflight(kernel_preflight, "QEMU boot test")
@@ -412,9 +436,7 @@ def _boot(
             qemu,
             "-L",
             system_data,
-        ] + expanded_qemu_args + [
-            "-accel",
-            "tcg",
+        ] + expanded_qemu_args + list(accelerator_args) + [
             "-nodefaults",
             "-nographic",
         ] + ([] if allow_reboot else ["-no-reboot"]) + share_arguments + [
@@ -454,7 +476,7 @@ def _boot(
                 try:
                     os.chdir(scratch)
                     try:
-                        qmp_handshake(
+                        accelerator = qmp_handshake(
                             process,
                             qmp_socket,
                             qmp_initialization_timeout_seconds,
@@ -473,6 +495,7 @@ def _boot(
                 finally:
                     os.fchdir(original_cwd)
                     os.close(original_cwd)
+                print("QEMU accelerator: {}".format(accelerator or "unknown"), flush=True)
 
                 deadline = monotonic() + boot_timeout_seconds
                 while monotonic() < deadline:
@@ -592,6 +615,7 @@ def _boot(
                     _read_log(serial_log),
                     min(diagnostic_bytes, 256 * 1024),
                     tuple(progress_markers) + (readiness_marker,),
+                    accelerator,
                 )
                 print("actual observed boot evidence:")
                 print(evidence.decode(errors="replace"), end="")
@@ -614,6 +638,7 @@ def _boot(
             qemu_log,
             diagnostic_bytes,
             tuple(progress_markers) + (readiness_marker,),
+            accelerator,
         )
         try:
             qmp_socket_file.unlink()
@@ -647,6 +672,7 @@ def main():
         ),
         firmware_kind=config.get("firmware_kind", "ovmf"),
         disk_interface=config.get("disk_interface", "virtio"),
+        accelerator_args=config["accelerator_args"],
         kernel_preflight=_resolve_runfile(config["kernel_preflight"]),
         readiness_marker=config["readiness_marker"],
         progress_markers=config.get("progress_markers", ()),

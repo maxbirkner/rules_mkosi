@@ -1,4 +1,10 @@
 {
+  "accelerator_args": [
+    "-accel",
+    "kvm",
+    "-accel",
+    "tcg"
+  ],
   "boot_timeout_seconds": 1,
   "diagnostic_bytes": 4096,
   "firmware_code": "launcher_contract.py",

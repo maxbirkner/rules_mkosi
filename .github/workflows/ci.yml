@@ -95,6 +95,21 @@ jobs:
           echo "$actual"
           test "$actual" = "bazel ${{ matrix.bazel }}"
 
+      - name: Enable KVM for QEMU boot tests
+        if: matrix.module != ''
+        run: |
+          # Bazel runs with an empty supplementary-group list, so membership in
+          # the kvm group cannot grant access; open the device to every user.
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' |
+            sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          sudo udevadm settle
+          ls -l /dev/kvm
+          sudo -n setpriv --reuid="$(id -u)" --regid="$(id -g)" \
+            --clear-groups sh -c ': <> /dev/kvm'
+          echo "The group-free Bazel identity can open /dev/kvm for reading and writing."
+
       - name: Qualify host kernel
         run: |
           run_bazel() {
@@ -185,6 +200,7 @@ jobs:
           fi
           has_evidence=false
           has_bios_evidence=false
+          has_tcg_evidence=false
           if ! testlogs="$(
             run_bazel bazel info "${info_configs[@]}" bazel-testlogs
           )"; then
@@ -214,7 +230,8 @@ jobs:
               has_evidence=true
               case "$target_dir" in
                 *bios_boot_test)
-                  if grep -Fq "SeaBIOS (version " "$evidence" &&
+                  if grep -Fxq "[qemu] accelerator: kvm" "$evidence" &&
+                    grep -Fq "SeaBIOS (version " "$evidence" &&
                     grep -Fq "Booting from Hard Disk" "$evidence" &&
                     grep -Fq "GRUB" "$evidence" &&
                     grep -Fq "Linux version" "$evidence" &&
@@ -222,6 +239,13 @@ jobs:
                     grep -Fq "systemd-shutdown[1]: Powering off." "$evidence" &&
                     grep -Fq "reboot: Power down" "$evidence"; then
                     has_bios_evidence=true
+                  fi
+                  ;;
+                *uefi_boot_test)
+                  if grep -Fxq "[qemu] accelerator: tcg" "$evidence" &&
+                    grep -Fq "systemd-shutdown[1]: Powering off." "$evidence" &&
+                    grep -Fq "reboot: Power down" "$evidence"; then
+                    has_tcg_evidence=true
                   fi
                   ;;
               esac
@@ -233,7 +257,11 @@ jobs:
           fi
           if [ "$QUALIFICATION_OUTCOME" = "success" ]; then
             if ! $has_bios_evidence; then
-              echo "Successful qualification produced no complete BIOS boot evidence." >&2
+              echo "Successful qualification produced no complete KVM BIOS boot evidence." >&2
+              exit 1
+            fi
+            if [ "$module" = "consumer" ] && ! $has_tcg_evidence; then
+              echo "Successful qualification produced no complete forced-TCG UEFI boot evidence." >&2
               exit 1
             fi
           elif ! $has_evidence; then
