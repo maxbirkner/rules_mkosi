@@ -170,6 +170,27 @@ jobs:
           run_bazel bazel test "${bazel_configs[@]}" //...
           run_bazel bazel test "${manifest_configs[@]}" //...
 
+      - name: Verify the QEMU fallback from KVM to TCG
+        if: matrix.suite == 'root'
+        run: |
+          run_bazel() {
+            sudo -n setpriv --reuid="$(id -u)" --regid="$(id -g)" \
+              --clear-groups env HOME="$HOME" PATH="$PATH" \
+              USE_BAZEL_VERSION="$USE_BAZEL_VERSION" "$@"
+          }
+          version_configs=()
+          if [ "${{ matrix.bazel }}" = "9.2.0" ]; then
+            version_configs=(--config=bazel9)
+          fi
+          target=//mkosi/tests:qemu_ovmf_smoke_test
+          testlogs="$(run_bazel bazel info "${version_configs[@]}" bazel-testlogs)"
+          test_log="$testlogs/mkosi/tests/qemu_ovmf_smoke_test/test.log"
+          # The same test uses KVM while /dev/kvm is usable and TCG once it is hidden.
+          run_bazel bazel test --config=qualified_runtime "${version_configs[@]}" "$target"
+          grep -Fx "QEMU accelerator: kvm" "$test_log"
+          run_bazel bazel test --config=kvm_unavailable "${version_configs[@]}" "$target"
+          grep -Fx "QEMU accelerator: tcg" "$test_log"
+
       - name: Verify release reproducibility
         if: matrix.suite == 'audit' && matrix.bazel == '8.5.1'
         run: |
