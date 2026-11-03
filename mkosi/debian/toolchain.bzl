@@ -1,5 +1,7 @@
 """Debian build-time userspace toolchain."""
 
+load("//mkosi/private:python_action.bzl", "run_python", "static_python_interpreter")
+
 DebianToolsInfo = provider(
     doc = "Pinned Debian userspace tools and provenance.",
     fields = {
@@ -48,19 +50,17 @@ _STATIC_PYTHON_ATTRS = {
 
 def _run_static_python(ctx, arguments, inputs, output, mnemonic, progress_message):
     """Runs a script with the static bootstrap interpreter in isolated mode."""
-    python = ctx.executable._python
-    ctx.actions.run(
-        executable = python,
-        arguments = ["-I"] + arguments,
-        inputs = depset(inputs, transitive = [ctx.attr._python_runtime[DefaultInfo].files]),
-        tools = [python],
+    run_python(
+        ctx,
+        arguments = arguments,
+        inputs = inputs,
         outputs = [output],
-        env = {
-            "PYTHONHOME": python.path[:python.path.rfind("/")],
-            "PYTHONNOUSERSITE": "1",
-            "PATH": "",
-        },
         mnemonic = mnemonic,
+        interpreter = static_python_interpreter(
+            ctx.executable._python,
+            ctx.attr._python[DefaultInfo].files_to_run,
+            ctx.attr._python_runtime[DefaultInfo].files,
+        ),
         progress_message = progress_message,
     )
 
