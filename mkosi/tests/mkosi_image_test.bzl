@@ -119,6 +119,7 @@ def _provider_test_impl(ctx):
     asserts.true(env, "--output-extension=raw" in argv)
     asserts.true(env, "--compress-output=none" in argv)
     asserts.true(env, "--split-artifacts=" in argv)
+    asserts.false(env, "--manifest-format=json" in argv)
     output_directory = argv.index("--output-directory")
     asserts.true(env, argv[output_directory + 1].endswith("/mkosi/tests"))
     output = argv.index("--output")
@@ -318,6 +319,22 @@ _provider_test = analysistest.make(
         "expected_output": attr.string(mandatory = True),
     },
 )
+
+def _manifest_test_impl(ctx):
+    env = analysistest.begin(ctx)
+    target = analysistest.target_under_test(env)
+    manifest = target[MkosiImageInfo].manifest
+    asserts.equals(env, "manifest_subject.manifest", manifest.basename)
+    asserts.true(env, manifest in target[DefaultInfo].files.to_list(), "DefaultInfo contains the manifest")
+    actions = analysistest.target_actions(env)
+    image = [action for action in actions if action.mnemonic == "MkosiImage"][0]
+    asserts.true(env, "--manifest-format=json" in image.argv)
+    asserts.true(env, manifest in image.outputs.to_list(), "mkosi writes the manifest")
+    metadata = [action for action in actions if action.mnemonic == "FileWrite"][0]
+    asserts.true(env, json.decode(metadata.content)["artifacts"]["manifest"], "build metadata records the manifest")
+    return analysistest.end(env)
+
+_manifest_test = analysistest.make(_manifest_test_impl)
 
 def _secure_boot_fixture_action_test_impl(ctx):
     env = analysistest.begin(ctx)
@@ -722,6 +739,17 @@ def mkosi_image_test_suite(name):
     build_metadata_file(
         name = "debian_subject_build_metadata",
         image = ":debian_subject",
+    )
+
+    mkosi_image(
+        name = "manifest_subject",
+        config = "testdata/minimal.conf",
+        manifest = True,
+        tags = ["manual"],
+    )
+    _manifest_test(
+        name = "manifest_test",
+        target_under_test = ":manifest_subject",
     )
 
     mkosi_image(
@@ -1513,6 +1541,7 @@ def mkosi_image_test_suite(name):
         name = name,
         tests = [
             ":debian_provider_test",
+            ":manifest_test",
             ":output_override_provider_test",
             ":image_info_contract_00_test",
             ":image_info_contract_01_test",
