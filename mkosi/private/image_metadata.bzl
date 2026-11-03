@@ -14,6 +14,11 @@ IMAGE_METADATA_ATTRS = {
         default = "//mkosi/private:gpt_partitions.py",
         allow_single_file = True,
     ),
+    "_sibling_loader": attr.label(
+        cfg = "exec",
+        default = "//mkosi/private:sibling_loader.py",
+        allow_single_file = True,
+    ),
     "_partition_metadata": attr.label(
         cfg = "exec",
         default = "//mkosi/private:partition_metadata.py",
@@ -66,7 +71,7 @@ def project_partition_metadata(ctx, settings, outputs):
     run_python(
         ctx,
         arguments = [arguments],
-        inputs = [ctx.file._partition_metadata, ctx.file._gpt_partitions, outputs.raw_image] + slot_version_inputs,
+        inputs = [ctx.file._partition_metadata, ctx.file._gpt_partitions, ctx.file._sibling_loader, outputs.raw_image] + slot_version_inputs,
         outputs = [outputs.partition_metadata],
         execution_requirements = mkosi_execution_requirements(True),
         mnemonic = "MkosiPartitionMetadata",
@@ -126,6 +131,7 @@ def project_verity_metadata(ctx, outputs):
         inputs = [
             ctx.file._verity_metadata,
             ctx.file._gpt_partitions,
+            ctx.file._sibling_loader,
             outputs.root_hash,
             outputs.partition_metadata,
             outputs.root_image,

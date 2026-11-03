@@ -541,6 +541,7 @@ sh_test(
         "@rules_mkosi//mkosi/private:boot_test.py",
         "@rules_mkosi//mkosi/private:diagnostics.py",
         "@rules_mkosi//mkosi/private:managed_python_bootstrap.py",
+        "@rules_mkosi//mkosi/private:sibling_loader.py",
     ],
 )
 
@@ -636,6 +637,7 @@ sh_test(
         "raw_image_validator_test.py",
         "@mkosi_debian_python//:python",
         "@rules_mkosi//mkosi/tests:raw_image_validator.py",
+        "@rules_mkosi//mkosi/tests:raw_image_validator_cases.py",
     ],
 )
 

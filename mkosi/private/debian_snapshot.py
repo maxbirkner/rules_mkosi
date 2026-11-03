@@ -61,15 +61,11 @@ def _paragraphs(data):
     return paragraphs
 
 
-def _release_hash(release, relative_path, expected_size, expected_digest):
-    path = relative_path
-    if path.startswith("dists/"):
-        path = path.split("/", 2)[2]
-    lines = release.decode("utf-8").splitlines()
+def _sha256_entries(release):
+    """Yields (digest, size, path) of every entry in the SHA256 field of a Release file."""
     in_sha256 = False
     seen = set()
-    matches = []
-    for line in lines:
+    for line in release.decode("utf-8").splitlines():
         if not line:
             continue
         if not line[0].isspace() and line.endswith(":"):
@@ -88,8 +84,14 @@ def _release_hash(release, relative_path, expected_size, expected_digest):
         if entry_path in seen:
             raise ValueError("duplicate SHA256 checksum entry")
         seen.add(entry_path)
-        if entry_path == path:
-            matches.append((digest, int(size)))
+        yield digest, int(size), entry_path
+
+
+def _release_hash(release, relative_path, expected_size, expected_digest):
+    path = relative_path
+    if path.startswith("dists/"):
+        path = path.split("/", 2)[2]
+    matches = [(digest, size) for digest, size, entry_path in _sha256_entries(release) if entry_path == path]
     if len(matches) != 1:
         raise ValueError("Packages metadata must have exactly one SHA256 entry")
     digest, size = matches[0]
@@ -99,59 +101,55 @@ def _release_hash(release, relative_path, expected_size, expected_digest):
         raise ValueError("Release metadata digest disagrees with the lock")
 
 
+_SQV_KEYRING = "--keyring=/usr/share/keyrings/debian-archive-keyring.gpg"
+
+
+def _run_sqv(launcher, binds, sqv_arguments, environment, scratch, description):
+    """Runs sqv from the Debian tools tree with the pinned archive keyring and the given namespace binds."""
+    command = [launcher]
+    for option, source, destination in binds:
+        command += [option, source + ":" + destination]
+    command += ["/usr/bin/sqv", _SQV_KEYRING] + sqv_arguments
+    result = subprocess.run(
+        command,
+        env=dict(environment, MKOSI_DEBIAN_TOOLS_SCRATCH=scratch),
+        capture_output=True,
+    )
+    if result.returncode:
+        raise ValueError(
+            "Debian %s signature verification failed: %s"
+            % (description, result.stderr.decode("utf-8", "replace").strip())
+        )
+
+
 def _verify_signature(launcher, inrelease, release, release_gpg, output, scratch):
-    inrelease = os.path.abspath(inrelease)
-    release = os.path.abspath(release)
-    release_gpg = os.path.abspath(release_gpg)
-    output = os.path.abspath(output)
     scratch = os.path.abspath(scratch)
     environment = {"PATH": ""}
     for variable in ("RUNFILES_DIR", "RUNFILES_MANIFEST_FILE", "RUNFILES_MANIFEST_ONLY"):
         if variable in os.environ:
             environment[variable] = os.environ[variable]
-    cleartext_command = [
+    _run_sqv(
         launcher,
-        "--ro-bind",
-        inrelease + ":/inputs/InRelease",
-        "--rw-bind",
-        output + ":/outputs/repository",
-        "/usr/bin/sqv",
-        "--keyring=/usr/share/keyrings/debian-archive-keyring.gpg",
-        "--output=/outputs/repository/verified-release",
-        "--cleartext",
-        "/inputs/InRelease",
-    ]
-    result = subprocess.run(
-        cleartext_command,
-        env=dict(environment, MKOSI_DEBIAN_TOOLS_SCRATCH=scratch + "/inrelease"),
-        capture_output=True,
+        (
+            ("--ro-bind", os.path.abspath(inrelease), "/inputs/InRelease"),
+            ("--rw-bind", os.path.abspath(output), "/outputs/repository"),
+        ),
+        ["--output=/outputs/repository/verified-release", "--cleartext", "/inputs/InRelease"],
+        environment,
+        scratch + "/inrelease",
+        "InRelease",
     )
-    if result.returncode:
-        raise ValueError(
-            "Debian InRelease signature verification failed: %s"
-            % result.stderr.decode("utf-8", "replace").strip()
-        )
-    detached_command = [
+    _run_sqv(
         launcher,
-        "--ro-bind",
-        release + ":/inputs/Release",
-        "--ro-bind",
-        release_gpg + ":/inputs/Release.gpg",
-        "/usr/bin/sqv",
-        "--keyring=/usr/share/keyrings/debian-archive-keyring.gpg",
-        "--signature-file=/inputs/Release.gpg",
-        "/inputs/Release",
-    ]
-    result = subprocess.run(
-        detached_command,
-        env=dict(environment, MKOSI_DEBIAN_TOOLS_SCRATCH=scratch + "/release"),
-        capture_output=True,
+        (
+            ("--ro-bind", os.path.abspath(release), "/inputs/Release"),
+            ("--ro-bind", os.path.abspath(release_gpg), "/inputs/Release.gpg"),
+        ),
+        ["--signature-file=/inputs/Release.gpg", "/inputs/Release"],
+        environment,
+        scratch + "/release",
+        "Release",
     )
-    if result.returncode:
-        raise ValueError(
-            "Debian Release signature verification failed: %s"
-            % result.stderr.decode("utf-8", "replace").strip()
-        )
 
 
 def _copy(source, destination):
@@ -261,33 +259,25 @@ def _component_indexes(args):
     return indexes
 
 
-def stage(args):
-    if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", args.codename):
-        raise ValueError("invalid Debian codename: %s" % args.codename)
-    indexes = _component_indexes(args)
+def _verify_input_digests(args, indexes):
     _verify_digest(args.inrelease, args.inrelease_sha256, "InRelease")
     _verify_digest(args.release, args.release_sha256, "Release")
     _verify_digest(args.release_gpg, args.release_gpg_sha256, "Release.gpg")
     for component, architecture, _, digest, path in indexes:
         _verify_digest(path, digest, "Packages %s/%s" % (component, architecture))
-    _verify_signature(
-        args.launcher,
-        args.inrelease,
-        args.release,
-        args.release_gpg,
-        args.output,
-        args.scratch,
-    )
 
-    verified = pathlib.Path(args.output) / "verified-release"
+
+def _verify_authenticated_release(verified, release, indexes):
+    """Checks that the signature-verified InRelease payload is the locked Release and lists every index."""
     authenticated_release = verified.read_bytes()
-    release = pathlib.Path(args.release).read_bytes()
-    if not _authenticated_release_matches(authenticated_release, release):
+    if not _authenticated_release_matches(authenticated_release, pathlib.Path(release).read_bytes()):
         raise ValueError("authenticated InRelease does not match locked Release")
     for _, _, relative, digest, path in indexes:
         _release_hash(authenticated_release, relative, len(pathlib.Path(path).read_bytes()), digest)
 
-    destination = pathlib.Path(args.output)
+
+def _stage_release_files(args, indexes, destination):
+    """Copies the release files and decompresses every Packages index; returns the staged indexes."""
     dists = destination / "dists" / args.codename
     _copy(args.inrelease, dists / "InRelease")
     _copy(args.release, dists / "Release")
@@ -297,11 +287,15 @@ def stage(args):
         staged = destination / relative[: -len(".xz")]
         _decompress(path, staged)
         staged_indexes.append((staged, architecture))
+    return staged_indexes
 
+
+def _locked_packages(package_records):
+    """Returns (filename, size, digest, local name) of every locked package keyed by (name, version, arch)."""
     expected = {}
     filenames = set()
     local_names = set()
-    for package in args.package_records:
+    for package in package_records:
         fields = package.split("|")
         if len(fields) != 7:
             raise ValueError("locked package record must have seven fields")
@@ -309,8 +303,7 @@ def stage(args):
         if not size.isdigit():
             raise ValueError("locked package size is invalid")
         key = (name, version, architecture)
-        relative_filename = _safe_package_path(filename)
-        filename = str(relative_filename)
+        filename = str(_safe_package_path(filename))
         if key in expected:
             raise ValueError("duplicate locked package: %s" % "|".join(key))
         if filename in filenames:
@@ -320,6 +313,10 @@ def stage(args):
         filenames.add(filename)
         local_names.add(local_name)
         expected[key] = (filename, int(size), digest, local_name)
+    return expected
+
+
+def _verify_package_metadata(staged_indexes, expected):
     actual = _read_package_metadata(staged_indexes, expected)
     if actual.keys() != expected.keys():
         raise ValueError("locked packages do not match Packages metadata")
@@ -327,6 +324,8 @@ def stage(args):
         if actual[key] != expected[key][:3]:
             raise ValueError("package metadata disagrees with lock: %s" % key[0])
 
+
+def _stage_packages(args, expected, destination):
     records_by_name = {value[3]: (key, value) for key, value in expected.items()}
     if set(records_by_name) != set(args.package_names):
         raise ValueError("package inputs do not match lock package names")
@@ -335,11 +334,33 @@ def stage(args):
         _verify_package(package, digest, expected_size, "package %s" % local_name)
         relative = _safe_package_path(remote_filename)
         _copy(package, destination / relative)
+
+
+def stage(args):
+    if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", args.codename):
+        raise ValueError("invalid Debian codename: %s" % args.codename)
+    indexes = _component_indexes(args)
+    _verify_input_digests(args, indexes)
+    _verify_signature(
+        args.launcher,
+        args.inrelease,
+        args.release,
+        args.release_gpg,
+        args.output,
+        args.scratch,
+    )
+    destination = pathlib.Path(args.output)
+    verified = destination / "verified-release"
+    _verify_authenticated_release(verified, args.release, indexes)
+    staged_indexes = _stage_release_files(args, indexes, destination)
+    expected = _locked_packages(args.package_records)
+    _verify_package_metadata(staged_indexes, expected)
+    _stage_packages(args, expected, destination)
     verified.unlink()
     _set_deterministic_metadata(destination)
 
 
-def main():
+def _parser():
     parser = argparse.ArgumentParser()
     parser.add_argument("--inrelease", required=True)
     parser.add_argument("--release", required=True)
@@ -367,6 +388,11 @@ def main():
     parser.add_argument("--package", dest="package_records", action="append", default=[])
     parser.add_argument("--package-file", dest="packages", action="append", default=[])
     parser.add_argument("--package-name", dest="package_names", action="append", default=[])
+    return parser
+
+
+def main():
+    parser = _parser()
     args = parser.parse_args()
     if len(args.packages) != len(args.package_names):
         parser.error("--package-file and --package-name counts differ")

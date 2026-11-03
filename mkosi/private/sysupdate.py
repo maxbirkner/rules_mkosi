@@ -3,23 +3,15 @@
 
 import argparse
 import hashlib
-import importlib.util
 import json
 import os
+import runpy
 import shutil
 import uuid
 from pathlib import Path
 
-
-def _load_sibling(name):
-    """Loads the rules_mkosi helper module name.py from this file's directory, independent of sys.path."""
-    spec = importlib.util.spec_from_file_location("rules_mkosi_" + name, Path(__file__).with_name(name + ".py"))
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-gpt = _load_sibling("gpt_partitions")
+_load_sibling = runpy.run_path(str(Path(__file__).with_name("sibling_loader.py")))["load_sibling"]
+gpt = _load_sibling(__file__, "gpt_partitions")
 
 _TRANSFER = """\
 [Transfer]
@@ -49,6 +41,35 @@ def uki_name(image_id, version):
     return "{}_{}.efi".format(image_id, version)
 
 
+_PARTITION_TARGET = """\
+Type=partition
+Path=auto
+MatchPattern={label}
+MatchPartitionType={partition_type}
+ReadOnly=yes
+InstancesMax={instances}"""
+
+_UKI_TARGET = """\
+Type=regular-file
+Path=/EFI/Linux
+PathRelativeTo=boot
+MatchPattern={patterns}
+Mode=0444
+InstancesMax={instances}"""
+
+
+def _uki_target(image_id, boot_attempts, instances):
+    counted = ["{}_@v+@l-@d.efi".format(image_id), "{}_@v+@l.efi".format(image_id)]
+    uncounted = ["{}_@v.efi".format(image_id)]
+    target = _UKI_TARGET.format(
+        patterns=" ".join(counted + uncounted if boot_attempts else uncounted + counted),
+        instances=instances,
+    )
+    if boot_attempts:
+        target += "\nTriesLeft={}\nTriesDone=0".format(boot_attempts)
+    return target
+
+
 def transfers(image_id, boot_attempts, instances):
     """Returns transfer file names and contents for the root, verity and UKI resources.
 
@@ -56,49 +77,26 @@ def transfers(image_id, boot_attempts, instances):
     systemd-sysupdate names a new UKI after the first target MatchPattern and gives it TriesLeft=3 unless
     configured otherwise, so boot counting is disabled by listing the counter-free pattern first.
     """
-    partition = """\
-Type=partition
-Path=auto
-MatchPattern={label}
-MatchPartitionType={partition_type}
-ReadOnly=yes
-InstancesMax={instances}"""
-    counted = ["{}_@v+@l-@d.efi".format(image_id), "{}_@v+@l.efi".format(image_id)]
-    uncounted = ["{}_@v.efi".format(image_id)]
-    uki_target = """\
-Type=regular-file
-Path=/EFI/Linux
-PathRelativeTo=boot
-MatchPattern={patterns}
-Mode=0444
-InstancesMax={instances}""".format(
-        patterns=" ".join(counted + uncounted if boot_attempts else uncounted + counted),
-        instances=instances,
+    partitions = (
+        ("10-root.transfer", root_name, "", "root-x86-64"),
+        ("20-root-verity.transfer", verity_name, "_verity", "root-x86-64-verity"),
     )
-    if boot_attempts:
-        uki_target += "\nTriesLeft={}\nTriesDone=0".format(boot_attempts)
-    return {
-        "10-root.transfer": _TRANSFER.format(
-            source=root_name(image_id, "@v", "@u"),
-            target=partition.format(
-                label=image_id + "_@v",
-                partition_type="root-x86-64",
+    result = {
+        name: _TRANSFER.format(
+            source=source_name(image_id, "@v", "@u"),
+            target=_PARTITION_TARGET.format(
+                label=image_id + "_@v" + label_suffix,
+                partition_type=partition_type,
                 instances=instances,
             ),
-        ),
-        "20-root-verity.transfer": _TRANSFER.format(
-            source=verity_name(image_id, "@v", "@u"),
-            target=partition.format(
-                label=image_id + "_@v_verity",
-                partition_type="root-x86-64-verity",
-                instances=instances,
-            ),
-        ),
-        "90-uki.transfer": _TRANSFER.format(
-            source=uki_name(image_id, "@v"),
-            target=uki_target,
-        ),
+        )
+        for name, source_name, label_suffix, partition_type in partitions
     }
+    result["90-uki.transfer"] = _TRANSFER.format(
+        source=uki_name(image_id, "@v"),
+        target=_uki_target(image_id, boot_attempts, instances),
+    )
+    return result
 
 
 def verity_partition_uuids(root_hash):
@@ -157,17 +155,10 @@ def _release_uki(args):
 
 def _read_image_version(path, image_id):
     """Returns the validated version in path using the sibling image_version.py helper."""
-    return _load_sibling("image_version").read_image_version(path, image_id)
+    return _load_sibling(__file__, "image_version").read_image_version(path, image_id)
 
 
-def payload(args):
-    if args.image_version_file is not None:
-        args.image_version = _read_image_version(args.image_version_file, args.image_id)
-    uki = _release_uki(args)
-    root_hash = Path(args.root_hash).read_text(encoding="ascii").strip().lower()
-    root_uuid, verity_uuid = verity_partition_uuids(root_hash)
-    partitions = json.loads(Path(args.partition_metadata).read_text(encoding="utf-8"))["partitions"]
-    slot = "{}_{}".format(args.image_id, args.image_version)
+def _check_slot_uuids(partitions, slot, root_uuid, verity_uuid):
     for type_guid, label, expected in (
         (gpt.ROOT_X86_64, slot, root_uuid),
         (gpt.ROOT_X86_64_VERITY, slot + "_verity", verity_uuid),
@@ -177,6 +168,16 @@ def payload(args):
             raise ValueError(
                 "partition {!r} UUID {} does not match root-hash-derived UUID {}".format(label, actual, expected)
             )
+
+
+def payload(args):
+    if args.image_version_file is not None:
+        args.image_version = _read_image_version(args.image_version_file, args.image_id)
+    uki = _release_uki(args)
+    root_hash = Path(args.root_hash).read_text(encoding="ascii").strip().lower()
+    root_uuid, verity_uuid = verity_partition_uuids(root_hash)
+    partitions = json.loads(Path(args.partition_metadata).read_text(encoding="utf-8"))["partitions"]
+    _check_slot_uuids(partitions, "{}_{}".format(args.image_id, args.image_version), root_uuid, verity_uuid)
     output = Path(args.output)
     output.mkdir(parents=True, exist_ok=True)
     digests = {}

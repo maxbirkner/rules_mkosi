@@ -26,6 +26,7 @@ exports_files([
     "run_mkosi.py",
     "secure_boot.bzl",
     "secure_boot.py",
+    "sibling_loader.py",
     "image_identity.bzl",
     "image_version.py",
     "sysupdate.bzl",

@@ -228,6 +228,7 @@ def _mkosi_reproducibility_manifest_impl(ctx):
             ctx.file._partition_projector,
             ctx.file._projector,
             ctx.file._gpt_partitions,
+            ctx.file._sibling_loader,
         ] + [artifact for _, artifact in split_artifacts],
         outputs = [output],
         mnemonic = "MkosiReproducibilityManifest",
@@ -246,6 +247,11 @@ mkosi_reproducibility_manifest = rule(
         "_gpt_partitions": attr.label(
             cfg = "exec",
             default = "//mkosi/private:gpt_partitions.py",
+            allow_single_file = True,
+        ),
+        "_sibling_loader": attr.label(
+            cfg = "exec",
+            default = "//mkosi/private:sibling_loader.py",
             allow_single_file = True,
         ),
         "_projector": attr.label(
@@ -410,7 +416,7 @@ def _bios_partition_definition(ctx):
     run_python(
         ctx,
         arguments = [ctx.file._write_bios_repart.path, output.path],
-        inputs = [ctx.file._write_bios_repart, ctx.file._gpt_partitions],
+        inputs = [ctx.file._write_bios_repart, ctx.file._gpt_partitions, ctx.file._sibling_loader],
         outputs = [output],
         mnemonic = "MkosiBiosRepart",
     )

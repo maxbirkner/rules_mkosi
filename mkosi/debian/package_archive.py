@@ -63,7 +63,8 @@ def _ensure_parent(objects, relative):
             objects[current] = ("dir", 0o755, None, None)
 
 
-def _collect(packages, manifest, work):
+def _read_manifest(manifest):
+    """Returns the expected SHA-256 of every package keyed by file name."""
     expected = {}
     with open(manifest, "r", encoding="utf-8") as entries:
         for line in entries:
@@ -71,9 +72,38 @@ def _collect(packages, manifest, work):
             if len(fields) != 3 or fields[0] in expected:
                 raise ValueError("invalid or duplicate package manifest entry")
             expected[fields[0]] = fields[1]
+    return expected
+
+
+def _sha256(stream):
+    digest = hashlib.sha256()
+    while True:
+        chunk = stream.read(1024 * 1024)
+        if not chunk:
+            break
+        digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _open_authenticated(package, expected_digest):
+    """Opens package without following symlinks and verifies its digest before it is parsed."""
+    name = os.path.basename(package)
+    fd = os.open(os.path.realpath(package), os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
+    stream = os.fdopen(fd, "rb")
+    actual = _sha256(stream)
+    if actual != expected_digest:
+        stream.close()
+        raise ValueError(
+            "Debian package digest mismatch for %s: expected=%s actual=%s"
+            % (name, expected_digest, actual)
+        )
+    stream.seek(0)
+    return stream
+
+
+def _authenticated_streams(packages, expected):
     if len(expected) != len(packages):
         raise ValueError("package manifest does not match package inputs")
-
     streams = []
     seen = set()
     for package in packages:
@@ -83,53 +113,53 @@ def _collect(packages, manifest, work):
         if name in seen:
             raise ValueError("package is duplicated in action inputs: %s" % name)
         seen.add(name)
-        package_path = os.path.realpath(package)
-        fd = os.open(package_path, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
-        stream = os.fdopen(fd, "rb")
-        digest = hashlib.sha256()
-        while True:
-            chunk = stream.read(1024 * 1024)
-            if not chunk:
-                break
-            digest.update(chunk)
-        actual = digest.hexdigest()
-        if actual != expected[name]:
-            stream.close()
-            raise ValueError(
-                "Debian package digest mismatch for %s: expected=%s actual=%s"
-                % (name, expected[name], actual)
-            )
-        stream.seek(0)
-        streams.append((package, stream))
+        streams.append((package, _open_authenticated(package, expected[name])))
     if seen != set(expected):
         raise ValueError("package manifest does not match package inputs")
+    return streams
 
+
+def _extract_file(source, member, relative, work):
+    destination = os.path.join(work, relative)
+    os.makedirs(os.path.dirname(destination), exist_ok=True)
+    source_file = source.extractfile(member)
+    if source_file is None:
+        raise ValueError("package member has no data: %s" % relative)
+    with source_file, open(destination, "wb") as output:
+        shutil.copyfileobj(source_file, output)
+    return destination
+
+
+def _member_object(source, member, relative, work):
+    """Returns the (kind, mode, extracted file, link name) record of one package member."""
+    mode = stat.S_IMODE(member.mode)
+    if member.isdir():
+        return ("dir", mode, None, None)
+    if member.isfile():
+        return ("file", mode, _extract_file(source, member, relative, work), None)
+    if member.issym():
+        return ("symlink", mode, None, member.linkname)
+    if member.islnk():
+        return ("hardlink", mode, None, member.linkname)
+    raise ValueError("unsupported package member: %s" % relative)
+
+
+def _collect_package(stream, objects, work):
+    with tarfile.open(fileobj=io.BytesIO(_package_data(stream)), mode="r:*") as source:
+        for member in source:
+            relative = _member_path(member.name)
+            if not relative:
+                continue
+            _ensure_parent(objects, relative)
+            objects[relative] = _member_object(source, member, relative, work)
+
+
+def _collect(packages, manifest, work):
+    streams = _authenticated_streams(packages, _read_manifest(manifest))
     objects = {}
     try:
-        for package, stream in streams:
-            with tarfile.open(fileobj=io.BytesIO(_package_data(stream)), mode="r:*") as source:
-                for member in source:
-                    relative = _member_path(member.name)
-                    if not relative:
-                        continue
-                    _ensure_parent(objects, relative)
-                    if member.isdir():
-                        objects[relative] = ("dir", stat.S_IMODE(member.mode), None, None)
-                    elif member.isfile():
-                        destination = os.path.join(work, relative)
-                        os.makedirs(os.path.dirname(destination), exist_ok=True)
-                        source_file = source.extractfile(member)
-                        if source_file is None:
-                            raise ValueError("package member has no data: %s" % relative)
-                        with source_file, open(destination, "wb") as output:
-                            shutil.copyfileobj(source_file, output)
-                        objects[relative] = ("file", stat.S_IMODE(member.mode), destination, None)
-                    elif member.issym():
-                        objects[relative] = ("symlink", stat.S_IMODE(member.mode), None, member.linkname)
-                    elif member.islnk():
-                        objects[relative] = ("hardlink", stat.S_IMODE(member.mode), None, member.linkname)
-                    else:
-                        raise ValueError("unsupported package member: %s" % relative)
+        for _, stream in streams:
+            _collect_package(stream, objects, work)
     finally:
         for _, stream in streams:
             stream.close()
