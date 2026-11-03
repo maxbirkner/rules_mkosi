@@ -58,6 +58,11 @@ Module-resolution fixtures have no lockfiles.
 Executable tests use only the semantic tags `requires-network`, `requires_kernel_contract`, and `manifest`.
 `manual` is reserved for analysis-test subjects that must not run on their own.
 
+### Shell tests
+
+Write shell tests with `runfiles_sh_test` from `//mkosi/tests:runfiles_sh_test.bzl`.
+Pass runfiles as `$(rlocationpath ...)` arguments and resolve them in the script with `rlocation "$1"`, which works with and without a runfiles tree.
+
 ### Debian locks
 
 The consumer lock fixtures are regenerated from `e2e/smoke` as described in their READMEs; `//mkosi/debian:generate_lock_test` covers the generator.

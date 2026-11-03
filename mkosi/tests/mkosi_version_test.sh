@@ -1,48 +1,9 @@
-#!/bin/sh
-set -eu
-
+# Sourced by run_with_runfiles.sh; arguments are rlocation paths.
+python="$(rlocation "$1")"
+main="$(rlocation "$2")"
+customize="$(rlocation "$3")"
 runfiles_root="${RUNFILES_DIR:-$0.runfiles}"
 manifest="${RUNFILES_MANIFEST_FILE:-}"
-
-resolve_runfile() {
-    requested="$1"
-    if [ -n "$manifest" ] && [ -f "$manifest" ]; then
-        while read -r logical physical
-        do
-            case "$logical" in
-                "$requested"|../"$requested"|external/"$requested")
-                    printf '%s\n' "$physical"
-                    return 0
-                    ;;
-            esac
-        done < "$manifest"
-    fi
-    for candidate in \
-        "$runfiles_root/$requested" \
-        "$runfiles_root/_main/$requested" \
-        "$runfiles_root/${requested#external/}" \
-        "$runfiles_root/_main/${requested#external/}"
-    do
-        if [ -f "$candidate" ] || [ -x "$candidate" ]; then
-            printf '%s\n' "$candidate"
-            return 0
-        fi
-    done
-    return 1
-}
-
-python="$(resolve_runfile "$1")" || {
-    echo "managed mkosi Python is missing from runfiles" >&2
-    exit 1
-}
-main="$(resolve_runfile "$2")" || {
-    echo "mkosi Python entrypoint is missing from runfiles" >&2
-    exit 1
-}
-customize="$(resolve_runfile "$3")" || {
-    echo "pefile probe sitecustomize.py is missing from runfiles" >&2
-    exit 1
-}
 
 pefile_root=
 if [ -n "$manifest" ] && [ -f "$manifest" ]; then
