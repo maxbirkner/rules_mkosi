@@ -56,6 +56,7 @@ def _base_test_impl(ctx):
         asserts.true(env, argument in arguments, argument)
     asserts.equals(env, "root", _option_value(arguments, "--output"))
     asserts.equals(env, info.root_tree.dirname, _option_value(arguments, "--output-directory"))
+    asserts.equals(env, "1", action.env["MKOSI_FORCE_USERNS_FALLBACK"])
 
     # The base action must not depend on any version so that a new version reuses its cached result.
     for argument in action.argv:
@@ -103,6 +104,7 @@ def _finalize_test_impl(ctx):
     asserts.true(env, "--cache-only=always" in arguments)
     asserts.equals(env, base.debian_snapshot.distribution, image_action.env["MKOSI_HOST_DISTRIBUTION"])
     asserts.equals(env, str(base.release_source_date_epoch), image_action.env["SOURCE_DATE_EPOCH"])
+    asserts.equals(env, "1", image_action.env["MKOSI_FORCE_USERNS_FALLBACK"])
 
     # Finalization consumes the base artifacts and the version, but neither the snapshot nor package installation.
     inputs = image_action.inputs.to_list()
