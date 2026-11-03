@@ -7,6 +7,7 @@ release build with a list of the changed internals instead of silently building 
 """
 
 import dataclasses
+import dis
 import hashlib
 import importlib
 import inspect
@@ -260,8 +261,13 @@ def _caller_violations(caller, attribute, patched):
     return []
 
 
+# Instructions that read a name from the module globals; co_names also lists attribute and imported names.
+_GLOBAL_LOADS = frozenset(("LOAD_GLOBAL", "LOAD_NAME", "LOAD_FROM_DICT_OR_GLOBALS"))
+
+
 def _global_names(code):
-    names = set(code.co_names)
+    """Returns the names that code, including its nested functions, reads from its module's globals."""
+    names = {instruction.argval for instruction in dis.get_instructions(code) if instruction.opname in _GLOBAL_LOADS}
     for constant in code.co_consts:
         if inspect.iscode(constant):
             names |= _global_names(constant)

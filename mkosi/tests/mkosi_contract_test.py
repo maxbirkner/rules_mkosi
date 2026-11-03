@@ -36,6 +36,35 @@ _VALIDATION_WORDS = frozenset(
 )
 
 
+_CALLERS = """
+import mkosi
+from mkosi import archive
+
+make_tar = mkosi.make_tar
+
+
+def global_caller(src, dst):
+    make_tar(src, dst)
+
+
+def nested_global_caller(src, dst):
+    def archive_root():
+        make_tar(src, dst)
+
+    archive_root()
+
+
+def attribute_caller(src, dst):
+    archive.make_tar(src, dst)
+
+
+def local_import_caller(src, dst):
+    from mkosi.archive import make_tar
+
+    make_tar(src, dst)
+"""
+
+
 def _load_runner():
     sys.path.insert(0, os.fspath(MKOSI_ROOT))
     spec = importlib.util.spec_from_file_location("run_mkosi", RUN_MKOSI)
@@ -115,6 +144,32 @@ class MkosiContractTest(unittest.TestCase):
             ],
             self.contract.violations(contract=contract),
         )
+
+    def test_callers_that_bypass_the_patched_module_global_are_reported(self):
+        # Only a module-global read sees the patched mkosi.make_tar; an attribute read or a function-local import
+        # binds the original function and silently bypasses the patch.
+        module = types.ModuleType("rules_mkosi_contract_callers")
+        exec(_CALLERS, module.__dict__)
+        sys.modules[module.__name__] = module
+        self.addCleanup(sys.modules.pop, module.__name__)
+        make_tar = next(patched for patched in self._pinned().patched if patched.name == "mkosi:make_tar")
+
+        def caller_violations(caller):
+            patched = dataclasses.replace(make_tar, callers=("rules_mkosi_contract_callers:" + caller,))
+            return self.contract.violations(contract=dataclasses.replace(self._pinned(), patched=(patched,)))
+
+        for caller in ("global_caller", "nested_global_caller"):
+            with self.subTest(caller=caller):
+                self.assertEqual([], caller_violations(caller))
+        for caller in ("attribute_caller", "local_import_caller"):
+            with self.subTest(caller=caller):
+                self.assertEqual(
+                    [
+                        "rules_mkosi_contract_callers:{} no longer reads make_tar from its module; "
+                        "deterministic_make_tar would not take effect".format(caller)
+                    ],
+                    caller_violations(caller),
+                )
 
     def test_subclass_override_of_a_patched_method_is_reported(self):
         import mkosi.installer.apt
