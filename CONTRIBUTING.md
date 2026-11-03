@@ -53,6 +53,7 @@ Module-resolution fixtures have no lockfiles.
 | `portable` | Like `qualified`, but skips `requires-network` (tracer) images. CI's Bazel 9 lane. |
 | `manifest` | Runs only `manifest`-tagged tests with `--enable_runfiles=no`. |
 | `deterministic` | Offline bootstrap build without cache reuse. |
+| `kvm_unavailable` | Hides `/dev/kvm` from tests, so boot tests must fall back to TCG. CI runs `//mkosi/tests:qemu_ovmf_smoke_test` with it. |
 | `bazel9` | `--lockfile_mode=off` for Bazel 9. |
 
 Executable tests use only the semantic tags `requires-network`, `requires_kernel_contract`, and `manifest`.

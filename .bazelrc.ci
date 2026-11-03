@@ -62,5 +62,10 @@ test:kernel_preflight --test_output=all
 # Never reuse a probe result from a different runner state.
 test:kernel_preflight --cache_test_results=no
 
+# Hide KVM from sandboxed tests, so QEMU's `auto` accelerator must fall back to TCG.
+common:kvm_unavailable --config=qualified_runtime
+# Replace /dev/kvm with /dev/null, which exists but rejects every KVM ioctl.
+test:kvm_unavailable --sandbox_add_mount_pair=/dev/null:/dev/kvm
+
 # Avoid rewriting the Bazel 8 lock format during Bazel 9 compatibility runs.
 common:bazel9 --lockfile_mode=off
