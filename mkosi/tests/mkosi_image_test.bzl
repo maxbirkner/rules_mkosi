@@ -6,7 +6,7 @@ load(
     "ManagedPythonTestInfo",
     "MkosiImageInfo",
     "MkosiQemuToolchainInfo",
-    "QemuOvmfBootConfigInfo",
+    "QemuBootConfigInfo",
     "SecureBootEphemeralTestFixtureInfo",
     "mkosi_config_tree",
     "mkosi_image",
@@ -660,7 +660,7 @@ _invalid_qemu_config_test = analysistest.make(
 
 def _boot_deadline_provider_test_impl(ctx):
     env = analysistest.begin(ctx)
-    info = analysistest.target_under_test(env)[QemuOvmfBootConfigInfo]
+    info = analysistest.target_under_test(env)[QemuBootConfigInfo]
     asserts.equals(env, ctx.attr.expected_timeout, info.test_timeout)
     asserts.equals(env, ctx.attr.expected_qmp, info.qmp_initialization_timeout_seconds)
     asserts.equals(env, ctx.attr.expected_boot, info.boot_timeout_seconds)
@@ -1350,6 +1350,15 @@ def mkosi_image_test_suite(name):
         target_under_test = ":analysis_boot_test_config",
     )
 
+    _boot_deadline_provider_test(
+        name = "seabios_boot_deadline_test",
+        expected_timeout = "moderate",
+        expected_qmp = 15,
+        expected_boot = 15,
+        expected_shutdown = 15,
+        target_under_test = ":tcg_accelerator_bios_boot_subject",
+    )
+
     qemu_ovmf_boot_test(
         name = "public_long_timeout_boot_test",
         image = ":debian_subject",
@@ -1585,6 +1594,7 @@ def mkosi_image_test_suite(name):
             ":invalid_boot_shutdown_marker_test",
             ":boundary_boot_deadline_test",
             ":default_boot_deadline_test",
+            ":seabios_boot_deadline_test",
             ":public_boot_timeout_test",
             ":public_moderate_timeout_test",
             ":public_short_timeout_test",

@@ -5,6 +5,7 @@ load(
     ":qemu_boot_test.bzl",
     "BOOT_CONFIG_ATTRS",
     "QEMU_TOOLCHAIN_TYPE",
+    "QemuBootConfigInfo",
     "boot_config",
     "boot_config_outputs",
     "boot_test",
@@ -15,17 +16,6 @@ load(
 # QEMU rejects virtio-9p mount tags longer than 31 bytes.
 _MAX_MOUNT_TAG_LENGTH = 31
 _MOUNT_TAG_CHARACTERS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-"
-
-QemuOvmfBootConfigInfo = provider(
-    "Validated lifecycle deadlines of a QEMU boot test configuration.",
-    fields = {
-        "test_timeout": "Bazel test timeout category.",
-        "qmp_initialization_timeout_seconds": "Deadline for QMP to become ready.",
-        "boot_timeout_seconds": "Deadline for the readiness marker.",
-        "shutdown_timeout_seconds": "Deadline for the clean shutdown.",
-        "cleanup_margin_seconds": "Time reserved within the test timeout for cleanup.",
-    },
-)
 
 def _read_only_shares(shares):
     """Validates read_only_shares and returns (directory, mount tag) pairs sorted by tag."""
@@ -76,7 +66,7 @@ def _qemu_ovmf_boot_config_impl(ctx):
         ],
         "stop_after_readiness": ctx.attr.stop_after_readiness,
     }
-    default_info, deadlines = boot_config_outputs(
+    return boot_config_outputs(
         ctx,
         qemu,
         config,
@@ -84,7 +74,6 @@ def _qemu_ovmf_boot_config_impl(ctx):
         firmware_files = [qemu.ovmf_code, qemu.ovmf_vars],
         extra_files = [directory for directory, _ in shares],
     )
-    return [default_info, QemuOvmfBootConfigInfo(**deadlines)]
 
 qemu_ovmf_boot_config = rule(
     implementation = _qemu_ovmf_boot_config_impl,
@@ -109,6 +98,7 @@ The image snapshot and the copied OVMF variables persist across reboots for the 
             doc = "Terminate QEMU successfully as soon as readiness is observed.",
         ),
     },
+    provides = [QemuBootConfigInfo],
     toolchains = [QEMU_TOOLCHAIN_TYPE],
 )
 

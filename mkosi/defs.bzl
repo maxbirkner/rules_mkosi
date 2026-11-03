@@ -32,9 +32,9 @@ load(
     _mkosi_rootfs_payload = "mkosi_rootfs_payload",
     _mkosi_source_tree = "mkosi_source_tree",
 )
+load("//mkosi/private:qemu_boot_test.bzl", _QemuBootConfigInfo = "QemuBootConfigInfo")
 load(
     "//mkosi/private:qemu_ovmf_boot_test.bzl",
-    _QemuOvmfBootConfigInfo = "QemuOvmfBootConfigInfo",
     _qemu_ovmf_boot_config = "qemu_ovmf_boot_config",
     _qemu_ovmf_boot_test = "qemu_ovmf_boot_test",
 )
@@ -73,7 +73,10 @@ MkosiToolchainInfo = _MkosiToolchainInfo
 DebianToolsInfo = _DebianToolsInfo
 DebianSnapshotInfo = _DebianSnapshotInfo
 ManagedPythonTestInfo = _ManagedPythonTestInfo
-QemuOvmfBootConfigInfo = _QemuOvmfBootConfigInfo
+QemuBootConfigInfo = _QemuBootConfigInfo
+
+# Deprecated: use QemuBootConfigInfo, which is also returned by the SeaBIOS boot configuration.
+QemuOvmfBootConfigInfo = _QemuBootConfigInfo
 mkosi_image = _mkosi_image
 mkosi_base = _mkosi_base
 mkosi_reproducibility_manifest = _mkosi_reproducibility_manifest

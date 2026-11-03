@@ -13,6 +13,17 @@ _TEST_TIMEOUT_SECONDS = {
 }
 _CLEANUP_MARGIN_SECONDS = 30
 
+QemuBootConfigInfo = provider(
+    "Validated lifecycle deadlines of a QEMU boot test configuration.",
+    fields = {
+        "test_timeout": "Bazel test timeout category.",
+        "qmp_initialization_timeout_seconds": "Deadline for QMP to become ready.",
+        "boot_timeout_seconds": "Deadline for the readiness marker.",
+        "shutdown_timeout_seconds": "Deadline for the clean shutdown.",
+        "cleanup_margin_seconds": "Time reserved within the test timeout for cleanup.",
+    },
+)
+
 BOOT_CONFIG_ATTRS = {
     "accelerator": attr.string(
         default = "auto",
@@ -116,7 +127,7 @@ def boot_config(ctx, qemu, image, firmware_args):
     }
 
 def boot_config_outputs(ctx, qemu, config, image, firmware_files, extra_files = []):
-    """Writes the configuration and returns its DefaultInfo and the lifecycle deadlines.
+    """Writes the configuration and returns the providers of a boot configuration rule.
 
     Args:
       ctx: Rule context with BOOT_CONFIG_ATTRS.
@@ -127,7 +138,7 @@ def boot_config_outputs(ctx, qemu, config, image, firmware_files, extra_files = 
       extra_files: Further files that the guest reads.
 
     Returns:
-      A tuple of DefaultInfo and the keyword arguments of QemuOvmfBootConfigInfo.
+      A list of DefaultInfo and QemuBootConfigInfo.
     """
     output = ctx.actions.declare_file(ctx.label.name + ".json")
     ctx.actions.write(output = output, content = json.encode(config) + "\n")
@@ -143,14 +154,16 @@ def boot_config_outputs(ctx, qemu, config, image, firmware_files, extra_files = 
             ctx.attr._kernel_preflight[DefaultInfo].default_runfiles.files,
         ]),
     )
-    deadlines = {
-        "test_timeout": ctx.attr.test_timeout,
-        "qmp_initialization_timeout_seconds": ctx.attr.qmp_initialization_timeout_seconds,
-        "boot_timeout_seconds": ctx.attr.boot_timeout_seconds,
-        "shutdown_timeout_seconds": ctx.attr.shutdown_timeout_seconds,
-        "cleanup_margin_seconds": _CLEANUP_MARGIN_SECONDS,
-    }
-    return DefaultInfo(files = depset([output]), runfiles = runfiles), deadlines
+    return [
+        DefaultInfo(files = depset([output]), runfiles = runfiles),
+        QemuBootConfigInfo(
+            test_timeout = ctx.attr.test_timeout,
+            qmp_initialization_timeout_seconds = ctx.attr.qmp_initialization_timeout_seconds,
+            boot_timeout_seconds = ctx.attr.boot_timeout_seconds,
+            shutdown_timeout_seconds = ctx.attr.shutdown_timeout_seconds,
+            cleanup_margin_seconds = _CLEANUP_MARGIN_SECONDS,
+        ),
+    ]
 
 def boot_test(name, config_rule, timeout, tags, **config_attrs):
     """Declares a boot configuration with config_rule and the boot_test.py test that uses it.

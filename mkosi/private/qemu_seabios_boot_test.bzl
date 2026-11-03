@@ -5,13 +5,13 @@ load(
     ":qemu_boot_test.bzl",
     "BOOT_CONFIG_ATTRS",
     "QEMU_TOOLCHAIN_TYPE",
+    "QemuBootConfigInfo",
     "boot_config",
     "boot_config_outputs",
     "boot_test",
     "validate_deadlines",
     "validate_lifecycle",
 )
-load(":qemu_ovmf_boot_test.bzl", "QemuOvmfBootConfigInfo")
 
 def _qemu_seabios_boot_config_impl(ctx):
     image = ctx.attr.image[MkosiImageInfo]
@@ -34,12 +34,12 @@ def _qemu_seabios_boot_config_impl(ctx):
         "firmware": qemu.seabios.short_path,
         "firmware_kind": "seabios",
     }
-    default_info, deadlines = boot_config_outputs(ctx, qemu, config, image.raw_image, firmware_files = [qemu.seabios])
-    return [default_info, QemuOvmfBootConfigInfo(**deadlines)]
+    return boot_config_outputs(ctx, qemu, config, image.raw_image, firmware_files = [qemu.seabios])
 
 qemu_seabios_boot_config = rule(
     implementation = _qemu_seabios_boot_config_impl,
     attrs = BOOT_CONFIG_ATTRS,
+    provides = [QemuBootConfigInfo],
     toolchains = [QEMU_TOOLCHAIN_TYPE],
 )
 

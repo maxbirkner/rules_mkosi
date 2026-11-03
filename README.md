@@ -376,6 +376,7 @@ Select artifacts by field, never by file name or `DefaultInfo` order.
 | `DebianToolsInfo` | The Debian tools archive, launcher, and provenance. |
 | `MkosiToolchainInfo` | mkosi version and provenance, its Python runtime, `python_version`, `resolved_python_version`, `resolved_python_interpreter`. |
 | `MkosiQemuToolchainInfo` | QEMU, `qemu-img`, OVMF, and SeaBIOS files with provenance. |
+| `QemuBootConfigInfo` | Validated `test_timeout`, deadlines, and `cleanup_margin_seconds` of a `*_boot_config` target. `QemuOvmfBootConfigInfo` is a deprecated alias. |
 | `SysupdatePayloadInfo` | See [A/B updates](docs/sysupdate-ab.md#update-payloads). |
 | `SecureBootSigningRequestInfo`, `SecureBootSignedUkiInfo` | See [Secure Boot](docs/secure-boot.md). |
 

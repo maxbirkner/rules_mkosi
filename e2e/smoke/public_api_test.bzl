@@ -8,6 +8,8 @@ load(
     "MkosiBaseInfo",
     "MkosiImageInfo",
     "MkosiRootfsPayloadInfo",
+    "QemuBootConfigInfo",
+    "QemuOvmfBootConfigInfo",
     "SysupdatePayloadInfo",
 )
 
@@ -108,6 +110,20 @@ def _rootfs_payload_public_api_test_impl(ctx):
     return analysistest.end(env)
 
 rootfs_payload_public_api_test = analysistest.make(_rootfs_payload_public_api_test_impl)
+
+def _boot_config_public_api_test_impl(ctx):
+    env = analysistest.begin(ctx)
+    target = analysistest.target_under_test(env)
+    info = target[QemuBootConfigInfo]
+    asserts.equals(env, ctx.attr.expected_timeout, info.test_timeout)
+    asserts.equals(env, 30, info.cleanup_margin_seconds)
+    asserts.equals(env, info, target[QemuOvmfBootConfigInfo], "deprecated alias selects the same provider")
+    return analysistest.end(env)
+
+boot_config_public_api_test = analysistest.make(
+    _boot_config_public_api_test_impl,
+    attrs = {"expected_timeout": attr.string(mandatory = True)},
+)
 
 def _sysupdate_public_api_test_impl(ctx):
     env = analysistest.begin(ctx)
