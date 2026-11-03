@@ -67,6 +67,7 @@ py_test(
     data = [
         "//mkosi/private:diagnostics.py",
         "//mkosi/private:run_mkosi.py",
+        "//mkosi/private:run_mkosi_modules",
     ],
     main = "diagnostic_contract_test.py",
 )
@@ -91,6 +92,7 @@ py_test(
     data = [
         "//mkosi/private:diagnostics.py",
         "//mkosi/private:run_mkosi.py",
+        "//mkosi/private:run_mkosi_modules",
     ],
     main = "image_version_test.py",
 )
@@ -668,6 +670,7 @@ py_test(
     data = [
         "//mkosi/private:diagnostics.py",
         "//mkosi/private:run_mkosi.py",
+        "//mkosi/private:run_mkosi_modules",
     ],
     main = "run_mkosi_metadata_test.py",
 )
