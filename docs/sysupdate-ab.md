@@ -1,55 +1,28 @@
 # A/B updates with systemd-sysupdate
 
-rules_mkosi builds versioned, immutable UEFI releases that update themselves
-in place with
-[`systemd-sysupdate`](https://www.freedesktop.org/software/systemd/man/latest/systemd-sysupdate.html)
-and fall back to the previous release through
-[systemd-boot boot counting](https://systemd.io/AUTOMATIC_BOOT_ASSESSMENT/).
-The rules produce three things:
+rules_mkosi builds versioned, immutable UEFI releases that update in place with [`systemd-sysupdate`](https://www.freedesktop.org/software/systemd/man/latest/systemd-sysupdate.html) and fall back to the previous release through [systemd-boot boot counting](https://systemd.io/AUTOMATIC_BOOT_ASSESSMENT/).
 
-- `mkosi_image(image_id, image_version)`, or
-  `mkosi_image(image_id, image_version_file)`, builds a release whose root and
-  dm-verity partitions occupy one slot and whose other slots are empty. With
-  `base`, it finalizes a version-independent `mkosi_base` instead of
-  installing packages, so a new version does not repeat package installation;
-  see [two-stage releases](#two-stage-releases).
-- `sysupdate_transfers` generates the transfer definitions that every release
-  ships in `/usr/lib/sysupdate.d`.
-- `sysupdate_payload` projects a release into the files those transfers
-  install on a running system.
+| Rule | Role |
+| --- | --- |
+| `mkosi_image(image_id, image_version)` | A release with one populated root and verity slot and empty inactive slots. |
+| `sysupdate_transfers` | Transfer definitions that every release ships in `/usr/lib/sysupdate.d`. |
+| `sysupdate_payload` | The update directory that those transfers install from. |
+| `mkosi_base` | Optional cached, version-independent base; see [two-stage releases](#two-stage-releases). |
 
-The rules require `mode = "release"`, `unified_kernel_image = "unsigned"`, and
-`verity = "hash"`, and target x86-64 UEFI. They require systemd 257 or newer
-in the image, because the transfers use `PathRelativeTo=explicit`.
+Requirements: `mode = "release"`, `unified_kernel_image = "unsigned"`, `verity = "hash"`, x86-64 UEFI, and systemd 257 or newer in the image (for `PathRelativeTo=explicit`).
 
 ## Image identity
 
-`image_id` and `image_version` become mkosi's `ImageId=` and `ImageVersion=`,
-and therefore `IMAGE_ID` and `IMAGE_VERSION` in `os-release` and in the UKI.
-They are exposed as `MkosiImageInfo.image_id`/`image_version` and in the
-`image` object of the build metadata. Instead of `image_version`, the version
-can come from a file with `image_version_file`; see
-[versions from the build](#versions-from-the-build).
+`image_id` and `image_version` set mkosi's `ImageId=` and `ImageVersion=`, which appear as `IMAGE_ID` and `IMAGE_VERSION` in `os-release` and the UKI.
 
-- `image_id` uses lowercase letters, digits, `.`, `_`, and `-`. It is shared by
-  every release of the image.
-- `image_version` uses only letters, digits, and `.`, and requires `image_id`.
-  systemd-sysupdate accepts only letters, digits, and `.,_-+` in a version;
-  `_` separates the id from the version in every artifact name, and `+` and `-`
-  introduce the boot-counting suffix of a UKI, so none of them may appear in a
-  version.
-- The populated slot labels must fit in a GPT partition name, which holds at
-  most 36 characters. The verity label `<image_id>_<image_version>_verity` is
-  the longest, so `image_id` and the version together may use at most 28
-  characters. systemd-repart would otherwise silently replace the label with
-  its default. With `verity = "hash"`, analysis fails for a longer
-  `image_version`, and the image action fails before it starts mkosi for a
-  longer `image_version_file` version; both errors name the label and the
-  limit. A stamped version such as `<commit timestamp>.<short commit hash>`
-  quickly uses this budget, so prefer a short `image_id` and hash.
+- `image_id`: lowercase letters, digits, `.`, `_`, and `-`; shared by every release.
+- `image_version`: letters, digits, and `.` only; requires `image_id`.
+  `_` separates id and version in artifact names, and `+` and `-` are reserved for boot counting.
+- **Label limit:** GPT partition names hold 36 characters, and the longest label is `<image_id>_<image_version>_verity`, so `image_id` and the version together may use at most 28 characters.
+  Longer versions fail the build (at analysis for `image_version`, before mkosi starts for `image_version_file`).
+  A stamped `<timestamp>.<hash>` version uses this budget quickly; keep `image_id` and the hash short.
 
-Both attributes expand Make variables, so the version can come from a build
-setting rather than being edited in `BUILD` files:
+Both attributes expand Make variables, so a version can come from a build setting through a `TemplateVariableInfo` target in `toolchains`:
 
 ```starlark
 load("@bazel_skylib//rules:common_settings.bzl", "string_flag")
@@ -76,24 +49,16 @@ mkosi_image(
 )
 ```
 
-## Versions from the build
+### Versions from the build
 
-A version derived from the build, such as `<commit timestamp>.<short commit
-hash>`, is only known when actions run. Pass it in a file with
-`image_version_file`, which takes the label of exactly one file, requires
-`image_id`, and excludes `image_version`. The file contains the version,
-optionally followed by one newline. A stamped `genrule` can read it from Bazel
-workspace status:
+For a version only known when actions run, such as one derived from the commit, use `image_version_file` instead of `image_version`.
+It takes one file containing the version and an optional trailing newline:
 
 ```sh
 #!/bin/sh
-# tools/workspace_status.sh
+# tools/workspace_status.sh, enabled with
+#   build:release --workspace_status_command=tools/workspace_status.sh
 echo "STABLE_OS_VERSION $(git log -1 --format=%ct).$(git rev-parse --short=12 HEAD)"
-```
-
-```sh
-# .bazelrc
-build:release --workspace_status_command=tools/workspace_status.sh
 ```
 
 ```starlark
@@ -106,49 +71,22 @@ genrule(
 
 mkosi_image(
     name = "os",
-    config_tree = ":os_config",
-    debian_snapshot = "@my_os_debian//:repository",
     image_id = "my-os",
     image_version_file = ":os_version",
-    mode = "release",
-    release_seed = "00000000-0000-4000-8000-000000000001",
-    release_source_date_epoch = 1755129600,
-    rootfs_payloads = [":os_transfers"],
-    unified_kernel_image = "unsigned",
-    verity = "hash",
+    # Other attributes as above, without image_version and toolchains.
 )
 ```
 
-The version is validated with the same rule as `image_version` by every action
-that reads it, so an empty file, for example when the workspace status command
-is missing, fails the build with an `invalid image_version_file` message. With
-`verity = "hash"`, the image, partition metadata, and payload actions also
-enforce the [36-character slot label budget](#image-identity). The
-image action passes it to mkosi as `ImageVersion=`, the partition metadata
-action checks the slot labels against it, the build metadata records it in
-`image.version` with the unchanged `mkosi-image-build-metadata-v2` schema, and
-`sysupdate_payload` names its artifacts after it.
+The content is validated like `image_version`; an empty file, for example when the workspace status command is not set, fails with `invalid image_version_file`.
+`MkosiImageInfo.image_version` and `SysupdatePayloadInfo.image_version` are then `None`, and their `image_version_file` fields hold the file.
 
-`MkosiImageInfo.image_version` and `SysupdatePayloadInfo.image_version` are
-`None` for such an image; `MkosiImageInfo.image_version_file` and
-`SysupdatePayloadInfo.image_version_file` expose the file instead. Consumers
-that need the version read it from that file and remove a trailing newline. For
-an `image_version` string, the string fields are set and the file fields are
-`None`.
-
-Because stable workspace status changes with every commit, everything that
-depends on the version file is rebuilt for each commit. For a one-stage
-`mkosi_image`, that includes package installation; split the release into a
-cached base and a versioned finalization to avoid it, as described next.
+Stable workspace status changes with every commit, so everything depending on the version rebuilds per commit.
+Use a two-stage release to avoid repeating package installation.
 
 ## Two-stage releases
 
-Most of a release does not depend on its version: package installation from
-the Debian snapshot, mkosi's default initrd, and the configuration and payloads
-applied to the root. `mkosi_base` builds that part once, and
-`mkosi_image(base = ...)` finalizes it for one version. The base action has no
-version input, so a new commit's version reuses the cached base from Bazel's
-action, disk, or remote cache, and only the finalization runs again:
+`mkosi_base` installs packages from the snapshot without any version input, so Bazel caches it across versions.
+`mkosi_image(base = ...)` finalizes it for one version: `os-release`, partitions, dm-verity, and the UKI.
 
 ```starlark
 load("@rules_mkosi//mkosi:defs.bzl", "mkosi_base", "mkosi_config_tree", "mkosi_image")
@@ -165,13 +103,6 @@ mkosi_base(
     rootfs_payloads = [":os_transfers"],
 )
 
-genrule(
-    name = "os_version",
-    outs = ["os_version.txt"],
-    cmd = "sed -n 's/^STABLE_OS_VERSION //p' bazel-out/stable-status.txt > $@",
-    stamp = 1,
-)
-
 mkosi_image(
     name = "os",
     base = ":os_base",
@@ -184,34 +115,10 @@ mkosi_image(
 )
 ```
 
-`mkosi_base` builds the base configuration with `Format=tar` and
-`Bootable=no` in the same network-blocked release action as a one-stage image,
-with the snapshot as its only package source. It requires `release_seed` and
-`release_source_date_epoch`, and the configuration must not set
-`ImageVersion=`. `MkosiBaseInfo` exposes `root_tree`, a tar archive of the root
-whose members are sorted by name so that it crosses Bazel's cache as identical
-bytes, and `initrd`, mkosi's default initrd built from the same snapshot.
-
-`mkosi_image(base = ...)` takes the snapshot identity, `Seed=`, and
-`SourceDateEpoch=` from the base, so `debian_snapshot`, `release_seed`, and
-`release_source_date_epoch` must not be set; it requires `mode = "release"` and
-UEFI firmware, and does not accept `source_trees`. Its action passes the base
-root to mkosi as `BaseTrees=` and the initrd as `Initrds=`, sets
-`CacheOnly=always`, and neither reads the snapshot nor synchronizes package
-metadata. The finalize configuration must therefore not install or remove
-packages, and must not set `BaseTrees=` or `Initrds=` itself.
-
-mkosi builds the default initrd in the base and the kernel modules initrd,
-which it appends to the default initrd in the UKI, only in the bootable
-finalization. Each stage ignores the other stage's initrd settings, so the
-actions reject them instead: the finalize configuration fails with
-`InitrdPackages=`, `InitrdVolatilePackages=`, `InitrdProfiles=`, or a
-`mkosi.initrd.conf` or `mkosi.initrd` entry, and the base configuration fails
-with `KernelModulesInitrd=no`, `KernelModulesInitrdInclude=`
-(`KernelInitrdModules=`), or `KernelModulesInitrdExclude=`.
-
-The image provides the same `MkosiImageInfo` and build metadata as a one-stage release,
-so `sysupdate_payload`, the boot tests, and other consumers need no change.
+- `mkosi_base` runs offline like a release image, requires `release_seed` and `release_source_date_epoch`, and its configuration must not set `ImageVersion=`.
+- `mkosi_image(base = ...)` inherits the snapshot, `Seed=`, and `SourceDateEpoch=` from the base: do not set `debian_snapshot`, `release_seed`, or `release_source_date_epoch`.
+  It requires release mode and UEFI, rejects `source_trees`, and its configuration must not install or remove packages or set `BaseTrees=` or `Initrds=`.
+- The result has the same `MkosiImageInfo` as a one-stage release.
 
 Put each setting where it changes:
 
@@ -223,32 +130,16 @@ Put each setting where it changes:
 | default initrd: `InitrdPackages=`, `InitrdVolatilePackages=`, `InitrdProfiles=`, `mkosi.initrd.conf` | kernel modules initrd: `KernelModulesInitrd=`, `KernelModulesInitrdInclude=` (`KernelInitrdModules=`), `KernelModulesInitrdExclude=` |
 | version-independent `rootfs_payloads` | `KernelCommandLine=`, `mkosi.repart/`, version-dependent `rootfs_payloads` |
 
-Finalization runs systemd-sysusers, systemd-tmpfiles, presets, depmod, and
-`RemoveFiles=` again on the root, so repeat `RemoveFiles=` in the finalize
-configuration for paths that these steps may recreate. Files in the base
-cannot depend on the version: `IMAGE_VERSION` is added to `os-release` and the
-UKI during finalization, and the default initrd's `initrd-release` carries no
-image id or version, unlike a one-stage image, where the initrd inherits them.
-
-For the end-to-end fixture, the version-independent base action took 38 s and
-each finalization 17 to 19 s on a 16-core workstation, compared with 46 s for
-the same release built in one stage. The finalization's cost grows with the size of
-the root file system, while the base also absorbs package download,
-installation, and maintainer scripts, which dominate larger images.
+Initrd settings in the wrong stage fail the build.
+Finalization reruns systemd-sysusers, systemd-tmpfiles, presets, depmod, and `RemoveFiles=`, so repeat `RemoveFiles=` in the finalize configuration for paths these steps recreate.
+Files in the base cannot depend on the version, and the default initrd's `initrd-release` carries no image id or version.
 
 ## Partition layout
 
-A versioned dm-verity image must contain exactly one populated root partition
-labelled `<image_id>_<image_version>` and one populated verity partition
-labelled `<image_id>_<image_version>_verity`. Every other root and verity
-partition is an inactive slot labelled `_empty`, the label systemd-sysupdate
-looks for when it chooses where to install. Inactive slots must be at least as
-large as the populated slot, and all sizes must be fixed, because a slot has to
-hold any later release. The partition metadata projection enforces these rules
-and records each partition's UUID.
-
-Use repart's `%M` (image id) and `%A` (image version) specifiers in the image's
-`mkosi.repart/` definitions:
+The image needs exactly one populated root partition labelled `<image_id>_<image_version>` and one verity partition labelled `<image_id>_<image_version>_verity`.
+Every other root and verity partition is an inactive slot labelled `_empty`, at least as large as the populated slot.
+Use fixed sizes, since a slot must hold any later release.
+Use repart's `%M` (image id) and `%A` (image version) specifiers in `mkosi.repart/`:
 
 ```ini
 # 00-esp.conf
@@ -302,14 +193,8 @@ SizeMaxBytes=128M
 ReadOnly=yes
 ```
 
-The ESP must hold two UKIs at once, because the previous release stays
-bootable. Excluding `/boot/` and `/efi/` from the root keeps the UKI out of the
-root partition while preserving the mount points.
-
-systemd-repart derives the UUIDs of a verity data and hash partition from the
-root hash: the first and last 128 bits respectively. The UKI's `roothash=`
-therefore finds the matching partitions at boot through these UUIDs, not
-through slot positions or labels.
+The ESP must hold two UKIs, because the previous release stays bootable.
+At boot, the UKI's `roothash=` finds its partitions by UUID, which systemd-repart derives from the root hash, not by slot position or label.
 
 ## mkosi configuration
 
@@ -329,18 +214,10 @@ Packages=
         systemd-sysv
 ```
 
-`UnifiedKernelImageFormat=%i_%v` names the installed UKI
-`<image_id>_<image_version>.efi`, which is the name the UKI transfer matches.
-On Debian 13 the guest needs `systemd-container` for
-`/usr/lib/systemd/systemd-sysupdate`, `systemd-boot` for `bootctl` and
-`systemd-bless-boot`, and `systemd-repart` for runtime partitioning. The
-built-in snapshot does not lock `systemd-container`, so use a
-[consumer-owned snapshot](../README.md#consumer-owned-debian-snapshots). Its
-specification must also list the packages of mkosi's default initrd, which on
-Debian 13 includes `systemd-cryptsetup` and the `libtss2-*` libraries; the
-end-to-end fixture
-[`debian.spec.json`](../e2e/smoke/testdata/sysupdate-snapshot/debian.spec.json)
-is a working minimal set.
+`UnifiedKernelImageFormat=%i_%v` names the UKI `<image_id>_<image_version>.efi`, as the transfers expect.
+On Debian 13, `systemd-container` provides `systemd-sysupdate`, `systemd-boot` provides `bootctl` and `systemd-bless-boot`, and `systemd-repart` is needed for runtime partitioning.
+The built-in snapshot lacks `systemd-container`, so use a [consumer-owned snapshot](../README.md#debian-snapshots) that also locks the packages of mkosi's default initrd (on Debian 13 including `systemd-cryptsetup` and `libtss2-*`).
+[`e2e/smoke/testdata/sysupdate-snapshot/debian.spec.json`](../e2e/smoke/testdata/sysupdate-snapshot/debian.spec.json) is a working minimal set.
 
 ## Transfer definitions
 
@@ -356,9 +233,8 @@ sysupdate_transfers(
 )
 ```
 
-The target is a typed rootfs payload; add it to `rootfs_payloads` of every
-release. It writes three transfers, ordered so that both partitions are
-written before the UKI that references them:
+Add the target to `rootfs_payloads` of every release.
+It writes three transfers; both partitions are written before the UKI that references them:
 
 | File | Source | Target |
 | --- | --- | --- |
@@ -366,18 +242,14 @@ written before the UKI that references them:
 | `20-root-verity.transfer` | `<id>_@v.root-verity.@u.raw` | partition of type `root-x86-64-verity` labelled `<id>_@v_verity` |
 | `90-uki.transfer` | `<id>_@v.efi` | `/EFI/Linux/<id>_@v+@l-@d.efi` on `$BOOT`, or `<id>_@v.efi` with `boot_attempts = 0` |
 
-Sources use `Path=/` with `PathRelativeTo=explicit`, so the update directory is
-chosen at run time with `--transfer-source=`. `@u` in a source name sets the
-target partition's UUID to the root-hash-derived UUID, which is what lets the
-new UKI find its root. Every transfer has `ProtectVersion=%A`, so the running
-release is never overwritten, and keeps at most `instances` versions. New UKIs
-are installed with `TriesLeft=<boot_attempts>`.
+| Attribute | Default | Meaning |
+| --- | --- | --- |
+| `boot_attempts` | `3` | `TriesLeft=` of a new UKI. `0` disables boot counting; do not switch a device to `0` while its ESP still holds counted UKIs. |
+| `instances` | `2` | Versions kept (`InstancesMax=`); at least 2. |
+| `destination` | `/usr/lib/sysupdate.d` | Directory in the image. |
 
-systemd-sysupdate names a new UKI after the first target `MatchPattern=` and
-defaults to `TriesLeft=3`, so `boot_attempts = 0` disables boot counting by
-listing `<id>_@v.efi` first, ahead of the counted patterns. The counter-free
-pattern then also matches counted names, so do not switch a device to
-`boot_attempts = 0` while its ESP still holds boot-counted UKIs.
+The update directory is chosen at run time with `--transfer-source=`.
+Every transfer protects the running version (`ProtectVersion=%A`).
 
 ## Update payloads
 
@@ -391,16 +263,10 @@ sysupdate_payload(
 )
 ```
 
-The output directory contains `<id>_<version>.root.<uuid>.raw`,
-`<id>_<version>.root-verity.<uuid>.raw`, `<id>_<version>.efi`, and a
-`SHA256SUMS` manifest; zero runs stay sparse. The action fails, leaving no
-output, when the image's GPT UUIDs differ from the UUIDs derived from its root
-hash. `signed_uki` substitutes a UKI imported with
-[`secure_boot_import_response`](secure-boot.md); the action also fails unless
-that UKI's signing request names the SHA-256 of this image's unsigned UKI.
-`SysupdatePayloadInfo` exposes the `directory`, `image_id`, and either the
-`image_version` string or, for an image versioned through
-`image_version_file`, the `image_version_file` file.
+The output directory contains `<id>_<version>.root.<uuid>.raw`, `<id>_<version>.root-verity.<uuid>.raw`, `<id>_<version>.efi`, and `SHA256SUMS`.
+The build fails if the image's partition UUIDs do not match its root hash.
+`signed_uki` substitutes a UKI from [`secure_boot_import_response`](secure-boot.md) whose signing request names this image's unsigned UKI.
+`SysupdatePayloadInfo` exposes `directory`, `image_id`, and `image_version` or `image_version_file`.
 
 Apply the payload on the device:
 
@@ -409,17 +275,15 @@ Apply the payload on the device:
 systemctl reboot
 ```
 
-The transfers use `Verify=no`: the payload is trusted as delivered. Deliver it
-over an authenticated channel, or check `SHA256SUMS` against a trusted digest
-first.
+The transfers use `Verify=no`.
+Deliver payloads over an authenticated channel, or check `SHA256SUMS` against a trusted digest first.
 
 ## Boot assessment and rollback
 
-systemd-boot boots the newest UKI and decrements its tries counter on every
-attempt. `systemd-bless-boot` removes the counter once `boot-complete.target`
-is reached; a release whose counter reaches zero is sorted after every other
-entry, so the next boot selects the previous release. Make health checks
-prerequisites of `boot-complete.target`, and reboot when they fail:
+systemd-boot boots the newest UKI and decrements its tries counter on each attempt.
+`systemd-bless-boot` removes the counter once `boot-complete.target` is reached.
+A release whose counter reaches zero is sorted last, so the previous release boots next.
+Make health checks prerequisites of `boot-complete.target`:
 
 ```ini
 [Unit]
@@ -435,19 +299,15 @@ ExecStart=/usr/libexec/my-os-health-check
 RequiredBy=boot-complete.target
 ```
 
-Enable the unit, for example with a preset file, since mkosi applies presets.
-With `boot_attempts = 1`, a single failed boot falls back to the previous
-release. Debian also enables `systemd-sysupdate.timer`; disable it unless the
-transfers name a source that the timer can reach.
+Enable the unit with a preset file.
+With `boot_attempts = 1`, one failed boot falls back to the previous release.
+Debian enables `systemd-sysupdate.timer`; disable it unless the transfers name a source the timer can reach.
 
 ## Runtime state
 
-The root is read-only, so give the system a writable `/var`. Production images
-typically let systemd-repart add a `var` partition that grows into the rest of
-the disk, using runtime `/usr/lib/repart.d` definitions. Mirror the image's
-ESP, root, and verity definitions there first, with the same `Type=` and fixed
-sizes, so that systemd-repart matches every existing slot in order before it
-places `var` after them:
+The root is read-only, so provide a writable `/var`.
+Production images typically let systemd-repart add a `var` partition at first boot with `/usr/lib/repart.d` definitions.
+Mirror the image's ESP, root, and verity definitions there first (same `Type=` and fixed sizes) so that `var` is placed after every slot:
 
 ```ini
 # /usr/lib/repart.d/50-var.conf, after copies of 00-esp.conf to
@@ -457,36 +317,13 @@ Type=var
 Format=ext4
 ```
 
-The end-to-end test instead uses `systemd.volatile=state` on the kernel
-command line for a temporary `/var`.
+Alternatively, `systemd.volatile=state` on the kernel command line gives a temporary `/var`.
 
-## Release epoch
+Use a real `release_source_date_epoch`, not `0`; see [release mode](../README.md#tracer-and-release-modes).
 
-`release_source_date_epoch = 0` also sets every account's last password change
-to 1970 when systemd-sysusers creates `/etc/shadow`, so a login is forced to
-change the password immediately. Use a real epoch, such as the time of the
-Debian snapshot (`1755129600` for `20250814T000000Z`), and set the matching
-`SourceDateEpoch=` and `SOURCE_DATE_EPOCH` in the configuration.
+## Testing updates
 
-## Verification
+`qemu_ovmf_boot_test` with `allow_reboot`, `progress_markers`, and `read_only_shares` can drive an update inside a VM.
+`//e2e/smoke:sysupdate_lifecycle_test` is a complete example: it boots release 1, applies release 2 from a read-only share and checks that it is blessed, then applies release 3, whose health check fails, and checks the fallback to release 2.
 
-`//e2e/smoke:sysupdate_lifecycle_test` finalizes releases 1, 2, and 3 of one
-image from a single `mkosi_base` with `boot_attempts = 1`. It boots release 1
-with QEMU and OVMF, applies
-release 2 from a read-only virtio-9p share, reboots, and checks that release 2
-runs from its own verity root and is blessed. It then applies release 3, whose
-health check always fails, and checks that systemd-boot falls back to release
-2. The test uses `qemu_ovmf_boot_test` with `allow_reboot`, ordered
-`progress_markers`, and `read_only_shares`, which consumers can use for their
-own update tests.
-
-CI builds a two-stage release for two stamped versions with
-`ci/verify-two-stage-cache.sh` and fails unless the second version reuses the
-cached base and only repeats the finalization.
-`ci/verify-release-reproducibility.sh` builds the same base and release twice in
-independent output roots and requires identical base digests and image
-manifests.
-
-The same rules have also been used to build a Debian 13 image that was updated
-in place and rolled back on physical x86-64 hardware, with `boot_attempts` of
-both 1 and 3.
+These rules have also been used to update and roll back a Debian 13 image on physical x86-64 hardware with `boot_attempts` of 1 and 3.

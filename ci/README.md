@@ -1,41 +1,17 @@
 # CI helpers
 
-## Goal
+Small, unit-tested validators for repository-specific CI checks.
 
-This directory contains small validators for repository-specific CI contracts.
-Keep helpers here only when a workflow needs logic that is clearer and
-testable outside inline shell.
+| Helper | Checks | Unit tests |
+| --- | --- | --- |
+| `action_graph_validator.py` | Debian toolchain actions do not resolve host executables. | `//ci:action_graph_validator_test` |
+| `verify-two-stage-cache.sh`, `verify_two_stage_cache.py` | A second stamped version of `//mkosi/tests:two_stage_release` re-executes only the finalizing `MkosiImage` action, not `MkosiBase`. | `//ci:verify_two_stage_cache_test` |
+| `verify-release-reproducibility.sh`, `verify_reproducibility_execution.py` | Two clean builds of the release images produce identical reproducibility manifests and base digests, and every image action actually executed. | `//ci:verify_reproducibility_execution_test` |
+| `check-starlark-coverage-support.sh` | Whether Bazel can report Starlark coverage; see [Starlark coverage status](../docs/starlark-coverage.md). | — |
 
-`action_graph_validator.py` checks that Debian toolchain actions do not resolve
-host executables through their environment, and identifies actions by their
-outputs because aquery shares `actionKey` between distinct actions. CI imports
-it while inspecting Bazel's action graph. Run its focused unit tests with:
-
-```console
-bazel test //ci:action_graph_validator_test
-```
-
-`verify-two-stage-cache.sh` builds `//mkosi/tests:two_stage_release` for two
-stamped versions in one output base, and `verify_two_stage_cache.py` checks its
-execution logs: the second version must execute the finalizing `MkosiImage`
-action but not the `MkosiBase` action. Run the log checker's unit tests with:
-
-```console
-bazel test //ci:verify_two_stage_cache_test
-```
-
-Workflow YAML formatting and syntax are maintained by `prek run --all-files`.
-This directory deliberately does not duplicate GitHub Actions' interpretation
-of workflows or test that Bazel executes targets requested through `//...`.
+Workflow YAML is checked by `prek run --all-files`.
 
 ## Manual image artifacts
 
-Run the `CI` workflow manually with **Upload artifacts** enabled to build and
-upload the release-mode test disk, build metadata, partition metadata, and
-reproducibility manifest. The Bazel 8 qualified root-suite job publishes one
-`mkosi-manual-test-<commit>` artifact with a `SHA256SUMS` file. GitHub retains
-the artifact for one day.
-
-The input defaults to disabled and does not affect pull request, push, or
-scheduled CI runs. It only exposes existing test outputs for manual hardware
-testing; it does not create a tag, release, or BCR publication.
+Run the `CI` workflow manually with **Upload artifacts** enabled to download the release test disk, its build and partition metadata, and its reproducibility manifest with a `SHA256SUMS` file.
+The `mkosi-manual-test-<commit>` artifact is kept for one day and is not a release.

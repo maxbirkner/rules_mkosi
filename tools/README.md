@@ -1,21 +1,8 @@
 # Developer tools
 
-## Goal
-
-This directory contains opt-in, repository-maintained developer commands.
-`tools/bazel` provides a safe module-local disk cache when Bazel is invoked
-below a module root. This wrapper requires host Python 3.11 or newer and a
-`bazel` or `bazelisk` backend on `PATH`; Bazel actions use the separately
-registered managed Python 3.14 toolchain.
-
-Use Bazel normally from a module root:
-
-```console
-bazel test //...
-```
-
-Use the wrapper from a nested package when relative labels must remain relative
-to the current directory:
+`tools/bazel` runs Bazel from a directory below a module root while keeping that module's disk cache at `<module>/.cache/bazel-disk`.
+The checked-in `.bazelrc` uses a relative cache path, which only works from the module root.
+The wrapper needs host Python 3.11 or newer and `bazel` or `bazelisk` on `PATH`.
 
 ```console
 (
@@ -28,17 +15,5 @@ to the current directory:
 )
 ```
 
-The wrapper stops at the nearest physical `MODULE.bazel`, preserves the caller
-directory and arguments, and writes an absolute cache option to
-`<module>/.cache/bazel-wrapper.bazelrc`. Cached data is stored in
-`<module>/.cache/bazel-disk`. Both paths are ignored. Remove all generated
-wrapper state for a module with:
-
-```console
-rm -rf /path/to/module/.cache
-```
-
-Focused tests cover wrapper-owned argument forwarding, module-boundary,
-backend-selection, and symlink-safety behavior. They deliberately do not
-retest Bazel's startup-option grammar, rc precedence, or disk-cache
-implementation.
+The wrapper uses the nearest `MODULE.bazel`, keeps the current directory and arguments, and writes its cache option to the ignored `<module>/.cache/bazel-wrapper.bazelrc`.
+Remove all cached state of a module with `rm -rf <module>/.cache`.
