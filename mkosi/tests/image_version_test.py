@@ -174,13 +174,13 @@ class RunMkosiTest(unittest.TestCase):
         self.version.write_text("1755129600.0123abc\n")
         self.assertEqual(
             ["-C", "x", "--image-id=os", "--image-version=1755129600.0123abc", "build"],
-            run_mkosi._with_image_version(
+            run_mkosi.command_line.with_image_version(
                 ["-C", "x", "--image-id=os", "build"],
                 run_mkosi._image_version_from_file(self.version),
             ),
         )
         with self.assertRaisesRegex(SystemExit, "requires exactly one --image-id="):
-            run_mkosi._with_image_version(["build"], "1")
+            run_mkosi.command_line.with_image_version(["build"], "1")
 
 
 if __name__ == "__main__":

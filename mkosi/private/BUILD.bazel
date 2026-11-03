@@ -36,6 +36,20 @@ exports_files([
     "debian_snapshot.py",
 ])
 
+# Modules that run_mkosi.py loads from its own directory.
+filegroup(
+    name = "run_mkosi_modules",
+    srcs = [
+        "mkosi_runner/__init__.py",
+        "mkosi_runner/command_line.py",
+        "mkosi_runner/release_patches.py",
+        "mkosi_runner/release_sandbox.py",
+        "mkosi_runner/release_validation.py",
+        "mkosi_runner/tree.py",
+    ],
+    visibility = ["//visibility:public"],
+)
+
 # Interpreter for managed_python_test, resolved for rules_mkosi's Python line.
 managed_python_tool(
     name = "managed_python",

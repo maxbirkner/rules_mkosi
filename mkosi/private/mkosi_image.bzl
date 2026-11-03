@@ -506,7 +506,7 @@ def _mkosi_tool_inputs(ctx, mkosi, debian_tools):
         mkosi.pefile,
         debian_tools.tree,
         debian_tools.extractor,
-    ]
+    ] + ctx.files._run_script_modules
 
 def _mkosi_image_impl(ctx):
     mkosi = ctx.toolchains["//mkosi/toolchain:toolchain_type"].mkosi
@@ -1068,6 +1068,11 @@ MkosiImageInfo.image_version is None and MkosiImageInfo.image_version_file is th
             default = "//mkosi/private:run_mkosi.py",
             allow_single_file = True,
         ),
+        "_run_script_modules": attr.label(
+            cfg = "exec",
+            default = "//mkosi/private:run_mkosi_modules",
+            allow_files = True,
+        ),
         "_kernel_preflight": attr.label(
             cfg = "exec",
             default = "//mkosi/private:kernel_preflight",
@@ -1238,6 +1243,11 @@ ImageVersion=; the version belongs to the mkosi_image that finalizes the base.
             cfg = "exec",
             default = "//mkosi/private:run_mkosi.py",
             allow_single_file = True,
+        ),
+        "_run_script_modules": attr.label(
+            cfg = "exec",
+            default = "//mkosi/private:run_mkosi_modules",
+            allow_files = True,
         ),
         "_kernel_preflight": attr.label(
             cfg = "exec",
