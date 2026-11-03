@@ -1,17 +1,9 @@
-#!/bin/sh
-set -eu
+# Sourced by run_with_runfiles.sh; arguments are rlocation paths.
 PATH=
 export PATH
 
-runfiles_root="${RUNFILES_DIR:-$0.runfiles}"
-module_file="$runfiles_root/_main/MODULE.bazel"
-[ -f "$module_file" ] || module_file="$runfiles_root/rules_mkosi/MODULE.bazel"
-[ -f "$module_file" ] || {
-    echo "MODULE.bazel is missing from compatibility guard runfiles" >&2
-    exit 1
-}
-
-python_version="${1:?rules_mkosi Python version is required}"
+module_file="$(rlocation "$1")"
+python_version="${2:?rules_mkosi Python version is required}"
 floor=0
 qemu=0
 python_lines=0
