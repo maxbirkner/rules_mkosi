@@ -9,7 +9,10 @@ The rules produce three things:
 
 - `mkosi_image(image_id, image_version)`, or
   `mkosi_image(image_id, image_version_file)`, builds a release whose root and
-  dm-verity partitions occupy one slot and whose other slots are empty.
+  dm-verity partitions occupy one slot and whose other slots are empty. With
+  `base`, it finalizes a version-independent `mkosi_base` instead of
+  installing packages, so a new version does not repeat package installation;
+  see [two-stage releases](#two-stage-releases).
 - `sysupdate_transfers` generates the transfer definitions that every release
   ships in `/usr/lib/sysupdate.d`.
 - `sysupdate_payload` projects a release into the files those transfers
@@ -134,7 +137,104 @@ an `image_version` string, the string fields are set and the file fields are
 `None`.
 
 Because stable workspace status changes with every commit, everything that
-depends on the version file is rebuilt for each commit, including the image.
+depends on the version file is rebuilt for each commit. For a one-stage
+`mkosi_image`, that includes package installation; split the release into a
+cached base and a versioned finalization to avoid it, as described next.
+
+## Two-stage releases
+
+Most of a release does not depend on its version: package installation from
+the Debian snapshot, mkosi's default initrd, and the configuration and payloads
+applied to the root. `mkosi_base` builds that part once, and
+`mkosi_image(base = ...)` finalizes it for one version. The base action has no
+version input, so a new commit's version reuses the cached base from Bazel's
+action, disk, or remote cache, and only the finalization runs again:
+
+```starlark
+load("@rules_mkosi//mkosi:defs.bzl", "mkosi_base", "mkosi_config_tree", "mkosi_image")
+
+mkosi_config_tree(name = "os_base_config", src = "os/base")
+mkosi_config_tree(name = "os_image_config", src = "os/image")
+
+mkosi_base(
+    name = "os_base",
+    config_tree = ":os_base_config",
+    debian_snapshot = "@my_os_debian//:repository",
+    release_seed = "00000000-0000-4000-8000-000000000001",
+    release_source_date_epoch = 1755129600,
+    rootfs_payloads = [":os_transfers"],
+)
+
+genrule(
+    name = "os_version",
+    outs = ["os_version.txt"],
+    cmd = "sed -n 's/^STABLE_OS_VERSION //p' bazel-out/stable-status.txt > $@",
+    stamp = 1,
+)
+
+mkosi_image(
+    name = "os",
+    base = ":os_base",
+    config_tree = ":os_image_config",
+    image_id = "my-os",
+    image_version_file = ":os_version",
+    mode = "release",
+    unified_kernel_image = "unsigned",
+    verity = "hash",
+)
+```
+
+`mkosi_base` builds the base configuration with `Format=tar` and
+`Bootable=no` in the same network-blocked release action as a one-stage image,
+with the snapshot as its only package source. It requires `release_seed` and
+`release_source_date_epoch`, and the configuration must not set
+`ImageVersion=`. `MkosiBaseInfo` exposes `root_tree`, a tar archive of the root
+whose members are sorted by name so that it crosses Bazel's cache as identical
+bytes, and `initrd`, mkosi's default initrd built from the same snapshot.
+
+`mkosi_image(base = ...)` takes the snapshot identity, `Seed=`, and
+`SourceDateEpoch=` from the base, so `debian_snapshot`, `release_seed`, and
+`release_source_date_epoch` must not be set; it requires `mode = "release"` and
+UEFI firmware, and does not accept `source_trees`. Its action passes the base
+root to mkosi as `BaseTrees=` and the initrd as `Initrds=`, sets
+`CacheOnly=always`, and neither reads the snapshot nor synchronizes package
+metadata. The finalize configuration must therefore not install or remove
+packages, and must not set `BaseTrees=` or `Initrds=` itself.
+
+mkosi builds the default initrd in the base and the kernel modules initrd,
+which it appends to the default initrd in the UKI, only in the bootable
+finalization. Each stage ignores the other stage's initrd settings, so the
+actions reject them instead: the finalize configuration fails with
+`InitrdPackages=`, `InitrdVolatilePackages=`, `InitrdProfiles=`, or a
+`mkosi.initrd.conf` or `mkosi.initrd` entry, and the base configuration fails
+with `KernelModulesInitrd=no`, `KernelModulesInitrdInclude=`
+(`KernelInitrdModules=`), or `KernelModulesInitrdExclude=`.
+
+The image provides the same `MkosiImageInfo` and build metadata as a one-stage release,
+so `sysupdate_payload`, the boot tests, and other consumers need no change.
+
+Put each setting where it changes:
+
+| Base configuration | Finalize configuration |
+| --- | --- |
+| `[Distribution]`, including `Snapshot=` and `Repositories=` | `Distribution=` and `Release=`; `Snapshot=` is optional |
+| `Seed=`, `SourceDateEpoch=` | the same `Seed=` and `SourceDateEpoch=` |
+| `Packages=`, `RemoveFiles=`, `Hostname=`, `mkosi.extra/` | `Bootable=yes`, `Bootloader=`, `UnifiedKernelImages=`, `UnifiedKernelImageFormat=` |
+| default initrd: `InitrdPackages=`, `InitrdVolatilePackages=`, `InitrdProfiles=`, `mkosi.initrd.conf` | kernel modules initrd: `KernelModulesInitrd=`, `KernelModulesInitrdInclude=` (`KernelInitrdModules=`), `KernelModulesInitrdExclude=` |
+| version-independent `rootfs_payloads` | `KernelCommandLine=`, `mkosi.repart/`, version-dependent `rootfs_payloads` |
+
+Finalization runs systemd-sysusers, systemd-tmpfiles, presets, depmod, and
+`RemoveFiles=` again on the root, so repeat `RemoveFiles=` in the finalize
+configuration for paths that these steps may recreate. Files in the base
+cannot depend on the version: `IMAGE_VERSION` is added to `os-release` and the
+UKI during finalization, and the default initrd's `initrd-release` carries no
+image id or version, unlike a one-stage image, where the initrd inherits them.
+
+For the end-to-end fixture, the version-independent base action took 38 s and
+each finalization 17 to 19 s on a 16-core workstation, compared with 46 s for
+the same release built in one stage. The finalization's cost grows with the size of
+the root file system, while the base also absorbs package download,
+installation, and maintainer scripts, which dominate larger images.
 
 ## Partition layout
 
@@ -370,14 +470,22 @@ Debian snapshot (`1755129600` for `20250814T000000Z`), and set the matching
 
 ## Verification
 
-`//e2e/smoke:sysupdate_lifecycle_test` builds releases 1, 2, and 3 of one
-image with `boot_attempts = 1`. It boots release 1 with QEMU and OVMF, applies
+`//e2e/smoke:sysupdate_lifecycle_test` finalizes releases 1, 2, and 3 of one
+image from a single `mkosi_base` with `boot_attempts = 1`. It boots release 1
+with QEMU and OVMF, applies
 release 2 from a read-only virtio-9p share, reboots, and checks that release 2
 runs from its own verity root and is blessed. It then applies release 3, whose
 health check always fails, and checks that systemd-boot falls back to release
 2. The test uses `qemu_ovmf_boot_test` with `allow_reboot`, ordered
 `progress_markers`, and `read_only_shares`, which consumers can use for their
 own update tests.
+
+CI builds a two-stage release for two stamped versions with
+`ci/verify-two-stage-cache.sh` and fails unless the second version reuses the
+cached base and only repeats the finalization.
+`ci/verify-release-reproducibility.sh` builds the same base and release twice in
+independent output roots and requires identical base digests and image
+manifests.
 
 The same rules have also been used to build a Debian 13 image that was updated
 in place and rolled back on physical x86-64 hardware, with `boot_attempts` of

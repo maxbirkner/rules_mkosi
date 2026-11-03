@@ -56,6 +56,46 @@ def _preamble_value(argv, option):
             return argv[index + 1]
     return None
 
+
+def _mkosi_option_value(argv, option):
+    """Returns the value of a separate-argument mkosi option after the preamble."""
+    arguments = argv[argv.index("--") + 1 :]
+    indices = [index for index, argument in enumerate(arguments[:-1]) if argument == option]
+    if len(indices) != 1:
+        raise SystemExit("expected exactly one mkosi {} argument".format(option))
+    return arguments[indices[0] + 1]
+
+
+def _release_stage(release, debian_snapshot_repository, base_tree, initrd, base_initrd_output):
+    """Returns image, base, finalize, or None for a tracer build, and rejects inconsistent options."""
+    if base_tree is not None or initrd is not None:
+        if base_tree is None or initrd is None:
+            raise SystemExit("release finalization requires both --release-base-tree and --release-initrd")
+        if debian_snapshot_repository is not None or base_initrd_output is not None:
+            raise SystemExit("release finalization cannot use the Debian snapshot or produce a base")
+        stage = "finalize"
+    elif debian_snapshot_repository is not None:
+        stage = "base" if base_initrd_output is not None else "image"
+    elif base_initrd_output is not None:
+        raise SystemExit("a release base requires the Debian snapshot repository")
+    else:
+        stage = None
+    if (stage is not None) != release:
+        raise SystemExit("incomplete release configuration")
+    return stage
+
+
+def _publish_base_initrd(output_directory, destination):
+    """Moves mkosi's default initrd, which it names through a relative symlink, to the declared output."""
+    link = Path(output_directory) / "initrd"
+    if not link.is_symlink():
+        raise SystemExit("mkosi did not produce the default initrd link {}".format(link))
+    source = link.resolve(strict=True)
+    if source.parent != Path(output_directory).resolve() or not source.is_file():
+        raise SystemExit("mkosi default initrd {} is not a file in the output directory".format(source))
+    link.unlink()
+    os.replace(source, destination)
+
 _EPOCH = (0, 0)
 _RELEASE_PASSWD = "root:x:0:0:root:/root:/bin/sh\n"
 _RELEASE_GROUP = "root:x:0:\n"
@@ -94,22 +134,33 @@ _PATH_OPTIONS = {
     "--build-directory",
     "--sandbox-tree",
     "--repart-directory",
+    "--base-tree",
+    "--initrd",
 }
+
+# mkosi constants accepted in place of a path; they are not resolved against the working directory.
+_PATH_CONSTANTS = {"--initrd": ("default",)}
 
 
 def _absolute_paths(arguments):
     result = []
-    resolve_next = False
+    resolve_next = None
     for argument in arguments:
         if resolve_next:
-            result.append(os.path.abspath(argument))
-            resolve_next = False
+            if argument in _PATH_CONSTANTS.get(resolve_next, ()):
+                result.append(argument)
+            else:
+                result.append(os.path.abspath(argument))
+            resolve_next = None
         elif argument in _PATH_OPTIONS:
             result.append(argument)
-            resolve_next = True
+            resolve_next = argument
         elif any(argument.startswith(option + "=") for option in _PATH_OPTIONS):
             option, value = argument.split("=", 1)
-            result.append(option + "=" + os.path.abspath(value))
+            if value in _PATH_CONSTANTS.get(option, ()):
+                result.append(argument)
+            else:
+                result.append(option + "=" + os.path.abspath(value))
         else:
             result.append(argument)
     if resolve_next:
@@ -267,9 +318,8 @@ def _write_release_file(path, content):
     os.utime(path, _EPOCH)
 
 
-def _configure_release_mirror(source, workspace, arguments):
-    mirror = workspace / "debian-snapshot"
-    _materialize_tree(source, mirror)
+def _configure_release_sandbox(workspace, arguments):
+    """Supplies fixed sandbox files instead of host /etc state to a release build."""
     sandbox_tree = workspace / "release-sandbox"
     _write_release_file(
         sandbox_tree / "etc/apt/apt.conf.d/99rules-mkosi-release",
@@ -279,14 +329,14 @@ def _configure_release_mirror(source, workspace, arguments):
     _write_release_file(sandbox_tree / "etc/group", _RELEASE_GROUP)
     _write_release_file(sandbox_tree / "etc/hosts", _RELEASE_HOSTS)
     _write_release_file(sandbox_tree / "etc/nsswitch.conf", _RELEASE_NSSWITCH)
-    arguments.extend(
-        [
-            "--local-mirror",
-            "file://" + os.fspath(mirror),
-            "--sandbox-tree",
-            os.fspath(sandbox_tree),
-        ]
-    )
+    arguments.extend(["--sandbox-tree", os.fspath(sandbox_tree)])
+
+
+def _configure_release_mirror(source, workspace, arguments):
+    mirror = workspace / "debian-snapshot"
+    _materialize_tree(source, mirror)
+    arguments.extend(["--local-mirror", "file://" + os.fspath(mirror)])
+    _configure_release_sandbox(workspace, arguments)
     return mirror
 
 
@@ -329,6 +379,86 @@ def _validate_release_ini_entry(section):
         )
 
 
+def _validate_release_stage(config, release_stage, base_tree, base_initrd):
+    """Checks the settings that separate a cacheable base from its versioned finalization."""
+    if release_stage == "base":
+        if getattr(config, "image_version", None):
+            raise SystemExit(
+                "release base configuration cannot set ImageVersion=; set the version on the "
+                "mkosi_image that finalizes the base"
+            )
+        # The base is not bootable, so mkosi builds the kernel modules initrd only during finalization.
+        for setting, ignored in (
+            ("KernelModulesInitrd=no", getattr(config, "kernel_modules_initrd", True) is False),
+            (
+                "KernelModulesInitrdInclude=/KernelInitrdModules=",
+                bool(getattr(config, "kernel_modules_initrd_include", ())),
+            ),
+            ("KernelModulesInitrdExclude=", bool(getattr(config, "kernel_modules_initrd_exclude", ()))),
+        ):
+            if ignored:
+                raise SystemExit(
+                    "release base configuration cannot use {}: the kernel modules initrd is built "
+                    "when mkosi_image(base = ...) finalizes the base, so set it in the finalize "
+                    "configuration".format(setting)
+                )
+    elif release_stage == "finalize":
+        for name, setting in (
+            ("initrd_packages", "InitrdPackages="),
+            ("initrd_volatile_packages", "InitrdVolatilePackages="),
+            ("initrd_profiles", "InitrdProfiles="),
+        ):
+            if getattr(config, name, ()):
+                raise SystemExit(
+                    "release finalize configuration cannot use {}: the default initrd is built by "
+                    "mkosi_base, so set its contents in the base configuration".format(setting)
+                )
+        for name, setting in (
+            ("packages", "Packages="),
+            ("build_packages", "BuildPackages="),
+            ("volatile_packages", "VolatilePackages="),
+            ("remove_packages", "RemovePackages="),
+            ("package_directories", "PackageDirectories="),
+            ("volatile_package_directories", "VolatilePackageDirectories="),
+        ):
+            if getattr(config, name, ()):
+                raise SystemExit(
+                    "release finalize configuration cannot use {}: packages are installed only by "
+                    "mkosi_base, which has the Debian snapshot".format(setting)
+                )
+        base_trees = [Path(path).resolve() for path in getattr(config, "base_trees", ())]
+        if base_trees != [base_tree]:
+            raise SystemExit(
+                "release finalize configuration BaseTrees= must resolve to exactly the declared base tree"
+            )
+        initrds = [Path(path).resolve() for path in getattr(config, "initrds", ())]
+        if initrds != [base_initrd]:
+            raise SystemExit(
+                "release finalize configuration Initrds= must resolve to exactly the declared base initrd"
+            )
+        cacheonly = getattr(getattr(config, "cacheonly", None), "value", "always")
+        if cacheonly != "always":
+            raise SystemExit(
+                "release finalize configuration CacheOnly= must resolve to always so that no package "
+                "metadata is synchronized"
+            )
+    elif release_stage != "image":
+        raise SystemExit("unknown release stage {}".format(release_stage))
+
+
+def _validate_finalize_config_directory(directory):
+    """Rejects default initrd configuration that a finalization would silently ignore."""
+    directory = Path(directory)
+    if not (directory / "mkosi.conf").exists() and (directory / "mkosi/mkosi.conf").is_file():
+        directory = directory / "mkosi"
+    for name in ("mkosi.initrd.conf", "mkosi.initrd"):
+        if (directory / name).exists() or (directory / name).is_symlink():
+            raise SystemExit(
+                "release finalize configuration cannot contain {}: the default initrd is built by "
+                "mkosi_base, so put it in the base configuration".format(name)
+            )
+
+
 def _validate_release_configuration(
     images,
     release_seed,
@@ -340,8 +470,18 @@ def _validate_release_configuration(
     allowed_extra_tree=None,
     release_firmware="uefi",
     release_components=("main",),
+    release_stage="image",
+    base_tree=None,
+    base_initrd=None,
 ):
     expected_seed = uuid.UUID(release_seed)
+    if release_stage == "finalize":
+        if base_tree is None or base_initrd is None:
+            raise SystemExit("release finalization requires a declared base tree and initrd")
+        base_tree = Path(base_tree).resolve()
+        base_initrd = Path(base_initrd).resolve()
+        # The declared base artifacts are action inputs, so finalization may read them like the staged configuration.
+        allowed_paths = (*allowed_paths, base_tree, base_initrd)
     allowed_roots = [Path(path).resolve() for path in allowed_paths]
     images = tuple(images)
     for index, config in enumerate(images):
@@ -367,7 +507,11 @@ def _validate_release_configuration(
         if getattr(config, "distribution", None) and (
             config.distribution.value != release_distribution or
             config.release != release_codename or
-            config.snapshot != release_snapshot
+            (
+                config.snapshot != release_snapshot
+                # Finalization installs no packages, so it may leave the snapshot unset.
+                and not (release_stage == "finalize" and config.snapshot is None)
+            )
         ):
             raise SystemExit(
                 "release configuration must resolve to {} {} snapshot {}".format(
@@ -377,6 +521,7 @@ def _validate_release_configuration(
                 )
             )
         _release_apt_components(getattr(config, "repositories", ()), release_components)
+        _validate_release_stage(config, release_stage, base_tree, base_initrd)
         if config.seed != expected_seed:
             raise SystemExit(
                 "release configuration Seed must resolve to {}".format(expected_seed)
@@ -460,6 +605,9 @@ def _activate_release_mode(
     allowed_extra_tree,
     release_firmware,
     release_components,
+    release_stage="image",
+    base_tree=None,
+    base_initrd=None,
 ):
     """Mount a long Bazel path at mkosi's stable in-sandbox repository path.
 
@@ -467,6 +615,10 @@ def _activate_release_mode(
     snapshot can stage more components, so the mirror source instead lists
     main plus the components requested through Repositories=, each of which
     must be present in the snapshot.
+
+    A finalize stage has no mirror: it installs no packages and reads only the
+    declared base tree and initrd. A base stage archives its root with
+    _deterministic_make_tar so that the archive can cross Bazel's cache.
     """
     from pathlib import Path
 
@@ -477,8 +629,10 @@ def _activate_release_mode(
     from mkosi.distribution.debian import Installer
     from mkosi.installer import PackageManager
 
-    mirror = os.fspath(mirror)
-    source_url = "file://" + mirror
+    if (mirror is None) != (release_stage == "finalize"):
+        raise SystemExit("only the release finalize stage runs without the Debian snapshot mirror")
+    mirror = os.fspath(mirror) if mirror is not None else None
+    source_url = "file://" + mirror if mirror is not None else None
     original_context_init = Context.__init__
     original_mounts = PackageManager.mounts.__func__
     original_repositories = Installer.repositories.__func__
@@ -569,6 +723,9 @@ def _activate_release_mode(
                 allowed_extra_tree,
                 release_firmware,
                 release_components,
+                release_stage,
+                base_tree,
+                base_initrd,
             )
             validate_initial_configuration[0] = False
             return (parsed[0], parsed[1], images)
@@ -633,20 +790,70 @@ def _activate_release_mode(
                     source.unlink()
 
     Context.__init__ = context_init
-    Installer.repositories = classmethod(repositories)
-    PackageManager.mounts = classmethod(mounts)
-    Context.repository = property(repository)
+    if mirror is not None:
+        Installer.repositories = classmethod(repositories)
+        PackageManager.mounts = classmethod(mounts)
+        Context.repository = property(repository)
     mkosi.config.parse_config = parse_config
     mkosi.config.parse_ini = parse_ini
     mkosi.distribution.debian.install_apt_sources = install_apt_sources
     mkosi.install_sandbox_trees = install_sandbox_trees
+    if release_stage == "base":
+        mkosi.make_tar = _deterministic_make_tar
+
+
+def _deterministic_make_tar(src, dst, *, sandbox=None):
+    """Archives a root like mkosi v27's make_tar, but with a reproducible member order.
+
+    mkosi's archive follows directory order, which depends on the file system. Sorting
+    by name and not probing for holes makes the archive bytes depend only on the tree.
+    """
+    from mkosi.archive import tar_exclude_apivfs_tmp
+    from mkosi.log import complete_step
+    from mkosi.run import finalize_passwd_symlinks, nosandbox, run, workdir
+
+    sandbox = sandbox or nosandbox
+    with complete_step("Creating reproducible tar archive {}…".format(dst)):
+        with dst.open("wb") as f:
+            run(
+                [
+                    "tar",
+                    "--create",
+                    "--file",
+                    "-",
+                    "--directory",
+                    workdir(src, sandbox),
+                    "--sort=name",
+                    "--acls",
+                    "--selinux",
+                    "--xattrs",
+                    "--pax-option=delete=atime,delete=ctime,delete=mtime",
+                    "--force-local",
+                    *(["--owner=root:0"] if os.getuid() != 0 else []),
+                    *(["--group=root:0"] if os.getuid() != 0 else []),
+                    *tar_exclude_apivfs_tmp(),
+                    ".",
+                ],
+                stdout=f,
+                sandbox=sandbox(
+                    options=[
+                        "--ro-bind",
+                        src,
+                        workdir(src, sandbox),
+                        *finalize_passwd_symlinks(workdir(src, sandbox)),
+                    ],
+                ),
+            )
 
 
 def main():
     if len(sys.argv) < 3:
         raise SystemExit("usage: run_mkosi.py MKOSI_SCRIPT [--executable-path PATH] -- [mkosi arguments]")
     release_child = os.environ.get("RULES_MKOSI_RELEASE_CHILD") == "1"
-    if "--debian-snapshot-repository" in sys.argv[2:] and not release_child:
+    release_parent = any(
+        option in sys.argv[2:] for option in ("--debian-snapshot-repository", "--release-base-tree")
+    )
+    if release_parent and not release_child:
         # Reject an invalid version before the release child starts, so that the failure is not reported as an
         # mkosi assembly failure.
         image_version_file = _preamble_value(sys.argv[2:], "--image-version-file")
@@ -659,6 +866,9 @@ def main():
             sys.argv[1:],
             environment=environment,
         )
+        base_initrd_output = _preamble_value(sys.argv[2:], "--release-base-initrd-output")
+        if base_initrd_output is not None:
+            _publish_base_initrd(_mkosi_option_value(sys.argv[2:], "--output-directory"), base_initrd_output)
         return
     script = os.path.abspath(sys.argv[1])
     preamble_end = 2
@@ -679,6 +889,9 @@ def main():
     release_components = None
     image_version_file = None
     slot_label_image_id = None
+    release_base_tree = None
+    release_initrd = None
+    release_base_initrd_output = None
     while preamble_end < len(sys.argv) and sys.argv[preamble_end] != "--":
         option = sys.argv[preamble_end]
         if option == "--executable-path" and preamble_end + 1 < len(sys.argv):
@@ -729,6 +942,15 @@ def main():
         elif option == "--slot-label-image-id" and preamble_end + 1 < len(sys.argv):
             slot_label_image_id = sys.argv[preamble_end + 1]
             preamble_end += 2
+        elif option == "--release-base-tree" and preamble_end + 1 < len(sys.argv):
+            release_base_tree = os.path.abspath(sys.argv[preamble_end + 1])
+            preamble_end += 2
+        elif option == "--release-initrd" and preamble_end + 1 < len(sys.argv):
+            release_initrd = os.path.abspath(sys.argv[preamble_end + 1])
+            preamble_end += 2
+        elif option == "--release-base-initrd-output" and preamble_end + 1 < len(sys.argv):
+            release_base_initrd_output = os.path.abspath(sys.argv[preamble_end + 1])
+            preamble_end += 2
         elif option == "--release-components" and preamble_end + 1 < len(sys.argv):
             release_components = tuple(sys.argv[preamble_end + 1].split(","))
             if "main" not in release_components or "" in release_components:
@@ -765,7 +987,6 @@ def main():
     if any(debian_options) and not all(debian_options):
         raise SystemExit("incomplete Debian tools archive configuration")
     release_options = (
-        debian_snapshot_repository,
         release_seed,
         release_source_date_epoch,
         release_distribution,
@@ -778,6 +999,13 @@ def main():
         option is not None for option in release_options
     ):
         raise SystemExit("incomplete release configuration")
+    release_stage = _release_stage(
+        any(option is not None for option in release_options),
+        debian_snapshot_repository,
+        release_base_tree,
+        release_initrd,
+        release_base_initrd_output,
+    )
     if all(debian_options):
         workspace = Path(arguments[arguments.index("--workspace-directory") + 1])
         tools_root = Path(arguments[arguments.index("--tools-tree") + 1])
@@ -794,6 +1022,9 @@ def main():
     if debian_snapshot_repository:
         workspace = Path(arguments[arguments.index("--workspace-directory") + 1])
         release_mirror = _configure_release_mirror(debian_snapshot_repository, workspace, arguments)
+    elif release_stage == "finalize":
+        workspace = Path(arguments[arguments.index("--workspace-directory") + 1])
+        _configure_release_sandbox(workspace, arguments)
     if "-C" in arguments:
         directory = Path(arguments[arguments.index("-C") + 1])
         workspace = Path(arguments[arguments.index("--workspace-directory") + 1])
@@ -806,13 +1037,16 @@ def main():
             for index, argument in enumerate(arguments):
                 if argument.startswith(os.fspath(directory) + os.sep):
                     arguments[index] = os.fspath(materialized) + argument[len(os.fspath(directory)) :]
-    if release_mirror:
+    if release_stage == "finalize":
+        _validate_finalize_config_directory(materialized)
+    if release_stage is not None:
         allowed_paths = []
         for index, argument in enumerate(arguments):
             if argument in _PATH_OPTIONS and index + 1 < len(arguments):
-                allowed_paths.append(arguments[index + 1])
+                if arguments[index + 1] not in _PATH_CONSTANTS.get(argument, ()):
+                    allowed_paths.append(arguments[index + 1])
         _activate_release_mode(
-            os.fspath(release_mirror),
+            os.fspath(release_mirror) if release_mirror else None,
             release_seed,
             release_source_date_epoch,
             release_distribution,
@@ -824,6 +1058,9 @@ def main():
             else None,
             release_firmware,
             release_components,
+            release_stage,
+            release_base_tree,
+            release_initrd,
         )
     if release_child:
         sys.argv[:] = [script] + arguments

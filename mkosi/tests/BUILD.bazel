@@ -24,6 +24,7 @@ load(
     "snapshot_declaration_test",
     "unsupported_version_test",
 )
+load(":mkosi_base_test.bzl", "mkosi_base_test_suite")
 load(
     ":mkosi_image_test.bzl",
     "boot_config_test",
@@ -126,7 +127,9 @@ behavior_targets(
         "//:e2e/module_resolution/nonroot_name/MODULE.bazel",
         "//:e2e/module_resolution/snapshot_name_conflict/MODULE.bazel",
         "//ci:verify-release-reproducibility.sh",
+        "//ci:verify-two-stage-cache.sh",
         "//ci:verify_reproducibility_execution_test",
+        "//ci:verify_two_stage_cache_test",
         "//mkosi/debian:generate_lock_test",
         ":analysis_tests",
         ":bios_image_artifact_test",
@@ -146,6 +149,7 @@ behavior_targets(
         ":explicit_version_test",
         ":image_version_test",
         ":immutable_release_provider_test",
+        ":mkosi_base_analysis_tests",
         ":mkosi_staging_artifact_test",
         ":mkosi_staging_metadata_test",
         ":mkosi_staging_role_test",
@@ -379,6 +383,8 @@ snapshot_declaration_test(name = "snapshot_declaration_test")
 mkosi_image_test_suite(name = "analysis_tests")
 
 sysupdate_test_suite(name = "sysupdate_analysis_tests")
+
+mkosi_base_test_suite(name = "mkosi_base_analysis_tests")
 
 py_test(
     name = "sysupdate_test",

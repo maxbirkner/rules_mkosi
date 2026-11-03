@@ -5,6 +5,7 @@ load(
     "@rules_mkosi//mkosi:defs.bzl",
     "DebianSnapshotInfo",
     "DebianToolsInfo",
+    "MkosiBaseInfo",
     "MkosiImageInfo",
     "MkosiRootfsPayloadInfo",
     "SysupdatePayloadInfo",
@@ -136,6 +137,24 @@ sysupdate_public_api_test = analysistest.make(
         "expected_version_file": attr.label(allow_single_file = True),
         "image": attr.label(providers = [MkosiImageInfo]),
     },
+)
+
+def _base_public_api_test_impl(ctx):
+    env = analysistest.begin(ctx)
+    target = analysistest.target_under_test(env)
+    info = target[MkosiBaseInfo]
+    asserts.equals(env, "mkosi-base-v1", info.format_version)
+    asserts.equals(env, "root.tar", info.root_tree.basename)
+    asserts.equals(env, [info.root_tree, info.initrd], target[DefaultInfo].files.to_list())
+    asserts.equals(env, "00000000-0000-4000-8000-000000000017", info.release_seed)
+    asserts.equals(env, 1755129600, info.release_source_date_epoch)
+    snapshot = ctx.attr.debian_snapshot[DebianSnapshotInfo]
+    asserts.equals(env, snapshot.lock_sha256, info.debian_snapshot.lock_sha256)
+    return analysistest.end(env)
+
+base_public_api_test = analysistest.make(
+    _base_public_api_test_impl,
+    attrs = {"debian_snapshot": attr.label(providers = [DebianSnapshotInfo], mandatory = True)},
 )
 
 def _generated_payload_tree_impl(ctx):

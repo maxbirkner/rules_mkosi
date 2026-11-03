@@ -1,6 +1,9 @@
 load("@rules_python//python:defs.bzl", "py_test")
 
-exports_files(["verify-release-reproducibility.sh"])
+exports_files([
+    "verify-release-reproducibility.sh",
+    "verify-two-stage-cache.sh",
+])
 
 py_test(
     name = "verify_reproducibility_execution_test",
@@ -8,6 +11,15 @@ py_test(
     args = ["$(rootpath :verify_reproducibility_execution.py)"],
     data = [":verify_reproducibility_execution.py"],
     main = "verify_reproducibility_execution_test.py",
+    visibility = ["//mkosi/tests:__pkg__"],
+)
+
+py_test(
+    name = "verify_two_stage_cache_test",
+    srcs = ["verify_two_stage_cache_test.py"],
+    args = ["$(rootpath :verify_two_stage_cache.py)"],
+    data = [":verify_two_stage_cache.py"],
+    main = "verify_two_stage_cache_test.py",
     visibility = ["//mkosi/tests:__pkg__"],
 )
 

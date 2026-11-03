@@ -12,6 +12,12 @@ EXPECTED = {
         "MkosiReproducibilityManifest",
         "//mkosi/tests:release_reproducibility",
     ),
+    ("MkosiBase", "//mkosi/tests:two_stage_base"),
+    ("MkosiImage", "//mkosi/tests:two_stage_release"),
+    (
+        "MkosiReproducibilityManifest",
+        "//mkosi/tests:two_stage_reproducibility",
+    ),
 }
 
 
@@ -52,7 +58,7 @@ def verify(path, build_name):
                 "\n".join(errors),
             )
         )
-    print("{} independently executed MkosiImage and projection".format(build_name))
+    print("{} independently executed every image, base, and projection action".format(build_name))
 
 
 if __name__ == "__main__":
