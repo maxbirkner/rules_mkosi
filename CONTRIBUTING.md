@@ -2,158 +2,72 @@
 
 ## Prerequisites
 
-- Bazelisk, or the Bazel version declared in `.bazelversion`.
-- Host Python 3.11 or newer only for the secure local `tools/bazel` wrapper.
-  Bazel actions use the registered managed Python 3.14 toolchain.
+- Bazelisk, or the Bazel version in `.bazelversion` (8.5.1).
 - [`prek`](https://prek.j178.dev/) 0.5 or newer.
+- Host Python 3.11 or newer, only for the [`tools/bazel`](tools/README.md) wrapper.
+- A host that meets the [requirements](README.md#requirements), with the Bazel server started without supplementary groups:
 
-The hello-world implementation and tests do not require mkosi or other host
-image-building tools.
+  ```console
+  bazel shutdown
+  sudo -n setpriv --reuid="$(id -u)" --regid="$(id -g)" --clear-groups \
+    env HOME="$HOME" PATH="$PATH" USER="$USER" bazel test //...
+  ```
 
-Image and Debian tools tests require a Bazel server without supplementary
-groups. Start it from a group-free identity, as CI does, after shutting down
-any server that was started with groups:
-
-```console
-bazel shutdown
-sudo -n setpriv --reuid="$(id -u)" --regid="$(id -g)" --clear-groups \
-  env HOME="$HOME" PATH="$PATH" USER="$USER" bazel test //...
-```
+- Optional: read-write access to `/dev/kvm` for faster boot tests, granted with a user ACL such as `sudo setfacl -m "u:$USER:rw" /dev/kvm` (group membership is dropped by `--clear-groups`).
 
 ## Checks
 
-Run all formatting, linting, spelling, secret, and repository hygiene checks:
-
 ```console
-prek run --all-files
+prek run --all-files                 # Formatting, linting, spelling, secrets.
+prek install                         # Optional: run the same checks as Git hooks.
+bazel test //...                     # Root module; excludes e2e/.
+bazel mod deps --lockfile_mode=error # Committed lockfile is current.
+(cd e2e/smoke && bazel test //...)   # Independent consumer module.
+e2e/module_resolution/test.sh consumer_isolation  # One module-resolution fixture.
 ```
 
-Run the ruleset tests and verify the committed lockfile:
+Run Bazel from a module root, or use [`tools/bazel`](tools/README.md) from a subdirectory.
+See [`e2e/README.md`](e2e/README.md) for the consumer and module-resolution fixtures.
+
+### Bazel versions and lockfiles
+
+Bazel 8.5.1 is the default and uses `--lockfile_mode=error` for both committed lockfiles (`MODULE.bazel.lock` and `e2e/smoke/MODULE.bazel.lock`).
+Test Bazel 9 without rewriting them:
 
 ```console
-bazel test //...
-bazel mod deps --lockfile_mode=error
-```
-
-Run the independent consumer test module:
-
-```console
-(
-  cd e2e/smoke
-  bazel test //...
-)
-```
-
-The checked-in `.bazelrc` enables a module-local disk cache at
-`.cache/bazel-disk`; every standalone module gets a separate cache directory.
-These paths are ignored by Git, and the root and `e2e/smoke` paths are also
-ignored by Bazel, so they cannot become source inputs or committed artifacts.
-The repository-only `.bazelrc.ci`
-defines only execution-policy configs: `manifest`, `qualified`, `portable`,
-`deterministic`, `kernel_preflight`, and `bazel9`. A plain `bazel test //...`
-therefore runs the complete suite on a capable host; CI's Bazel 8 qualified
-lane runs every root and consumer test that needs the host kernel contract
-after its explicit preflight. Bazel 9 uses `portable` for compatibility and
-omits only tests tagged `requires-network`, which the Bazel 8 lane covers.
-For each Bazel version, CI runs the root suite, the consumer suite, and the
-release-reproducibility and action-graph audits as parallel jobs. Every job
-repeats the kernel preflight before it builds anything else.
-
-The rc cache path is intentionally relative because Bazel does not expand
-repository-relative substitutions in ordinary option values. Canonical
-commands run from a module root. From any nested directory, use the checked-in
-`tools/bazel` wrapper. It preserves the caller's directory and relative-label
-semantics and uses the nearest `MODULE.bazel` module's
-`.cache/bazel-disk`. See [`tools/README.md`](tools/README.md) for nested
-invocation and cleanup instructions.
-
-```console
-bazel test //...
 USE_BAZEL_VERSION=9.2.0 bazel test --config=portable --config=bazel9 //...
 ```
 
-The qualified config forces Linux sandbox execution, disables test-result
-caching, and excludes only `requires_kernel_contract`, a semantic tag for the
-host-only preflight that runs immediately before it. Networked image actions
-remain non-cacheable. The `portable` compatibility config excludes only the
-semantic `requires-network` mode to avoid rebuilding networked images twice.
-The deterministic bootstrap config uses the same semantic exclusion because
-its clean-build proof is about offline bootstrap binaries, not mutable image
-package downloads.
-The independent consumer's manifest config is the one remaining selector: it
-uses `--enable_runfiles=no` and the `manifest` tag to exercise the launcher
-contract that cannot run in the ordinary runfiles mode. It also sets
-`--build_tests_only`, so the pass builds the selected tests and everything they
-depend on without the disk cache, but does not rebuild the rest of `//...`.
-`manual` is reserved for synthetic analysis subjects (invalid configurations
-and deliberately non-booted provider fixtures); these are excluded from
-wildcard execution while their companion analysis tests assert the contract.
-Executable tests use only the semantic `requires-network`,
-`requires_kernel_contract`, and `manifest` tags described above.
+When dependencies change, regenerate both lockfiles with Bazel 8.5.1 and `--lockfile_mode=update`.
+Never edit lockfiles by hand.
+Module-resolution fixtures have no lockfiles.
 
-These commands use Bazel 8.5.1 and the two committed lockfiles by default:
-the root `MODULE.bazel.lock` and `e2e/smoke/MODULE.bazel.lock`. CI also tests
-pinned Bazel 9.2.0 with `--lockfile_mode=off` only for compatibility commands,
-preserving those lockfiles rather than rewriting them. The module-resolution
-fixtures intentionally run with `--lockfile_mode=off` on both supported
-versions because they test extension semantics, not dependency locking. If
-dependencies change, regenerate the two committed lockfiles with Bazel 8.5.1
-using `--lockfile_mode=update`; never edit generated lockfiles by hand or
-update them in CI.
+### Configs and tags
 
-Run one module-resolution fixture, for example the consumer isolation
-fixture, with:
+`.bazelrc.ci` defines execution-policy configs; plain `bazel test //...` runs the complete suite on a capable host.
 
-```console
-e2e/module_resolution/test.sh consumer_isolation
-```
+| Config | Use |
+| --- | --- |
+| `kernel_preflight` | Runs only the host-kernel preflight (`requires_kernel_contract`); CI runs it before every suite. |
+| `qualified` | Linux sandbox, no cached test results, preflight excluded. CI's Bazel 8 lane. |
+| `portable` | Like `qualified`, but skips `requires-network` (tracer) images. CI's Bazel 9 lane. |
+| `manifest` | Runs only `manifest`-tagged tests with `--enable_runfiles=no`. |
+| `deterministic` | Offline bootstrap build without cache reuse. |
+| `bazel9` | `--lockfile_mode=off` for Bazel 9. |
 
-The root command intentionally excludes `e2e/`. See
-[the test architecture](docs/design/0003-ruleset-architecture.md#consumer-module)
-and [`e2e/README.md`](e2e/README.md).
+Executable tests use only the semantic tags `requires-network`, `requires_kernel_contract`, and `manifest`.
+`manual` is reserved for analysis-test subjects that must not run on their own.
 
-The image-building tests run the namespace launcher, which requires an empty
-supplementary-group list. CI starts Bazel through
-`sudo -n setpriv --reuid="$(id -u)" --regid="$(id -g)" --clear-groups`; do the
-same locally (after `bazel shutdown`, because the server keeps the groups of
-the client that started it) when a test reports
-`cannot clear supplementary groups`.
+### Debian locks
 
-QEMU boot tests use KVM when that group-free identity can open `/dev/kvm` for
-reading and writing, and fall back to TCG otherwise; each boot test log prints
-`QEMU accelerator: kvm` or `QEMU accelerator: tcg`. Membership in the `kvm`
-group does not help after `--clear-groups`. Grant access with a user ACL, for
-example `sudo setfacl -m "u:$USER:rw" /dev/kvm`, or with the mode-`0666` udev
-rule that CI installs before its root and consumer suites. Bazel's Linux
-sandbox exposes the host `/dev`, so no extra sandbox mount is required.
+The consumer lock fixtures are regenerated from `e2e/smoke` as described in their READMEs; `//mkosi/debian:generate_lock_test` covers the generator.
+The built-in `mkosi/debian/debian13.lock.json` is pinned by `DEBIAN_TOOLS_LOCK_SHA256`; changing it also changes the Debian tools archive digest.
 
-The Debian lock generator has hermetic unit tests in
-`//mkosi/debian:generate_lock_test`. The consumer lock in
-`e2e/smoke/testdata/consumer-snapshot` is regenerated from `e2e/smoke` with
-`bazel run @rules_mkosi//mkosi/debian:generate_lock -- --spec
-testdata/consumer-snapshot/debian.spec.json --output
-testdata/consumer-snapshot/debian.lock.json`; add `--check` to verify that it
-is current. The built-in `mkosi/debian/debian13.lock.json` predates the
-generator and is pinned by `DEBIAN_TOOLS_LOCK_SHA256`; changing it also changes
-the Debian tools archive digest.
+## Pull requests
 
-Install the same checks as Git hooks with `prek install`.
-
-Commit messages should follow Conventional Commits. API changes require tests
-at the analysis and consumer levels.
-
-Releases follow Semantic Versioning. Release notes are generated from merged
-pull requests, so pull request titles and descriptions must explain
-user-visible behavior and compatibility changes.
-
-## Review policy
-
-All changes to `main` go through pull requests and must pass the
-`CI conclusion` check. GitHub automatically requests Copilot code review.
-
-Pull requests from contributors without write access require review by someone
-with write access. Repository maintainers may use the pull-request-only
-ruleset bypass for their own changes. GitHub cannot condition approval
-requirements on the pull request author's permission, so the bypass is
-technically available whenever a maintainer performs the merge. Maintainers
-must not use it to merge an outside contribution they have not reviewed.
+- Use [Conventional Commits](https://www.conventionalcommits.org/) for commit messages.
+- Public API changes need analysis tests and consumer tests in `e2e/smoke`.
+- Releases follow Semantic Versioning, and release notes are generated from pull requests, so describe user-visible and compatibility changes in the title and description.
+- Every change to `main` goes through a pull request that passes the `CI conclusion` check.
+- Pull requests from contributors without write access need a review from someone with write access.
+  Maintainers may bypass review only for their own changes, never to merge an unreviewed outside contribution.
