@@ -24,6 +24,8 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include "mkosi/private/write_all.h"
+
 extern char **environ;
 
 #ifndef SYS_mount_setattr
@@ -182,22 +184,43 @@ static int read_mapping(const char *path, unsigned long *inside,
   return 0;
 }
 
-static int read_effective_capabilities(uint64_t *capabilities) {
-  char buffer[1024];
-  char *line;
-  int result = read_text_file("/proc/self/status", buffer, sizeof(buffer));
+#define CAPABILITY_FIELD "CapEff:"
 
-  if (result < 0) {
-    return result;
-  }
-  line = strstr(buffer, "CapEff:");
-  if (line == NULL) {
-    return -EINVAL;
-  }
-  line += strlen("CapEff:");
+static int parse_capability_field(const char *line, uint64_t *capabilities) {
+  const char *value = line + strlen(CAPABILITY_FIELD);
+  char *end;
+
   errno = 0;
-  *capabilities = strtoull(line, &line, 16);
-  return errno == 0 ? 0 : -errno;
+  *capabilities = strtoull(value, &end, 16);
+  if (errno != 0) {
+    return -errno;
+  }
+  return end == value ? -EINVAL : 0;
+}
+
+/* Scans whole lines, because long fields such as Groups precede CapEff. */
+int rules_mkosi_read_effective_capabilities(const char *status_path,
+                                            uint64_t *capabilities) {
+  FILE *status = fopen(status_path, "re");
+  char *line = NULL;
+  size_t line_size = 0;
+  int result = -EINVAL;
+
+  if (status == NULL) {
+    return -errno;
+  }
+  while (getline(&line, &line_size, status) >= 0) {
+    if (strncmp(line, CAPABILITY_FIELD, strlen(CAPABILITY_FIELD)) == 0) {
+      result = parse_capability_field(line, capabilities);
+      break;
+    }
+  }
+  if (result == -EINVAL && ferror(status)) {
+    result = -EIO;
+  }
+  free(line);
+  fclose(status);
+  return result;
 }
 
 static bool starts_as_host_root(unsigned long outside_uid) {
@@ -231,7 +254,8 @@ static int check_initial_privilege(char *detail, size_t detail_size,
              "an unknown privilege state");
     return 0;
   }
-  if (read_effective_capabilities(&capabilities) < 0) {
+  if (rules_mkosi_read_effective_capabilities("/proc/self/status",
+                                              &capabilities) < 0) {
     snprintf(detail, detail_size,
              "cannot inspect CapEff; refuse to qualify an unknown privilege "
              "state");
@@ -270,34 +294,6 @@ static int wait_for_child(pid_t child, int *status_out) {
   return 0;
 }
 
-static int write_all(int file, const char *buffer, size_t size) {
-  while (size > 0) {
-    ssize_t bytes = write(file, buffer, size);
-    if (bytes < 0) {
-      if (errno == EINTR) {
-        continue;
-      }
-      return -errno;
-    }
-    buffer += bytes;
-    size -= (size_t)bytes;
-  }
-  return 0;
-}
-
-static int write_proc_file(const char *path, const char *contents,
-                           size_t size) {
-  int file = open(path, O_WRONLY | O_CLOEXEC);
-  int result;
-
-  if (file < 0) {
-    return -errno;
-  }
-  result = write_all(file, contents, size);
-  close(file);
-  return result;
-}
-
 static int write_mapping(pid_t child, const char *name, unsigned long value) {
   char path[128];
   char mapping[64];
@@ -311,7 +307,7 @@ static int write_mapping(pid_t child, const char *name, unsigned long value) {
   if (length < 0 || (size_t)length >= sizeof(mapping)) {
     return -EINVAL;
   }
-  return write_proc_file(path, mapping, (size_t)length);
+  return rules_mkosi_write_file(path, mapping, (size_t)length);
 }
 
 static int deny_setgroups(pid_t child) {
@@ -322,7 +318,7 @@ static int deny_setgroups(pid_t child) {
   if (length < 0 || (size_t)length >= sizeof(path)) {
     return -ENAMETOOLONG;
   }
-  return write_proc_file(path, "deny\n", 5);
+  return rules_mkosi_write_file(path, "deny\n", strlen("deny\n"));
 }
 
 static int read_capability_sets(struct __user_cap_data_struct data[2]) {
@@ -713,7 +709,7 @@ static int unshare_user_namespace(const child_setup_context *context) {
 static int await_identity_mapping(const child_setup_context *context) {
   char signal = 'R';
 
-  if (write_all(context->ready, &signal, 1) < 0) {
+  if (rules_mkosi_write_all(context->ready, &signal, 1) < 0) {
     return -1;
   }
   return read(context->acknowledgement, &signal, 1) != 1 || signal != 'A'
@@ -833,7 +829,7 @@ static void run_setup_child_and_exit(int ready, int acknowledgement,
   };
 
   result.checks = child_namespace_setup(&context);
-  (void)write_all(result_file, (const char *)&result, sizeof(result));
+  (void)rules_mkosi_write_all(result_file, &result, sizeof(result));
   _exit(result.checks == CHECK_ALL ? 0 : 1);
 }
 
@@ -858,7 +854,7 @@ static void map_setup_child_identity(pid_t child, int ready,
   } else {
     signal = 'F';
   }
-  (void)write_all(acknowledgement, &signal, 1);
+  (void)rules_mkosi_write_all(acknowledgement, &signal, 1);
 }
 
 static void receive_setup_result(int result_file,
@@ -1162,13 +1158,26 @@ static int report_namespace_checks(
   return failures;
 }
 
-static int check_linux_kernel(FILE *output) {
+static int read_kernel_identity(const rules_mkosi_kernel_preflight_ops *ops,
+                                struct utsname *kernel) {
+  if (ops->read_kernel_identity != NULL) {
+    return ops->read_kernel_identity(kernel, ops->context);
+  }
+  return uname(kernel);
+}
+
+static int check_linux_kernel(FILE *output,
+                              const rules_mkosi_kernel_preflight_ops *ops) {
   struct utsname kernel;
 
-  if (uname(&kernel) < 0 || strcmp(kernel.sysname, "Linux") != 0) {
+  if (read_kernel_identity(ops, &kernel) < 0) {
     report(output, "FAIL", "linux_kernel",
-           "mkosi actions require a Linux kernel (%s)",
-           uname(&kernel) < 0 ? strerror(errno) : kernel.sysname);
+           "mkosi actions require a Linux kernel (%s)", strerror(errno));
+    return 1;
+  }
+  if (strcmp(kernel.sysname, "Linux") != 0) {
+    report(output, "FAIL", "linux_kernel",
+           "mkosi actions require a Linux kernel (%s)", kernel.sysname);
     return 1;
   }
   report(output, "PASS", "linux_kernel", "%s %s", kernel.sysname,
@@ -1200,12 +1209,16 @@ static int check_procfs_namespaces(FILE *output, const char *proc_root) {
   return 0;
 }
 
+/* An injected check may leave DETAIL unwritten or unterminated. */
 static int check_privilege(FILE *output,
                            const rules_mkosi_kernel_preflight_ops *ops) {
-  char detail[256];
+  char detail[256] = "";
+  int passed =
+      ops->check_initial_privilege != NULL &&
+      ops->check_initial_privilege(detail, sizeof(detail), ops->context);
 
-  if (ops->check_initial_privilege == NULL ||
-      !ops->check_initial_privilege(detail, sizeof(detail), ops->context)) {
+  detail[sizeof(detail) - 1] = '\0';
+  if (!passed) {
     report(output, "FAIL", "initial_privilege", "%s",
            detail[0] == '\0' ? "privilege check failed" : detail);
     return 1;
@@ -1241,7 +1254,7 @@ int rules_mkosi_kernel_preflight_with_ops(
   if (ops == NULL) {
     ops = &actual_ops;
   }
-  failures += check_linux_kernel(output);
+  failures += check_linux_kernel(output, ops);
   failures += check_procfs_namespaces(output, proc_root);
   failures += check_privilege(output, ops);
   failures += check_sysctl(output, proc_root);

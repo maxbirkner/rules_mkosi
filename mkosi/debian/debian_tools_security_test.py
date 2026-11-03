@@ -1,3 +1,4 @@
+import errno
 import hashlib
 import importlib.util
 import io
@@ -5,6 +6,7 @@ import os
 import pathlib
 import re
 import shutil
+import subprocess
 import tarfile
 import unittest
 from unittest import mock
@@ -23,6 +25,15 @@ def _load(name):
 extract_tree = _load("extract_tree")
 debian_launcher = _load("debian_launcher")
 package_archive = _load("package_archive")
+
+
+def _debian_tools_file(name):
+    runfiles_root = pathlib.Path(os.environ.get("RUNFILES_DIR", ""))
+    for line in (runfiles_root / "_repo_mapping").read_text(encoding="utf-8").splitlines():
+        fields = line.split(",", 2)
+        if len(fields) == 3 and fields[1] == "mkosi_debian_tools":
+            return runfiles_root / fields[2] / name
+    raise AssertionError("mkosi_debian_tools is missing from the runfiles repository mapping")
 
 
 class DebianToolsSecurityTest(unittest.TestCase):
@@ -63,6 +74,67 @@ class DebianToolsSecurityTest(unittest.TestCase):
         self.assertNotIn("readlink", source)
         self.assertNotIn("pinned_path", source)
         self.assertNotIn("compatibility mount", source)
+
+    def _run_namespace_runner(self, name, mount_arguments):
+        """Runs the runner on a minimal root; it fails before executing anything."""
+        root = self.work / name / "root"
+        for directory in ("proc", "tmp", "dev", "workspace", "outputs", "root", "inputs"):
+            (root / directory).mkdir(parents=True)
+        directories = []
+        for directory in ("workspace", "outputs", "home"):
+            (self.work / name / directory).mkdir()
+            directories.append(str(self.work / name / directory))
+        command = [str(_debian_tools_file("namespace_runner")), str(root), *directories]
+        command += ["/missing/loader", "/missing/tool", *mount_arguments, "--"]
+        result = subprocess.run(command, capture_output=True, text=True, timeout=60, check=False)
+        return root, result
+
+    def test_namespace_runner_rejects_unusable_typed_mount_identities(self):
+        source = self.work / "identity-source"
+        source.write_text("input")
+        device = str(source.stat().st_dev)
+        inode = str(source.stat().st_ino)
+        identities = [
+            ("", inode),
+            (device, ""),
+            ("0", inode),
+            (device, "0"),
+            ("18446744073709551616", inode),
+            (device, "18446744073709551616"),
+            ("-" + device, inode),
+            (" " + device, inode),
+            (device + "x", inode),
+        ]
+        for index, (mount_device, mount_inode) in enumerate(identities):
+            with self.subTest(device=mount_device, inode=mount_inode):
+                root, result = self._run_namespace_runner(
+                    "identity-%d" % index,
+                    ["--ro-bind", str(source), "/inputs/source", mount_device, mount_inode, "file"],
+                )
+                self.assertEqual(1, result.returncode, result.stderr)
+                self.assertIn("namespace mount identity is invalid", result.stderr)
+                self.assertFalse((root / ".namespace-bind-files").exists())
+
+    def test_namespace_runner_reports_identity_mismatch(self):
+        source = self.work / "mismatch-source"
+        source.write_text("input")
+        other = self.work / "mismatch-other"
+        other.write_text("other")
+        root, result = self._run_namespace_runner(
+            "mismatch",
+            [
+                "--ro-bind",
+                str(source),
+                "/inputs/source",
+                str(other.stat().st_dev),
+                str(other.stat().st_ino),
+                "file",
+            ],
+        )
+        self.assertEqual(1, result.returncode, result.stderr)
+        self.assertIn("cannot pin bind source %s" % source, result.stderr)
+        self.assertTrue(result.stderr.rstrip().endswith(os.strerror(errno.EAGAIN)), result.stderr)
+        self.assertFalse((root / ".namespace-bind-files").exists())
 
     def _archive(self, members):
         archive = self.work / "tree.tar"

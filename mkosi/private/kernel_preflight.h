@@ -2,7 +2,9 @@
 #define RULES_MKOSI_KERNEL_PREFLIGHT_H
 
 #include <stddef.h>
+#include <stdint.h>
 #include <stdio.h>
+#include <sys/utsname.h>
 
 typedef enum {
   RULES_MKOSI_FD_MOUNT_OP_NONE = 0,
@@ -38,13 +40,15 @@ typedef struct {
                                  void *context);
   int (*run_namespace_setup)(rules_mkosi_namespace_checks *checks,
                              void *context);
+  /* Called once like uname(2); NULL selects uname(2). */
+  int (*read_kernel_identity)(struct utsname *kernel, void *context);
   void *context;
 } rules_mkosi_kernel_preflight_ops;
 
 /*
  * proc_root is normally "/proc". Tests may point it at a fixture containing
- * procfs sysctl files and inject namespace operations through ops. Passing
- * NULL for ops runs the real kernel checks.
+ * procfs sysctl files and inject kernel identity, privilege, and namespace
+ * operations through ops. Passing NULL for ops runs the real kernel checks.
  */
 int rules_mkosi_kernel_preflight_with_ops(
     const char *proc_root, FILE *output,
@@ -53,5 +57,13 @@ int rules_mkosi_kernel_preflight_with_ops(
 int rules_mkosi_kernel_preflight(const char *proc_root, FILE *output);
 
 int rules_mkosi_verify_namespace_capabilities(void);
+
+/*
+ * Reads the effective capability set from the CapEff line of a
+ * /proc/<pid>/status file at status_path. Returns 0 on success or a negative
+ * errno value; a missing or malformed CapEff line fails with -EINVAL.
+ */
+int rules_mkosi_read_effective_capabilities(const char *status_path,
+                                            uint64_t *capabilities);
 
 #endif
