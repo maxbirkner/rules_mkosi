@@ -126,7 +126,7 @@ Release images install from the components selected by `Repositories=` and rejec
 `MkosiQemuToolchainInfo` exposes QEMU, its system data, OVMF, and SeaBIOS with their provenance.
 
 <!-- behavior:BHV-BOOT-PROVIDER -->
-`QemuOvmfBootConfigInfo` exposes the validated timeout category, deadlines, and cleanup margin.
+`QemuBootConfigInfo` exposes the validated timeout category, deadlines, and cleanup margin.
 
 <!-- behavior:BHV-PARTITION-METADATA -->
 Release `partition_metadata` validates both GPT copies, keeps slot numbers, and omits random disk and partition GUIDs.

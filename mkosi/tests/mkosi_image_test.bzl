@@ -6,7 +6,7 @@ load(
     "ManagedPythonTestInfo",
     "MkosiImageInfo",
     "MkosiQemuToolchainInfo",
-    "QemuOvmfBootConfigInfo",
+    "QemuBootConfigInfo",
     "SecureBootEphemeralTestFixtureInfo",
     "mkosi_config_tree",
     "mkosi_image",
@@ -54,7 +54,7 @@ def _provider_test_impl(ctx):
 
     asserts.true(env, MkosiImageInfo in target)
     info = target[MkosiImageInfo]
-    asserts.equals(env, "mkosi-image-v2", info.format_version)
+    asserts.equals(env, "mkosi-image-v3", info.format_version)
     asserts.equals(env, ctx.attr.expected_output, info.raw_image.basename)
     asserts.equals(env, info.raw_image, info.image)
     asserts.equals(env, None, info.manifest)
@@ -388,7 +388,7 @@ def _image_info_fixture_impl(ctx):
     return [
         DefaultInfo(files = depset([artifact for artifact in artifacts if artifact != None])),
         MkosiImageInfo(
-            format_version = "mkosi-image-v2",
+            format_version = "mkosi-image-v3",
             raw_image = raw_image,
             manifest = manifest,
             partition_metadata = partition_metadata,
@@ -396,7 +396,6 @@ def _image_info_fixture_impl(ctx):
             root_image = None,
             root_hash = None,
             root_hash_image = None,
-            root_hash_signature = None,
             uki_metadata = None,
             verity_metadata = None,
             build_metadata = build_metadata,
@@ -423,7 +422,7 @@ def _image_info_contract_test_impl(ctx):
     env = analysistest.begin(ctx)
     target = analysistest.target_under_test(env)
     info = target[MkosiImageInfo]
-    asserts.equals(env, "mkosi-image-v2", info.format_version)
+    asserts.equals(env, "mkosi-image-v3", info.format_version)
     artifacts = [
         info.raw_image,
         info.manifest,
@@ -515,7 +514,7 @@ def _release_provider_test_impl(ctx):
     asserts.equals(env, "main", argv[components + 1])
     asserts.equals(env, "0", image_action.env["SOURCE_DATE_EPOCH"])
     info = target[MkosiImageInfo]
-    asserts.equals(env, "mkosi-image-v2", info.format_version)
+    asserts.equals(env, "mkosi-image-v3", info.format_version)
     asserts.equals(env, "release_subject.raw", info.raw_image.basename)
     asserts.equals(env, info.raw_image, info.image)
     asserts.equals(env, "release_subject.mkosi-image-info.json", info.build_metadata.basename)
@@ -570,12 +569,11 @@ def _immutable_release_provider_test_impl(ctx):
     env = analysistest.begin(ctx)
     target = analysistest.target_under_test(env)
     info = target[MkosiImageInfo]
-    asserts.equals(env, "mkosi-image-v2", info.format_version)
+    asserts.equals(env, "mkosi-image-v3", info.format_version)
     asserts.equals(env, "immutable_release_subject.efi", info.uki.basename)
     asserts.equals(env, "immutable_release_subject.root.raw", info.root_image.basename)
     asserts.equals(env, "immutable_release_subject.roothash", info.root_hash.basename)
     asserts.equals(env, "immutable_release_subject.root-verity.raw", info.root_hash_image.basename)
-    asserts.equals(env, None, info.root_hash_signature)
     asserts.equals(env, "immutable_release_subject.uki.json", info.uki_metadata.basename)
     asserts.equals(env, "immutable_release_subject.verity.json", info.verity_metadata.basename)
     actions = analysistest.target_actions(env)
@@ -677,7 +675,7 @@ _invalid_qemu_config_test = analysistest.make(
 
 def _boot_deadline_provider_test_impl(ctx):
     env = analysistest.begin(ctx)
-    info = analysistest.target_under_test(env)[QemuOvmfBootConfigInfo]
+    info = analysistest.target_under_test(env)[QemuBootConfigInfo]
     asserts.equals(env, ctx.attr.expected_timeout, info.test_timeout)
     asserts.equals(env, ctx.attr.expected_qmp, info.qmp_initialization_timeout_seconds)
     asserts.equals(env, ctx.attr.expected_boot, info.boot_timeout_seconds)
@@ -1378,6 +1376,15 @@ def mkosi_image_test_suite(name):
         target_under_test = ":analysis_boot_test_config",
     )
 
+    _boot_deadline_provider_test(
+        name = "seabios_boot_deadline_test",
+        expected_timeout = "moderate",
+        expected_qmp = 15,
+        expected_boot = 15,
+        expected_shutdown = 15,
+        target_under_test = ":tcg_accelerator_bios_boot_subject",
+    )
+
     qemu_ovmf_boot_test(
         name = "public_long_timeout_boot_test",
         image = ":debian_subject",
@@ -1614,6 +1621,7 @@ def mkosi_image_test_suite(name):
             ":invalid_boot_shutdown_marker_test",
             ":boundary_boot_deadline_test",
             ":default_boot_deadline_test",
+            ":seabios_boot_deadline_test",
             ":public_boot_timeout_test",
             ":public_moderate_timeout_test",
             ":public_short_timeout_test",

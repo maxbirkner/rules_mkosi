@@ -22,6 +22,7 @@ load(
     ":public_api_test.bzl",
     "base_public_api_test",
     "behavior_targets",
+    "boot_config_public_api_test",
     "generated_payload_tree",
     "image_build_metadata_file",
     "image_manifest_file",
@@ -47,9 +48,11 @@ behavior_targets(
     name = "behavior_consumer_targets",
     testonly = True,
     targets = [
+        ":bios_boot_config_public_provider_test",
         ":boot_entry_regression_test",
         ":boot_launcher_contract_test",
         ":boot_preflight_contract_test",
+        ":uefi_boot_config_public_provider_test",
         ":bios_release_demo_build_test",
         ":bios_boot_test",
         ":consumer_snapshot_artifact_test",
@@ -504,6 +507,18 @@ qemu_ovmf_boot_config(
     shutdown_markers = ["POWERED_OFF"],
     shutdown_timeout_seconds = 1,
     test_timeout = "short",
+)
+
+boot_config_public_api_test(
+    name = "uefi_boot_config_public_provider_test",
+    expected_timeout = "short",
+    target_under_test = ":boot_preflight_contract_config",
+)
+
+boot_config_public_api_test(
+    name = "bios_boot_config_public_provider_test",
+    expected_timeout = "moderate",
+    target_under_test = ":bios_boot_test_config",
 )
 
 sh_test(

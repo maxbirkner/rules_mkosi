@@ -8,6 +8,8 @@ load(
     "MkosiBaseInfo",
     "MkosiImageInfo",
     "MkosiRootfsPayloadInfo",
+    "QemuBootConfigInfo",
+    "QemuOvmfBootConfigInfo",
     "SysupdatePayloadInfo",
 )
 
@@ -78,17 +80,17 @@ def _image_public_api_test_impl(ctx):
     target = analysistest.target_under_test(env)
     asserts.true(env, MkosiImageInfo in target)
     info = target[MkosiImageInfo]
-    asserts.equals(env, "mkosi-image-v2", info.format_version)
+    asserts.equals(env, "mkosi-image-v3", info.format_version)
     asserts.equals(env, "demo.raw", info.raw_image.basename)
     asserts.equals(env, info.raw_image, info.image)
     asserts.equals(env, None, info.manifest)
+    asserts.false(env, hasattr(info, "root_hash_signature"), "root_hash_signature is not part of the API")
     asserts.equals(env, None, info.partition_metadata)
     asserts.equals(env, None, info.uki)
     asserts.equals(env, "uefi", info.firmware)
     asserts.equals(env, None, info.root_image)
     asserts.equals(env, None, info.root_hash)
     asserts.equals(env, None, info.root_hash_image)
-    asserts.equals(env, None, info.root_hash_signature)
     asserts.equals(env, None, info.uki_metadata)
     asserts.equals(env, None, info.verity_metadata)
     asserts.equals(env, "demo.mkosi-image-info.json", info.build_metadata.basename)
@@ -108,6 +110,20 @@ def _rootfs_payload_public_api_test_impl(ctx):
     return analysistest.end(env)
 
 rootfs_payload_public_api_test = analysistest.make(_rootfs_payload_public_api_test_impl)
+
+def _boot_config_public_api_test_impl(ctx):
+    env = analysistest.begin(ctx)
+    target = analysistest.target_under_test(env)
+    info = target[QemuBootConfigInfo]
+    asserts.equals(env, ctx.attr.expected_timeout, info.test_timeout)
+    asserts.equals(env, 30, info.cleanup_margin_seconds)
+    asserts.equals(env, info, target[QemuOvmfBootConfigInfo], "deprecated alias selects the same provider")
+    return analysistest.end(env)
+
+boot_config_public_api_test = analysistest.make(
+    _boot_config_public_api_test_impl,
+    attrs = {"expected_timeout": attr.string(mandatory = True)},
+)
 
 def _sysupdate_public_api_test_impl(ctx):
     env = analysistest.begin(ctx)
@@ -200,7 +216,7 @@ def _verity_corrupted_image_impl(ctx):
     return [
         DefaultInfo(files = depset([output])),
         MkosiImageInfo(
-            format_version = "mkosi-image-v2",
+            format_version = "mkosi-image-v3",
             raw_image = output,
             manifest = None,
             partition_metadata = info.partition_metadata,
@@ -208,7 +224,6 @@ def _verity_corrupted_image_impl(ctx):
             root_image = None,
             root_hash = info.root_hash,
             root_hash_image = info.root_hash_image,
-            root_hash_signature = None,
             uki_metadata = info.uki_metadata,
             verity_metadata = info.verity_metadata,
             build_metadata = info.build_metadata,

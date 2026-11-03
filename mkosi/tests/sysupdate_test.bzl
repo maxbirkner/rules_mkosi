@@ -126,7 +126,7 @@ def _image_version_file_identity_test_impl(ctx):
     asserts.equals(env, info.build_metadata.path, _option_value(metadata_action.argv, "--output"))
     metadata = json.decode(_option_value(metadata_action.argv, "--metadata-json"))
     asserts.equals(env, {"id": "rules-mkosi-ab", "version": None}, metadata["image"])
-    asserts.equals(env, "mkosi-image-build-metadata-v2", metadata["format_version"])
+    asserts.equals(env, "mkosi-image-build-metadata-v3", metadata["format_version"])
     asserts.equals(env, "", metadata_action.env["PATH"])
     return analysistest.end(env)
 

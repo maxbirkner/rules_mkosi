@@ -34,7 +34,7 @@ and DefaultInfo contains every artifact that is not None. raw_image and build_me
 images add partition_metadata, and UEFI release images add their UKI, split dm-verity artifacts and metadata.
 """,
     fields = {
-        "format_version": "Contract version, currently mkosi-image-v2.",
+        "format_version": "Contract version, currently mkosi-image-v3.",
         "raw_image": "The raw disk image.",
         "manifest": "mkosi JSON manifest of the installed packages when the rule sets manifest = True, or None.",
         "partition_metadata": "Validated, normalized GPT partition metadata of a release image, or None.",
@@ -42,7 +42,6 @@ images add partition_metadata, and UEFI release images add their UKI, split dm-v
         "root_image": "Split root filesystem partition, or None.",
         "root_hash": "ASCII dm-verity root hash, or None.",
         "root_hash_image": "Split dm-verity hash partition, or None.",
-        "root_hash_signature": "Split dm-verity signature partition; currently always None.",
         "uki_metadata": "Normalized UKI section metadata, or None.",
         "verity_metadata": "Normalized dm-verity linkage metadata, or None.",
         "build_metadata": "Normalized JSON metadata describing the build settings and output roles.",
@@ -406,7 +405,6 @@ def _declare_outputs(ctx, settings):
         root_image = _declare_file(ctx, ".root.raw", settings.verity),
         root_hash = _declare_file(ctx, ".roothash", settings.verity),
         root_hash_image = _declare_file(ctx, ".root-verity.raw", settings.verity),
-        root_hash_signature = None,
         uki_metadata = _declare_file(ctx, ".uki.json", settings.uki),
         verity_metadata = _declare_file(ctx, ".verity.json", settings.verity),
         build_metadata = _declare_file(ctx, ".mkosi-image-info.json"),
@@ -540,7 +538,6 @@ _ARTIFACT_FIELDS = [
     "root_image",
     "root_hash",
     "root_hash_image",
-    "root_hash_signature",
     "uki_metadata",
     "verity_metadata",
     "build_metadata",
@@ -551,7 +548,7 @@ def _image_providers(settings, outputs):
     return [
         DefaultInfo(files = depset([artifact for artifact in artifacts.values() if artifact != None])),
         MkosiImageInfo(
-            format_version = "mkosi-image-v2",
+            format_version = "mkosi-image-v3",
             firmware = settings.firmware,
             image_id = settings.image_id,
             image_version = settings.image_version,

@@ -157,7 +157,6 @@ def _artifact_roles(settings):
         "root_image": settings.verity,
         "root_hash": settings.verity,
         "root_hash_image": settings.verity,
-        "root_hash_signature": False,
         "uki_metadata": settings.uki,
         "verity_metadata": settings.verity,
     }
@@ -178,7 +177,7 @@ def _build_metadata(ctx, settings):
     # filenames or binaries.
     metadata = {
         "artifacts": _artifact_roles(settings),
-        "format_version": "mkosi-image-build-metadata-v2",
+        "format_version": "mkosi-image-build-metadata-v3",
         "mkosi": {
             "compression": "none",
             "format": "disk",
