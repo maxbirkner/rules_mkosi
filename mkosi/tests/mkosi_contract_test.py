@@ -107,7 +107,7 @@ class MkosiContractTest(unittest.TestCase):
 
     def test_unsupported_mkosi_version_is_rejected(self):
         self.assertEqual(
-            ["mkosi 0 is not supported by release mode; supported mkosi versions: 27"],
+            ["mkosi 0 is not supported by release mode; supported mkosi versions: 27.1"],
             self.contract.violations(version="0"),
         )
 
@@ -206,7 +206,7 @@ class MkosiContractTest(unittest.TestCase):
             snapshot="20250814T000000Z",
             stage="finalize",
         )
-        with self.assertRaisesRegex(SystemExit, "mkosi 27 is not supported by release mode"):
+        with self.assertRaisesRegex(SystemExit, "mkosi 27\\.1 is not supported by release mode"):
             self.release_patches.activate_release_mode(None, settings, [], None)
         self.assertIs(original, self.mkosi_config.parse_config)
 

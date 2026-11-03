@@ -62,16 +62,16 @@ case "$fixture" in
         definition="$("$bazel_command" --nosystem_rc --nohome_rc \
             query --lockfile_mode="$lockfile_mode" @mkosi_toolchains//:mkosi_toolchain --output=build)"
         case "$definition" in
-            *'version = "27"'*) ;;
+            *'version = "27.1"'*) ;;
             *)
-                echo "mkosi toolchain did not resolve to version 27" >&2
+                echo "mkosi toolchain did not resolve to version 27.1" >&2
                 echo "$definition" >&2
                 exit 1
                 ;;
         esac
         ;;
     unsupported)
-        expected="Unsupported mkosi version 26. Supported versions: 27."
+        expected="Unsupported mkosi version 27. Supported versions: 27.1."
         ;;
     conflicting_root)
         expected="Only one mkosi toolchain may be configured."
@@ -80,7 +80,7 @@ case "$fixture" in
         expected="Only the root module may override the mkosi toolchain name."
         ;;
     root_dependency)
-        expected="Conflicting mkosi versions: root requests 27, dependency requests 26."
+        expected="Conflicting mkosi versions: root requests 27.1, dependency requests 26."
         ;;
     snapshot_name_conflict)
         expected="debian_tools.snapshot repository consumer_debian requested by mkosi_extension_snapshot_name_conflict is already declared by mkosi_extension_snapshot_name_conflict"

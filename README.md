@@ -2,7 +2,7 @@
 
 Bazel rules for building bootable Linux OS images with [mkosi](https://github.com/systemd/mkosi) and testing them in QEMU.
 
-- Pinned, checksum-verified toolchains: mkosi v27, a Debian 13 build-time userspace, QEMU, OVMF, and SeaBIOS.
+- Pinned, checksum-verified toolchains: mkosi v27.1, a Debian 13 build-time userspace, QEMU, OVMF, and SeaBIOS.
   Image actions use no host executables.
 - A networked `tracer` mode for iteration and an offline, cacheable `release` mode built from an authenticated Debian snapshot.
 - Unsigned UKIs, dm-verity, offline Secure Boot signing, and A/B updates with `systemd-sysupdate`.
@@ -19,17 +19,19 @@ Bazel rules for building bootable Linux OS images with [mkosi](https://github.co
 | KVM | Optional; boot tests fall back to TCG. |
 
 Image actions never run remotely (`no-remote-exec`).
+mkosi runs with `MKOSI_FORCE_USERNS_FALLBACK=1`, so it creates its own unprivileged user namespace instead of asking the host's `systemd-nsresourced`, and builds behave the same on every host.
+As a consequence, `ForeignUIDRange=yes` is not supported and fails the build.
 
 | Toolchain | Version |
 | --- | --- |
-| mkosi | 27 (`systemd/mkosi@4736cd836108a97772142c461c49f1ddb4172348`) |
+| mkosi | 27.1 (`systemd/mkosi@ecf7f5702bb2052b7a69cab3fe7d37bc3b9ad77b`) |
 | Python for mkosi | 3.14, from rules_python |
 | Debian tools and snapshot | Debian 13, snapshot `20250814T000000Z` |
 | QEMU | 11.0.0.1, from [rules_qemu](https://github.com/hermeticbuild/rules_qemu) |
 | OVMF | `edk2-stable202605-r1` |
 | SeaBIOS | `rel-1.17.0-0-gb52ca86e094d-prebuilt.qemu.org` |
 
-Supported mkosi versions: 27 only, pinned to the commit above.
+Supported mkosi versions: 27.1 only, pinned to the commit above.
 Release builds fail if mkosi differs from the version rules_mkosi was verified with, so newer mkosi releases need a rules_mkosi update.
 
 ## Setup
@@ -61,9 +63,9 @@ use_repo(
     "qemu_user_toolchains",
 )
 
-# Optional: pin the mkosi version (default "27").
+# Optional: pin the mkosi version (default "27.1").
 mkosi = use_extension("@rules_mkosi//mkosi:extensions.bzl", "mkosi")
-mkosi.toolchain(version = "27")
+mkosi.toolchain(version = "27.1")
 
 # Built-in Debian snapshot and optional consumer-owned snapshots.
 debian_tools = use_extension("@rules_mkosi//mkosi/debian:extensions.bzl", "debian_tools")

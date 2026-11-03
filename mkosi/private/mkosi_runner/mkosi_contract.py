@@ -56,12 +56,12 @@ class Contract:
 
 
 CONTRACTS = {
-    "27": Contract(
+    "27.1": Contract(
         patched=(
             Patched(
                 "mkosi.distribution.debian:Installer.repositories",
                 "_patch_repositories",
-                "f766cf536b9e4bf1580cbb59007094e4aface87c78decfc4a97f5e2e60218d22",
+                "ec554a20b6b024b2c9c759ba7fd7e901a80bb9612a091072fb5be48e11959998",
             ),
             Patched(
                 "mkosi.installer:PackageManager.mounts",

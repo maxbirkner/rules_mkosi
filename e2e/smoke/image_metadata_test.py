@@ -13,7 +13,7 @@ def main() -> None:
         "compression": "none",
         "format": "disk",
         "split_artifacts": immutable,
-        "version": "27",
+        "version": "27.1",
     }
     assert metadata["artifacts"] == {
         "build_metadata": True,
