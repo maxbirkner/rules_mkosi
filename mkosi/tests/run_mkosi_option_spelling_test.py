@@ -59,6 +59,23 @@ class OptionSpellingTest(unittest.TestCase):
                 self.assertEqual("/config", self._mkosi_parse(arguments).directory)
                 self.assertEqual("/config", self.command_line.configuration_directory(arguments).value)
 
+    def test_edge_case_values_match_mkosi(self):
+        # Values that look like negative numbers, and empty values attached to grouped flags.
+        for arguments, expected in (
+            (["-C", "-5x", "build"], "-5x"),
+            (["--directory", "-.5", "build"], "-.5"),
+            (["-fC=", "build"], ""),
+            (["-C=", "build"], ""),
+        ):
+            with self.subTest(arguments=arguments):
+                parsed = self._mkosi_parse(arguments)
+                self.assertEqual((expected, "build"), (parsed.directory, parsed.verb.value))
+                self.assertEqual(expected, self.command_line.configuration_directory(arguments).value)
+        argv = ["--kernel-preflight", "p", "--", "--output-dir", "-5x", "build"]
+        self.assertEqual("-5x", self.command_line.mkosi_option_value(argv, "-O"))
+        with self.assertRaisesRegex(SystemExit, "mkosi path option is missing its value"):
+            self.command_line.configuration_directory(["-C", "-x", "build"])
+
     def test_last_configuration_directory_wins_like_mkosi(self):
         arguments = ["-C", "/first", "--directory=/second", "build"]
         self.assertEqual("/second", self._mkosi_parse(arguments).directory)
