@@ -237,6 +237,21 @@ class ResolverTest(unittest.TestCase):
         selected, _ = generate_lock.resolve(generate_lock.Universe(packages), ["app"])
         self.assertEqual("non-free-firmware", selected["firmware"].component)
 
+    def test_packages_index_continuation_lines_extend_relations(self):
+        index = _stanza("app", Description="app\n Long description.\n .\n More.") + "Depends: base,\n  data (>= 1)\n"
+        (package,) = generate_lock.parse_packages(index, "main", "amd64")
+        self.assertEqual(
+            (
+                (generate_lock.Relation("base"),),
+                (generate_lock.Relation("data", None, ">=", "1"),),
+            ),
+            package.depends,
+        )
+
+    def test_malformed_control_data_is_a_lock_error(self):
+        with self.assertRaisesRegex(generate_lock.LockError, "^duplicate Debian metadata field: Package$"):
+            generate_lock.paragraphs("Package: one\nPackage: two\n")
+
     def test_binary_all_index_rejects_native_packages(self):
         with self.assertRaisesRegex(generate_lock.LockError, "non-all"):
             generate_lock.parse_packages(_stanza("app"), "main", "all")

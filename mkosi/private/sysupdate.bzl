@@ -20,7 +20,7 @@ def _run_sysupdate(ctx, arguments, inputs, output, mnemonic):
     run_python(
         ctx,
         arguments = [arguments],
-        inputs = [ctx.file._tool, ctx.file._gpt_partitions, ctx.file._sibling_loader] + inputs,
+        inputs = [ctx.file._tool, ctx.file._file_hashing, ctx.file._gpt_partitions, ctx.file._sibling_loader] + inputs,
         outputs = [output],
         mnemonic = mnemonic,
     )
@@ -64,6 +64,7 @@ sysupdate_transfers = rule(
             default = "/usr/lib/sysupdate.d",
             doc = "Image directory receiving the transfer files.",
         ),
+        "_file_hashing": attr.label(default = "//mkosi/private:file_hashing.py", allow_single_file = True),
         "_gpt_partitions": attr.label(default = "//mkosi/private:gpt_partitions.py", allow_single_file = True),
         "_sibling_loader": attr.label(default = "//mkosi/private:sibling_loader.py", allow_single_file = True),
         "_tool": attr.label(default = "//mkosi/private:sysupdate.py", allow_single_file = True),
@@ -139,6 +140,7 @@ sysupdate_payload = rule(
 
 The build fails with SYSUPDATE_INVALID unless its signing request was created for this image's unsigned UKI.""",
         ),
+        "_file_hashing": attr.label(default = "//mkosi/private:file_hashing.py", allow_single_file = True),
         "_gpt_partitions": attr.label(default = "//mkosi/private:gpt_partitions.py", allow_single_file = True),
         "_sibling_loader": attr.label(default = "//mkosi/private:sibling_loader.py", allow_single_file = True),
         "_image_version": attr.label(default = "//mkosi/private:image_version.py", allow_single_file = True),

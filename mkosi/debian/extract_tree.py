@@ -38,9 +38,14 @@ _EMPTY_DIRECTORY_SYMLINK_TARGETS = {
 }
 
 
-def _member_path(name):
+def member_path(name, kind="archive"):
+    """Returns the relative path of a tar member name, or "" for the archive root.
+
+    Raises ValueError for absolute names and for empty, ".", or ".." components; kind names the archive in the error.
+    package_archive.py validates package members with this function too.
+    """
     if name.startswith("/"):
-        raise ValueError("absolute archive member: %s" % name)
+        raise ValueError("absolute %s member: %s" % (kind, name))
     while name.startswith("./"):
         name = name[2:]
     if name in ("", "."):
@@ -49,7 +54,7 @@ def _member_path(name):
     if parts and parts[-1] == "":
         parts.pop()
     if not parts or any(part in ("", ".", "..") for part in parts):
-        raise ValueError("unsafe archive member: %s" % name)
+        raise ValueError("unsafe %s member: %s" % (kind, name))
     return os.path.join(*parts)
 
 
@@ -70,7 +75,7 @@ def _parent(root, relative):
 
 def _link_target(relative, linkname):
     if linkname.startswith("/"):
-        target = _member_path(linkname[1:])
+        target = member_path(linkname[1:])
         return target
     target = os.path.normpath(os.path.join(os.path.dirname(relative), linkname))
     if target == ".." or target.startswith("../"):
@@ -83,10 +88,11 @@ def _hardlink_target(linkname):
     # symlink names which are interpreted relative to their containing path.
     if linkname.startswith("/"):
         raise ValueError("absolute hardlink target: %s" % linkname)
-    return _member_path(linkname)
+    return member_path(linkname)
 
 
-def _digest_file(source):
+def sha256_stream(source):
+    """Returns the hex SHA-256 of the rest of a binary stream."""
     hasher = hashlib.sha256()
     while True:
         chunk = source.read(1024 * 1024)
@@ -307,7 +313,7 @@ def _resolve_hardlink_graph(root, hardlinks, members_by_path):
 
 
 def _authenticate(archive_stream, expected_digest):
-    actual_digest = _digest_file(archive_stream)
+    actual_digest = sha256_stream(archive_stream)
     if actual_digest != expected_digest:
         raise ValueError(
             "Debian tools archive digest mismatch: expected=%s actual=%s"
@@ -320,7 +326,7 @@ def _index_members(source):
     members = []
     members_by_path = {}
     for member in source:
-        relative = _member_path(member.name)
+        relative = member_path(member.name)
         if not relative:
             continue
         if relative in members_by_path:
