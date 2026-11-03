@@ -9,11 +9,10 @@
 
   ```console
   bazel shutdown
-  sudo -n setpriv --reuid="$(id -u)" --regid="$(id -g)" --clear-groups \
-    env HOME="$HOME" PATH="$PATH" USER="$USER" bazel test //...
+  ci/bin/group-free bazel test //...
   ```
 
-- Optional: read-write access to `/dev/kvm` for faster boot tests, granted with a user ACL such as `sudo setfacl -m "u:$USER:rw" /dev/kvm` (group membership is dropped by `--clear-groups`).
+- Optional: read-write access to `/dev/kvm` for faster boot tests, granted with a user ACL such as `sudo setfacl -m "u:$USER:rw" /dev/kvm` (`group-free` drops group membership).
 
 ## Checks
 
