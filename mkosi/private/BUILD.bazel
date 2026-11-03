@@ -64,11 +64,28 @@ managed_python_tool(
     visibility = ["//visibility:public"],
 )
 
+# Shared by the kernel preflight and the Debian tools namespace runner.
+cc_library(
+    name = "write_all",
+    srcs = ["write_all.c"],
+    hdrs = ["write_all.h"],
+    copts = ["-fPIC"],
+    visibility = ["//visibility:public"],
+)
+
+cc_test(
+    name = "write_all_test",
+    srcs = ["write_all_test.c"],
+    linkstatic = True,
+    deps = [":write_all"],
+)
+
 cc_library(
     name = "kernel_preflight_lib",
     srcs = ["kernel_preflight.c"],
     hdrs = ["kernel_preflight.h"],
     copts = ["-fPIC"],
+    deps = [":write_all"],
 )
 
 cc_binary(
