@@ -53,6 +53,7 @@ The host test is tagged `requires_kernel_contract`, so portable test runs never 
 No host userspace executable, package cache, network, writable host mount, or ambient capability is part of the contract.
 A privileged starting namespace is rejected, and the capability check is repeated after mapping and the root transition.
 The checks are limited to the operations of mkosi v27's offline sandbox.
+Image actions set `MKOSI_FORCE_USERNS_FALLBACK=1`, so mkosi always uses this unprivileged user namespace and never asks the host's `systemd-nsresourced`.
 
 ## Limits
 

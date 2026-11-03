@@ -139,6 +139,7 @@ def _provider_test_impl(ctx):
     asserts.equals(env, "build", argv[-1])
     asserts.equals(env, "", image_action.env["PATH"])
     asserts.equals(env, "1", image_action.env["PYTHONNOUSERSITE"])
+    asserts.equals(env, "1", image_action.env["MKOSI_FORCE_USERNS_FALLBACK"])
 
     return analysistest.end(env)
 
@@ -146,13 +147,13 @@ def _toolchain_provider_test_impl(ctx):
     env = analysistest.begin(ctx)
     info = analysistest.target_under_test(env)[platform_common.ToolchainInfo].mkosi
 
-    asserts.equals(env, "27", info.version)
+    asserts.equals(env, "27.1", info.version)
     asserts.equals(
         env,
-        "fa34b3ba66cc71d202b267a0f55e6c77f41d8db273ea5404f7fad99e464835f8",
+        "3d38e848f9b1108ec76d873f2c378dfc7d4b536ad89deffe8c97504f7a8dff43",
         info.source_sha256,
     )
-    asserts.equals(env, "sha256-+jSzumbMcdICsmeg9V5sd/QdjbJz6lQE9/rZnkZINfg=", info.integrity)
+    asserts.equals(env, "sha256-PTjoSPmxEI7HbYc/LDeN/H1LU2rYne/+jJdQT3qN/0M=", info.integrity)
     asserts.equals(env, "3.14", info.python_version)
     asserts.equals(env, "3.14.0", info.resolved_python_version)
     asserts.true(env, "python_3_14" in info.resolved_python_interpreter.path)
@@ -513,6 +514,7 @@ def _release_provider_test_impl(ctx):
     components = argv.index("--release-components")
     asserts.equals(env, "main", argv[components + 1])
     asserts.equals(env, "0", image_action.env["SOURCE_DATE_EPOCH"])
+    asserts.equals(env, "1", image_action.env["MKOSI_FORCE_USERNS_FALLBACK"])
     info = target[MkosiImageInfo]
     asserts.equals(env, "mkosi-image-v3", info.format_version)
     asserts.equals(env, "release_subject.raw", info.raw_image.basename)

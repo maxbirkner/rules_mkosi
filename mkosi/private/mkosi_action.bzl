@@ -191,7 +191,13 @@ def mkosi_tool_inputs(ctx):
 
 def _mkosi_environment(mkosi, release):
     mkosi_root = mkosi.script.path[:-len("/mkosi/__main__.py")]
-    environment = {"PYTHONPATH": mkosi_root + ":" + pefile_root(mkosi)}
+    environment = {
+        # mkosi would otherwise first ask the host's systemd-nsresourced for a user namespace, so the namespace setup
+        # would depend on the build host. The unprivileged user namespace it falls back to is the one that
+        # kernel_preflight checks.
+        "MKOSI_FORCE_USERNS_FALLBACK": "1",
+        "PYTHONPATH": mkosi_root + ":" + pefile_root(mkosi),
+    }
     if release:
         environment.update({
             "MKOSI_HOST_DISTRIBUTION": release.snapshot.distribution,
