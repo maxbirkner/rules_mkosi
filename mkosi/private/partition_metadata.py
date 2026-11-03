@@ -11,10 +11,17 @@ import uuid
 import zlib
 from pathlib import Path
 
-ROOT_X86_64 = "4f68bce3-e8cd-4db1-96e7-fbcaf984b709"
-ROOT_X86_64_VERITY = "2c7357ed-ebd2-46d9-aec1-23d437ec2bf5"
-BIOS_BOOT = "21686148-6449-6e6f-744e-656564454649"
-EMPTY_SLOT_LABEL = "_empty"
+
+def _load_sibling(name):
+    """Loads the rules_mkosi helper module name.py from this file's directory, independent of sys.path."""
+    spec = importlib.util.spec_from_file_location("rules_mkosi_" + name, Path(__file__).with_name(name + ".py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+gpt = _load_sibling("gpt_partitions")
+
 ALIGNMENT = 1024 * 1024
 _HEADER_MIN = 92
 _MAX_ARRAY_BYTES = 64 * 1024 * 1024
@@ -127,23 +134,23 @@ def _validated_gpt(path):
 
 def _validate_ab_slots(partitions, slot_label):
     """Requires one populated, versioned slot; other root/verity slots must be inactive."""
-    expected = {ROOT_X86_64: slot_label, ROOT_X86_64_VERITY: slot_label + "_verity"}
+    expected = {gpt.ROOT_X86_64: slot_label, gpt.ROOT_X86_64_VERITY: slot_label + "_verity"}
     for type_guid, label in expected.items():
         candidates = [entry for entry in partitions if entry["type_guid"] == type_guid]
-        populated = [entry for entry in candidates if entry["label"] != EMPTY_SLOT_LABEL]
+        populated = [entry for entry in candidates if entry["label"] != gpt.EMPTY_SLOT_LABEL]
         if len(populated) != 1 or populated[0]["label"] != label:
             raise ValueError(
                 "A/B image requires exactly one populated {} partition labelled {!r}; found {!r}".format(
-                    "root" if type_guid == ROOT_X86_64 else "verity",
+                    "root" if type_guid == gpt.ROOT_X86_64 else "verity",
                     label,
                     sorted(entry["label"] for entry in candidates),
                 )
             )
-        inactive = [entry for entry in candidates if entry["label"] == EMPTY_SLOT_LABEL]
+        inactive = [entry for entry in candidates if entry["label"] == gpt.EMPTY_SLOT_LABEL]
         if any(entry["size_bytes"] < populated[0]["size_bytes"] for entry in inactive):
             raise ValueError(
                 "inactive {} slots must be at least as large as the populated slot".format(
-                    "root" if type_guid == ROOT_X86_64 else "verity"
+                    "root" if type_guid == gpt.ROOT_X86_64 else "verity"
                 )
             )
 
@@ -194,7 +201,7 @@ def project_image(path, firmware="uefi", slot_label=None):
         )
         if slot_label is not None:
             partitions[-1]["uuid"] = str(uuid.UUID(bytes_le=entry[16:32]))
-    roots = [entry for entry in partitions if entry["type_guid"] == ROOT_X86_64]
+    roots = [entry for entry in partitions if entry["type_guid"] == gpt.ROOT_X86_64]
     if slot_label is None:
         if len(roots) != 1:
             raise ValueError("exactly one Linux x86-64 root partition is required")
@@ -202,7 +209,7 @@ def project_image(path, firmware="uefi", slot_label=None):
             raise ValueError("Linux x86-64 root partition label must be root-x86-64")
     else:
         _validate_ab_slots(partitions, slot_label)
-    bios_boot = [entry for entry in partitions if entry["type_guid"] == BIOS_BOOT]
+    bios_boot = [entry for entry in partitions if entry["type_guid"] == gpt.BIOS_BOOT]
     if firmware == "bios":
         if len(bios_boot) != 1:
             raise ValueError("BIOS firmware requires exactly one GPT BIOS boot partition")
@@ -278,12 +285,9 @@ def _image_version_from_file(path, slot_label_image_id):
 
     The helper is loaded only here, so modules that import this one for GPT projection do not need it.
     """
-    helper = Path(__file__).with_name("image_version.py")
-    spec = importlib.util.spec_from_file_location("rules_mkosi_image_version", helper)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    image_version = _load_sibling("image_version")
     try:
-        return module.read_image_version(path, slot_label_image_id)
+        return image_version.read_image_version(path, slot_label_image_id)
     except (OSError, ValueError) as error:
         raise SystemExit("IMAGE_VERSION_INVALID: {}".format(error)) from None
 

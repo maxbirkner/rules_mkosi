@@ -1,11 +1,8 @@
-import pathlib
 import struct
-import sys
 import unittest
 import uuid
 import zlib
 
-sys.path.insert(0, str(pathlib.Path(__file__).parent))
 import raw_image_validator
 
 

@@ -27,7 +27,8 @@ MAX_DER_CHILDREN = 4096
 
 
 def sha256(path):
-    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+    with open(path, "rb") as source:
+        return hashlib.file_digest(source, "sha256").hexdigest()
 
 
 def _launcher(tool, arguments):

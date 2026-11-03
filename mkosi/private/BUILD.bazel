@@ -11,6 +11,7 @@ exports_files([
     "diagnostics.py",
     "managed_python_bootstrap.py",
     "mkosi_image.bzl",
+    "gpt_partitions.py",
     "partition_metadata.py",
     "uki_metadata.py",
     "verity_metadata.py",

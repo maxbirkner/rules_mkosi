@@ -563,13 +563,14 @@ sh_test(
     args = [
         "$(rootpath @mkosi_toolchains//:mkosi_python)",
         "$(rootpath @mkosi_toolchains//:mkosi_script)",
+        "$(rootpath @rules_mkosi//mkosi/tests:sitecustomize.py)",
     ],
     data = [
-        "sitecustomize.py",
         "@mkosi_toolchains//:mkosi_python",
         "@mkosi_toolchains//:mkosi_runfiles",
         "@mkosi_toolchains//:mkosi_runtime",
         "@mkosi_toolchains//:mkosi_script",
+        "@rules_mkosi//mkosi/tests:sitecustomize.py",
     ],
 )
 
@@ -582,13 +583,13 @@ sh_test(
     srcs = ["raw_image_validator_test.sh"],
     args = [
         "$(rootpath :demo_raw)",
-        "$(rootpath raw_image_validator.py)",
+        "$(rootpath @rules_mkosi//mkosi/tests:raw_image_validator.py)",
         "$(rootpath @mkosi_debian_python//:python)",
     ],
     data = [
-        "raw_image_validator.py",
         ":demo_raw",
         "@mkosi_debian_python//:python",
+        "@rules_mkosi//mkosi/tests:raw_image_validator.py",
     ],
 )
 
@@ -597,13 +598,13 @@ sh_test(
     srcs = ["raw_image_validator_test.sh"],
     args = [
         "$(rootpath :release_demo_raw)",
-        "$(rootpath raw_image_validator.py)",
+        "$(rootpath @rules_mkosi//mkosi/tests:raw_image_validator.py)",
         "$(rootpath @mkosi_debian_python//:python)",
     ],
     data = [
-        "raw_image_validator.py",
         ":release_demo_raw",
         "@mkosi_debian_python//:python",
+        "@rules_mkosi//mkosi/tests:raw_image_validator.py",
     ],
 )
 
@@ -629,11 +630,12 @@ sh_test(
     args = [
         "$(rootpath raw_image_validator_test.py)",
         "$(rootpath @mkosi_debian_python//:python)",
+        "$(rootpath @rules_mkosi//mkosi/tests:raw_image_validator.py)",
     ],
     data = [
-        "raw_image_validator.py",
         "raw_image_validator_test.py",
         "@mkosi_debian_python//:python",
+        "@rules_mkosi//mkosi/tests:raw_image_validator.py",
     ],
 )
 
@@ -641,15 +643,15 @@ sh_test(
     name = "raw_image_corruption_test",
     srcs = ["raw_image_corruption_test.sh"],
     args = [
-        "$(rootpath raw_image_corruption_test.py)",
+        "$(rootpath @rules_mkosi//mkosi/tests:raw_image_corruption_test.py)",
         "$(rootpath @mkosi_debian_python//:python)",
         "$(rootpath :demo_raw)",
     ],
     data = [
-        "raw_image_corruption_test.py",
-        "raw_image_validator.py",
         ":demo_raw",
         "@mkosi_debian_python//:python",
+        "@rules_mkosi//mkosi/tests:raw_image_corruption_test.py",
+        "@rules_mkosi//mkosi/tests:raw_image_validator.py",
     ],
     tags = ["requires-network"],
 )
@@ -663,7 +665,7 @@ sh_test(
 
 py_test(
     name = "tree_demo_artifact_test",
-    srcs = ["raw_image_validator.py"],
+    srcs = ["@rules_mkosi//mkosi/tests:raw_image_validator.py"],
     args = ["$(rootpath :tree_demo_raw)"],
     data = [":tree_demo_raw"],
     main = "raw_image_validator.py",

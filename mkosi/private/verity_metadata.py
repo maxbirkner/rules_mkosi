@@ -3,17 +3,24 @@
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
 import struct
 import tempfile
 from pathlib import Path
 
-ROOT = "4f68bce3-e8cd-4db1-96e7-fbcaf984b709"
-ROOT_VERITY = "2c7357ed-ebd2-46d9-aec1-23d437ec2bf5"
-ROOT_VERITY_SIG = "41092b05-9fc8-4523-994f-2def0408b176"
-# systemd-sysupdate labels inactive A/B slots "_empty"; they carry no verity data.
-EMPTY_SLOT_LABEL = "_empty"
+
+def _load_sibling(name):
+    """Loads the rules_mkosi helper module name.py from this file's directory, independent of sys.path."""
+    spec = importlib.util.spec_from_file_location("rules_mkosi_" + name, Path(__file__).with_name(name + ".py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+gpt = _load_sibling("gpt_partitions")
+
 MAX_ARTIFACT_BYTES = 16 * 1024**3
 MAX_BLOCKS = 1 << 32
 MAX_LEVELS = 64
@@ -22,11 +29,8 @@ SUPERBLOCK_SIZE = 512
 
 
 def _sha256(path):
-    digest = hashlib.sha256()
     with open(path, "rb") as source:
-        for chunk in iter(lambda: source.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+        return hashlib.file_digest(source, "sha256").hexdigest()
 
 
 def _read_superblock(path):
@@ -179,16 +183,17 @@ def project(root_hash_path, partition_metadata_path, root_image_path, hash_image
     root_hash = Path(root_hash_path).read_text().strip().lower()
     partitions = json.loads(Path(partition_metadata_path).read_text())["partitions"]
     by_type = {}
+    slot_types = (gpt.ROOT_X86_64, gpt.ROOT_X86_64_VERITY)
     for partition in partitions:
-        if partition.get("label") == EMPTY_SLOT_LABEL and partition["type_guid"] in (ROOT, ROOT_VERITY):
+        if partition.get("label") == gpt.EMPTY_SLOT_LABEL and partition["type_guid"] in slot_types:
             continue
         by_type.setdefault(partition["type_guid"], []).append(partition)
-    if len(by_type.get(ROOT, [])) != 1 or len(by_type.get(ROOT_VERITY, [])) != 1:
+    if len(by_type.get(gpt.ROOT_X86_64, [])) != 1 or len(by_type.get(gpt.ROOT_X86_64_VERITY, [])) != 1:
         raise ValueError("exactly one x86-64 root data and verity hash partition is required")
-    if by_type.get(ROOT_VERITY_SIG):
+    if by_type.get(gpt.ROOT_X86_64_VERITY_SIG):
         raise ValueError("verity signature partitions require signing support tracked by #23")
-    root_partition = by_type[ROOT][0]
-    hash_partition = by_type[ROOT_VERITY][0]
+    root_partition = by_type[gpt.ROOT_X86_64][0]
+    hash_partition = by_type[gpt.ROOT_X86_64_VERITY][0]
     root_size = os.path.getsize(root_image_path)
     hash_size = os.path.getsize(hash_image_path)
     if root_size > MAX_ARTIFACT_BYTES or hash_size > MAX_ARTIFACT_BYTES:

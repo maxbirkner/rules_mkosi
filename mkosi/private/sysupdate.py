@@ -10,8 +10,16 @@ import shutil
 import uuid
 from pathlib import Path
 
-ROOT_X86_64 = "4f68bce3-e8cd-4db1-96e7-fbcaf984b709"
-ROOT_X86_64_VERITY = "2c7357ed-ebd2-46d9-aec1-23d437ec2bf5"
+
+def _load_sibling(name):
+    """Loads the rules_mkosi helper module name.py from this file's directory, independent of sys.path."""
+    spec = importlib.util.spec_from_file_location("rules_mkosi_" + name, Path(__file__).with_name(name + ".py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+gpt = _load_sibling("gpt_partitions")
 
 _TRANSFER = """\
 [Transfer]
@@ -128,11 +136,8 @@ def _copy(source, destination):
 
 
 def _sha256(path):
-    digest = hashlib.sha256()
     with open(path, "rb") as source:
-        while chunk := source.read(_CHUNK_BYTES):
-            digest.update(chunk)
-    return digest.hexdigest()
+        return hashlib.file_digest(source, "sha256").hexdigest()
 
 
 def _release_uki(args):
@@ -152,11 +157,7 @@ def _release_uki(args):
 
 def _read_image_version(path, image_id):
     """Returns the validated version in path using the sibling image_version.py helper."""
-    helper = Path(__file__).with_name("image_version.py")
-    spec = importlib.util.spec_from_file_location("rules_mkosi_image_version", helper)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module.read_image_version(path, image_id)
+    return _load_sibling("image_version").read_image_version(path, image_id)
 
 
 def payload(args):
@@ -168,8 +169,8 @@ def payload(args):
     partitions = json.loads(Path(args.partition_metadata).read_text(encoding="utf-8"))["partitions"]
     slot = "{}_{}".format(args.image_id, args.image_version)
     for type_guid, label, expected in (
-        (ROOT_X86_64, slot, root_uuid),
-        (ROOT_X86_64_VERITY, slot + "_verity", verity_uuid),
+        (gpt.ROOT_X86_64, slot, root_uuid),
+        (gpt.ROOT_X86_64_VERITY, slot + "_verity", verity_uuid),
     ):
         actual = _populated(partitions, type_guid, label).get("uuid")
         if actual != expected:

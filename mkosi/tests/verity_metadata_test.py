@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "private"))
+import gpt_partitions
 import verity_metadata
 
 
@@ -40,8 +41,8 @@ class VerityMetadataTest(unittest.TestCase):
 
     def _write_partitions(self, root_size, hash_size):
         self.partitions.write_text(json.dumps({"partitions": [
-            {"number": 1, "size_bytes": root_size, "type_guid": verity_metadata.ROOT},
-            {"number": 2, "size_bytes": hash_size, "type_guid": verity_metadata.ROOT_VERITY},
+            {"number": 1, "size_bytes": root_size, "type_guid": gpt_partitions.ROOT_X86_64},
+            {"number": 2, "size_bytes": hash_size, "type_guid": gpt_partitions.ROOT_X86_64_VERITY},
         ]}))
 
     def _project(self):
@@ -74,18 +75,18 @@ class VerityMetadataTest(unittest.TestCase):
 
     def test_ignores_inactive_ab_slots(self):
         self.partitions.write_text(json.dumps({"partitions": [
-            {"number": 1, "size_bytes": 8192, "type_guid": verity_metadata.ROOT, "label": "ab_1"},
-            {"number": 2, "size_bytes": 8192, "type_guid": verity_metadata.ROOT_VERITY, "label": "ab_1_verity"},
-            {"number": 3, "size_bytes": 8192, "type_guid": verity_metadata.ROOT, "label": "_empty"},
-            {"number": 4, "size_bytes": 8192, "type_guid": verity_metadata.ROOT_VERITY, "label": "_empty"},
+            {"number": 1, "size_bytes": 8192, "type_guid": gpt_partitions.ROOT_X86_64, "label": "ab_1"},
+            {"number": 2, "size_bytes": 8192, "type_guid": gpt_partitions.ROOT_X86_64_VERITY, "label": "ab_1_verity"},
+            {"number": 3, "size_bytes": 8192, "type_guid": gpt_partitions.ROOT_X86_64, "label": "_empty"},
+            {"number": 4, "size_bytes": 8192, "type_guid": gpt_partitions.ROOT_X86_64_VERITY, "label": "_empty"},
         ]}))
         self.assertEqual(2, self._project()["data_blocks"])
 
     def test_rejects_second_populated_root(self):
         self.partitions.write_text(json.dumps({"partitions": [
-            {"number": 1, "size_bytes": 8192, "type_guid": verity_metadata.ROOT, "label": "ab_1"},
-            {"number": 2, "size_bytes": 8192, "type_guid": verity_metadata.ROOT_VERITY, "label": "ab_1_verity"},
-            {"number": 3, "size_bytes": 8192, "type_guid": verity_metadata.ROOT, "label": "ab_0"},
+            {"number": 1, "size_bytes": 8192, "type_guid": gpt_partitions.ROOT_X86_64, "label": "ab_1"},
+            {"number": 2, "size_bytes": 8192, "type_guid": gpt_partitions.ROOT_X86_64_VERITY, "label": "ab_1_verity"},
+            {"number": 3, "size_bytes": 8192, "type_guid": gpt_partitions.ROOT_X86_64, "label": "ab_0"},
         ]}))
         with self.assertRaisesRegex(ValueError, "exactly one"):
             self._project()

@@ -20,7 +20,7 @@ def _python_action(ctx, arguments, inputs, outputs, mnemonic):
     ctx.actions.run(
         executable = python.python,
         arguments = [arguments],
-        inputs = depset([ctx.file._tool] + inputs, transitive = [python.python_runtime_files]),
+        inputs = depset([ctx.file._tool, ctx.file._gpt_partitions] + inputs, transitive = [python.python_runtime_files]),
         tools = [python.python_files_to_run],
         outputs = outputs,
         env = {"PATH": "", "PYTHONNOUSERSITE": "1"},
@@ -69,6 +69,7 @@ systemd-sysupdate names new files after the first pattern and otherwise defaults
             default = "/usr/lib/sysupdate.d",
             doc = "Image directory receiving the transfer files.",
         ),
+        "_gpt_partitions": attr.label(default = "//mkosi/private:gpt_partitions.py", allow_single_file = True),
         "_tool": attr.label(default = "//mkosi/private:sysupdate.py", allow_single_file = True),
     },
     doc = """Generates systemd-sysupdate transfer definitions for A/B root, verity and UKI updates.
@@ -139,6 +140,7 @@ sysupdate_payload = rule(
 The payload action fails with SYSUPDATE_INVALID unless the signing request was created for this image's
 unsigned UKI.""",
         ),
+        "_gpt_partitions": attr.label(default = "//mkosi/private:gpt_partitions.py", allow_single_file = True),
         "_image_version": attr.label(default = "//mkosi/private:image_version.py", allow_single_file = True),
         "_tool": attr.label(default = "//mkosi/private:sysupdate.py", allow_single_file = True),
     },
