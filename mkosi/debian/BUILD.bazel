@@ -22,6 +22,7 @@ exports_files([
 py_binary(
     name = "generate_lock",
     srcs = ["generate_lock.py"],
+    data = ["//mkosi/private:debian_control.py"],
     main = "generate_lock.py",
 )
 
@@ -31,6 +32,7 @@ py_test(
         "generate_lock.py",
         "generate_lock_test.py",
     ],
+    data = ["//mkosi/private:debian_control.py"],
     main = "generate_lock_test.py",
 )
 

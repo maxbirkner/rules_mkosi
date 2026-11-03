@@ -109,8 +109,27 @@ class DebianSnapshotUnitTest(unittest.TestCase):
             )
 
     def test_package_metadata_rejects_duplicate_fields(self):
+        index = self.work / "duplicate"
+        index.write_bytes(b"Package: one\nPackage: two\n")
         with self.assertRaisesRegex(ValueError, "duplicate"):
-            debian_snapshot._paragraphs(b"Package: one\nPackage: two\n")
+            debian_snapshot._read_package_metadata(((str(index), "amd64"),), {})
+
+    def test_package_metadata_skips_continuation_lines_of_other_fields(self):
+        index = self.work / "continuation"
+        index.write_bytes(
+            b"Package: demo\nVersion: 1\nArchitecture: amd64\n"
+            b"Depends: libc6 (>= 2.36),\n zlib1g\n"
+            b"Description: demo\n First line.\n .\n\tLast line.\n"
+            b"Filename: pool/main/d/demo.deb\nSize: 3\nSHA256: abc\n"
+            b" \n"
+            b"Package: other\nVersion: 2\nArchitecture: amd64\n"
+            b"Filename: pool/main/o/other.deb\nSize: 4\nSHA256: def\n"
+        )
+        expected = {
+            ("demo", "1", "amd64"): ("pool/main/d/demo.deb", 3, "abc"),
+            ("other", "2", "amd64"): ("pool/main/o/other.deb", 4, "def"),
+        }
+        self.assertEqual(expected, debian_snapshot._read_package_metadata(((str(index), "amd64"),), expected))
 
     def test_package_path_must_be_under_pool(self):
         self.assertEqual(

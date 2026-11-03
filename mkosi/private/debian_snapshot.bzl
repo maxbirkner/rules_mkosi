@@ -104,7 +104,7 @@ def _stage_repository(ctx, component_indexes, output, scratch):
             ctx.file._stager.path,
             _stager_arguments(ctx, debian_tools.launcher, output, scratch, component_indexes),
         ],
-        inputs = depset(_metadata_files(ctx) + [ctx.file._stager] + component_indexes + ctx.files.package_files),
+        inputs = depset(_metadata_files(ctx) + [ctx.file._stager] + ctx.files._stager_modules + component_indexes + ctx.files.package_files),
         tools = [debian_tools.python_files_to_run, debian_tools.launcher],
         outputs = [output, scratch],
         env = {
@@ -185,6 +185,14 @@ debian_snapshot = rule(
         "_stager": attr.label(
             allow_single_file = True,
             default = "//mkosi/private:debian_snapshot.py",
+        ),
+        "_stager_modules": attr.label_list(
+            allow_files = True,
+            default = [
+                "//mkosi/private:debian_control.py",
+                "//mkosi/private:file_hashing.py",
+                "//mkosi/private:sibling_loader.py",
+            ],
         ),
     },
     toolchains = ["//mkosi/toolchain:debian_tools_toolchain_type"],
