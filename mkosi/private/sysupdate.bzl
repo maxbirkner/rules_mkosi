@@ -16,6 +16,16 @@ mkosi_image.image_version_file, or None. Exactly one of image_version and image_
     },
 )
 
+def _script(name):
+    return attr.label(default = "//mkosi/private:" + name, allow_single_file = True, cfg = "exec")
+
+_SCRIPT_ATTRS = {
+    "_file_hashing": _script("file_hashing.py"),
+    "_gpt_partitions": _script("gpt_partitions.py"),
+    "_sibling_loader": _script("sibling_loader.py"),
+    "_tool": _script("sysupdate.py"),
+}
+
 def _run_sysupdate(ctx, arguments, inputs, output, mnemonic):
     run_python(
         ctx,
@@ -64,11 +74,7 @@ sysupdate_transfers = rule(
             default = "/usr/lib/sysupdate.d",
             doc = "Image directory receiving the transfer files.",
         ),
-        "_file_hashing": attr.label(default = "//mkosi/private:file_hashing.py", allow_single_file = True),
-        "_gpt_partitions": attr.label(default = "//mkosi/private:gpt_partitions.py", allow_single_file = True),
-        "_sibling_loader": attr.label(default = "//mkosi/private:sibling_loader.py", allow_single_file = True),
-        "_tool": attr.label(default = "//mkosi/private:sysupdate.py", allow_single_file = True),
-    },
+    } | _SCRIPT_ATTRS,
     doc = """Generates systemd-sysupdate transfer definitions for A/B root, verity and UKI updates.
 
 Add the target to mkosi_image(rootfs_payloads = [...]) and apply updates with
@@ -140,12 +146,8 @@ sysupdate_payload = rule(
 
 The build fails with SYSUPDATE_INVALID unless its signing request was created for this image's unsigned UKI.""",
         ),
-        "_file_hashing": attr.label(default = "//mkosi/private:file_hashing.py", allow_single_file = True),
-        "_gpt_partitions": attr.label(default = "//mkosi/private:gpt_partitions.py", allow_single_file = True),
-        "_sibling_loader": attr.label(default = "//mkosi/private:sibling_loader.py", allow_single_file = True),
-        "_image_version": attr.label(default = "//mkosi/private:image_version.py", allow_single_file = True),
-        "_tool": attr.label(default = "//mkosi/private:sysupdate.py", allow_single_file = True),
-    },
+        "_image_version": _script("image_version.py"),
+    } | _SCRIPT_ATTRS,
     doc = """Projects a versioned mkosi_image into an update directory for sysupdate_transfers.
 
 The directory contains '<id>_<version>.root.<uuid>.raw', '<id>_<version>.root-verity.<uuid>.raw',
