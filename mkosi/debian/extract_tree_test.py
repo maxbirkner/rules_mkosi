@@ -28,7 +28,7 @@ class ExtractTreeSecurityTest(unittest.TestCase):
     def test_rejects_member_traversal(self):
         for name in ("../escape", "usr/../../escape", "/etc/passwd"):
             with self.assertRaises(ValueError):
-                extract_tree._member_path(name)
+                extract_tree.member_path(name)
 
     def test_rejects_symlink_escape(self):
         with self.assertRaises(ValueError):

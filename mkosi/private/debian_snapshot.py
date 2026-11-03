@@ -1,23 +1,22 @@
 """Stage a deterministic, authenticated Debian APT snapshot tree."""
 
 import argparse
-import hashlib
 import lzma
 import os
 import pathlib
+import runpy
 import shutil
 import subprocess
 import sys
 import re
 
-
-def _digest(path):
-    with open(path, "rb") as source:
-        return hashlib.file_digest(source, "sha256").hexdigest()
+_load_sibling = runpy.run_path(str(pathlib.Path(__file__).with_name("sibling_loader.py")))["load_sibling"]
+debian_control = _load_sibling(__file__, "debian_control")
+file_hashing = _load_sibling(__file__, "file_hashing")
 
 
 def _verify_digest(path, expected, description):
-    actual = _digest(path)
+    actual = file_hashing.sha256_file(path)
     if actual != expected:
         raise ValueError(
             "%s digest mismatch: expected=%s actual=%s" % (description, expected, actual)
@@ -32,33 +31,6 @@ def _verify_package(path, expected_digest, expected_size, description):
             "%s size mismatch: expected=%d actual=%d"
             % (description, expected_size, actual_size)
         )
-
-
-def _paragraphs(data):
-    paragraphs = []
-    current = {}
-    field = None
-    for line in data.decode("utf-8").splitlines():
-        if not line:
-            if current:
-                paragraphs.append(current)
-                current = {}
-                field = None
-            continue
-        if line[0].isspace():
-            if field is None:
-                raise ValueError("continuation without a Debian metadata field")
-            current[field] += "\n" + line
-            continue
-        if ":" not in line:
-            raise ValueError("malformed Debian metadata field")
-        field, value = line.split(":", 1)
-        if field in current:
-            raise ValueError("duplicate Debian metadata field: %s" % field)
-        current[field] = value.lstrip()
-    if current:
-        paragraphs.append(current)
-    return paragraphs
 
 
 def _sha256_entries(release):
@@ -198,7 +170,7 @@ def _read_package_metadata(indexes, expected):
     actual = {}
     for package_index, index_architecture in indexes:
         with open(package_index, "rb") as source:
-            for paragraph in _paragraphs(source.read()):
+            for paragraph in debian_control.paragraphs(source.read().decode("utf-8")):
                 architecture = paragraph.get("Architecture")
                 if architecture not in ("amd64", "all"):
                     raise ValueError("unsupported package architecture")
