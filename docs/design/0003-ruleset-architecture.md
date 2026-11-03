@@ -7,399 +7,120 @@
 
 The repository must:
 
-- Be a Bazelmod-native ruleset suitable for eventual BCR publication.
+- Be a Bazelmod-native ruleset suitable for BCR publication.
 - Keep the public API small and separate from implementation details.
-- Test providers and actions during analysis.
-- Test generated artifacts during execution.
+- Test providers and actions during analysis, and generated artifacts during execution.
 - Include an independent consumer module using `local_path_override`.
-- Keep portable analysis coverage separate from the dedicated-runner real-image
-  test.
-- Evolve toward Bazel-provided toolchains and offline image inputs.
+- Keep portable analysis coverage separate from tests that need a qualified Linux runner.
+- Move toward Bazel-provided toolchains and offline image inputs.
 
 ## Module policy
 
-`MODULE.bazel` intentionally leaves `version` unset. The BCR publishing
-workflow patches the release version into the registry copy. Setting a source
-version causes problems for consumers using non-registry overrides.
+`MODULE.bazel` leaves `version` unset: the BCR publishing workflow patches it into the registry copy, and a source version causes problems for consumers using non-registry overrides.
+`compatibility_level` is omitted because it is a deprecated no-op in Bazel 8 and 9; breaking releases provide migration diagnostics and documentation instead.
 
-`compatibility_level` is also omitted. It became a deprecated no-op in recent
-Bazel 8 and 9 releases. Breaking releases must instead provide explicit
-migration diagnostics and documentation.
-
-The supported baseline is Bazel 8.5.1. The rolling policy supports the
-current and previous Bazel LTS majors, currently Bazel 8 and 9.
-`.bazelversion` pins the lockfile-generating development version.
+The baseline is Bazel 8.5.1, with a rolling policy of supporting the current and previous LTS majors (currently 8 and 9).
+`.bazelversion` pins the version that generates the lockfiles.
 
 ## Public API boundary
 
-Consumers load rules and providers only from `//mkosi:defs.bzl`. Files below
-`//mkosi/private` are implementation details. The toolchain type is public
-because registration and advanced integrations need a stable label.
+Consumers load rules and providers only from `//mkosi:defs.bzl`; `//mkosi/private` is implementation.
+Toolchain types are public because registration and advanced integrations need stable labels.
 
-`mkosi_image` exposes a stable `MkosiImageInfo` output contract. Its
-`format_version` is always `mkosi-image-v2`, and its `raw_image`, `manifest`,
-`partition_metadata`, `uki`, and `build_metadata` fields are each a `File` or
-`None`; consumers select fields rather than infer roles from artifact names.
-The current disk/raw mode provides `raw_image` and the normalized JSON
-`build_metadata` projection. Release images also provide a normalized GPT
-`partition_metadata` projection; tracer images set it to `None`. Manifest and
-UKI fields remain `None`. Its legacy `image` field remains an exact
-The projection parser performs bounded reads of the raw artifact and validates
-the CRC-protected primary and backup GPT headers and entry arrays before
-emitting semantic geometry, type GUIDs, labels, and original entry-slot
-numbers. Random disk and partition unique GUIDs are intentionally omitted. Its legacy `image` field remains an exact
-compatibility alias for `raw_image`. `DefaultInfo.files` contains each
-non-`None` provider artifact once, with no ordering guarantee; existing
-consumers must not assume it is a singleton. The action invokes the pinned mkosi v27 executable and the pinned Debian 13
-tools tree through registered toolchains. The toolchain crosses Bazel's cache
-boundary as an authenticated regular tar artifact; the image wrapper extracts
-it into action-local workspace storage so merged-`/usr` symlinks never need to
-be replayed as a directory artifact. The explicit `mode` API defaults to
-networked `"tracer"` mode, which is non-cacheable and not remote- or
-offline-hermetic. `"release"` mode requires `DebianSnapshotInfo`, materializes
-the authenticated local APT tree, blocks network access, and omits the
-tracer-only `no-cache` requirement. Release callers must provide
-`config_tree`, `release_seed`, and `release_source_date_epoch`; execution
-resolves the pinned mkosi configuration, rejects filesystem paths outside its
-declared staged inputs, and rejects it unless the values match `Seed=` and
-`SourceDateEpoch=`; its Debian defaults are forced from the snapshot provider.
-A narrow release wrapper supplies deterministic passwd,
-group, hosts, and NSS sandbox inputs rather than mkosi's host `/etc` defaults.
-The stable provider remains `mkosi-image-v2`; its normalized metadata advances
-to `mkosi-image-build-metadata-v2`, adding the release mode, reproducibility
-inputs, and authenticated snapshot identity/lock digest. The release action
-retains `no-remote-exec` pending execution-platform qualification, but may use
-local and remote action caches. If APT is installed, release mode removes its
-persistent package-source files rather than embedding a mutable network mirror.
-It also rejects proxies, lifecycle scripts, and extra trees so they cannot
-import an undeclared host input or restore an APT source after that cleanup,
-and rejects host microcode and every host kernel-module selection form.
-Release mode rejects mkosi `[Match]` and `[TriggerMatch]` sections before
-their host-probe expressions are evaluated.
-It rejects mkosi incremental mode to prevent workspace cache state from
-crossing a Bazel action boundary.
-The tracer action forces disk/raw/uncompressed output
-and disables split artifacts; configuration files cannot redirect the declared
-artifact or select a custom format. The legacy `config` attribute accepts
-exactly one file. Complete
-configuration directories use the explicitly typed `config_tree` provider,
-which preserves `mkosi.conf.d/`, `mkosi.profiles/`, and `mkosi.extra/`.
-`source_trees` is an explicitly typed normalized-relative-destination map;
-each declared directory is staged at its map key, preserving paths used by
-`BuildSources`. A single-file config remains compatible with existing
-callers, while adding source trees stages that file at its basename so
-relative references remain stable. Tree providers explicitly list executable
-paths because Bazel input roots do not preserve source mode bits. Staging
-actions consume only their declared labels and use deterministic map ordering.
-Their manifest preflight rejects
-path collisions, source aliases, and escaping links before writes; staging and
-the Bazel input-root materialization normalize timestamps and permissions while
-preserving valid relative links and executable bits.
-
-The toolchain provider carries the pinned mkosi executable and complete
-runfiles, a Bazel-managed Python 3.14 runtime, the optional `pefile` dependency
-needed by mkosi's bootable PE inspection paths, and source provenance
-(immutable URL and SHA-256 integrity). The generated repository selects that
-runtime through `@rules_python//python:toolchain_type`; the dependency module
-registers a deterministic CPython 3.14 default, while a root module can
-register another compatible in-build 3.14 runtime at normal toolchain
-precedence. Host-path runtimes and mismatched major/minor versions fail during
-analysis. QEMU and firmware remain outside this image-building action and are
-supplied by their separate toolchain.
-
-The Debian launcher deliberately does not use that replaceable runtime. Its
-first process must remain executable before a host or packaged dynamic loader
-is trusted, so a pinned static CPython 3.14.7 runtime and a fully static native
-bootstrap form a separate boundary. The native code uses rules_cc's runfiles
-implementation to locate only the static interpreter and generated Python
-stub, sanitizes inherited process state, and performs direct `execv(...,
-"-I", ...)`. The stub is Python source even though it contains a convenience
-shebang; that shebang is never used. The Click command owns argument parsing,
-runfile/configuration resolution, archive authentication and extraction, and
-namespace-runner orchestration. The separate static namespace runner retains
-exclusive ownership of user/mount/PID/IPC/UTS setup, descriptor-only typed
-mounts, pivoting away from the host root, and packaged-loader execution.
+- **Typed outputs.**
+  `mkosi_image` returns `MkosiImageInfo`, whose artifact fields are each a `File` or `None`.
+  Consumers select fields rather than infer roles from file names or `DefaultInfo` order, so new outputs never change existing meanings.
+- **Explicit build modes.**
+  `tracer` is networked and never cached, so it makes no hermeticity claim.
+  `release` takes packages only from an authenticated `DebianSnapshotInfo`, blocks the network, and may be cached.
+  Release mode rejects any configuration that could read undeclared host state or reintroduce a network package source, so a cache hit is always valid.
+- **Typed inputs.**
+  Configuration and source directories, and image payloads, are marked with typed rules so their roles and executable bits are explicit; Bazel does not preserve source mode bits.
+- **Replaceable Python, fixed bootstrap.**
+  mkosi runs on a Bazel-managed Python 3.14 resolved through rules_python, which a root module may replace with another in-build 3.14 runtime.
+  The Debian tools launcher instead uses a pinned static interpreter and static native bootstrap, because it must start before any dynamic loader is trusted.
+- **QEMU and firmware** are a separate toolchain used only by tests.
 
 ## Test layers
 
-### Analysis tests
+| Layer | Purpose |
+| --- | --- |
+| Analysis tests | `analysistest` checks providers, absent artifacts, toolchain selection, and registered actions without executing them. Preferred for rule logic. |
+| Artifact tests | Validate generated images through reviewable projections (GPT, metadata, verity, UKI sections, reproducibility manifests) rather than checked-in or byte-compared images. |
+| Consumer module | `e2e/smoke` resolves rules_mkosi independently, exercising public labels, extensions, toolchain registration, and a consumer-registered Python runtime. |
+| Boot tests | Boot images under QEMU with OVMF or SeaBIOS through one firmware-neutral serial and QMP lifecycle, including multi-boot A/B update and rollback. |
+| Module resolution | Nested-module fixtures check extension selection and error messages. |
 
-`bazel_skylib` `analysistest` inspects the configured target without executing
-the action. It verifies:
+A nested `MODULE.bazel` does not stop root `//...` traversal, so `.bazelignore` excludes `e2e/`.
+The consumer stays in release archives because BCR runs it as the test module.
 
-- `MkosiImageInfo` is present and every optional-output combination preserves
-  field/`DefaultInfo` correspondence.
-- Provider fields and absent artifacts are correct.
-- The raw-image and normalized-metadata projections are stable.
-- Toolchain resolution selected the expected toolchain.
-- The expected mkosi action and normalized-metadata projection were registered.
+Reproducibility is proved by building release images in two clean output roots with all caches disabled, confirming that each image action really executed, and comparing normalized manifests.
+The canonical image digest ignores only GPT disk and partition GUIDs and the checksums derived from them.
+Build-process state such as paths, timestamps, and ownership is outside the manifest.
+Externally signed artifacts are not claimed to be reproducible.
 
-Analysis tests are the preferred Bazel mechanism for testing rule internals.
-They are fast and isolate Starlark behavior from external tools.
+Inspection tools, QEMU, and firmware are resolved as Bazel toolchains, never assumed on the runner.
 
-### Artifact tests
-
-Real disk images must never be checked in or compared directly. The real-image
-artifact validator checks the GPT signature, a Linux x86-64 root partition,
-CRC-valid primary and backup metadata, and ext4 allocation metadata. It uses
-the image file descriptor's `SEEK_DATA`/`SEEK_HOLE` ranges to prove that the
-root inode's bitmap-marked directory extent is physically allocated, without
-booting the image. Future rules will derive reviewable text or JSON projections
-and compare those instead:
-
-- mkosi's effective configuration.
-- Partition tables and GPT type UUIDs.
-- Filesystem and verity metadata.
-- UKI sections and signatures.
-- Reproducibility across repeated builds.
-
-`mkosi_reproducibility_manifest` now projects normalized raw-image structure,
-provider-selected partition metadata, and build metadata into canonical JSON.
-It records the SHA-256 and byte size of both immutable metadata artifacts,
-embeds their parsed content with sorted JSON keys, and records a canonical
-whole-image SHA-256. That digest covers every image byte exactly once while
-normalizing only the GPT disk GUID, partition unique GUIDs, and the primary
-and backup header/partition-array CRC fields derived from those identities.
-Type GUIDs, labels, slot order, LBAs, attributes, padding, reserved bytes,
-partition payload, boot code, and every other image byte remain hashed. CI
-compares this text across
-two Bazel 8 builds with distinct clean
-`output_user_root` directories and with local and remote action-result caches
-disabled. Each invocation also uses `--nouse_action_cache` and an isolated
-empty disk-cache directory. A Bazel JSON execution log must record exactly one
-non-cache-hit `MkosiImage` and `MkosiReproducibilityManifest` action for each
-build before their manifests are compared. Repository downloads may be reused
-because their content is fixed and authenticated.
-
-The current unsigned release disk excludes only GPT identity fields and their
-necessarily derived CRCs from its canonical digest: disk GUID, each partition
-unique GUID, both partition-array CRCs, and both header CRCs.
-The manifest's `excluded_variable_fields` names each non-artifact field that
-is intentionally omitted: output path, inode, ownership, permissions, mtime,
-output base, sandbox path, workspace path, action start time, and action
-duration. Each entry carries its reason. These describe the two build
-processes rather than artifact content. The comparison makes no claim about
-future signed UKIs or detached signatures: signature bytes, signing time,
-certificate ordering, and signer randomness must be identified and excluded
-with a reason if those artifacts are added. Execution paths, sandbox paths,
-workspace paths, and action timing are likewise outside the artifact manifest
-because they are build-process state and are not embedded release fields.
-
-Inspection binaries must be supplied through Bazel toolchains rather than
-assumed to exist on the runner.
-
-The checked-in tracer configurations fix `Seed=` and `SourceDateEpoch=` to
-remove two known sources of variation. This does not claim full image
-reproducibility while target packages are acquired over the network.
-The deterministic release configurations pass a fixed ext4 directory-index
-`hash_seed` through mkosi's build environment; the formatter otherwise
-generates that superblock field randomly. Release mode also exports the
-matching `SOURCE_DATE_EPOCH`.
-
-### Consumer module
-
-`e2e/smoke` is an independent Bazel module. It depends on `rules_mkosi` through
-`local_path_override`, registers the public module extension and toolchain,
-consumes both a minimal configuration and a typed configuration/source tree
-through the public `mkosi_image` rule. Its image builds and semantic artifact
-tests run in the default consumer suite.
-
-The consumer registers a recognizable CPython 3.14 wrapper ahead of the
-dependency default. An analysis test inspects rules_mkosi's resolved
-interpreter field, and executable tests run mkosi and the direct managed test
-launcher with that runtime. This validates the ruleset's consumer-selection
-boundary; it is not a generic test of Bazel's toolchain algorithm.
-
-A nested `MODULE.bazel` does not stop root `//...` traversal. `.bazelignore`
-therefore excludes `e2e/`, and CI invokes the consumer from its own working
-directory. The consumer also selects `MkosiImageInfo.build_metadata` through a small
-consumer-owned rule and validates the resulting JSON, rather than depending on
-its filename or default output ordering. The consumer must remain in release archives because BCR runs it as
-the module's test project.
-
-### Boot tests
-
-Issue 8 provides one UEFI/OVMF TCG boot test for the Debian tracer. Issue
-19 extracts it as the public `qemu_ovmf_boot_test` adapter. It consumes the
-public image through Bazel dependency edges, waits for a deterministic systemd
-hostname marker on guest serial output, and requires the guest's clean
-systemd power-off markers before accepting the QEMU exit. The adapter creates a native direct-ELF managed-Python launcher with a private
-bootstrap rather than a shell wrapper; the bootstrap clears `PATH` before
-executing the lifecycle source, and its runfiles include the complete
-registered Python runtime. Its child QEMU therefore receives an empty `PATH`.
-Before guest classification, the runner completes a bounded QMP greeting and
-capabilities handshake, so QEMU
-initialization/argument failures are distinct from firmware and guest
-failures. The lifecycle accepts machine arguments, exact markers, deadlines,
-and diagnostic retention as attributes and contains no UEFI logic; OVMF flash
-arguments belong only to that adapter. The SeaBIOS adapter uses the same
-lifecycle with the toolchain's typed, checksum-pinned ROM and a firmware debug
-console. Its independently named runtime boots the offline GRUB image, reaches
-the complete root filesystem, and powers off cleanly. The BIOS image therefore
-includes a real initrd, `/sbin/init`, and the full root payload rather than
-only the GRUB installation evidence.
-
-Every QEMU test adapter derives its `-accel` arguments from one shared
-`accelerator` policy. The default lists KVM before TCG, so QEMU itself uses
-KVM when the test process can open `/dev/kvm` and otherwise falls back to TCG
-in the same process; no adapter probes the host. `tcg` forces software
-emulation, and the consumer's `uefi_boot_test` uses it to keep the fallback
-covered on hosts with KVM. The guest CPU model is QEMU's default for both
-accelerators, and deadlines are sized for TCG. The runner records the
-accelerator reported by QMP `query-kvm` in its log and boot evidence.
-
-The production test hierarchy will later add:
-
-1. Content tests against mounted or userspace-inspected filesystems.
-2. Update, failed-health-check, and automatic rollback tests.
-3. Power interruption tests outside ordinary BCR workers.
-4. Representative physical-hardware qualification.
-
-QEMU, firmware, and inspection tools must be resolved as Bazel toolchains.
-Real image jobs may require dedicated Linux runners even when the tools
-themselves are pinned.
+Remaining test work: power interruption tests outside ordinary BCR workers, and representative physical-hardware qualification.
 
 ## CI
 
-GitHub Actions runs the root and consumer suites against pinned Bazel 8.5.1
-and 9.2.0. Bazel 8 validates the committed lockfiles strictly; Bazel 9 uses
-lockfile mode off only for compatibility commands and never rewrites them.
-Actions are pinned by commit SHA, permissions default to read-only, and
-concurrent superseded branch builds are cancelled. A stable conclusion job can
-be used for branch protection.
+GitHub Actions runs the root and consumer suites on pinned Bazel 8.5.1 and 9.2.0, plus a weekly run that detects breakage from rolling releases.
+Bazel 8 validates the committed lockfiles strictly; Bazel 9 uses lockfile mode off and never rewrites them.
+Actions are pinned by commit SHA, permissions default to read-only, superseded branch builds are cancelled, and one conclusion job gates branch protection.
 
-The weekly scheduled run detects breakage from rolling Bazel releases and
-external dependency changes. Both committed lockfiles are generated and
-validated with Bazel 8.5.1. Bazel 9 compatibility commands use lockfile mode
-off without rewriting them.
-
-The checked-in Bazel rc files keep local action results in ignored,
-worktree-local disk caches, while setup-bazel continues to inject its
-workflow-scoped cache paths in CI. CI's required qualified lane runs complete
-root and consumer suites with `bazel test //...`; the only selectors are
-semantic network, kernel-contract, and runfiles-manifest requirements. Bazel 9
-uses the portable config to omit only networked tests already covered by Bazel
-8. Tags do not encode a parallel CI test inventory.
-
-Real mkosi image tests run in the qualified Linux lane. Unsupported or
-privileged tests are either covered by the explicit kernel preflight or
-modeled as execution requirements; they are not silently omitted.
+CI runs `bazel test //...` with execution-policy configs rather than a hand-maintained test list.
+Tags are semantic (`requires-network`, `requires_kernel_contract`, `manifest`), and tests that need the host kernel run after an explicit preflight instead of being skipped.
 
 ## Action diagnostics
 
-The image wrapper and serial boot lifecycle run the Bazel-built kernel
-preflight before their expensive work. A failed probe preserves its individual
-`FAIL <capability>` remediation lines and adds one
-`KERNEL_CAPABILITY_FAILURE` boundary diagnostic. No action modifies a host
-sysctl or privilege to make that probe pass.
-
-All user-visible action failures use one of these stable categories, retain
-the original tool output, and include a single `Action:` remediation:
+Image actions and boot tests run the kernel preflight before expensive work, and never modify host sysctls or privileges to make it pass.
+Every user-visible failure keeps the original tool output and adds one category and one `Action:` remediation:
 
 | Category | Boundary |
 | --- | --- |
-| `KERNEL_CAPABILITY_FAILURE` | The proven namespace/mount preflight rejected the action. |
+| `KERNEL_CAPABILITY_FAILURE` | The namespace and mount preflight rejected the host. |
 | `TOOLCHAIN_FAILURE` | A Bazel-provided executable or runfile could not start. |
 | `NETWORK_FAILURE` | mkosi package acquisition failed with a network signal. |
-| `ASSEMBLY_FAILURE` | mkosi exited for a non-network image-assembly reason. |
-| `VM_FAILURE` | QEMU/firmware/guest lifecycle failed; its subtype and logs are retained. |
+| `ASSEMBLY_FAILURE` | mkosi failed for another reason. |
+| `VM_FAILURE` | QEMU, firmware, or the guest failed; the subtype and logs are retained. |
 
 ## Coverage
 
-Bazel's coverage support instruments languages built by rules, not Starlark
-executed during loading and analysis. Consequently, `bazel coverage` produces
-an empty LCOV report for this repository's `.bzl` implementation. Analysis
-test frameworks such as Bazel Skylib and `rules_testing` improve assertions but
-do not provide Starlark line or branch coverage.
-
-[`maxbirkner/coveragemap`](https://github.com/maxbirkner/coveragemap) consumes
-LCOV and could visualize `.bzl` paths, but there is currently no meaningful
-LCOV input to provide. Integration is deferred until either:
-
-1. [Bazel Starlark coverage](https://github.com/bazelbuild/bazel/pull/15594)
-   is available; or
-2. the repository gains an instrumentable helper executable for which Bazel
-   can produce LCOV.
-
-Until then, behavioral coverage is enforced through analysis tests for every
-public rule mode, executed tests of reviewable artifact projections, the
-independent consumer module, and later OVMF/SeaBIOS boot tests. Adding an empty
-coverage job or a zero-information visualization would create a misleading
-quality signal. See [Starlark coverage status](../starlark-coverage.md) for
-exact Bazel 8.5.1 and 9.2.0 evidence and the reevaluation procedure.
+Bazel does not instrument Starlark, so `bazel coverage` yields empty LCOV for `.bzl` files, and analysis-test frameworks improve assertions but not line coverage.
+[`maxbirkner/coveragemap`](https://github.com/maxbirkner/coveragemap) integration is deferred until [Bazel Starlark coverage](https://github.com/bazelbuild/bazel/pull/15594) is available or logic moves into an instrumentable helper.
+An empty coverage job would be a misleading quality signal.
+Behavioral coverage is tracked in the [behavior catalog](../behavior-matrix.md); see [Starlark coverage status](../starlark-coverage.md) for the evidence and reevaluation procedure.
 
 ## BCR publication
 
-The `.bcr` directory contains templates for
-[`bazel-contrib/publish-to-bcr`](https://github.com/bazel-contrib/publish-to-bcr).
+The `.bcr` directory contains templates for [`bazel-contrib/publish-to-bcr`](https://github.com/bazel-contrib/publish-to-bcr).
 A release requires:
 
 1. A semantic version tag.
 2. A stable release-asset source archive with a deterministic prefix.
 3. Integrity metadata generated from that archive.
-4. `metadata.json`, `source.json`, and a per-task Bazel version in
-   `presubmit.yml`.
+4. `metadata.json`, `source.json`, and a per-task Bazel version in `presubmit.yml`.
 5. A test module in the extracted source archive.
-6. A pull request to
-   [`bazelbuild/bazel-central-registry`](https://github.com/bazelbuild/bazel-central-registry).
+6. A pull request to [`bazelbuild/bazel-central-registry`](https://github.com/bazelbuild/bazel-central-registry).
 
-The recommended eventual automation is:
-
-- [`bazel-contrib/.github` `release_ruleset`](https://github.com/bazel-contrib/.github)
-  to create stable archives and build-provenance attestations.
-- [`bazel-contrib/publish-to-bcr`](https://github.com/bazel-contrib/publish-to-bcr)
-  to generate and open the BCR pull request.
-- A draft GitHub release while attested assets are published, followed by
-  finalization after the BCR publishing job.
-
-The release workflow is intentionally not enabled in the hello-world phase.
-It would require a `BCR_PUBLISH_TOKEN`, release-note policy, and immutable
-archive preparation. Adding untested release automation now would create more
-risk than readiness.
+The intended automation is [`bazel-contrib/.github` `release_ruleset`](https://github.com/bazel-contrib/.github) for stable archives and build-provenance attestations, `publish-to-bcr` for the registry pull request, and a draft GitHub release that is finalized after publishing.
+Release automation is not yet enabled: it needs a `BCR_PUBLISH_TOKEN`, a release-note policy, and immutable archive preparation, and untested automation would add more risk than readiness.
 
 ## Hermeticity boundary
 
-The target is to provide through Bazel:
+Provided through Bazel:
 
-- mkosi source and Python runtime.
-- Optional Python packages such as `pefile`.
+- mkosi and its Python runtime and packages.
+- The Debian 13 build-time userspace, as a checksum-pinned, authenticated archive.
+- Authenticated Debian snapshot repositories, built-in or consumer-locked, as the only package source of release images.
 - QEMU and firmware for boot tests.
-- Image inspection and compression tools where redistributable.
-- Package manifests and offline package repositories.
 
-The Debian extension's `@mkosi_debian_snapshot//:repository` target is the
-first offline repository input. Its repository rule performs only
-content-addressed downloads of the locked `InRelease`, `Release`,
-`Release.gpg`, and architecture-specific `Packages.xz` indexes. A declared
-managed-Python action verifies both OpenPGP signatures with the pinned Debian
-archive keyring, checks Release index hashes and package records, and stages
-the exact `dists/` and `pool/` layout. This boundary is intentionally
-separate from `mkosi_image`: it supplies stable provenance and inputs for a
-future network-disabled mode without changing that rule's current package
-acquisition or cache semantics.
+Properties of the execution platform rather than files:
 
-Consumers declare further snapshots with the extension's `snapshot` tag. Each
-tag creates the same pair of content-addressed package and snapshot
-repositories from a consumer-owned lock produced by
-`//mkosi/debian:generate_lock`. A lock may pin several archive components;
-every component contributes its `binary-amd64` and `binary-all` indexes, all
-authenticated by the one signed Release. Locks without a component list are
-`main`-only, so the built-in lock needs no migration. Release mode passes the
-provider's component list to the mkosi wrapper, which replaces mkosi v27's
-`main`-only local-mirror source with `main` plus the configuration's
-`Repositories=` components and rejects any component the snapshot does not
-contain.
+- Linux namespace and mount support and user-namespace policy, checked by the [host-kernel contract](0004-host-kernel-contract.md).
 
-Some requirements are properties of the execution platform rather than files:
-
-- Linux kernel namespace support.
-- `systemd-repart` and related systemd behavior.
-- Filesystem and bootloader tooling.
-- User-namespace policy and capabilities.
-
-Until all required executables are toolchain inputs and image builds run
-offline, release image actions must be treated as local or dedicated-runner
-actions rather than generally hermetic remote-execution actions.
+Because of that platform dependency, image actions are local or dedicated-runner actions and are not offered for remote execution.
 
 ## References
 

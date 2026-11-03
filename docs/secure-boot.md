@@ -1,62 +1,53 @@
 # Secure Boot and offline signing
 
-`mkosi_image` remains unsigned by default. `unified_kernel_image = "unsigned"`
-creates a deterministic UKI without accepting any key. Signing is separate:
+rules_mkosi never handles a production signing key.
+`mkosi_image(unified_kernel_image = "unsigned")` builds a deterministic, cacheable unsigned UKI; a signer outside Bazel signs it, and Bazel verifies the result.
 
-1. `secure_boot_signing_request` hashes the unsigned UKI, records
-   `authenticode-sha256`, its canonical request digest, the UEFI signing
-   context, and the SHA-256 fingerprint of the expected public certificate in
-   `mkosi-secure-boot-signing-request-v2` JSON.
-   Certificate input is accepted only when it contains exactly one PEM or DER
-   X.509 object; bundles, duplicates, reversed chains, and trailing data are
-   rejected. The isolated DER object must then pass the authenticated
-   toolchain's OpenSSL X.509 parser. The rule fingerprints, emits, and
-   subsequently uses only OpenSSL's canonical DER result.
-2. A signing system outside Bazel validates that request, Authenticode-signs
-   the exact UKI, and returns the firmware-consumable signed PE/COFF image.
-3. `secure_boot_import_response` validates PE and `WIN_CERTIFICATE` bounds,
-   strictly decodes the PKCS#7 `SignedData` and `SpcIndirectDataContent`,
-   requires exactly one SHA-256 digest algorithm and one RSA/SHA-256
-   `SignerInfo`, cryptographically verifies the signer as the exact expected
-   certificate, and compares the embedded image digest with an independently
-   computed Authenticode PE hash. It also proves that stripping the certificate
-   table while normalizing only the PE checksum and security-directory fields
-   recovers the requested unsigned UKI.
-   OpenSSL is given only the normalized certificate with `-nointern`, and the
-   certificate it reports for the verified `SignerInfo` must have identical
-   DER bytes and fingerprint.
+```starlark
+load("@rules_mkosi//mkosi:defs.bzl", "secure_boot_import_response", "secure_boot_signing_request")
 
-The request, request digest, unsigned UKI, certificate, external signed UKI,
-and verification metadata are public artifacts. A detached workflow envelope
-may protect transport, but never substitutes for embedded Authenticode
-verification. A production private key is never a rule attribute or action
-input. The external signer is the trust boundary.
+secure_boot_signing_request(
+    name = "os_signing_request",
+    image = ":os",                 # Release image with unified_kernel_image = "unsigned".
+    certificate = "db.crt",        # The signer's public certificate (one PEM or DER X.509 object).
+)
 
-## Key custody and threats
+secure_boot_import_response(
+    name = "os_signed_uki",
+    request = ":os_signing_request",
+    signed_uki = "signed/os.efi",  # Returned by the external signer.
+)
+```
 
-The boundary prevents an ordinary Bazel action, remote executor, action cache,
-runfiles tree, log, or CI artifact from receiving a production private key. It
-detects substitution of the request, returned UKI, embedded signature, or
-certificate, including a different valid UKI signed by the trusted key. It
-rejects malformed, duplicate, out-of-bounds, or trailing certificate data. It
-also rejects a certificate table transplanted from another same-layout UKI
-signed by the trusted certificate. It does not protect a compromised offline
-signer, validate certificate issuance
-policy, operate an HSM, or attest signer hardware.
+1. `secure_boot_signing_request` outputs the unsigned UKI, the normalized certificate, and a JSON request (`mkosi-secure-boot-signing-request-v2`) that binds the UKI digest, the `authenticode-sha256` algorithm, and the certificate fingerprint.
+   It returns `SecureBootSigningRequestInfo`.
+2. The external signer validates the request, Authenticode-signs exactly that UKI, and returns the signed PE file.
+3. `secure_boot_import_response` accepts the signed UKI only if it carries exactly one RSA/SHA-256 Authenticode signature by the expected certificate and removing that signature (with the PE checksum and certificate-table fields it changes) yields exactly the requested UKI.
+   It returns `SecureBootSignedUkiInfo` with `signed_uki` and verification metadata.
 
-The ephemeral test fixture generates a one-day RSA key and Authenticode-signs
-a real PE in one action. The key exists only below action-private scratch, is
-overwritten and removed before exit, and is never an output, provider, input,
-argument to another action, runfile, or metadata value. The action requires
-`local`, `no-remote`, `no-remote-exec`, `no-remote-cache`, and `no-cache`. It
-is for tests only, never production custody.
+Pass the import target as `sysupdate_payload(signed_uki = ...)` to ship the signed UKI in an [A/B update](sysupdate-ab.md#update-payloads).
 
-Unsigned release artifacts remain deterministic and cacheable. Signed UKIs
-are external responses and can vary because of signing timestamps, certificate
-rotation, or signer implementation; do not claim byte reproducibility for
-them. Reproducibility manifests continue to describe the unsigned image graph.
+## Trust boundary
 
-BIOS images, rootfs payloads, dm-verity generation, and release network
-isolation are unchanged. Secure Boot applies only to externally signed UEFI
-UKIs; the dm-verity root hash remains linked into the unsigned UKI before the
-request is created.
+| Protected against | Not protected against |
+| --- | --- |
+| A private key reaching any Bazel action, cache, remote executor, runfiles tree, log, or CI artifact. | A compromised external signer. |
+| A substituted request, UKI, signature, or certificate, including another UKI signed by the trusted key. | Certificate issuance policy. |
+| Malformed, duplicate, or trailing certificate data and transplanted certificate tables. | HSM operation or signer attestation. |
+
+The request, certificate, unsigned and signed UKIs, and verification metadata are public artifacts.
+A transport envelope around them does not replace the embedded Authenticode check.
+
+## Reproducibility
+
+Unsigned images stay deterministic and cacheable.
+Signed UKIs depend on the signer (timestamps, certificate rotation) and are not reproducible; reproducibility manifests cover the unsigned image.
+
+## Scope
+
+Secure Boot applies only to UEFI UKIs.
+The dm-verity root hash is embedded in the unsigned UKI before the request is created.
+BIOS images cannot be signed.
+
+`secure_boot_ephemeral_test_fixture` signs a UKI with a short-lived key for tests.
+The key never leaves one local, uncached action; never use it for production.
