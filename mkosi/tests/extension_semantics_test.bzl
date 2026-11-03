@@ -59,7 +59,7 @@ def _qemu_bazel_compatibility_test_impl(ctx):
 
     # Keep the dependency and public module floors distinct.
     asserts.equals(env, "7.7.0", RULES_QEMU_BAZEL_MIN_VERSION)
-    asserts.equals(env, "8.5.1", RULES_MKOSI_BAZEL_MIN_VERSION)
+    asserts.equals(env, "8.8.2", RULES_MKOSI_BAZEL_MIN_VERSION)
     return unittest.end(env)
 
 qemu_bazel_compatibility_test = unittest.make(_qemu_bazel_compatibility_test_impl)

@@ -13,7 +13,7 @@ make_removable() {
 }
 
 cleanup() {
-  USE_BAZEL_VERSION=8.5.1 bazel --output_user_root="$output_root" shutdown \
+  USE_BAZEL_VERSION=8.8.2 bazel --output_user_root="$output_root" shutdown \
     >/dev/null 2>&1 || true
   make_removable "$output_root"
   rm -rf "$output_root" "$results"
@@ -29,7 +29,7 @@ build_version() {
   local status="$results/workspace-status-$version.sh"
   printf '#!/bin/sh\necho STABLE_RULES_MKOSI_TWO_STAGE_VERSION %s\n' "$version" >"$status"
   chmod +x "$status"
-  USE_BAZEL_VERSION=8.5.1 bazel \
+  USE_BAZEL_VERSION=8.8.2 bazel \
     --output_user_root="$output_root" \
     build \
     --config=qualified \
@@ -40,7 +40,7 @@ build_version() {
     --execution_log_json_file="$results/$version.execution.json" \
     //mkosi/tests:two_stage_release
   local metadata
-  metadata="$(USE_BAZEL_VERSION=8.5.1 bazel \
+  metadata="$(USE_BAZEL_VERSION=8.8.2 bazel \
     --output_user_root="$output_root" \
     cquery --lockfile_mode=error --output=files \
     //mkosi/tests:two_stage_release 2>/dev/null | grep -F '.mkosi-image-info.json')"

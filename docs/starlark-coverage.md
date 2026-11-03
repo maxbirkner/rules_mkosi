@@ -2,14 +2,14 @@
 
 Line coverage for `.bzl` files is not available, so the [behavior catalog](behavior-matrix.md) remains the coverage contract.
 
-## Evidence (2026-09-02)
+## Evidence (2026-11-03)
 
 A probe test rule whose implementation executes one branch and skips another was run under `bazel coverage --combined_report=lcov`:
 
 | Bazel | Combined LCOV | `--starlark_coverage_report` |
 | --- | --- | --- |
-| 8.5.1 | Empty; no `.bzl` record | Unrecognized option |
-| 9.2.0 | Empty; no `.bzl` record | Unrecognized option |
+| 8.8.2 | Empty; no `.bzl` record | Unrecognized option |
+| 9.3.1 | Empty; no `.bzl` record | Unrecognized option |
 
 Starlark coverage is proposed upstream in [bazelbuild/bazel#15594](https://github.com/bazelbuild/bazel/pull/15594), which has not landed in either supported release.
 
@@ -19,8 +19,8 @@ The monthly `Starlark coverage capability` workflow runs `ci/check-starlark-cove
 Run it locally with:
 
 ```console
-USE_BAZEL_VERSION=8.5.1 ./ci/check-starlark-coverage-support.sh
-USE_BAZEL_VERSION=9.2.0 ./ci/check-starlark-coverage-support.sh
+USE_BAZEL_VERSION=8.8.2 ./ci/check-starlark-coverage-support.sh
+USE_BAZEL_VERSION=9.3.1 ./ci/check-starlark-coverage-support.sh
 ```
 
 The script runs the probe in an isolated, temporary module and removes it afterwards.

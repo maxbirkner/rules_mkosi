@@ -108,11 +108,11 @@ class BazelWrapperTest(unittest.TestCase):
             f"--disk_cache={self.case}/user cache",
             ":target with spaces",
         )
-        actual = self.invoke(nested, "9.2.0", *arguments)
+        actual = self.invoke(nested, "9.3.1", *arguments)
         self.assert_invocation(
             actual,
             nested,
-            "9.2.0",
+            "9.3.1",
             (self.rc_option(root), *arguments),
         )
         self.assertFalse((root / ".cache" / "bazel-disk").exists())
@@ -128,11 +128,11 @@ class BazelWrapperTest(unittest.TestCase):
         )
         nested = fixture / "package"
         nested.mkdir()
-        actual = self.invoke(nested, "8.5.1", "query", ":local")
+        actual = self.invoke(nested, "8.8.2", "query", ":local")
         self.assert_invocation(
             actual,
             nested,
-            "8.5.1",
+            "8.8.2",
             (
                 self.rc_option(fixture),
                 "query",
@@ -147,22 +147,22 @@ class BazelWrapperTest(unittest.TestCase):
         root = self.module("module")
         for argument in ("-h", "--help", "--version"):
             with self.subTest(argument=argument):
-                actual = self.invoke(root, "8.5.1", argument)
+                actual = self.invoke(root, "8.8.2", argument)
                 self.assert_invocation(
                     actual,
                     root,
-                    "8.5.1",
+                    "8.8.2",
                     (argument,),
                 )
         self.assertFalse((root / ".cache").exists())
 
     def test_path_containing_wrapper_does_not_recurse(self):
         root = self.module("module")
-        actual = self.invoke(root, "9.2.0", "info", "workspace")
+        actual = self.invoke(root, "9.3.1", "info", "workspace")
         self.assert_invocation(
             actual,
             root,
-            "9.2.0",
+            "9.3.1",
             (
                 self.rc_option(root),
                 "info",
@@ -176,7 +176,7 @@ class BazelWrapperTest(unittest.TestCase):
         target.mkdir()
         (root / ".cache").symlink_to(target, target_is_directory=True)
         with self.assertRaises(subprocess.CalledProcessError):
-            self.invoke(root, "8.5.1", "info", "workspace")
+            self.invoke(root, "8.8.2", "info", "workspace")
         self.assertFalse(self.capture.exists())
 
     def test_rejects_symlinked_disk_cache(self):
@@ -187,7 +187,7 @@ class BazelWrapperTest(unittest.TestCase):
         target.mkdir()
         (cache / "bazel-disk").symlink_to(target, target_is_directory=True)
         with self.assertRaises(subprocess.CalledProcessError):
-            self.invoke(root, "8.5.1", "info", "workspace")
+            self.invoke(root, "8.8.2", "info", "workspace")
         self.assertFalse(self.capture.exists())
 
     def test_rejects_symlinked_rc(self):
@@ -198,7 +198,7 @@ class BazelWrapperTest(unittest.TestCase):
         target.write_text("sentinel\n", encoding="utf-8")
         (cache / "bazel-wrapper.bazelrc").symlink_to(target)
         with self.assertRaises(subprocess.CalledProcessError):
-            self.invoke(root, "8.5.1", "info", "workspace")
+            self.invoke(root, "8.8.2", "info", "workspace")
         self.assertEqual(target.read_text(encoding="utf-8"), "sentinel\n")
         self.assertFalse(self.capture.exists())
 
@@ -208,11 +208,11 @@ class BazelWrapperTest(unittest.TestCase):
         package.mkdir()
         alias = self.case / "cwd-alias"
         alias.symlink_to(package, target_is_directory=True)
-        actual = self.invoke(alias, "9.2.0", "query", ":target")
+        actual = self.invoke(alias, "9.3.1", "query", ":target")
         self.assert_invocation(
             actual,
             package,
-            "9.2.0",
+            "9.3.1",
             (self.rc_option(root), "query", ":target"),
         )
 

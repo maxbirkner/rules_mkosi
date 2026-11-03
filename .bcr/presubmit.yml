@@ -7,17 +7,17 @@ bcr_test_module:
       - "ubuntu2404"
   tasks:
     run_tests_bazel8:
-      name: "Run smoke tests (Bazel 8.5.1 strict lock)"
+      name: "Run smoke tests (Bazel 8.8.2 strict lock)"
       platform: ${{ platform }}
-      bazel: "8.5.1"
+      bazel: "8.8.2"
       test_flags:
         - "--lockfile_mode=error"
       test_targets:
         - "//..."
     run_tests_bazel9:
-      name: "Run smoke tests (Bazel 9.2.0 compatibility)"
+      name: "Run smoke tests (Bazel 9.3.1 compatibility)"
       platform: ${{ platform }}
-      bazel: "9.2.0"
+      bazel: "9.3.1"
       test_flags:
         - "--lockfile_mode=off"
       test_targets:
