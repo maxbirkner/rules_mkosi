@@ -34,6 +34,7 @@ import lzma
 import os
 import pathlib
 import re
+import runpy
 import sys
 import time
 import urllib.error
@@ -57,6 +58,12 @@ _PRIORITY_RANK = {"required": 0, "important": 1, "standard": 2, "optional": 3, "
 
 class LockError(Exception):
     """A specification, snapshot, or dependency closure cannot be locked."""
+
+
+# The Debian snapshot staging action parses the same Packages indexes with this parser.
+_parse_paragraphs = runpy.run_path(
+    os.path.join(os.path.dirname(__file__), os.pardir, "private", "debian_control.py")
+)["paragraphs"]
 
 
 def _order(character):
@@ -217,31 +224,11 @@ def parse_provides(value):
 
 
 def paragraphs(text):
-    """Parse deb822 control data into ordered dictionaries."""
-    result = []
-    current = {}
-    field = None
-    for line in text.splitlines():
-        if not line.strip():
-            if current:
-                result.append(current)
-                current = {}
-                field = None
-            continue
-        if line[0].isspace():
-            if field is None:
-                raise LockError("continuation without a Debian metadata field")
-            current[field] += "\n" + line.strip()
-            continue
-        if ":" not in line:
-            raise LockError("malformed Debian metadata field: %s" % line)
-        field, value = line.split(":", 1)
-        if field in current:
-            raise LockError("duplicate Debian metadata field: %s" % field)
-        current[field] = value.strip()
-    if current:
-        result.append(current)
-    return result
+    """Parse deb822 control data into ordered dictionaries; raises LockError for malformed data."""
+    try:
+        return _parse_paragraphs(text)
+    except ValueError as error:
+        raise LockError(str(error)) from None
 
 
 @dataclasses.dataclass(frozen=True)

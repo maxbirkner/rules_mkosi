@@ -1,27 +1,18 @@
 """Build a deterministic Debian package tree archive without host tools."""
 
+import contextlib
 import io
-import hashlib
 import os
+import runpy
 import shutil
 import stat
 import sys
 import tarfile
 
-
-def _member_path(name):
-    if name.startswith("/"):
-        raise ValueError("absolute package member: %s" % name)
-    while name.startswith("./"):
-        name = name[2:]
-    if name in ("", "."):
-        return ""
-    parts = name.split("/")
-    if parts and parts[-1] == "":
-        parts.pop()
-    if not parts or any(part in ("", ".", "..") for part in parts):
-        raise ValueError("unsafe package member: %s" % name)
-    return os.path.join(*parts)
+# extract_tree.py owns the member path validation and stream hashing; the archive action stages it next to this script.
+_extract_tree = runpy.run_path(os.path.join(os.path.dirname(__file__), "extract_tree.py"))
+_member_path = _extract_tree["member_path"]
+_sha256 = _extract_tree["sha256_stream"]
 
 
 def _ar_members(data):
@@ -75,16 +66,6 @@ def _read_manifest(manifest):
     return expected
 
 
-def _sha256(stream):
-    digest = hashlib.sha256()
-    while True:
-        chunk = stream.read(1024 * 1024)
-        if not chunk:
-            break
-        digest.update(chunk)
-    return digest.hexdigest()
-
-
 def _open_authenticated(package, expected_digest):
     """Opens package without following symlinks and verifies its digest before it is parsed."""
     name = os.path.basename(package)
@@ -101,7 +82,8 @@ def _open_authenticated(package, expected_digest):
     return stream
 
 
-def _authenticated_streams(packages, expected):
+def _authenticated_streams(packages, expected, stack):
+    """Opens and authenticates every package; stack closes each opened stream, including on errors."""
     if len(expected) != len(packages):
         raise ValueError("package manifest does not match package inputs")
     streams = []
@@ -113,7 +95,7 @@ def _authenticated_streams(packages, expected):
         if name in seen:
             raise ValueError("package is duplicated in action inputs: %s" % name)
         seen.add(name)
-        streams.append((package, _open_authenticated(package, expected[name])))
+        streams.append((package, stack.enter_context(_open_authenticated(package, expected[name]))))
     if seen != set(expected):
         raise ValueError("package manifest does not match package inputs")
     return streams
@@ -147,7 +129,7 @@ def _member_object(source, member, relative, work):
 def _collect_package(stream, objects, work):
     with tarfile.open(fileobj=io.BytesIO(_package_data(stream)), mode="r:*") as source:
         for member in source:
-            relative = _member_path(member.name)
+            relative = _member_path(member.name, "package")
             if not relative:
                 continue
             _ensure_parent(objects, relative)
@@ -155,14 +137,11 @@ def _collect_package(stream, objects, work):
 
 
 def _collect(packages, manifest, work):
-    streams = _authenticated_streams(packages, _read_manifest(manifest))
+    expected = _read_manifest(manifest)
     objects = {}
-    try:
-        for _, stream in streams:
+    with contextlib.ExitStack() as stack:
+        for _, stream in _authenticated_streams(packages, expected, stack):
             _collect_package(stream, objects, work)
-    finally:
-        for _, stream in streams:
-            stream.close()
     return objects
 
 
