@@ -2,11 +2,13 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <sys/utsname.h>
 #include <unistd.h>
 
 #define ARRAY_SIZE(array) (sizeof(array) / sizeof((array)[0]))
@@ -165,10 +167,35 @@ static size_t read_diagnostics(FILE *output, char *diagnostics,
   return bytes;
 }
 
+/* Fills the stack below the caller with non-NUL bytes. */
+__attribute__((noinline)) static void paint_stack(void) {
+  volatile char stack[16384];
+  size_t index;
+
+  for (index = 0; index < sizeof(stack); ++index) {
+    stack[index] = 'X';
+  }
+}
+
 /*
- * Runs the preflight against a procfs fixture with injected namespace results,
+ * Runs the preflight against a procfs fixture with the given operations,
  * requires it to fail closed, and returns its diagnostics.
  */
+static void run_failing_preflight_with_ops(
+    const char *root, int max_namespaces,
+    const rules_mkosi_kernel_preflight_ops *ops,
+    const char *fail_closed_message, char *diagnostics,
+    size_t diagnostics_size) {
+  FILE *output = create_fixture(root, max_namespaces);
+
+  must(rules_mkosi_kernel_preflight_with_ops(root, output, ops) != 0,
+       fail_closed_message);
+  read_diagnostics(output, diagnostics, diagnostics_size);
+  must(fclose(output) == 0, "close diagnostics");
+  remove_fixture(root);
+}
+
+/* Like run_failing_preflight_with_ops, with injected namespace results. */
 static void run_failing_preflight(const char *root, int max_namespaces,
                                   fixture_context *context,
                                   const char *fail_closed_message,
@@ -178,13 +205,10 @@ static void run_failing_preflight(const char *root, int max_namespaces,
       .run_namespace_setup = fake_namespace_setup,
       .context = context,
   };
-  FILE *output = create_fixture(root, max_namespaces);
 
-  must(rules_mkosi_kernel_preflight_with_ops(root, output, &ops) != 0,
-       fail_closed_message);
-  read_diagnostics(output, diagnostics, diagnostics_size);
-  must(fclose(output) == 0, "close diagnostics");
-  remove_fixture(root);
+  run_failing_preflight_with_ops(root, max_namespaces, &ops,
+                                 fail_closed_message, diagnostics,
+                                 diagnostics_size);
 }
 
 static void test_failure_diagnostic(void) {
@@ -328,10 +352,174 @@ static void test_fd_mount_diagnostic_classes(void) {
   }
 }
 
+/*
+ * Leaves non-NUL bytes in the stack the privilege check uses next, so printing
+ * a detail buffer the check never wrote would show garbage.
+ */
+static int painting_kernel_identity(struct utsname *kernel, void *context) {
+  (void)context;
+  paint_stack();
+  memset(kernel, 'X', sizeof(*kernel));
+  snprintf(kernel->sysname, sizeof(kernel->sysname), "Linux");
+  snprintf(kernel->release, sizeof(kernel->release), "fixture");
+  return 0;
+}
+
+static int silent_failed_privilege(char *detail, size_t detail_size,
+                                   void *context) {
+  (void)detail;
+  (void)detail_size;
+  (void)context;
+  return 0;
+}
+
+/* A privilege check that wrote no detail reports only the fallback. */
+static void test_unwritten_privilege_detail(void) {
+  static const struct {
+    int (*check)(char *detail, size_t detail_size, void *context);
+    const char *name;
+  } cases[] = {
+      {silent_failed_privilege, "silent"},
+      {NULL, "missing"},
+  };
+
+  for (unsigned int index = 0; index < ARRAY_SIZE(cases); ++index) {
+    char root[128];
+    char diagnostics[8192];
+    fixture_context context = {.failure_mask = 0};
+    rules_mkosi_kernel_preflight_ops ops = {
+        .check_initial_privilege = cases[index].check,
+        .run_namespace_setup = fake_namespace_setup,
+        .read_kernel_identity = painting_kernel_identity,
+        .context = &context,
+    };
+
+    snprintf(root, sizeof(root), "kernel-preflight-fixture-%ld-privilege-%s",
+             (long)getpid(), cases[index].name);
+    run_failing_preflight_with_ops(root, 1, &ops,
+                                   "unwritten privilege detail should fail",
+                                   diagnostics, sizeof(diagnostics));
+    must(strstr(diagnostics,
+                "\nFAIL initial_privilege: privilege check failed\n") != NULL,
+         "unwritten privilege detail should print the fallback only");
+  }
+}
+
+typedef struct {
+  unsigned int calls;
+  int error;
+  const char *sysname;
+} kernel_identity_fixture;
+
+static kernel_identity_fixture kernel_identity;
+
+static int fake_kernel_identity(struct utsname *kernel, void *context) {
+  (void)context;
+  ++kernel_identity.calls;
+  if (kernel_identity.error != 0) {
+    errno = kernel_identity.error;
+    return -1;
+  }
+  memset(kernel, 0, sizeof(*kernel));
+  snprintf(kernel->sysname, sizeof(kernel->sysname), "%s",
+           kernel_identity.sysname);
+  return 0;
+}
+
+/* The kernel identity is read once, and its failure is reported as read. */
+static void test_kernel_identity_is_read_once(void) {
+  static const struct {
+    int error;
+    const char *sysname;
+    const char *expected;
+  } cases[] = {
+      {EPERM, "", "FAIL linux_kernel: mkosi actions require a Linux kernel "
+                  "(Operation not permitted)\n"},
+      {0, "Darwin",
+       "FAIL linux_kernel: mkosi actions require a Linux kernel (Darwin)\n"},
+  };
+
+  for (unsigned int index = 0; index < ARRAY_SIZE(cases); ++index) {
+    char root[128];
+    char diagnostics[8192];
+    fixture_context context = {.failure_mask = 0};
+    rules_mkosi_kernel_preflight_ops ops = {
+        .check_initial_privilege = fake_initial_privilege,
+        .run_namespace_setup = fake_namespace_setup,
+        .read_kernel_identity = fake_kernel_identity,
+        .context = &context,
+    };
+
+    kernel_identity.calls = 0;
+    kernel_identity.error = cases[index].error;
+    kernel_identity.sysname = cases[index].sysname;
+    snprintf(root, sizeof(root), "kernel-preflight-fixture-%ld-kernel-%u",
+             (long)getpid(), index);
+    run_failing_preflight_with_ops(root, 1, &ops,
+                                   "a non-Linux kernel should fail closed",
+                                   diagnostics, sizeof(diagnostics));
+    must(kernel_identity.calls == 1, "the kernel identity is read once");
+    must(strstr(diagnostics, cases[index].expected) != NULL,
+         "the kernel identity failure should be reported as read");
+  }
+}
+
+static void write_status_file(const char *path, size_t group_count,
+                              const char *capability_line) {
+  FILE *status = fopen(path, "w");
+  size_t index;
+
+  must(status != NULL, "open status fixture");
+  fputs("Name:\tCapEff: 0000003fffffffff\nGroups:\t", status);
+  for (index = 0; index < group_count; ++index) {
+    fprintf(status, "%zu ", 100000 + index);
+  }
+  fprintf(status, "\nCapInh:\t0000000000000000\n%sCapBnd:\t000001ffffffffff\n",
+          capability_line);
+  must(fclose(status) == 0, "close status fixture");
+}
+
+static int read_status_capabilities(size_t group_count,
+                                    const char *capability_line,
+                                    uint64_t *capabilities) {
+  char path[128];
+  int result;
+
+  snprintf(path, sizeof(path), "kernel-preflight-status-%ld", (long)getpid());
+  write_status_file(path, group_count, capability_line);
+  result = rules_mkosi_read_effective_capabilities(path, capabilities);
+  must(unlink(path) == 0, "remove status fixture");
+  return result;
+}
+
+/*
+ * CapEff is found past long Groups lines, only at the start of a line, and a
+ * malformed or missing value fails instead of reading as no capabilities.
+ */
+static void test_effective_capabilities_parsing(void) {
+  uint64_t capabilities = 0;
+
+  must(read_status_capabilities(1000, "CapEff:\t0000000000200000\n",
+                                &capabilities) == 0,
+       "CapEff after a long Groups line should be read");
+  must(capabilities == UINT64_C(0x200000), "CapEff value should be parsed");
+  must(read_status_capabilities(1, "", &capabilities) == -EINVAL,
+       "a CapEff text outside the field should not be read");
+  must(read_status_capabilities(1, "CapEff:\tnot-hex\n", &capabilities) ==
+           -EINVAL,
+       "a malformed CapEff should fail");
+  must(rules_mkosi_read_effective_capabilities("kernel-preflight-missing",
+                                               &capabilities) == -ENOENT,
+       "a missing status file should fail");
+}
+
 int main(void) {
   test_failure_diagnostic();
   test_focused_failures();
   test_unsupported_fd_mount_api_diagnostic();
   test_fd_mount_diagnostic_classes();
+  test_unwritten_privilege_detail();
+  test_kernel_identity_is_read_once();
+  test_effective_capabilities_parsing();
   return 0;
 }
