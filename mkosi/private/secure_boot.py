@@ -54,7 +54,12 @@ def _launcher(tool, arguments):
 
 def run_tool(tool, *arguments, capture=False):
     command, env = _launcher(tool, list(arguments))
-    return subprocess.run(command, check=True, capture_output=capture, env=env)
+    try:
+        return subprocess.run(command, check=True, capture_output=capture, env=env)
+    finally:
+        # Each call extracts a full Debian tools root into its scratch directory.
+        if env:
+            shutil.rmtree(env["MKOSI_DEBIAN_TOOLS_SCRATCH"], ignore_errors=True)
 
 
 def isolated_certificate_der(data):
