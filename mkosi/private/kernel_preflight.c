@@ -54,6 +54,8 @@ extern char **environ;
 #define AT_EMPTY_PATH 0x1000
 #endif
 
+#define ARRAY_SIZE(array) (sizeof(array) / sizeof((array)[0]))
+
 struct rules_mkosi_mount_attr {
   unsigned long long attr_set;
   unsigned long long attr_clr;
@@ -84,6 +86,7 @@ enum {
   CHECK_FD_MOUNT_API = 1u << 9,
   CHECK_PIVOT_ROOT = 1u << 10,
   CHECK_OLD_ROOT_DETACH = 1u << 11,
+  CHECK_ALL = (1u << 12) - 1,
 };
 
 static const int required_capabilities[] = {
@@ -110,9 +113,8 @@ static bool proc_path(char *path, size_t path_size, const char *proc_root,
   return length >= 0 && (size_t)length < path_size;
 }
 
-static int read_integer(const char *path, long *value) {
-  char buffer[128];
-  char *end;
+/* Reads at most size - 1 bytes and NUL-terminates them. */
+static int read_text_file(const char *path, char *buffer, size_t size) {
   ssize_t bytes_read;
   int file;
 
@@ -120,7 +122,7 @@ static int read_integer(const char *path, long *value) {
   if (file < 0) {
     return -errno;
   }
-  bytes_read = read(file, buffer, sizeof(buffer) - 1);
+  bytes_read = read(file, buffer, size - 1);
   if (bytes_read < 0) {
     int error = errno;
     close(file);
@@ -128,6 +130,17 @@ static int read_integer(const char *path, long *value) {
   }
   close(file);
   buffer[bytes_read] = '\0';
+  return 0;
+}
+
+static int read_integer(const char *path, long *value) {
+  char buffer[128];
+  char *end;
+  int result = read_text_file(path, buffer, sizeof(buffer));
+
+  if (result < 0) {
+    return result;
+  }
   errno = 0;
   *value = strtol(buffer, &end, 10);
   if (errno != 0 || end == buffer) {
@@ -139,40 +152,31 @@ static int read_integer(const char *path, long *value) {
   return *end == '\0' ? 0 : -EINVAL;
 }
 
+static int parse_unsigned(char **cursor, unsigned long *value) {
+  char *end;
+
+  *value = strtoul(*cursor, &end, 10);
+  if (errno != 0 || end == *cursor) {
+    return -EINVAL;
+  }
+  *cursor = end;
+  return 0;
+}
+
+/* Parses the first "inside outside length" line of a uid_map or gid_map. */
 static int read_mapping(const char *path, unsigned long *inside,
                         unsigned long *outside, unsigned long *length) {
   char buffer[128];
-  char *cursor;
-  char *end;
-  ssize_t bytes_read;
-  int file;
+  char *cursor = buffer;
+  int result = read_text_file(path, buffer, sizeof(buffer));
 
-  file = open(path, O_RDONLY | O_CLOEXEC);
-  if (file < 0) {
-    return -errno;
+  if (result < 0) {
+    return result;
   }
-  bytes_read = read(file, buffer, sizeof(buffer) - 1);
-  if (bytes_read < 0) {
-    int error = errno;
-    close(file);
-    return -error;
-  }
-  close(file);
-  buffer[bytes_read] = '\0';
-  cursor = buffer;
   errno = 0;
-  *inside = strtoul(cursor, &end, 10);
-  if (errno != 0 || end == cursor) {
-    return -EINVAL;
-  }
-  cursor = end;
-  *outside = strtoul(cursor, &end, 10);
-  if (errno != 0 || end == cursor) {
-    return -EINVAL;
-  }
-  cursor = end;
-  *length = strtoul(cursor, &end, 10);
-  if (errno != 0 || end == cursor) {
+  if (parse_unsigned(&cursor, inside) < 0 ||
+      parse_unsigned(&cursor, outside) < 0 ||
+      parse_unsigned(&cursor, length) < 0) {
     return -EINVAL;
   }
   return 0;
@@ -181,21 +185,11 @@ static int read_mapping(const char *path, unsigned long *inside,
 static int read_effective_capabilities(uint64_t *capabilities) {
   char buffer[1024];
   char *line;
-  ssize_t bytes_read;
-  int file;
+  int result = read_text_file("/proc/self/status", buffer, sizeof(buffer));
 
-  file = open("/proc/self/status", O_RDONLY | O_CLOEXEC);
-  if (file < 0) {
-    return -errno;
+  if (result < 0) {
+    return result;
   }
-  bytes_read = read(file, buffer, sizeof(buffer) - 1);
-  if (bytes_read < 0) {
-    int error = errno;
-    close(file);
-    return -error;
-  }
-  close(file);
-  buffer[bytes_read] = '\0';
   line = strstr(buffer, "CapEff:");
   if (line == NULL) {
     return -EINVAL;
@@ -206,41 +200,51 @@ static int read_effective_capabilities(uint64_t *capabilities) {
   return errno == 0 ? 0 : -errno;
 }
 
+static bool starts_as_host_root(unsigned long outside_uid) {
+  return outside_uid == 0 && (geteuid() == 0 || getegid() == 0);
+}
+
+static bool has_host_sys_admin(uint64_t effective_capabilities) {
+  int ambient = prctl(PR_CAP_AMBIENT, PR_CAP_AMBIENT_IS_SET, CAP_SYS_ADMIN, 0,
+                      0);
+
+  return (effective_capabilities & (UINT64_C(1) << CAP_SYS_ADMIN)) != 0 ||
+         ambient > 0;
+}
+
+/*
+ * The action must start unprivileged: an unknown privilege state is treated
+ * as privileged, so every probe failure refuses to qualify the host.
+ */
 static int check_initial_privilege(char *detail, size_t detail_size,
                                    void *context) {
   unsigned long inside = 0;
   unsigned long outside = 0;
   unsigned long length = 0;
   uint64_t capabilities = 0;
-  int ambient;
-  int result;
   (void)context;
 
-  result = read_mapping("/proc/self/uid_map", &inside, &outside, &length);
-  if (result < 0 || length == 0) {
+  if (read_mapping("/proc/self/uid_map", &inside, &outside, &length) < 0 ||
+      length == 0) {
     snprintf(detail, detail_size,
              "cannot establish the starting UID mapping; refuse to qualify "
              "an unknown privilege state");
     return 0;
   }
-  result = read_effective_capabilities(&capabilities);
-  if (result < 0) {
+  if (read_effective_capabilities(&capabilities) < 0) {
     snprintf(detail, detail_size,
              "cannot inspect CapEff; refuse to qualify an unknown privilege "
              "state");
     return 0;
   }
-  if (outside == 0 && (geteuid() == 0 || getegid() == 0)) {
+  if (starts_as_host_root(outside)) {
     snprintf(detail, detail_size,
              "the action starts as host root (uid=%ld gid=%ld); run it as an "
              "unprivileged identity",
              (long)geteuid(), (long)getegid());
     return 0;
   }
-  ambient = prctl(PR_CAP_AMBIENT, PR_CAP_AMBIENT_IS_SET, CAP_SYS_ADMIN, 0,
-                  0);
-  if ((capabilities & (UINT64_C(1) << CAP_SYS_ADMIN)) != 0 ||
-      ambient > 0) {
+  if (has_host_sys_admin(capabilities)) {
     snprintf(detail, detail_size,
              "the action starts with host CAP_SYS_ADMIN (effective or "
              "ambient); remove the capability before running unprivileged");
@@ -281,10 +285,22 @@ static int write_all(int file, const char *buffer, size_t size) {
   return 0;
 }
 
+static int write_proc_file(const char *path, const char *contents,
+                           size_t size) {
+  int file = open(path, O_WRONLY | O_CLOEXEC);
+  int result;
+
+  if (file < 0) {
+    return -errno;
+  }
+  result = write_all(file, contents, size);
+  close(file);
+  return result;
+}
+
 static int write_mapping(pid_t child, const char *name, unsigned long value) {
   char path[128];
   char mapping[64];
-  int file;
   int length;
 
   length = snprintf(path, sizeof(path), "/proc/%ld/%s_map", (long)child, name);
@@ -295,35 +311,18 @@ static int write_mapping(pid_t child, const char *name, unsigned long value) {
   if (length < 0 || (size_t)length >= sizeof(mapping)) {
     return -EINVAL;
   }
-  file = open(path, O_WRONLY | O_CLOEXEC);
-  if (file < 0) {
-    return -errno;
-  }
-  {
-    int result = write_all(file, mapping, (size_t)length);
-    close(file);
-    return result;
-  }
+  return write_proc_file(path, mapping, (size_t)length);
 }
 
 static int deny_setgroups(pid_t child) {
   char path[128];
-  int file;
   int length;
 
   length = snprintf(path, sizeof(path), "/proc/%ld/setgroups", (long)child);
   if (length < 0 || (size_t)length >= sizeof(path)) {
     return -ENAMETOOLONG;
   }
-  file = open(path, O_WRONLY | O_CLOEXEC);
-  if (file < 0) {
-    return -errno;
-  }
-  {
-    int result = write_all(file, "deny\n", 5);
-    close(file);
-    return result;
-  }
+  return write_proc_file(path, "deny\n", 5);
 }
 
 static int read_capability_sets(struct __user_cap_data_struct data[2]) {
@@ -342,58 +341,28 @@ static uint64_t required_capability_mask(void) {
   uint64_t mask = 0;
   size_t index;
 
-  for (index = 0;
-       index < sizeof(required_capabilities) / sizeof(required_capabilities[0]);
-       ++index) {
+  for (index = 0; index < ARRAY_SIZE(required_capabilities); ++index) {
     mask |= UINT64_C(1) << required_capabilities[index];
   }
   return mask;
 }
 
-static uint64_t capability_effective(
-    const struct __user_cap_data_struct data[2]) {
-  return (uint64_t)data[0].effective |
-         ((uint64_t)data[1].effective << 32);
-}
-
-static uint64_t capability_permitted(
-    const struct __user_cap_data_struct data[2]) {
-  return (uint64_t)data[0].permitted |
-         ((uint64_t)data[1].permitted << 32);
-}
-
-static uint64_t capability_inheritable(
-    const struct __user_cap_data_struct data[2]) {
-  return (uint64_t)data[0].inheritable |
-         ((uint64_t)data[1].inheritable << 32);
+static uint64_t combine_capability_words(uint32_t low, uint32_t high) {
+  return (uint64_t)low | ((uint64_t)high << 32);
 }
 
 static int capability_is_in_set(uint64_t capabilities, int capability) {
   return (capabilities & (UINT64_C(1) << capability)) != 0;
 }
 
-static int check_required_capability_sets(void) {
-  struct __user_cap_data_struct data[2] = {};
-  uint64_t required = required_capability_mask();
-  uint64_t permitted;
-  uint64_t effective;
-  uint64_t inheritable;
+static bool contains_all(uint64_t capabilities, uint64_t required) {
+  return (capabilities & required) == required;
+}
+
+static int check_required_ambient_and_bounding(void) {
   size_t index;
 
-  if (read_capability_sets(data) < 0) {
-    return -errno;
-  }
-  permitted = capability_permitted(data);
-  effective = capability_effective(data);
-  inheritable = capability_inheritable(data);
-  if ((permitted & required) != required ||
-      (effective & required) != required ||
-      (inheritable & required) != required) {
-    return -EPERM;
-  }
-  for (index = 0;
-       index < sizeof(required_capabilities) / sizeof(required_capabilities[0]);
-       ++index) {
+  for (index = 0; index < ARRAY_SIZE(required_capabilities); ++index) {
     int capability = required_capabilities[index];
     int ambient = prctl(PR_CAP_AMBIENT, PR_CAP_AMBIENT_IS_SET, capability, 0,
                         0);
@@ -407,16 +376,82 @@ static int check_required_capability_sets(void) {
   return 0;
 }
 
-static int configure_namespace_capabilities(void) {
+static int check_required_capability_sets(void) {
+  struct __user_cap_data_struct data[2] = {};
+  uint64_t required = required_capability_mask();
+
+  if (read_capability_sets(data) < 0) {
+    return -errno;
+  }
+  if (!contains_all(combine_capability_words(data[0].permitted,
+                                             data[1].permitted),
+                    required) ||
+      !contains_all(combine_capability_words(data[0].effective,
+                                             data[1].effective),
+                    required) ||
+      !contains_all(combine_capability_words(data[0].inheritable,
+                                             data[1].inheritable),
+                    required)) {
+    return -EPERM;
+  }
+  return check_required_ambient_and_bounding();
+}
+
+static int drop_unrequired_bounding_capabilities(long last_cap,
+                                                 uint64_t required) {
+  int capability;
+
+  for (capability = 0; capability <= last_cap; ++capability) {
+    if (!capability_is_in_set(required, capability) &&
+        prctl(PR_CAPBSET_DROP, capability, 0, 0, 0) < 0) {
+      return -errno;
+    }
+  }
+  return 0;
+}
+
+static int set_capability_sets(uint64_t capabilities) {
   struct __user_cap_header_struct header = {
       .version = _LINUX_CAPABILITY_VERSION_3,
       .pid = 0,
   };
   struct __user_cap_data_struct data[2] = {};
+  size_t word;
+
+  for (word = 0; word < ARRAY_SIZE(data); ++word) {
+    uint32_t bits = (uint32_t)(capabilities >> (32 * word));
+    data[word].effective = bits;
+    data[word].permitted = bits;
+    data[word].inheritable = bits;
+  }
+  if (syscall(SYS_capset, &header, data) < 0) {
+    return -errno;
+  }
+  return 0;
+}
+
+static int raise_ambient_capabilities(long last_cap, uint64_t required) {
+  int capability;
+
+  for (capability = 0; capability <= last_cap; ++capability) {
+    if (capability_is_in_set(required, capability) &&
+        prctl(PR_CAP_AMBIENT, PR_CAP_AMBIENT_RAISE, capability, 0, 0) < 0) {
+      return -errno;
+    }
+  }
+  return 0;
+}
+
+/*
+ * Mirrors the capability state mkosi v27 establishes in its namespace: exactly
+ * the required capabilities in the bounding, effective, permitted,
+ * inheritable, and ambient sets.
+ */
+static int configure_namespace_capabilities(void) {
+  struct __user_cap_data_struct data[2] = {};
   uint64_t required = required_capability_mask();
   long last_cap;
   int result;
-  int capability;
 
   if (read_integer("/proc/sys/kernel/cap_last_cap", &last_cap) < 0 ||
       last_cap < CAP_SETFCAP) {
@@ -426,29 +461,22 @@ static int configure_namespace_capabilities(void) {
   if (result < 0) {
     return result;
   }
-  if ((capability_permitted(data) & required) != required) {
+  if (!contains_all(
+          combine_capability_words(data[0].permitted, data[1].permitted),
+          required)) {
     return -EPERM;
   }
-  for (capability = 0; capability <= last_cap; ++capability) {
-    if (!capability_is_in_set(required, capability) &&
-        prctl(PR_CAPBSET_DROP, capability, 0, 0, 0) < 0) {
-      return -errno;
-    }
+  result = drop_unrequired_bounding_capabilities(last_cap, required);
+  if (result < 0) {
+    return result;
   }
-  data[0].effective = (uint32_t)required;
-  data[1].effective = (uint32_t)(required >> 32);
-  data[0].permitted = (uint32_t)required;
-  data[1].permitted = (uint32_t)(required >> 32);
-  data[0].inheritable = (uint32_t)required;
-  data[1].inheritable = (uint32_t)(required >> 32);
-  if (syscall(SYS_capset, &header, data) < 0) {
-    return -errno;
+  result = set_capability_sets(required);
+  if (result < 0) {
+    return result;
   }
-  for (capability = 0; capability <= last_cap; ++capability) {
-    if (capability_is_in_set(required, capability) &&
-        prctl(PR_CAP_AMBIENT, PR_CAP_AMBIENT_RAISE, capability, 0, 0) < 0) {
-      return -errno;
-    }
+  result = raise_ambient_capabilities(last_cap, required);
+  if (result < 0) {
+    return result;
   }
   return check_required_capability_sets();
 }
@@ -475,24 +503,37 @@ static int check_capability_exec(void) {
   return WIFEXITED(status) && WEXITSTATUS(status) == 0 ? 0 : -EPERM;
 }
 
-static int open_tree_path(const char *path, bool recursive) {
-  char parent[256];
-  const char *name;
+/* A trailing slash makes the final component "." so it names the directory. */
+static int split_parent_path(const char *path, char *parent,
+                             size_t parent_size, const char **name) {
   const char *slash = strrchr(path, '/');
+
   if (slash == NULL) {
     memcpy(parent, ".", 2);
-    name = path;
-  } else if (slash == path) {
+    *name = path;
+    return 0;
+  }
+  if (slash == path) {
     memcpy(parent, "/", 2);
-    name = slash[1] == '\0' ? "." : slash + 1;
   } else {
     size_t length = (size_t)(slash - path);
-    if (length >= sizeof(parent)) {
+    if (length >= parent_size) {
       return -ENAMETOOLONG;
     }
     memcpy(parent, path, length);
     parent[length] = '\0';
-    name = slash[1] == '\0' ? "." : slash + 1;
+  }
+  *name = slash[1] == '\0' ? "." : slash + 1;
+  return 0;
+}
+
+static int open_tree_path(const char *path, bool recursive) {
+  char parent[256];
+  const char *name;
+  int result = split_parent_path(path, parent, sizeof(parent), &name);
+
+  if (result < 0) {
+    return result;
   }
   int parent_fd = open(parent, O_PATH | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
   if (parent_fd < 0) {
@@ -515,322 +556,452 @@ static void record_fd_mount_failure(fd_mount_probe_result *probe,
   probe->error = error > 0 ? error : EIO;
 }
 
-static int check_fd_mount_api(fd_mount_probe_result *probe) {
-  const char *source_directory = "fd-mount-api-source";
-  const char *source_nested = "fd-mount-api-source/nested";
-  const char *source_file = "fd-mount-api-source/file";
-  const char *destination_directory = "fd-mount-api-destination";
-  const char *destination_file = "fd-mount-api-destination/file";
-  int source_tree = -1;
-  int file_tree = -1;
-  struct stat expected_directory;
-  struct stat expected_file;
-  struct stat actual;
+#define FD_MOUNT_SOURCE_DIRECTORY "fd-mount-api-source"
+#define FD_MOUNT_SOURCE_NESTED FD_MOUNT_SOURCE_DIRECTORY "/nested"
+#define FD_MOUNT_SOURCE_FILE FD_MOUNT_SOURCE_DIRECTORY "/file"
+#define FD_MOUNT_DESTINATION_DIRECTORY "fd-mount-api-destination"
+#define FD_MOUNT_DESTINATION_FILE FD_MOUNT_DESTINATION_DIRECTORY "/file"
+
+/* One detached-fd bind as performed by the namespace runner. */
+typedef struct {
+  const char *source;
+  const char *destination;
+  bool directory;
+  bool readonly;
+  rules_mkosi_fd_mount_operation open_tree_operation;
+  rules_mkosi_fd_mount_operation fstat_operation;
+  rules_mkosi_fd_mount_operation move_mount_operation;
+} fd_mount_step;
+
+static const fd_mount_step fd_mount_steps[] = {
+    {FD_MOUNT_SOURCE_DIRECTORY, FD_MOUNT_DESTINATION_DIRECTORY, true, true,
+     RULES_MKOSI_FD_MOUNT_OP_OPEN_TREE_DIRECTORY,
+     RULES_MKOSI_FD_MOUNT_OP_FSTAT_DIRECTORY,
+     RULES_MKOSI_FD_MOUNT_OP_MOVE_MOUNT_DIRECTORY},
+    {FD_MOUNT_SOURCE_FILE, FD_MOUNT_DESTINATION_FILE, false, false,
+     RULES_MKOSI_FD_MOUNT_OP_OPEN_TREE_FILE, RULES_MKOSI_FD_MOUNT_OP_FSTAT_FILE,
+     RULES_MKOSI_FD_MOUNT_OP_MOVE_MOUNT_FILE},
+};
+
+static int create_empty_file(const char *path) {
+  int file = open(path, O_CREAT | O_WRONLY | O_CLOEXEC, 0600);
+
+  return file < 0 || close(file) < 0 ? -1 : 0;
+}
+
+/* The nested tmpfs makes the directory bind exercise a recursive clone. */
+static int create_fd_mount_fixture(struct stat expected[]) {
+  size_t index;
+
+  if (mkdir(FD_MOUNT_SOURCE_DIRECTORY, 0700) < 0 ||
+      mkdir(FD_MOUNT_SOURCE_NESTED, 0700) < 0 ||
+      mkdir(FD_MOUNT_DESTINATION_DIRECTORY, 0700) < 0) {
+    return -1;
+  }
+  if (mount("tmpfs", FD_MOUNT_SOURCE_NESTED, "tmpfs", 0, "mode=755") < 0) {
+    return -1;
+  }
+  if (create_empty_file(FD_MOUNT_SOURCE_FILE) < 0 ||
+      create_empty_file(FD_MOUNT_DESTINATION_FILE) < 0) {
+    return -1;
+  }
+  for (index = 0; index < ARRAY_SIZE(fd_mount_steps); ++index) {
+    if (stat(fd_mount_steps[index].source, &expected[index]) < 0) {
+      return -1;
+    }
+  }
+  return 0;
+}
+
+static void remove_fd_mount_fixture(void) {
+  umount2(FD_MOUNT_DESTINATION_FILE, MNT_DETACH);
+  umount2(FD_MOUNT_DESTINATION_DIRECTORY, MNT_DETACH);
+  umount2(FD_MOUNT_SOURCE_NESTED, MNT_DETACH);
+  unlink(FD_MOUNT_SOURCE_FILE);
+  unlink(FD_MOUNT_DESTINATION_FILE);
+  rmdir(FD_MOUNT_SOURCE_NESTED);
+  rmdir(FD_MOUNT_SOURCE_DIRECTORY);
+  rmdir(FD_MOUNT_DESTINATION_DIRECTORY);
+}
+
+static int attach_validated_tree(int tree, const fd_mount_step *step,
+                                 const struct stat *expected,
+                                 fd_mount_probe_result *probe) {
   struct rules_mkosi_mount_attr attributes = {
       .attr_set = MOUNT_ATTR_RDONLY,
   };
-  int result = -1;
+  struct stat actual;
 
-  probe->operation = RULES_MKOSI_FD_MOUNT_OP_NONE;
-  probe->error = 0;
-  if (mkdir(source_directory, 0700) < 0 ||
-      mkdir(source_nested, 0700) < 0 ||
-      mkdir(destination_directory, 0700) < 0) {
-    record_fd_mount_failure(probe, RULES_MKOSI_FD_MOUNT_OP_SETUP, errno);
-    goto cleanup;
+  if (fstat(tree, &actual) < 0) {
+    record_fd_mount_failure(probe, step->fstat_operation, errno);
+    return -1;
   }
-  if (mount("tmpfs", source_nested, "tmpfs", 0, "mode=755") < 0) {
-    record_fd_mount_failure(probe, RULES_MKOSI_FD_MOUNT_OP_SETUP, errno);
-    goto cleanup;
+  if (actual.st_dev != expected->st_dev || actual.st_ino != expected->st_ino ||
+      S_ISDIR(actual.st_mode) != step->directory) {
+    record_fd_mount_failure(probe, step->fstat_operation, EAGAIN);
+    return -1;
   }
-  int file = open(source_file, O_CREAT | O_WRONLY | O_CLOEXEC, 0600);
-  if (file < 0 || close(file) < 0) {
-    record_fd_mount_failure(probe, RULES_MKOSI_FD_MOUNT_OP_SETUP, errno);
-    goto cleanup;
-  }
-  file = open(destination_file, O_CREAT | O_WRONLY | O_CLOEXEC, 0600);
-  if (file < 0 || close(file) < 0) {
-    record_fd_mount_failure(probe, RULES_MKOSI_FD_MOUNT_OP_SETUP, errno);
-    goto cleanup;
-  }
-
-  if (stat(source_directory, &expected_directory) < 0 ||
-      stat(source_file, &expected_file) < 0) {
-    record_fd_mount_failure(probe, RULES_MKOSI_FD_MOUNT_OP_SETUP, errno);
-    goto cleanup;
-  }
-  source_tree = open_tree_path(source_directory, true);
-  if (source_tree < 0) {
-    record_fd_mount_failure(probe, RULES_MKOSI_FD_MOUNT_OP_OPEN_TREE_DIRECTORY,
-                            -source_tree);
-    goto cleanup;
-  }
-  if (fstat(source_tree, &actual) < 0) {
-    record_fd_mount_failure(probe, RULES_MKOSI_FD_MOUNT_OP_FSTAT_DIRECTORY,
-                            errno);
-    goto cleanup;
-  }
-  if (actual.st_dev != expected_directory.st_dev ||
-      actual.st_ino != expected_directory.st_ino || !S_ISDIR(actual.st_mode)) {
-    record_fd_mount_failure(probe, RULES_MKOSI_FD_MOUNT_OP_FSTAT_DIRECTORY,
-                            EAGAIN);
-    goto cleanup;
-  }
-  if (syscall(SYS_mount_setattr, source_tree, "",
-              AT_EMPTY_PATH | AT_RECURSIVE, &attributes,
-              sizeof(attributes)) < 0) {
+  if (step->readonly &&
+      syscall(SYS_mount_setattr, tree, "", AT_EMPTY_PATH | AT_RECURSIVE,
+              &attributes, sizeof(attributes)) < 0) {
     record_fd_mount_failure(probe, RULES_MKOSI_FD_MOUNT_OP_MOUNT_SETATTR,
                             errno);
-    goto cleanup;
+    return -1;
   }
-  if (syscall(SYS_move_mount, source_tree, "", AT_FDCWD,
-              destination_directory, MOVE_MOUNT_F_EMPTY_PATH) < 0) {
-    record_fd_mount_failure(probe,
-                            RULES_MKOSI_FD_MOUNT_OP_MOVE_MOUNT_DIRECTORY,
-                            errno);
-    goto cleanup;
-  }
-  close(source_tree);
-  source_tree = -1;
-
-  file_tree = open_tree_path(source_file, false);
-  if (file_tree < 0) {
-    record_fd_mount_failure(probe, RULES_MKOSI_FD_MOUNT_OP_OPEN_TREE_FILE,
-                            -file_tree);
-    goto cleanup;
-  }
-  if (fstat(file_tree, &actual) < 0) {
-    record_fd_mount_failure(probe, RULES_MKOSI_FD_MOUNT_OP_FSTAT_FILE,
-                            errno);
-    goto cleanup;
-  }
-  if (actual.st_dev != expected_file.st_dev ||
-      actual.st_ino != expected_file.st_ino || S_ISDIR(actual.st_mode)) {
-    record_fd_mount_failure(probe, RULES_MKOSI_FD_MOUNT_OP_FSTAT_FILE,
-                            EAGAIN);
-    goto cleanup;
-  }
-  if (syscall(SYS_move_mount, file_tree, "", AT_FDCWD, destination_file,
+  if (syscall(SYS_move_mount, tree, "", AT_FDCWD, step->destination,
               MOVE_MOUNT_F_EMPTY_PATH) < 0) {
-    record_fd_mount_failure(probe, RULES_MKOSI_FD_MOUNT_OP_MOVE_MOUNT_FILE,
-                            errno);
-    goto cleanup;
+    record_fd_mount_failure(probe, step->move_mount_operation, errno);
+    return -1;
   }
-  close(file_tree);
-  file_tree = -1;
-  probe->operation = RULES_MKOSI_FD_MOUNT_OP_NONE;
-  probe->error = 0;
-  result = 0;
+  return 0;
+}
 
-cleanup:
-  if (file_tree >= 0) {
-    close(file_tree);
+static int probe_fd_mount_step(const fd_mount_step *step,
+                               const struct stat *expected,
+                               fd_mount_probe_result *probe) {
+  int tree = open_tree_path(step->source, step->directory);
+  int result;
+
+  if (tree < 0) {
+    record_fd_mount_failure(probe, step->open_tree_operation, -tree);
+    return -1;
   }
-  if (source_tree >= 0) {
-    close(source_tree);
-  }
-  umount2(destination_file, MNT_DETACH);
-  umount2(destination_directory, MNT_DETACH);
-  umount2(source_nested, MNT_DETACH);
-  unlink(source_file);
-  unlink(destination_file);
-  rmdir(source_nested);
-  rmdir(source_directory);
-  rmdir(destination_directory);
+  result = attach_validated_tree(tree, step, expected, probe);
+  close(tree);
   return result;
 }
 
-static int child_namespace_setup(int ready, int acknowledgement,
-                                 namespace_setup_result *setup_result) {
-  unsigned int result = 0;
-  char signal = 'R';
-  fd_mount_probe_result fd_mount = {
-      .operation = RULES_MKOSI_FD_MOUNT_OP_NONE,
-      .error = 0,
-  };
+/* Exercises the exact detached-fd mount sequence the namespace runner uses. */
+static int check_fd_mount_api(fd_mount_probe_result *probe) {
+  struct stat expected[ARRAY_SIZE(fd_mount_steps)];
+  int result = -1;
+  size_t index;
 
-#define RETURN_SETUP_RESULT()            \
-  do {                                   \
-    setup_result->checks = result;       \
-    return (int)result;                  \
-  } while (0)
-
-  if (syscall(SYS_unshare, CLONE_NEWUSER) < 0) {
-    RETURN_SETUP_RESULT();
+  probe->operation = RULES_MKOSI_FD_MOUNT_OP_NONE;
+  probe->error = 0;
+  if (create_fd_mount_fixture(expected) < 0) {
+    record_fd_mount_failure(probe, RULES_MKOSI_FD_MOUNT_OP_SETUP, errno);
+  } else {
+    for (index = 0; index < ARRAY_SIZE(fd_mount_steps); ++index) {
+      if (probe_fd_mount_step(&fd_mount_steps[index], &expected[index],
+                              probe) < 0) {
+        break;
+      }
+    }
+    result = index == ARRAY_SIZE(fd_mount_steps) ? 0 : -1;
   }
-  result |= CHECK_USER_NAMESPACE;
-  if (write_all(ready, &signal, 1) < 0) {
-    RETURN_SETUP_RESULT();
-  }
-  if (read(acknowledgement, &signal, 1) != 1 || signal != 'A') {
-    RETURN_SETUP_RESULT();
-  }
-  result |= CHECK_ID_MAPPING;
-  if (setresgid(0, 0, 0) < 0 || setresuid(0, 0, 0) < 0 ||
-      geteuid() != 0 || getegid() != 0) {
-    RETURN_SETUP_RESULT();
-  }
-  result |= CHECK_ROOT_TRANSITION;
-  if (configure_namespace_capabilities() < 0) {
-    RETURN_SETUP_RESULT();
-  }
-  result |= CHECK_NAMESPACE_CAPABILITIES;
-  if (check_capability_exec() < 0) {
-    RETURN_SETUP_RESULT();
-  }
-  result |= CHECK_CAPABILITY_EXEC;
-  if (syscall(SYS_unshare, CLONE_NEWNS) < 0) {
-    RETURN_SETUP_RESULT();
-  }
-  result |= CHECK_MOUNT_NAMESPACE;
-  if (mount("tmpfs", "/tmp", "tmpfs", 0, NULL) < 0) {
-    RETURN_SETUP_RESULT();
-  }
-  if (check_fd_mount_api(&fd_mount) < 0) {
-    setup_result->fd_mount = fd_mount;
-    RETURN_SETUP_RESULT();
-  }
-  result |= CHECK_FD_MOUNT_API;
-  setup_result->fd_mount = fd_mount;
-  if (chdir("/tmp") < 0) {
-    RETURN_SETUP_RESULT();
-  }
-  if (mkdir("newroot", 0700) < 0 || mkdir("oldroot", 0700) < 0) {
-    RETURN_SETUP_RESULT();
-  }
-  if (mount("newroot", "newroot", NULL, MS_BIND | MS_REC, NULL) < 0) {
-    RETURN_SETUP_RESULT();
-  }
-  if (syscall(SYS_pivot_root, ".", "oldroot") < 0) {
-    RETURN_SETUP_RESULT();
-  }
-  result |= CHECK_TMPFS_WORKSPACE;
-  result |= CHECK_PIVOT_ROOT_WORKSPACE;
-  if (mkdir("newroot/etc", 0755) < 0) {
-    RETURN_SETUP_RESULT();
-  }
-  if (mount("/oldroot/etc", "newroot/etc", NULL, MS_BIND | MS_REC, NULL) <
-      0) {
-    RETURN_SETUP_RESULT();
-  }
-  result |= CHECK_BIND_MOUNT;
-  if (chdir("newroot") < 0) {
-    RETURN_SETUP_RESULT();
-  }
-  if (syscall(SYS_pivot_root, ".", ".") < 0) {
-    RETURN_SETUP_RESULT();
-  }
-  result |= CHECK_PIVOT_ROOT;
-  if (umount2(".", MNT_DETACH) < 0) {
-    RETURN_SETUP_RESULT();
-  }
-  result |= CHECK_OLD_ROOT_DETACH;
-  setup_result->checks = result;
-#undef RETURN_SETUP_RESULT
-  return (int)result;
+  remove_fd_mount_fixture();
+  return result;
 }
 
-static int actual_namespace_setup(rules_mkosi_namespace_checks *checks,
-                                void *context) {
-  int acknowledgement[2];
-  int ready[2];
-  int result_pipe[2];
-  namespace_setup_result child_result = {};
-  pid_t child;
+typedef struct {
+  int ready;
+  int acknowledgement;
+  fd_mount_probe_result *fd_mount;
+} child_setup_context;
+
+typedef struct {
+  int (*run)(const child_setup_context *context);
+  unsigned int passed_checks;
+} child_setup_step;
+
+static int unshare_user_namespace(const child_setup_context *context) {
+  (void)context;
+  return syscall(SYS_unshare, CLONE_NEWUSER) < 0 ? -1 : 0;
+}
+
+static int await_identity_mapping(const child_setup_context *context) {
+  char signal = 'R';
+
+  if (write_all(context->ready, &signal, 1) < 0) {
+    return -1;
+  }
+  return read(context->acknowledgement, &signal, 1) != 1 || signal != 'A'
+             ? -1
+             : 0;
+}
+
+static int become_namespace_root(const child_setup_context *context) {
+  (void)context;
+  return setresgid(0, 0, 0) < 0 || setresuid(0, 0, 0) < 0 ||
+                 geteuid() != 0 || getegid() != 0
+             ? -1
+             : 0;
+}
+
+static int establish_namespace_capabilities(
+    const child_setup_context *context) {
+  (void)context;
+  return configure_namespace_capabilities() < 0 ? -1 : 0;
+}
+
+static int verify_capabilities_survive_exec(
+    const child_setup_context *context) {
+  (void)context;
+  return check_capability_exec() < 0 ? -1 : 0;
+}
+
+static int unshare_mount_namespace(const child_setup_context *context) {
+  (void)context;
+  return syscall(SYS_unshare, CLONE_NEWNS) < 0 ? -1 : 0;
+}
+
+static int mount_scratch_tmpfs(const child_setup_context *context) {
+  (void)context;
+  return mount("tmpfs", "/tmp", "tmpfs", 0, NULL) < 0 ? -1 : 0;
+}
+
+static int probe_fd_mount_api(const child_setup_context *context) {
+  return check_fd_mount_api(context->fd_mount);
+}
+
+static int pivot_into_tmpfs_workspace(const child_setup_context *context) {
+  (void)context;
+  if (chdir("/tmp") < 0) {
+    return -1;
+  }
+  if (mkdir("newroot", 0700) < 0 || mkdir("oldroot", 0700) < 0) {
+    return -1;
+  }
+  if (mount("newroot", "newroot", NULL, MS_BIND | MS_REC, NULL) < 0) {
+    return -1;
+  }
+  return syscall(SYS_pivot_root, ".", "oldroot") < 0 ? -1 : 0;
+}
+
+static int bind_from_old_root(const child_setup_context *context) {
+  (void)context;
+  if (mkdir("newroot/etc", 0755) < 0) {
+    return -1;
+  }
+  return mount("/oldroot/etc", "newroot/etc", NULL, MS_BIND | MS_REC, NULL) <
+                 0
+             ? -1
+             : 0;
+}
+
+static int pivot_into_new_root(const child_setup_context *context) {
+  (void)context;
+  if (chdir("newroot") < 0) {
+    return -1;
+  }
+  return syscall(SYS_pivot_root, ".", ".") < 0 ? -1 : 0;
+}
+
+static int detach_old_root(const child_setup_context *context) {
+  (void)context;
+  return umount2(".", MNT_DETACH) < 0 ? -1 : 0;
+}
+
+/* Ordered like mkosi v27's sandbox setup; each step depends on the previous. */
+static const child_setup_step child_setup_steps[] = {
+    {unshare_user_namespace, CHECK_USER_NAMESPACE},
+    {await_identity_mapping, CHECK_ID_MAPPING},
+    {become_namespace_root, CHECK_ROOT_TRANSITION},
+    {establish_namespace_capabilities, CHECK_NAMESPACE_CAPABILITIES},
+    {verify_capabilities_survive_exec, CHECK_CAPABILITY_EXEC},
+    {unshare_mount_namespace, CHECK_MOUNT_NAMESPACE},
+    {mount_scratch_tmpfs, 0},
+    {probe_fd_mount_api, CHECK_FD_MOUNT_API},
+    {pivot_into_tmpfs_workspace,
+     CHECK_TMPFS_WORKSPACE | CHECK_PIVOT_ROOT_WORKSPACE},
+    {bind_from_old_root, CHECK_BIND_MOUNT},
+    {pivot_into_new_root, CHECK_PIVOT_ROOT},
+    {detach_old_root, CHECK_OLD_ROOT_DETACH},
+};
+
+static unsigned int child_namespace_setup(const child_setup_context *context) {
+  unsigned int checks = 0;
+  size_t index;
+
+  for (index = 0; index < ARRAY_SIZE(child_setup_steps); ++index) {
+    if (child_setup_steps[index].run(context) < 0) {
+      break;
+    }
+    checks |= child_setup_steps[index].passed_checks;
+  }
+  return checks;
+}
+
+static void run_setup_child_and_exit(int ready, int acknowledgement,
+                                     int result_file) {
+  namespace_setup_result result = {};
+  child_setup_context context = {
+      .ready = ready,
+      .acknowledgement = acknowledgement,
+      .fd_mount = &result.fd_mount,
+  };
+
+  result.checks = child_namespace_setup(&context);
+  (void)write_all(result_file, (const char *)&result, sizeof(result));
+  _exit(result.checks == CHECK_ALL ? 0 : 1);
+}
+
+/*
+ * Only a process outside the child's new user namespace may write its maps;
+ * the child learns through the acknowledgement byte whether they were written.
+ */
+static void map_setup_child_identity(pid_t child, int ready,
+                                     int acknowledgement) {
   char signal;
   unsigned long uid;
   unsigned long gid;
+
+  if (read(ready, &signal, 1) != 1 || signal != 'R') {
+    return;
+  }
+  uid = (unsigned long)getuid();
+  gid = (unsigned long)getgid();
+  if (deny_setgroups(child) == 0 && write_mapping(child, "gid", gid) == 0 &&
+      write_mapping(child, "uid", uid) == 0) {
+    signal = 'A';
+  } else {
+    signal = 'F';
+  }
+  (void)write_all(acknowledgement, &signal, 1);
+}
+
+static void receive_setup_result(int result_file,
+                                 namespace_setup_result *result) {
+  if (read(result_file, result, sizeof(*result)) != (ssize_t)sizeof(*result)) {
+    memset(result, 0, sizeof(*result));
+  }
+  close(result_file);
+}
+
+static int has_check(const namespace_setup_result *result, unsigned int check) {
+  return (result->checks & check) != 0;
+}
+
+static void copy_namespace_checks(rules_mkosi_namespace_checks *checks,
+                                  const namespace_setup_result *result) {
+  checks->user_namespace = has_check(result, CHECK_USER_NAMESPACE);
+  checks->id_mapping = has_check(result, CHECK_ID_MAPPING);
+  checks->root_transition = has_check(result, CHECK_ROOT_TRANSITION);
+  checks->namespace_capabilities =
+      has_check(result, CHECK_NAMESPACE_CAPABILITIES);
+  checks->capability_exec = has_check(result, CHECK_CAPABILITY_EXEC);
+  checks->mount_namespace = has_check(result, CHECK_MOUNT_NAMESPACE);
+  checks->tmpfs_workspace = has_check(result, CHECK_TMPFS_WORKSPACE);
+  checks->pivot_root_workspace = has_check(result, CHECK_PIVOT_ROOT_WORKSPACE);
+  checks->bind_mount = has_check(result, CHECK_BIND_MOUNT);
+  checks->fd_mount_api = has_check(result, CHECK_FD_MOUNT_API);
+  checks->fd_mount_operation = result->fd_mount.operation;
+  checks->fd_mount_errno = result->fd_mount.error;
+  checks->pivot_root = has_check(result, CHECK_PIVOT_ROOT);
+  checks->old_root_detach = has_check(result, CHECK_OLD_ROOT_DETACH);
+}
+
+enum { READY_PIPE, ACKNOWLEDGEMENT_PIPE, RESULT_PIPE, SETUP_PIPE_COUNT };
+
+static void close_pipes(int pipes[][2], size_t count) {
+  size_t index;
+
+  for (index = 0; index < count; ++index) {
+    close(pipes[index][0]);
+    close(pipes[index][1]);
+  }
+}
+
+static int open_pipes(int pipes[][2], size_t count) {
+  size_t index;
+
+  for (index = 0; index < count; ++index) {
+    if (pipe(pipes[index]) < 0) {
+      close_pipes(pipes, index);
+      return -1;
+    }
+  }
+  return 0;
+}
+
+/*
+ * The process is made dumpable first: a non-dumpable child's /proc entries are
+ * owned by root, so the parent could not write the child's ID maps.
+ */
+static int actual_namespace_setup(rules_mkosi_namespace_checks *checks,
+                                  void *context) {
+  int pipes[SETUP_PIPE_COUNT][2];
+  namespace_setup_result child_result = {};
+  pid_t child;
   (void)context;
-  if (prctl(PR_SET_DUMPABLE, 1) < 0) {
-    return 0;
-  }
-  if (pipe(ready) < 0) {
-    return 0;
-  }
-  if (pipe(acknowledgement) < 0) {
-    close(ready[0]);
-    close(ready[1]);
-    return 0;
-  }
-  if (pipe(result_pipe) < 0) {
-    close(ready[0]);
-    close(ready[1]);
-    close(acknowledgement[0]);
-    close(acknowledgement[1]);
+
+  if (prctl(PR_SET_DUMPABLE, 1) < 0 ||
+      open_pipes(pipes, SETUP_PIPE_COUNT) < 0) {
     return 0;
   }
   child = fork();
   if (child < 0) {
-    close(ready[0]);
-    close(ready[1]);
-    close(acknowledgement[0]);
-    close(acknowledgement[1]);
-    close(result_pipe[0]);
-    close(result_pipe[1]);
+    close_pipes(pipes, SETUP_PIPE_COUNT);
     return 0;
   }
   if (child == 0) {
-    close(ready[0]);
-    close(acknowledgement[1]);
-    close(result_pipe[0]);
-    (void)child_namespace_setup(ready[1], acknowledgement[0], &child_result);
-    (void)write_all(result_pipe[1], (const char *)&child_result,
-                    sizeof(child_result));
-    _exit(child_result.checks == (unsigned int)((1u << 12) - 1) ? 0 : 1);
+    close(pipes[READY_PIPE][0]);
+    close(pipes[ACKNOWLEDGEMENT_PIPE][1]);
+    close(pipes[RESULT_PIPE][0]);
+    run_setup_child_and_exit(pipes[READY_PIPE][1],
+                             pipes[ACKNOWLEDGEMENT_PIPE][0],
+                             pipes[RESULT_PIPE][1]);
   }
-  close(ready[1]);
-  close(acknowledgement[0]);
-  close(result_pipe[1]);
-  if (read(ready[0], &signal, 1) == 1 && signal == 'R') {
-    checks->user_namespace = 1;
-    uid = (unsigned long)getuid();
-    gid = (unsigned long)getgid();
-    if (deny_setgroups(child) == 0 && write_mapping(child, "gid", gid) == 0 &&
-        write_mapping(child, "uid", uid) == 0) {
-      checks->id_mapping = 1;
-      signal = 'A';
-    } else {
-      signal = 'F';
-    }
-    (void)write_all(acknowledgement[1], &signal, 1);
-  }
-  close(ready[0]);
-  close(acknowledgement[1]);
-  if (read(result_pipe[0], &child_result, sizeof(child_result)) !=
-      (ssize_t)sizeof(child_result)) {
-    memset(&child_result, 0, sizeof(child_result));
-  }
-  close(result_pipe[0]);
+  close(pipes[READY_PIPE][1]);
+  close(pipes[ACKNOWLEDGEMENT_PIPE][0]);
+  close(pipes[RESULT_PIPE][1]);
+  map_setup_child_identity(child, pipes[READY_PIPE][0],
+                           pipes[ACKNOWLEDGEMENT_PIPE][1]);
+  close(pipes[READY_PIPE][0]);
+  close(pipes[ACKNOWLEDGEMENT_PIPE][1]);
+  receive_setup_result(pipes[RESULT_PIPE][0], &child_result);
   (void)wait_for_child(child, NULL);
-  checks->user_namespace =
-      (child_result.checks & CHECK_USER_NAMESPACE) != 0;
-  checks->id_mapping = (child_result.checks & CHECK_ID_MAPPING) != 0;
-  checks->root_transition =
-      (child_result.checks & CHECK_ROOT_TRANSITION) != 0;
-  checks->namespace_capabilities =
-      (child_result.checks & CHECK_NAMESPACE_CAPABILITIES) != 0;
-  checks->capability_exec =
-      (child_result.checks & CHECK_CAPABILITY_EXEC) != 0;
-  checks->mount_namespace =
-      (child_result.checks & CHECK_MOUNT_NAMESPACE) != 0;
-  checks->tmpfs_workspace =
-      (child_result.checks & CHECK_TMPFS_WORKSPACE) != 0;
-  checks->pivot_root_workspace =
-      (child_result.checks & CHECK_PIVOT_ROOT_WORKSPACE) != 0;
-  checks->bind_mount = (child_result.checks & CHECK_BIND_MOUNT) != 0;
-  checks->fd_mount_api = (child_result.checks & CHECK_FD_MOUNT_API) != 0;
-  checks->fd_mount_operation = child_result.fd_mount.operation;
-  checks->fd_mount_errno = child_result.fd_mount.error;
-  checks->pivot_root = (child_result.checks & CHECK_PIVOT_ROOT) != 0;
-  checks->old_root_detach =
-      (child_result.checks & CHECK_OLD_ROOT_DETACH) != 0;
+  copy_namespace_checks(checks, &child_result);
   return 1;
+}
+
+static int check_max_user_namespaces(FILE *output, const char *path) {
+  long value;
+  int result = read_integer(path, &value);
+
+  if (result < 0) {
+    report(output, "FAIL", "user.max_user_namespaces",
+           "cannot read %s (%s); mount procfs and set the value above zero",
+           path, strerror(-result));
+    return 1;
+  }
+  if (value <= 0) {
+    report(output, "FAIL", "user.max_user_namespaces",
+           "%ld; set /proc/sys/user/max_user_namespaces above zero", value);
+    return 1;
+  }
+  report(output, "PASS", "user.max_user_namespaces", "%ld (> 0)", value);
+  return 0;
+}
+
+static int check_unprivileged_userns_clone(FILE *output, const char *path) {
+  long value;
+  int result = read_integer(path, &value);
+
+  if (result == -ENOENT) {
+    report(output, "PASS", "kernel.unprivileged_userns_clone",
+           "not exposed by this kernel; the clone probe is authoritative");
+    return 0;
+  }
+  if (result < 0) {
+    report(output, "FAIL", "kernel.unprivileged_userns_clone",
+           "cannot read %s (%s); allow unprivileged user namespaces", path,
+           strerror(-result));
+    return 1;
+  }
+  if (value <= 0) {
+    report(output, "FAIL", "kernel.unprivileged_userns_clone",
+           "%ld; set /proc/sys/kernel/unprivileged_userns_clone to 1", value);
+    return 1;
+  }
+  report(output, "PASS", "kernel.unprivileged_userns_clone", "%ld", value);
+  return 0;
 }
 
 static int check_sysctl(FILE *output, const char *proc_root) {
   char path[256];
-  long value;
-  int result;
+  int failures;
 
   if (!proc_path(path, sizeof(path), proc_root,
                  "sys/user/max_user_namespaces")) {
@@ -838,47 +1009,14 @@ static int check_sysctl(FILE *output, const char *proc_root) {
            "the procfs path is too long");
     return 1;
   }
-  result = read_integer(path, &value);
-  if (result < 0) {
-    report(output, "FAIL", "user.max_user_namespaces",
-           "cannot read %s (%s); mount procfs and set the value above zero",
-           path, strerror(-result));
-    result = 1;
-  } else if (value <= 0) {
-    report(output, "FAIL", "user.max_user_namespaces",
-           "%ld; set /proc/sys/user/max_user_namespaces above zero", value);
-    result = 1;
-  } else {
-    report(output, "PASS", "user.max_user_namespaces", "%ld (> 0)", value);
-    result = 0;
-  }
-
+  failures = check_max_user_namespaces(output, path);
   if (!proc_path(path, sizeof(path), proc_root,
                  "sys/kernel/unprivileged_userns_clone")) {
     report(output, "FAIL", "kernel.unprivileged_userns_clone",
            "the procfs path is too long");
-    return result + 1;
+    return failures + 1;
   }
-  {
-    int sysctl_result = read_integer(path, &value);
-    if (sysctl_result == -ENOENT) {
-      report(output, "PASS", "kernel.unprivileged_userns_clone",
-             "not exposed by this kernel; the clone probe is authoritative");
-    } else if (sysctl_result < 0) {
-      report(output, "FAIL", "kernel.unprivileged_userns_clone",
-             "cannot read %s (%s); allow unprivileged user namespaces", path,
-             strerror(-sysctl_result));
-      ++result;
-    } else if (value <= 0) {
-      report(output, "FAIL", "kernel.unprivileged_userns_clone",
-             "%ld; set /proc/sys/kernel/unprivileged_userns_clone to 1",
-             value);
-      ++result;
-    } else {
-      report(output, "PASS", "kernel.unprivileged_userns_clone", "%ld", value);
-    }
-  }
-  return result;
+  return failures + check_unprivileged_userns_clone(output, path);
 }
 
 static const char *fd_mount_operation_name(
@@ -939,6 +1077,157 @@ static void report_fd_mount_failure(FILE *output,
   }
 }
 
+typedef struct {
+  size_t offset;
+  const char *name;
+  const char *pass_detail;
+  /* NULL selects the classified fd-mount failure report. */
+  const char *fail_detail;
+} namespace_check_report;
+
+#define NAMESPACE_CHECK(field) \
+  offsetof(rules_mkosi_namespace_checks, field), #field
+
+static const namespace_check_report namespace_check_reports[] = {
+    {NAMESPACE_CHECK(user_namespace),
+     "CLONE_NEWUSER succeeded for an unprivileged child",
+     "CLONE_NEWUSER failed; enable unprivileged user namespaces"},
+    {NAMESPACE_CHECK(id_mapping),
+     "setgroups=deny, uid_map, and gid_map completed",
+     "setgroups=deny and UID/GID maps failed; allow the parent to write "
+     "/proc/<pid>/{setgroups,uid_map,gid_map}"},
+    {NAMESPACE_CHECK(root_transition),
+     "mapped identity became uid=0,gid=0 inside the user namespace",
+     "could not transition to mapped root inside the user namespace"},
+    {NAMESPACE_CHECK(namespace_capabilities),
+     "mkosi v27 capability bounding, permitted, inheritable, and ambient sets "
+     "were established",
+     "could not establish mkosi v27 capability bounding, permitted, "
+     "inheritable, and ambient sets"},
+    {NAMESPACE_CHECK(capability_exec),
+     "required capabilities survived an execve transition",
+     "required capabilities were lost across execve"},
+    {NAMESPACE_CHECK(mount_namespace),
+     "CLONE_NEWNS succeeded after the user namespace transition",
+     "CLONE_NEWNS failed after the user namespace transition"},
+    {NAMESPACE_CHECK(tmpfs_workspace),
+     "mkosi v27 mounted a tmpfs workspace and entered it",
+     "tmpfs workspace setup failed; permit tmpfs mounts in the namespace"},
+    {NAMESPACE_CHECK(pivot_root_workspace),
+     "mkosi v27 pivot_root entered the temporary workspace",
+     "the temporary workspace could not become the namespace root"},
+    {NAMESPACE_CHECK(bind_mount),
+     "a representative recursive bind from old root into new root succeeded",
+     "a representative recursive bind from old root into new root failed"},
+    {NAMESPACE_CHECK(fd_mount_api),
+     "open_tree(parent_fd, name, OPEN_TREE_CLONE), fstat validation, "
+     "detached-fd recursive mount_setattr(AT_EMPTY_PATH), and "
+     "move_mount(MOVE_MOUNT_F_EMPTY_PATH) succeeded",
+     NULL},
+    {NAMESPACE_CHECK(pivot_root), "final pivot_root(\".\", \".\") succeeded",
+     "final pivot_root(\".\", \".\") failed; a private root is required"},
+    {NAMESPACE_CHECK(old_root_detach),
+     "final old-root mount was detached with MNT_DETACH",
+     "final old-root mount could not be detached"},
+};
+
+#undef NAMESPACE_CHECK
+
+static int namespace_check_passed(const rules_mkosi_namespace_checks *checks,
+                                  size_t offset) {
+  int passed;
+
+  memcpy(&passed, (const char *)checks + offset, sizeof(passed));
+  return passed;
+}
+
+static int report_namespace_checks(
+    FILE *output, const rules_mkosi_namespace_checks *checks) {
+  int failures = 0;
+  size_t index;
+
+  for (index = 0; index < ARRAY_SIZE(namespace_check_reports); ++index) {
+    const namespace_check_report *check = &namespace_check_reports[index];
+    if (namespace_check_passed(checks, check->offset)) {
+      report(output, "PASS", check->name, "%s", check->pass_detail);
+      continue;
+    }
+    if (check->fail_detail == NULL) {
+      report_fd_mount_failure(output, checks);
+    } else {
+      report(output, "FAIL", check->name, "%s", check->fail_detail);
+    }
+    ++failures;
+  }
+  return failures;
+}
+
+static int check_linux_kernel(FILE *output) {
+  struct utsname kernel;
+
+  if (uname(&kernel) < 0 || strcmp(kernel.sysname, "Linux") != 0) {
+    report(output, "FAIL", "linux_kernel",
+           "mkosi actions require a Linux kernel (%s)",
+           uname(&kernel) < 0 ? strerror(errno) : kernel.sysname);
+    return 1;
+  }
+  report(output, "PASS", "linux_kernel", "%s %s", kernel.sysname,
+         kernel.release);
+  return 0;
+}
+
+static int check_procfs_namespaces(FILE *output, const char *proc_root) {
+  static const char *const handles[] = {"self/ns/user", "self/ns/mnt"};
+  struct stat proc_stat;
+  char path[256];
+  size_t index;
+
+  for (index = 0; index < ARRAY_SIZE(handles); ++index) {
+    if (!proc_path(path, sizeof(path), proc_root, handles[index])) {
+      report(output, "FAIL", "procfs_namespaces",
+             "the procfs path is too long");
+      return 1;
+    }
+    if (stat(path, &proc_stat) < 0) {
+      report(output, "FAIL", "procfs_namespaces",
+             "cannot inspect %s (%s); mount procfs in the action environment",
+             path, strerror(errno));
+      return 1;
+    }
+  }
+  report(output, "PASS", "procfs_namespaces",
+         "user and mount namespace handles are available");
+  return 0;
+}
+
+static int check_privilege(FILE *output,
+                           const rules_mkosi_kernel_preflight_ops *ops) {
+  char detail[256];
+
+  if (ops->check_initial_privilege == NULL ||
+      !ops->check_initial_privilege(detail, sizeof(detail), ops->context)) {
+    report(output, "FAIL", "initial_privilege", "%s",
+           detail[0] == '\0' ? "privilege check failed" : detail);
+    return 1;
+  }
+  report(output, "PASS", "initial_privilege", "%s", detail);
+  return 0;
+}
+
+static int check_namespace_setup(FILE *output,
+                                 const rules_mkosi_kernel_preflight_ops *ops) {
+  rules_mkosi_namespace_checks namespace_checks = {};
+  int failures = 0;
+
+  if (ops->run_namespace_setup == NULL ||
+      !ops->run_namespace_setup(&namespace_checks, ops->context)) {
+    report(output, "FAIL", "namespace_setup",
+           "the namespace setup operation could not be started");
+    ++failures;
+  }
+  return failures + report_namespace_checks(output, &namespace_checks);
+}
+
 int rules_mkosi_kernel_preflight_with_ops(
     const char *proc_root, FILE *output,
     const rules_mkosi_kernel_preflight_ops *ops) {
@@ -947,169 +1236,16 @@ int rules_mkosi_kernel_preflight_with_ops(
       .run_namespace_setup = actual_namespace_setup,
       .context = NULL,
   };
-  rules_mkosi_namespace_checks namespace_checks = {};
-  char detail[256];
-  struct stat proc_stat;
-  struct utsname kernel;
-  char path[256];
   int failures = 0;
 
   if (ops == NULL) {
     ops = &actual_ops;
   }
-  if (uname(&kernel) < 0 || strcmp(kernel.sysname, "Linux") != 0) {
-    report(output, "FAIL", "linux_kernel",
-           "mkosi actions require a Linux kernel (%s)",
-           uname(&kernel) < 0 ? strerror(errno) : kernel.sysname);
-    ++failures;
-  } else {
-    report(output, "PASS", "linux_kernel", "%s %s", kernel.sysname,
-           kernel.release);
-  }
-
-  if (!proc_path(path, sizeof(path), proc_root, "self/ns/user")) {
-    report(output, "FAIL", "procfs_namespaces",
-           "the procfs path is too long");
-    ++failures;
-  } else if (stat(path, &proc_stat) < 0) {
-    report(output, "FAIL", "procfs_namespaces",
-           "cannot inspect %s (%s); mount procfs in the action environment",
-           path, strerror(errno));
-    ++failures;
-  } else if (!proc_path(path, sizeof(path), proc_root, "self/ns/mnt")) {
-    report(output, "FAIL", "procfs_namespaces",
-           "the procfs path is too long");
-    ++failures;
-  } else if (stat(path, &proc_stat) < 0) {
-    report(output, "FAIL", "procfs_namespaces",
-           "cannot inspect %s (%s); mount procfs in the action environment",
-           path, strerror(errno));
-    ++failures;
-  } else {
-    report(output, "PASS", "procfs_namespaces",
-           "user and mount namespace handles are available");
-  }
-
-  if (ops->check_initial_privilege == NULL ||
-      !ops->check_initial_privilege(detail, sizeof(detail), ops->context)) {
-    report(output, "FAIL", "initial_privilege", "%s",
-           detail[0] == '\0' ? "privilege check failed" : detail);
-    ++failures;
-  } else {
-    report(output, "PASS", "initial_privilege", "%s", detail);
-  }
+  failures += check_linux_kernel(output);
+  failures += check_procfs_namespaces(output, proc_root);
+  failures += check_privilege(output, ops);
   failures += check_sysctl(output, proc_root);
-  if (ops->run_namespace_setup == NULL ||
-      !ops->run_namespace_setup(&namespace_checks, ops->context)) {
-    report(output, "FAIL", "namespace_setup",
-           "the namespace setup operation could not be started");
-    ++failures;
-  }
-  if (namespace_checks.user_namespace) {
-    report(output, "PASS", "user_namespace",
-           "CLONE_NEWUSER succeeded for an unprivileged child");
-  } else {
-    report(output, "FAIL", "user_namespace",
-           "CLONE_NEWUSER failed; enable unprivileged user namespaces");
-    ++failures;
-  }
-  if (namespace_checks.id_mapping) {
-    report(output, "PASS", "id_mapping",
-           "setgroups=deny, uid_map, and gid_map completed");
-  } else {
-    report(output, "FAIL", "id_mapping",
-           "setgroups=deny and UID/GID maps failed; allow the parent to write "
-           "/proc/<pid>/{setgroups,uid_map,gid_map}");
-    ++failures;
-  }
-  if (namespace_checks.root_transition) {
-    report(output, "PASS", "root_transition",
-           "mapped identity became uid=0,gid=0 inside the user namespace");
-  } else {
-    report(output, "FAIL", "root_transition",
-           "could not transition to mapped root inside the user namespace");
-    ++failures;
-  }
-  if (namespace_checks.namespace_capabilities) {
-    report(output, "PASS", "namespace_capabilities",
-           "mkosi v27 capability bounding, permitted, inheritable, and "
-           "ambient sets were established");
-  } else {
-    report(output, "FAIL", "namespace_capabilities",
-           "could not establish mkosi v27 capability bounding, permitted, "
-           "inheritable, and ambient sets");
-    ++failures;
-  }
-  if (namespace_checks.capability_exec) {
-    report(output, "PASS", "capability_exec",
-           "required capabilities survived an execve transition");
-  } else {
-    report(output, "FAIL", "capability_exec",
-           "required capabilities were lost across execve");
-    ++failures;
-  }
-  if (namespace_checks.mount_namespace) {
-    report(output, "PASS", "mount_namespace",
-           "CLONE_NEWNS succeeded after the user namespace transition");
-  } else {
-    report(output, "FAIL", "mount_namespace",
-           "CLONE_NEWNS failed after the user namespace transition");
-    ++failures;
-  }
-  if (namespace_checks.tmpfs_workspace) {
-    report(output, "PASS", "tmpfs_workspace",
-           "mkosi v27 mounted a tmpfs workspace and entered it");
-  } else {
-    report(output, "FAIL", "tmpfs_workspace",
-           "tmpfs workspace setup failed; permit tmpfs mounts in the "
-           "namespace");
-    ++failures;
-  }
-  if (namespace_checks.pivot_root_workspace) {
-    report(output, "PASS", "pivot_root_workspace",
-           "mkosi v27 pivot_root entered the temporary workspace");
-  } else {
-    report(output, "FAIL", "pivot_root_workspace",
-           "the temporary workspace could not become the namespace root");
-    ++failures;
-  }
-  if (namespace_checks.bind_mount) {
-    report(output, "PASS", "bind_mount",
-           "a representative recursive bind from old root into new root "
-           "succeeded");
-  } else {
-    report(output, "FAIL", "bind_mount",
-           "a representative recursive bind from old root into new root "
-           "failed");
-    ++failures;
-  }
-  if (namespace_checks.fd_mount_api) {
-    report(output, "PASS", "fd_mount_api",
-           "open_tree(parent_fd, name, OPEN_TREE_CLONE), fstat validation, "
-           "detached-fd recursive mount_setattr(AT_EMPTY_PATH), and "
-           "move_mount(MOVE_MOUNT_F_EMPTY_PATH) succeeded");
-  } else {
-    report_fd_mount_failure(output, &namespace_checks);
-    ++failures;
-  }
-  if (namespace_checks.pivot_root) {
-    report(output, "PASS", "pivot_root",
-           "final pivot_root(\".\", \".\") succeeded");
-  } else {
-    report(output, "FAIL", "pivot_root",
-           "final pivot_root(\".\", \".\") failed; a private root is "
-           "required");
-    ++failures;
-  }
-  if (namespace_checks.old_root_detach) {
-    report(output, "PASS", "old_root_detach",
-           "final old-root mount was detached with MNT_DETACH");
-  } else {
-    report(output, "FAIL", "old_root_detach",
-           "final old-root mount could not be detached");
-    ++failures;
-  }
-
+  failures += check_namespace_setup(output, ops);
   if (failures == 0) {
     report(output, "RESULT", "kernel_contract", "PASS (all checks passed)");
   } else {
