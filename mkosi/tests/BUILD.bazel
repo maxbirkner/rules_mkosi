@@ -32,6 +32,7 @@ load(
     "raw_image_file",
     "seabios_boot_config_test",
 )
+load(":runfiles_sh_test.bzl", "runfiles_sh_test")
 load(":sysupdate_test.bzl", "sysupdate_test_suite")
 
 py_test(
@@ -313,10 +314,13 @@ explicit_version_test(name = "explicit_version_test")
 
 qemu_bazel_compatibility_test(name = "qemu_bazel_compatibility_test")
 
-sh_test(
+runfiles_sh_test(
     name = "bazel_compatibility_contract_test",
-    srcs = ["bazel_compatibility_contract_test.sh"],
-    args = [DEFAULT_PYTHON_VERSION],
+    src = "bazel_compatibility_contract_test.sh",
+    args = [
+        "$(rlocationpath //:MODULE.bazel)",
+        DEFAULT_PYTHON_VERSION,
+    ],
     data = ["//:MODULE.bazel"],
 )
 
@@ -364,9 +368,10 @@ diff_test(
     tags = ["manifest"],
 )
 
-sh_test(
+runfiles_sh_test(
     name = "debian_tools_negative_test",
-    srcs = ["debian_tools_negative_test.sh"],
+    src = "debian_tools_negative_test.sh",
+    args = ["$(rlocationpath :debian_tools_missing_component)"],
     data = [":debian_tools_missing_component"],
 )
 
@@ -375,9 +380,14 @@ alias(
     actual = "//mkosi/debian:debian_tools_lock_digest_test",
 )
 
-sh_test(
+runfiles_sh_test(
     name = "debian_tools_runtime_test",
-    srcs = ["debian_tools_runtime_test.sh"],
+    src = "debian_tools_runtime_test.sh",
+    args = [
+        "$(rlocationpath @mkosi_debian_tools//:launcher)",
+        "$(rlocationpath @mkosi_debian_python//:python)",
+        "$(rlocationpath debian_tools_runtime_setup.py)",
+    ],
     data = [
         "debian_tools_runtime_setup.py",
         "@mkosi_debian_python//:python",
@@ -385,22 +395,25 @@ sh_test(
     ],
 )
 
-sh_test(
+runfiles_sh_test(
     name = "debian_tools_recursive_ro_test",
-    srcs = ["debian_tools_recursive_ro_test.sh"],
+    src = "debian_tools_recursive_ro_test.sh",
+    args = ["$(rlocationpath @mkosi_debian_tools//:namespace_runner)"],
     data = ["@mkosi_debian_tools//:namespace_runner"],
 )
 
-sh_test(
+runfiles_sh_test(
     name = "debian_tools_manifest_test",
-    srcs = ["debian_tools_manifest_test.sh"],
+    src = "debian_tools_manifest_test.sh",
+    args = ["$(rlocationpath @mkosi_debian_tools//:launcher)"],
     data = ["@mkosi_debian_tools//:launcher"],
     tags = ["manifest"],
 )
 
-sh_test(
+runfiles_sh_test(
     name = "debian_tools_fd_swap_test",
-    srcs = ["debian_tools_fd_swap_test.sh"],
+    src = "debian_tools_fd_swap_test.sh",
+    args = ["$(rlocationpath @mkosi_debian_tools//:namespace_runner)"],
     data = ["@mkosi_debian_tools//:namespace_runner"],
 )
 
@@ -503,13 +516,24 @@ sh_test(
     data = [":qemu_ovmf_smoke_test"],
 )
 
-sh_test(
-    name = "mkosi_version_test",
-    srcs = ["mkosi_version_test.sh"],
+runfiles_sh_test(
+    name = "runfiles_test",
+    src = "runfiles_test.sh",
     args = [
-        "$(rootpath @mkosi_toolchains//:mkosi_python)",
-        "$(rootpath @mkosi_toolchains//:mkosi_script)",
-        "$(rootpath sitecustomize.py)",
+        "$(rlocationpath runfiles_test.sh)",
+        "$(rlocationpath @bazel_skylib//:LICENSE)",
+    ],
+    data = ["@bazel_skylib//:LICENSE"],
+    tags = ["manifest"],
+)
+
+runfiles_sh_test(
+    name = "mkosi_version_test",
+    src = "mkosi_version_test.sh",
+    args = [
+        "$(rlocationpath @mkosi_toolchains//:mkosi_python)",
+        "$(rlocationpath @mkosi_toolchains//:mkosi_script)",
+        "$(rlocationpath sitecustomize.py)",
     ],
     data = [
         "sitecustomize.py",
@@ -792,6 +816,7 @@ exports_files([
     "raw_image_corruption_test.py",
     "raw_image_validator.py",
     "raw_image_validator_cases.py",
+    "run_with_runfiles.sh",
     "sitecustomize.py",
     "staged_image_semantics_test.py",
     "testdata/config-tree",

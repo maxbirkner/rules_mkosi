@@ -15,6 +15,7 @@ load(
     "sysupdate_payload",
     "sysupdate_transfers",
 )
+load("@rules_mkosi//mkosi/tests:runfiles_sh_test.bzl", "runfiles_sh_test")
 load("@rules_python//python:defs.bzl", "py_binary", "py_runtime", "py_runtime_pair", "py_test")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
 load(
@@ -557,13 +558,13 @@ build_test(
     ],
 )
 
-sh_test(
+runfiles_sh_test(
     name = "mkosi_version_test",
-    srcs = ["@rules_mkosi//mkosi/tests:mkosi_version_test.sh"],
+    src = "@rules_mkosi//mkosi/tests:mkosi_version_test.sh",
     args = [
-        "$(rootpath @mkosi_toolchains//:mkosi_python)",
-        "$(rootpath @mkosi_toolchains//:mkosi_script)",
-        "$(rootpath @rules_mkosi//mkosi/tests:sitecustomize.py)",
+        "$(rlocationpath @mkosi_toolchains//:mkosi_python)",
+        "$(rlocationpath @mkosi_toolchains//:mkosi_script)",
+        "$(rlocationpath @rules_mkosi//mkosi/tests:sitecustomize.py)",
     ],
     data = [
         "@mkosi_toolchains//:mkosi_python",
@@ -578,13 +579,13 @@ qemu_ovmf_smoke_test(
     name = "qemu_ovmf_smoke_test",
 )
 
-sh_test(
+runfiles_sh_test(
     name = "demo_artifact_test",
-    srcs = ["raw_image_validator_test.sh"],
+    src = "raw_image_validator_test.sh",
     args = [
-        "$(rootpath :demo_raw)",
-        "$(rootpath @rules_mkosi//mkosi/tests:raw_image_validator.py)",
-        "$(rootpath @mkosi_debian_python//:python)",
+        "$(rlocationpath :demo_raw)",
+        "$(rlocationpath @rules_mkosi//mkosi/tests:raw_image_validator.py)",
+        "$(rlocationpath @mkosi_debian_python//:python)",
     ],
     data = [
         ":demo_raw",
@@ -593,13 +594,13 @@ sh_test(
     ],
 )
 
-sh_test(
+runfiles_sh_test(
     name = "release_demo_artifact_test",
-    srcs = ["raw_image_validator_test.sh"],
+    src = "raw_image_validator_test.sh",
     args = [
-        "$(rootpath :release_demo_raw)",
-        "$(rootpath @rules_mkosi//mkosi/tests:raw_image_validator.py)",
-        "$(rootpath @mkosi_debian_python//:python)",
+        "$(rlocationpath :release_demo_raw)",
+        "$(rlocationpath @rules_mkosi//mkosi/tests:raw_image_validator.py)",
+        "$(rlocationpath @mkosi_debian_python//:python)",
     ],
     data = [
         ":release_demo_raw",
@@ -624,13 +625,13 @@ py_test(
     main = "rootfs_payload_artifact_test.py",
 )
 
-sh_test(
+runfiles_sh_test(
     name = "raw_image_validator_test",
-    srcs = ["raw_image_validator_unit_test.sh"],
+    src = "raw_image_validator_unit_test.sh",
     args = [
-        "$(rootpath raw_image_validator_test.py)",
-        "$(rootpath @mkosi_debian_python//:python)",
-        "$(rootpath @rules_mkosi//mkosi/tests:raw_image_validator.py)",
+        "$(rlocationpath raw_image_validator_test.py)",
+        "$(rlocationpath @mkosi_debian_python//:python)",
+        "$(rlocationpath @rules_mkosi//mkosi/tests:raw_image_validator.py)",
     ],
     data = [
         "raw_image_validator_test.py",
@@ -640,13 +641,13 @@ sh_test(
     ],
 )
 
-sh_test(
+runfiles_sh_test(
     name = "raw_image_corruption_test",
-    srcs = ["raw_image_corruption_test.sh"],
+    src = "raw_image_corruption_test.sh",
     args = [
-        "$(rootpath @rules_mkosi//mkosi/tests:raw_image_corruption_test.py)",
-        "$(rootpath @mkosi_debian_python//:python)",
-        "$(rootpath :demo_raw)",
+        "$(rlocationpath @rules_mkosi//mkosi/tests:raw_image_corruption_test.py)",
+        "$(rlocationpath @mkosi_debian_python//:python)",
+        "$(rlocationpath :demo_raw)",
     ],
     data = [
         ":demo_raw",
