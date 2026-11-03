@@ -74,6 +74,9 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
+      - name: Put CI helpers on PATH
+        run: echo "$GITHUB_WORKSPACE/ci/bin" >> "$GITHUB_PATH"
+
       - name: Set up Bazel
         uses: bazel-contrib/setup-bazel@c5acdfb288317d0b5c0bbd7a396a3dc868bb0f86 # v0.19.0
         with:
@@ -106,40 +109,24 @@ jobs:
           sudo udevadm trigger --name-match=kvm
           sudo udevadm settle
           ls -l /dev/kvm
-          sudo -n setpriv --reuid="$(id -u)" --regid="$(id -g)" \
-            --clear-groups sh -c ': <> /dev/kvm'
+          group-free sh -c ': <> /dev/kvm'
           echo "The group-free Bazel identity can open /dev/kvm for reading and writing."
 
       - name: Qualify host kernel
         run: |
-          run_bazel() {
-            sudo -n setpriv --reuid="$(id -u)" --regid="$(id -g)" \
-              --clear-groups env HOME="$HOME" PATH="$PATH" \
-              USE_BAZEL_VERSION="$USE_BAZEL_VERSION" "$@"
-          }
-          run_bazel sh -c '
-            groups=
-            while IFS= read -r line; do
-              case "$line" in Groups:*) groups="${line#Groups:}" ;; esac
-            done < /proc/self/status
-            case "$groups" in
-              *[![:space:]]*) echo "supplementary groups were not cleared" >&2; exit 1 ;;
-            esac
-            echo "CI bootstrap identity has empty supplementary groups"
-          '
           expected_bazel_version="bazel ${{ matrix.bazel }}"
-          test "$(run_bazel bazel --version)" = "$expected_bazel_version"
+          test "$(group-free bazel --version)" = "$expected_bazel_version"
           (
             cd e2e/smoke
-            test "$(run_bazel bazel --version)" = "$expected_bazel_version"
+            test "$(group-free bazel --version)" = "$expected_bazel_version"
           )
           preflight_configs=()
           if [ "${{ matrix.bazel }}" = "9.2.0" ]; then
             preflight_configs=(--config=bazel9)
           fi
-          run_bazel bazel shutdown
+          group-free bazel shutdown
           set -o pipefail
-          run_bazel bazel test --config=kernel_preflight \
+          group-free bazel test --config=kernel_preflight \
             "${preflight_configs[@]}" //... 2>&1 | tee kernel-preflight.log
           grep -F "Executed 1 out of 1 test" kernel-preflight.log
           ! grep -F "(cached)" kernel-preflight.log
@@ -150,11 +137,6 @@ jobs:
         if: matrix.module != ''
         working-directory: ${{ matrix.module }}
         run: |
-          run_bazel() {
-            sudo -n setpriv --reuid="$(id -u)" --regid="$(id -g)" \
-              --clear-groups env HOME="$HOME" PATH="$PATH" \
-              USE_BAZEL_VERSION="$USE_BAZEL_VERSION" "$@"
-          }
           if [ "${{ matrix.bazel }}" = "9.2.0" ]; then
             # Bazel 9 uses a newer lockfile format; compatibility is tested
             # without rewriting the committed Bazel 8 lockfile.
@@ -166,46 +148,35 @@ jobs:
           fi
           # The preflight server ran from the repository root, and every module
           # in this job shares the output base configured by setup-bazel.
-          run_bazel bazel shutdown
-          run_bazel bazel test "${bazel_configs[@]}" //...
-          run_bazel bazel test "${manifest_configs[@]}" //...
+          group-free bazel shutdown
+          group-free bazel test "${bazel_configs[@]}" //...
+          group-free bazel test "${manifest_configs[@]}" //...
 
       - name: Verify the QEMU fallback from KVM to TCG
         if: matrix.suite == 'root'
         run: |
-          run_bazel() {
-            sudo -n setpriv --reuid="$(id -u)" --regid="$(id -g)" \
-              --clear-groups env HOME="$HOME" PATH="$PATH" \
-              USE_BAZEL_VERSION="$USE_BAZEL_VERSION" "$@"
-          }
           version_configs=()
           if [ "${{ matrix.bazel }}" = "9.2.0" ]; then
             version_configs=(--config=bazel9)
           fi
           target=//mkosi/tests:qemu_ovmf_smoke_test
-          testlogs="$(run_bazel bazel info "${version_configs[@]}" bazel-testlogs)"
+          testlogs="$(group-free bazel info "${version_configs[@]}" bazel-testlogs)"
           test_log="$testlogs/mkosi/tests/qemu_ovmf_smoke_test/test.log"
           # The same test uses KVM while /dev/kvm is usable and TCG once it is hidden.
-          run_bazel bazel test --config=qualified_runtime "${version_configs[@]}" "$target"
+          group-free bazel test --config=qualified_runtime "${version_configs[@]}" "$target"
           grep -Fx "QEMU accelerator: kvm" "$test_log"
-          run_bazel bazel test --config=kvm_unavailable "${version_configs[@]}" "$target"
+          group-free bazel test --config=kvm_unavailable "${version_configs[@]}" "$target"
           grep -Fx "QEMU accelerator: tcg" "$test_log"
 
       - name: Verify release reproducibility
         if: matrix.suite == 'audit' && matrix.bazel == '8.5.1'
         run: |
-          sudo -n setpriv --reuid="$(id -u)" --regid="$(id -g)" \
-            --clear-groups env HOME="$HOME" PATH="$PATH" \
-            USE_BAZEL_VERSION="$USE_BAZEL_VERSION" \
-            ./ci/verify-release-reproducibility.sh
+          group-free ./ci/verify-release-reproducibility.sh
 
       - name: Verify two-stage base reuse
         if: matrix.suite == 'audit' && matrix.bazel == '8.5.1'
         run: |
-          sudo -n setpriv --reuid="$(id -u)" --regid="$(id -g)" \
-            --clear-groups env HOME="$HOME" PATH="$PATH" \
-            USE_BAZEL_VERSION="$USE_BAZEL_VERSION" \
-            ./ci/verify-two-stage-cache.sh
+          group-free ./ci/verify-two-stage-cache.sh
 
       - name: Surface retained boot evidence
         id: boot_evidence
@@ -214,11 +185,6 @@ jobs:
         env:
           QUALIFICATION_OUTCOME: ${{ steps.qualification.outcome }}
         run: |
-          run_bazel() {
-            sudo -n setpriv --reuid="$(id -u)" --regid="$(id -g)" \
-              --clear-groups env HOME="$HOME" PATH="$PATH" \
-              USE_BAZEL_VERSION="$USE_BAZEL_VERSION" "$@"
-          }
           module="${{ matrix.suite }}"
           evidence_dir="$RUNNER_TEMP/boot-evidence-${{ matrix.bazel }}-$module"
           mkdir -p "$evidence_dir"
@@ -231,7 +197,7 @@ jobs:
           has_bios_evidence=false
           has_tcg_evidence=false
           if ! testlogs="$(
-            run_bazel bazel info "${info_configs[@]}" bazel-testlogs
+            group-free bazel info "${info_configs[@]}" bazel-testlogs
           )"; then
             echo "The $module Bazel testlogs path is unavailable."
           elif [ ! -d "$testlogs" ]; then
@@ -316,18 +282,13 @@ jobs:
           matrix.bazel == '8.5.1' &&
           matrix.suite == 'root'
         run: |
-          run_bazel() {
-            sudo -n setpriv --reuid="$(id -u)" --regid="$(id -g)" \
-              --clear-groups env HOME="$HOME" PATH="$PATH" \
-              USE_BAZEL_VERSION="$USE_BAZEL_VERSION" "$@"
-          }
           artifact_dir="$RUNNER_TEMP/mkosi-manual-test"
           mkdir -p "$artifact_dir"
           targets=(
             //mkosi/tests:release_subject
             //mkosi/tests:release_reproducibility
           )
-          run_bazel bazel build --config=qualified "${targets[@]}"
+          group-free bazel build --config=qualified "${targets[@]}"
           while IFS= read -r output; do
             destination="$artifact_dir/$(basename "$output")"
             if [ -e "$destination" ]; then
@@ -336,7 +297,7 @@ jobs:
             fi
             cp --reflink=auto "$output" "$destination"
           done < <(
-            run_bazel bazel cquery --config=qualified --output=files \
+            group-free bazel cquery --config=qualified --output=files \
               "set(${targets[*]})"
           )
           expected=(
@@ -371,17 +332,12 @@ jobs:
       - name: Audit Debian tools action graph
         if: matrix.suite == 'audit'
         run: |
-          run_bazel() {
-            sudo -n setpriv --reuid="$(id -u)" --regid="$(id -g)" \
-              --clear-groups env HOME="$HOME" PATH="$PATH" \
-                USE_BAZEL_VERSION="$USE_BAZEL_VERSION" "$@"
-          }
           if [ "${{ matrix.bazel }}" = "8.5.1" ]; then
             mode=error
           else
             mode=off
           fi
-          graph="$(run_bazel bazel aquery --lockfile_mode="${mode}" --output=text \
+          graph="$(group-free bazel aquery --lockfile_mode="${mode}" --output=text \
             'deps(@mkosi_debian_tools//:launcher)')"
           case "$graph" in
             *"/bin/bash"*|*"local_config_cc"*)
@@ -401,7 +357,7 @@ jobs:
             *"mkosi_pypi_314_click"*"/click/"*common.py*|*"mkosi_pypi_314_click"*"/click/"*core.py*) ;;
             *) echo "locked Click runtime is missing from Debian launcher runfiles" >&2; exit 1 ;;
           esac
-          image_graph="$(run_bazel bazel aquery --lockfile_mode="${mode}" --config=qualified --output=text \
+          image_graph="$(group-free bazel aquery --lockfile_mode="${mode}" --config=qualified --output=text \
             'mnemonic("MkosiImage", //mkosi/tests:real_image)')"
           case "$image_graph" in
             *"python3"*"/mkosi/__main__.py"*) ;;
@@ -421,7 +377,7 @@ jobs:
             *"ExecutionInfo: {no-cache: 1, no-remote-exec: 1, requires-network: 1}"*) ;;
             *) echo "mkosi image execution requirements are incomplete" >&2; exit 1 ;;
           esac
-          release_image_graph="$(run_bazel bazel aquery --lockfile_mode="${mode}" --config=qualified --output=text \
+          release_image_graph="$(group-free bazel aquery --lockfile_mode="${mode}" --config=qualified --output=text \
             'mnemonic("MkosiImage", //mkosi/tests:release_subject)')"
           case "$release_image_graph" in
             *"repository_repository"*"--debian-snapshot-repository"*) ;;
@@ -441,7 +397,7 @@ jobs:
             *"--format=disk"*"--output-extension=raw"*"--compress-output=none"*"--split-artifacts="*) ;;
             *) echo "mkosi image output contract overrides are missing" >&2; exit 1 ;;
           esac
-          run_bazel bazel aquery --lockfile_mode="${mode}" --output=jsonproto \
+          group-free bazel aquery --lockfile_mode="${mode}" --output=jsonproto \
             'deps(@mkosi_debian_tools//:launcher)' > debian-tools-aquery.json
           python3 - debian-tools-aquery.json <<'PY'
           import json
@@ -630,7 +586,7 @@ jobs:
           rm debian-tools-aquery.json
           for target in launcher namespace_runner
           do
-            definition="$(run_bazel bazel cquery --lockfile_mode="${mode}" \
+            definition="$(group-free bazel cquery --lockfile_mode="${mode}" \
               --output=build "@mkosi_debian_tools//:${target}")"
             case "$definition" in
               *"exec_compatible_with"*) ;;
@@ -650,16 +606,11 @@ jobs:
       - name: Verify downstream no-RC toolchain default
         if: matrix.suite == 'audit'
         run: |
-          run_bazel() {
-            sudo -n setpriv --reuid="$(id -u)" --regid="$(id -g)" \
-              --clear-groups env HOME="$HOME" PATH="$PATH" \
-                USE_BAZEL_VERSION="$USE_BAZEL_VERSION" "$@"
-          }
           mode=off
           if [ "${{ matrix.bazel }}" = "8.5.1" ]; then
             mode=error
           fi
-          graph="$(run_bazel bazel --bazelrc=/dev/null aquery \
+          graph="$(group-free bazel --bazelrc=/dev/null aquery \
             --lockfile_mode="${mode}" --output=text \
             'deps(@mkosi_debian_tools//:launcher)')"
           case "$graph" in
@@ -677,16 +628,11 @@ jobs:
       - name: Verify Linux sandbox helper
         if: matrix.suite == 'audit'
         run: |
-          run_bazel() {
-            sudo -n setpriv --reuid="$(id -u)" --regid="$(id -g)" \
-              --clear-groups env HOME="$HOME" PATH="$PATH" \
-                USE_BAZEL_VERSION="$USE_BAZEL_VERSION" "$@"
-          }
           mode=error
           if [ "${{ matrix.bazel }}" = "9.2.0" ]; then
             mode=off
           fi
-          install_base="$(run_bazel bazel info --lockfile_mode="$mode" install_base)"
+          install_base="$(group-free bazel info --lockfile_mode="$mode" install_base)"
           test -x "${install_base}/linux-sandbox"
           "${install_base}/linux-sandbox" /bin/true
 
@@ -699,6 +645,9 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
+      - name: Put CI helpers on PATH
+        run: echo "$GITHUB_WORKSPACE/ci/bin" >> "$GITHUB_PATH"
+
       - name: Set up Bazel
         uses: bazel-contrib/setup-bazel@c5acdfb288317d0b5c0bbd7a396a3dc868bb0f86 # v0.19.0
         with:
@@ -710,18 +659,7 @@ jobs:
 
       - name: Run production namespace and image targets
         run: |
-          # setpriv is CI setup only. It establishes the required empty group
-          # vector before Bazel starts; it is not a rule or action dependency.
-          sudo -n setpriv --reuid="$(id -u)" --regid="$(id -g)" \
-            --clear-groups env HOME="$HOME" PATH="$PATH" sh -eu -c '
-              groups=
-              while IFS= read -r line; do
-                case "$line" in Groups:*) groups="${line#Groups:}" ;; esac
-              done < /proc/self/status
-              case "$groups" in
-                *[![:space:]]*) echo "CI namespace lane has supplementary groups" >&2; exit 1 ;;
-              esac
-              echo "CI namespace lane: Groups: (empty)"
+          group-free sh -eu -c '
               bazel shutdown
               override_graph="$(bazel aquery --lockfile_mode=error --output=text \
                 "mnemonic(\"MkosiImage\", //mkosi/tests:override_subject)")"
@@ -846,6 +784,9 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
+      - name: Put CI helpers on PATH
+        run: echo "$GITHUB_WORKSPACE/ci/bin" >> "$GITHUB_PATH"
+
       - name: Set up Bazel
         uses: bazel-contrib/setup-bazel@c5acdfb288317d0b5c0bbd7a396a3dc868bb0f86 # v0.19.0
         with:
@@ -857,23 +798,18 @@ jobs:
 
       - name: Verify deterministic bootstrap binaries
         run: |
-          run_bazel() {
-            sudo -n setpriv --reuid="$(id -u)" --regid="$(id -g)" \
-              --clear-groups env HOME="$HOME" PATH="$PATH" \
-                USE_BAZEL_VERSION="$USE_BAZEL_VERSION" "$@"
-          }
           output_a="$GITHUB_WORKSPACE/.ci-output-a"
           output_b="$GITHUB_WORKSPACE/.ci-output-b"
           execution_log="$GITHUB_WORKSPACE/.ci-execution-log.json"
           rm -rf "$output_a" "$output_b"
           rm -f "$execution_log"
-          run_bazel bazel --output_base="$output_a" build \
+          group-free bazel --output_base="$output_a" build \
             --config=deterministic \
             --execution_log_json_file="$execution_log" \
             //...
-          first_launcher="$(run_bazel bazel --output_base="$output_a" cquery \
+          first_launcher="$(group-free bazel --output_base="$output_a" cquery \
             --output=files @mkosi_debian_tools//:launcher | tail -n 1)"
-          first_runner="$(run_bazel bazel --output_base="$output_a" cquery \
+          first_runner="$(group-free bazel --output_base="$output_a" cquery \
             --output=files @mkosi_debian_tools//:namespace_runner | tail -n 1)"
           first_launcher_sha="$(sha256sum "$first_launcher" | cut -d' ' -f1)"
           first_runner_sha="$(sha256sum "$first_runner" | cut -d' ' -f1)"
@@ -899,12 +835,12 @@ jobs:
           print("uncached bootstrap execution records:", records)
           print("CcStrip /usr/bin/false execution records: 0")
           PY
-          run_bazel bazel --output_base="$output_b" build \
+          group-free bazel --output_base="$output_b" build \
             --config=deterministic \
             //...
-          second_launcher="$(run_bazel bazel --output_base="$output_b" cquery \
+          second_launcher="$(group-free bazel --output_base="$output_b" cquery \
             --output=files @mkosi_debian_tools//:launcher | tail -n 1)"
-          second_runner="$(run_bazel bazel --output_base="$output_b" cquery \
+          second_runner="$(group-free bazel --output_base="$output_b" cquery \
             --output=files @mkosi_debian_tools//:namespace_runner | tail -n 1)"
           test "$first_launcher_sha" = "$(sha256sum "$second_launcher" | cut -d' ' -f1)"
           test "$first_runner_sha" = "$(sha256sum "$second_runner" | cut -d' ' -f1)"

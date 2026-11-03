@@ -2,6 +2,9 @@
 
 Small, unit-tested validators for repository-specific CI checks.
 
+`bin/group-free COMMAND...` runs a command without supplementary groups, as image builds require, and fails if any group remains.
+CI puts `bin` on `PATH` and runs every Bazel command through it.
+
 | Helper | Checks | Unit tests |
 | --- | --- | --- |
 | `action_graph_validator.py` | Debian toolchain actions do not resolve host executables. | `//ci:action_graph_validator_test` |
