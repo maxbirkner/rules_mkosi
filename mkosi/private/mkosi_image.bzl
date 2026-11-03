@@ -204,6 +204,7 @@ def _mkosi_reproducibility_manifest_impl(ctx):
         arguments = [args],
         inputs = depset(
             [image.raw_image, image.build_metadata, image.partition_metadata, ctx.file._partition_projector, ctx.file._projector] +
+            [ctx.file._gpt_partitions] +
             [artifact for _, artifact in split_artifacts if artifact != None],
             transitive = [mkosi.python_runtime_files],
         ),
@@ -225,6 +226,11 @@ mkosi_reproducibility_manifest = rule(
             mandatory = True,
             providers = [MkosiImageInfo],
             doc = "Release-mode image whose immutable outputs are projected.",
+        ),
+        "_gpt_partitions": attr.label(
+            cfg = "exec",
+            default = "//mkosi/private:gpt_partitions.py",
+            allow_single_file = True,
         ),
         "_projector": attr.label(
             cfg = "exec",
@@ -626,7 +632,7 @@ def _mkosi_image_impl(ctx):
             executable = mkosi.python,
             arguments = [ctx.file._write_bios_repart.path, bios_partition_definition.path],
             inputs = depset(
-                [ctx.file._write_bios_repart],
+                [ctx.file._write_bios_repart, ctx.file._gpt_partitions],
                 transitive = [mkosi.python_runtime_files],
             ),
             tools = [mkosi.python_files_to_run],
@@ -768,7 +774,7 @@ def _mkosi_image_impl(ctx):
             executable = mkosi.python,
             arguments = [partition_arguments],
             inputs = depset(
-                [ctx.file._partition_metadata, image] + slot_version_inputs,
+                [ctx.file._partition_metadata, ctx.file._gpt_partitions, image] + slot_version_inputs,
                 transitive = [mkosi.python_runtime_files],
             ),
             tools = [
@@ -828,7 +834,7 @@ def _mkosi_image_impl(ctx):
             executable = mkosi.python,
             arguments = [verity_arguments],
             inputs = depset(
-                [ctx.file._verity_metadata, root_hash, partition_metadata, root_image, root_hash_image],
+                [ctx.file._verity_metadata, ctx.file._gpt_partitions, root_hash, partition_metadata, root_image, root_hash_image],
                 transitive = [mkosi.python_runtime_files],
             ),
             tools = [mkosi.python_files_to_run],
@@ -1077,6 +1083,11 @@ MkosiImageInfo.image_version is None and MkosiImageInfo.image_version_file is th
             cfg = "exec",
             default = "//mkosi/private:kernel_preflight",
             executable = True,
+        ),
+        "_gpt_partitions": attr.label(
+            cfg = "exec",
+            default = "//mkosi/private:gpt_partitions.py",
+            allow_single_file = True,
         ),
         "_partition_metadata": attr.label(
             cfg = "exec",

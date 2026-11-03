@@ -39,6 +39,10 @@ main="$(resolve_runfile "$2")" || {
     echo "mkosi Python entrypoint is missing from runfiles" >&2
     exit 1
 }
+customize="$(resolve_runfile "$3")" || {
+    echo "pefile probe sitecustomize.py is missing from runfiles" >&2
+    exit 1
+}
 
 pefile_root=
 if [ -n "$manifest" ] && [ -f "$manifest" ]; then
@@ -102,18 +106,8 @@ PATH=
 export PATH
 probe="$TEST_TMPDIR/pefile.version"
 export MKOSI_PEFILE_PROBE="$probe"
-customize_root=
-for candidate in \
-    "$runfiles_root/_main/mkosi/tests" \
-    "$runfiles_root/mkosi/tests"
-do
-    if [ -f "$candidate/sitecustomize.py" ]; then
-        customize_root="$candidate"
-        break
-    fi
-done
 PYTHONNOUSERSITE=1 \
-PYTHONPATH="$customize_root:${main%/mkosi/__main__.py}:$pefile_root" \
+PYTHONPATH="${customize%/*}:${main%/mkosi/__main__.py}:$pefile_root" \
     "$python" "$main" --version > "$TEST_TMPDIR/mkosi.version"
 IFS= read -r version < "$TEST_TMPDIR/mkosi.version"
 [ "$version" = "mkosi 27" ] || {

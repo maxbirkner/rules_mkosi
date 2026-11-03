@@ -12,7 +12,7 @@ import uuid
 import zlib
 from unittest import mock
 
-from mkosi.private import partition_metadata
+from mkosi.private import gpt_partitions, partition_metadata
 
 SECTOR = 512
 SECTORS = 32768
@@ -57,7 +57,7 @@ def _header(current, backup, entries_lba, array, **overrides):
 def image(entries=None, primary_overrides=None, backup_overrides=None):
     array = bytearray(COUNT * ENTRY_SIZE)
     if entries is None:
-        entries = [(2, 2048, 4095, partition_metadata.ROOT_X86_64, "root-x86-64")]
+        entries = [(2, 2048, 4095, gpt_partitions.ROOT_X86_64, "root-x86-64")]
     for slot, first, last, type_guid, label in entries:
         offset = (slot - 1) * ENTRY_SIZE
         array[offset : offset + 16] = uuid.UUID(type_guid).bytes_le
@@ -175,7 +175,7 @@ class ProjectionTest(unittest.TestCase):
         for slot in range(count):
             offset = slot * ENTRY_SIZE
             array[offset : offset + 16] = uuid.UUID(
-                partition_metadata.ROOT_X86_64
+                gpt_partitions.ROOT_X86_64
                 if slot == 0
                 else "0fc63daf-8483-4772-8e79-3d69d8477de4"
             ).bytes_le
@@ -224,14 +224,14 @@ class ProjectionTest(unittest.TestCase):
 
     def test_bios_firmware_requires_bios_boot_partition(self):
         entries = [
-            (1, 2048, 4095, partition_metadata.BIOS_BOOT, "BIOS Boot"),
-            (2, 4096, 6143, partition_metadata.ROOT_X86_64, "root-x86-64"),
+            (1, 2048, 4095, gpt_partitions.BIOS_BOOT, "BIOS Boot"),
+            (2, 4096, 6143, gpt_partitions.ROOT_X86_64, "root-x86-64"),
         ]
         with open(self.path, "wb") as output:
             output.write(image(entries=entries))
         projected = partition_metadata.project_image(self.path, "bios")
         self.assertEqual("bios", projected["firmware"])
-        self.assertEqual(partition_metadata.BIOS_BOOT, projected["partitions"][0]["type_guid"])
+        self.assertEqual(gpt_partitions.BIOS_BOOT, projected["partitions"][0]["type_guid"])
 
         with open(self.path, "wb") as output:
             output.write(image())
@@ -326,20 +326,20 @@ class ProjectionTest(unittest.TestCase):
         wrong = "0fc63daf-8483-4772-8e79-3d69d8477de4"
         cases = [
             ([], "exactly one"),
-            ([(2, 2049, 4095, partition_metadata.ROOT_X86_64, "root-x86-64")], "aligned"),
-            ([(2, 1024, 4095, partition_metadata.ROOT_X86_64, "root-x86-64")], "usable"),
+            ([(2, 2049, 4095, gpt_partitions.ROOT_X86_64, "root-x86-64")], "aligned"),
+            ([(2, 1024, 4095, gpt_partitions.ROOT_X86_64, "root-x86-64")], "usable"),
             ([(2, 2048, 4095, wrong, "root-x86-64")], "exactly one"),
-            ([(2, 2048, 4095, partition_metadata.ROOT_X86_64, "wrong")], "label"),
+            ([(2, 2048, 4095, gpt_partitions.ROOT_X86_64, "wrong")], "label"),
             (
                 [
-                    (2, 2048, 4095, partition_metadata.ROOT_X86_64, "root-x86-64"),
+                    (2, 2048, 4095, gpt_partitions.ROOT_X86_64, "root-x86-64"),
                     (5, 3072, 5119, wrong, "data"),
                 ],
                 "overlaps",
             ),
             (
                 [
-                    (2, 4096, 6143, partition_metadata.ROOT_X86_64, "root-x86-64"),
+                    (2, 4096, 6143, gpt_partitions.ROOT_X86_64, "root-x86-64"),
                     (5, 2048, 4095, wrong, "data"),
                 ],
                 "out of order",
@@ -356,11 +356,11 @@ class ProjectionTest(unittest.TestCase):
         return partition_metadata.project_image(self.path, slot_label=slot_label)
 
     def ab_entries(self, root_label="ab_1", verity_label="ab_1_verity", inactive_root_last=8191):
-        verity = partition_metadata.ROOT_X86_64_VERITY
+        verity = gpt_partitions.ROOT_X86_64_VERITY
         return [
-            (2, 2048, 4095, partition_metadata.ROOT_X86_64, root_label),
+            (2, 2048, 4095, gpt_partitions.ROOT_X86_64, root_label),
             (3, 4096, 6143, verity, verity_label),
-            (4, 6144, inactive_root_last, partition_metadata.ROOT_X86_64, "_empty"),
+            (4, 6144, inactive_root_last, gpt_partitions.ROOT_X86_64, "_empty"),
             (5, 10240, 12287, verity, "_empty"),
         ]
 
@@ -382,7 +382,7 @@ class ProjectionTest(unittest.TestCase):
             (self.ab_entries(root_label="ab_2"), "populated root partition labelled 'ab_1'"),
             (self.ab_entries(verity_label="ab_1-verity"), "populated verity partition labelled 'ab_1_verity'"),
             (self.ab_entries(root_label="root-x86-64"), "populated root partition"),
-            (self.ab_entries()[:2] + [(4, 6144, 8191, partition_metadata.ROOT_X86_64, "ab_0")], "exactly one populated root"),
+            (self.ab_entries()[:2] + [(4, 6144, 8191, gpt_partitions.ROOT_X86_64, "ab_0")], "exactly one populated root"),
             (self.ab_entries()[:1], "exactly one populated verity"),
             (self.ab_entries(inactive_root_last=7167), "inactive root slots must be at least as large"),
         ]

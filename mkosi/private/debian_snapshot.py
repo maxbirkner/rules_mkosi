@@ -12,11 +12,8 @@ import re
 
 
 def _digest(path):
-    digest = hashlib.sha256()
     with open(path, "rb") as source:
-        for chunk in iter(lambda: source.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+        return hashlib.file_digest(source, "sha256").hexdigest()
 
 
 def _verify_digest(path, expected, description):

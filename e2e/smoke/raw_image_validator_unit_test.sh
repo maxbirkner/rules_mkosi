@@ -39,7 +39,12 @@ python="$(resolve_runfile "$2")" || {
     echo "managed Debian Python is missing from runfiles" >&2
     exit 1
 }
+validator="$(resolve_runfile "$3")" || {
+    echo "rules_mkosi raw image validator is missing from runfiles" >&2
+    exit 1
+}
 
 PATH=
-export PATH
+PYTHONPATH="${validator%/*}"
+export PATH PYTHONPATH
 exec "$python" "$test_script"

@@ -54,6 +54,7 @@ py_test(
     srcs = ["reproducibility_manifest_test.py"],
     args = ["$(rootpath //mkosi/private:reproducibility_manifest.py)"],
     data = [
+        "//mkosi/private:gpt_partitions.py",
         "//mkosi/private:partition_metadata.py",
         "//mkosi/private:reproducibility_manifest.py",
     ],
@@ -75,6 +76,7 @@ py_test(
     name = "partition_metadata_test",
     srcs = [
         "partition_metadata_test.py",
+        "//mkosi/private:gpt_partitions.py",
         "//mkosi/private:image_version.py",
         "//mkosi/private:partition_metadata.py",
     ],
@@ -99,6 +101,7 @@ py_test(
     name = "verity_metadata_test",
     srcs = [
         "verity_metadata_test.py",
+        "//mkosi/private:gpt_partitions.py",
         "//mkosi/private:verity_metadata.py",
     ],
     main = "verity_metadata_test.py",
@@ -196,6 +199,7 @@ py_test(
     name = "bios_image_artifact_test",
     srcs = [
         "bios_image_artifact_test.py",
+        "//mkosi/private:gpt_partitions.py",
         "//mkosi/private:partition_metadata.py",
     ],
     args = [
@@ -217,6 +221,7 @@ py_test(
     srcs = [
         "bios_image_artifact_test.py",
         "bios_image_artifact_unit_test.py",
+        "//mkosi/private:gpt_partitions.py",
         "//mkosi/private:partition_metadata.py",
     ],
     main = "bios_image_artifact_unit_test.py",
@@ -392,6 +397,7 @@ py_test(
     name = "sysupdate_test",
     srcs = [
         "sysupdate_test.py",
+        "//mkosi/private:gpt_partitions.py",
         "//mkosi/private:image_version.py",
         "//mkosi/private:sysupdate.py",
     ],
@@ -475,6 +481,7 @@ sh_test(
     args = [
         "$(rootpath @mkosi_toolchains//:mkosi_python)",
         "$(rootpath @mkosi_toolchains//:mkosi_script)",
+        "$(rootpath sitecustomize.py)",
     ],
     data = [
         "sitecustomize.py",
@@ -712,6 +719,9 @@ exports_files([
     "behavior_matrix.tsv",
     "behavior_matrix_test.py",
     "mkosi_version_test.sh",
+    "raw_image_corruption_test.py",
+    "raw_image_validator.py",
+    "sitecustomize.py",
     "staged_image_semantics_test.py",
     "testdata/config-tree",
     "testdata/source-tree",

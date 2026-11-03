@@ -9,7 +9,7 @@ import subprocess
 import sys
 import tarfile
 
-from mkosi.private import partition_metadata
+from mkosi.private import gpt_partitions, partition_metadata
 from python.runfiles import runfiles
 
 SECTOR = 512
@@ -79,7 +79,7 @@ def _validate_protective_mbr(mbr, last_lba):
 
 
 def validate_boot_regions(image, metadata, boot_reference, diskboot_reference):
-    bios = [p for p in metadata["partitions"] if p["type_guid"] == partition_metadata.BIOS_BOOT]
+    bios = [p for p in metadata["partitions"] if p["type_guid"] == gpt_partitions.BIOS_BOOT]
     if len(bios) != 1:
         raise AssertionError("unique GPT BIOS boot partition is missing")
     partition = bios[0]
@@ -194,7 +194,7 @@ def _fat_regular(launcher, esp, path):
 
 
 def _extract_root(image, metadata, destination):
-    root = next(p for p in metadata["partitions"] if p["type_guid"] == partition_metadata.ROOT_X86_64)
+    root = next(p for p in metadata["partitions"] if p["type_guid"] == gpt_partitions.ROOT_X86_64)
     start, size = root["start_bytes"], root["size_bytes"]
     if size <= 0 or size > MAX_ROOT_BYTES or start < 0 or start > sys.maxsize - size:
         raise AssertionError("Linux root partition exceeds inspection resource limits")

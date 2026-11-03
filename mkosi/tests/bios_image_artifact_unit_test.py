@@ -15,7 +15,7 @@ class BiosArtifactTest(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
         self.image = pathlib.Path(self.directory.name) / "image.raw"
-        self.metadata = {"partitions": [{"type_guid": validator.partition_metadata.BIOS_BOOT, "start_bytes": 1048576, "size_bytes": 1048576}]}
+        self.metadata = {"partitions": [{"type_guid": validator.gpt_partitions.BIOS_BOOT, "start_bytes": 1048576, "size_bytes": 1048576}]}
         self.boot = bytearray((index * 37 + 11) & 255 for index in range(512))
         self.boot[0x1BE:0x1FE] = bytes(64)
         self.boot[510:512] = b"\x55\xaa"
