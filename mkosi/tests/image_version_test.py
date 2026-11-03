@@ -41,6 +41,22 @@ class ImageVersionTest(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "invalid image_version_file .*image_version must be non-empty"):
                     image_version.read_image_version(self.version)
 
+    def test_slot_labels_must_fit_gpt_partition_names(self):
+        # The verity label is the longest A/B slot label: '<image id>_<version>_verity'.
+        self.version.write_text("20261103011813.45eed0f.1\n")
+        self.assertEqual("20261103011813.45eed0f.1", image_version.read_image_version(self.version, "os.a"))
+        self.assertEqual("20261103011813.45eed0f.1", image_version.read_image_version(self.version))
+        with self.assertRaisesRegex(
+            ValueError,
+            r"invalid image_version_file .*: A/B verity partition label "
+            r"'my-os-a_20261103011813\.45eed0f\.1_verity' is 39 characters, "
+            r"but GPT partition names are limited to 36; shorten image_id or image_version",
+        ):
+            image_version.read_image_version(self.version, "my-os-a")
+        image_version.validate_slot_labels("a" * 13, "1" * 15)
+        with self.assertRaisesRegex(ValueError, "is 37 characters"):
+            image_version.validate_slot_labels("a" * 14, "1" * 15)
+
     def test_rejects_non_utf8_content(self):
         self.version.write_bytes(b"\xff")
         with self.assertRaisesRegex(ValueError, "invalid image_version_file"):
@@ -139,6 +155,17 @@ class RunMkosiTest(unittest.TestCase):
                     self.assertIn("use only letters, digits and '.'", completed.stderr)
                     self.assertNotIn("preflight", completed.stderr)
                     self.assertNotIn("mkosi image assembly", completed.stderr)
+
+    def test_slot_label_beyond_gpt_limit_fails_the_action(self):
+        environment = {key: value for key, value in os.environ.items() if key != "RULES_MKOSI_RELEASE_CHILD"}
+        self.version.write_text("20261103011813.45eed0f.1\n")
+        for preamble in ((), ("--debian-snapshot-repository", os.fspath(self.root))):
+            with self.subTest(preamble=preamble):
+                completed = self.run_wrapper("--slot-label-image-id", "my-os-a", *preamble, environment=environment)
+                self.assertEqual(1, completed.returncode, completed.stderr)
+                self.assertIn("IMAGE_VERSION_INVALID: invalid image_version_file", completed.stderr)
+                self.assertIn("is 39 characters, but GPT partition names are limited to 36", completed.stderr)
+                self.assertNotIn("preflight", completed.stderr)
 
     def test_valid_version_reaches_mkosi_after_image_id(self):
         spec = importlib.util.spec_from_file_location("run_mkosi", PRIVATE / "run_mkosi.py")

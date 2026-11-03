@@ -35,6 +35,15 @@ can come from a file with `image_version_file`; see
   `_` separates the id from the version in every artifact name, and `+` and `-`
   introduce the boot-counting suffix of a UKI, so none of them may appear in a
   version.
+- The populated slot labels must fit in a GPT partition name, which holds at
+  most 36 characters. The verity label `<image_id>_<image_version>_verity` is
+  the longest, so `image_id` and the version together may use at most 28
+  characters. systemd-repart would otherwise silently replace the label with
+  its default. With `verity = "hash"`, analysis fails for a longer
+  `image_version`, and the image action fails before it starts mkosi for a
+  longer `image_version_file` version; both errors name the label and the
+  limit. A stamped version such as `<commit timestamp>.<short commit hash>`
+  quickly uses this budget, so prefer a short `image_id` and hash.
 
 Both attributes expand Make variables, so the version can come from a build
 setting rather than being edited in `BUILD` files:
@@ -109,7 +118,9 @@ mkosi_image(
 
 The version is validated with the same rule as `image_version` by every action
 that reads it, so an empty file, for example when the workspace status command
-is missing, fails the build with an `invalid image_version_file` message. The
+is missing, fails the build with an `invalid image_version_file` message. With
+`verity = "hash"`, the image, partition metadata, and payload actions also
+enforce the [36-character slot label budget](#image-identity). The
 image action passes it to mkosi as `ImageVersion=`, the partition metadata
 action checks the slot labels against it, the build metadata records it in
 `image.version` with the unchanged `mkosi-image-build-metadata-v2` schema, and

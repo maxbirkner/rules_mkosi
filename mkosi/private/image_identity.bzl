@@ -3,6 +3,9 @@
 _ID_CHARACTERS = "abcdefghijklmnopqrstuvwxyz0123456789._-"
 _VERSION_CHARACTERS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789."
 
+# GPT partition names hold at most 36 UTF-16 code units; systemd-repart silently replaces a longer Label=.
+GPT_PARTITION_NAME_MAX = 36
+
 def validate_image_id(image_id):
     """Fails unless image_id is a non-empty os-release IMAGE_ID.
 
@@ -25,3 +28,20 @@ def validate_image_version(image_version):
     """
     if not image_version or image_version.strip(_VERSION_CHARACTERS):
         fail("image_version must be non-empty and use only letters, digits and '.': %r" % image_version)
+
+def validate_slot_labels(image_id, image_version):
+    """Fails unless the A/B root and verity partition labels fit in a GPT partition name.
+
+    The populated slots are labelled '<image_id>_<image_version>' and '<image_id>_<image_version>_verity'. The
+    verity label is the longer one. image_id and image_version are ASCII, so their length equals their UTF-16 length.
+    image_version.py applies the same rule to image_version_file contents at execution time.
+
+    Args:
+      image_id: Validated IMAGE_ID string.
+      image_version: Validated IMAGE_VERSION string.
+    """
+    label = "%s_%s_verity" % (image_id, image_version)
+    if len(label) > GPT_PARTITION_NAME_MAX:
+        fail(("A/B verity partition label '%s' is %d characters, but GPT partition names are limited to %d; " +
+              "shorten image_id or image_version so that image_id + '_' + image_version + '_verity' fits") %
+             (label, len(label), GPT_PARTITION_NAME_MAX))

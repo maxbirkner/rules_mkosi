@@ -104,6 +104,7 @@ def _image_version_file_identity_test_impl(ctx):
     image_action = _action(env, "MkosiImage")
     argv = image_action.argv
     asserts.equals(env, version_file.path, _option_value(_preamble(argv), "--image-version-file"))
+    asserts.equals(env, "rules-mkosi-ab", _option_value(_preamble(argv), "--slot-label-image-id"))
     asserts.true(env, "--image-id=rules-mkosi-ab" in argv)
     asserts.false(env, any([argument.startswith("--image-version=") for argument in argv]))
     image_inputs = image_action.inputs.to_list()
@@ -112,7 +113,7 @@ def _image_version_file_identity_test_impl(ctx):
 
     partition_action = _action(env, "MkosiPartitionMetadata")
     asserts.equals(env, None, _option_value(partition_action.argv, "--slot-label"))
-    asserts.equals(env, "rules-mkosi-ab_", _option_value(partition_action.argv, "--slot-label-prefix"))
+    asserts.equals(env, "rules-mkosi-ab", _option_value(partition_action.argv, "--slot-label-image-id"))
     asserts.equals(env, version_file.path, _option_value(partition_action.argv, "--image-version-file"))
     asserts.true(env, version_file in partition_action.inputs.to_list())
 
@@ -331,6 +332,64 @@ def sysupdate_test_suite(name):
         target_under_test = ":version_file_release_subject",
         version_file = ":release_version_file",
     )
+
+    # 'rules-mkosi-ab_<version>_verity' fills the 36-character GPT partition name limit exactly.
+    mkosi_image(
+        name = "longest_slot_label_release_subject",
+        config_tree = ":immutable_release_config_tree",
+        debian_snapshot = "@mkosi_debian_snapshot//:repository",
+        image_id = "rules-mkosi-ab",
+        image_version = "20261103.12abc",
+        mode = "release",
+        release_seed = "00000000-0000-4000-8000-000000000007",
+        release_source_date_epoch = 0,
+        unified_kernel_image = "unsigned",
+        verity = "hash",
+        tags = ["manual"],
+    )
+    _image_identity_test(
+        name = "longest_slot_label_release_identity_test",
+        expected_id = "rules-mkosi-ab",
+        expected_slot_label = "rules-mkosi-ab_20261103.12abc",
+        expected_version = "20261103.12abc",
+        target_under_test = ":longest_slot_label_release_subject",
+    )
+    mkosi_image(
+        name = "slot_label_too_long_release_subject",
+        config_tree = ":immutable_release_config_tree",
+        debian_snapshot = "@mkosi_debian_snapshot//:repository",
+        image_id = "rules-mkosi-ab",
+        image_version = "20261103.12abcd",
+        mode = "release",
+        release_seed = "00000000-0000-4000-8000-000000000007",
+        release_source_date_epoch = 0,
+        unified_kernel_image = "unsigned",
+        verity = "hash",
+        tags = ["manual"],
+    )
+    _expected_failure_test(
+        name = "slot_label_too_long_release_test",
+        expected_error = (
+            "A/B verity partition label 'rules-mkosi-ab_20261103.12abcd_verity' is 37 characters, " +
+            "but GPT partition names are limited to 36"
+        ),
+        target_under_test = ":slot_label_too_long_release_subject",
+    )
+
+    # Without verity there are no A/B slot labels, so a long version is accepted.
+    mkosi_image(
+        name = "long_version_without_verity_subject",
+        config = "testdata/minimal.conf",
+        image_id = "rules-mkosi-ab",
+        image_version = "20261103011813.45eed0f.1",
+        tags = ["manual"],
+    )
+    _image_identity_test(
+        name = "long_version_without_verity_identity_test",
+        expected_id = "rules-mkosi-ab",
+        expected_version = "20261103011813.45eed0f.1",
+        target_under_test = ":long_version_without_verity_subject",
+    )
     mkosi_image(
         name = "versioned_plain_release_subject",
         config_tree = ":release_config_tree",
@@ -365,6 +424,9 @@ def sysupdate_test_suite(name):
     )
     tests += [
         ":image_id_only_identity_test",
+        ":long_version_without_verity_identity_test",
+        ":longest_slot_label_release_identity_test",
+        ":slot_label_too_long_release_test",
         ":unversioned_release_identity_test",
         ":versioned_plain_release_identity_test",
         ":version_file_release_identity_test",

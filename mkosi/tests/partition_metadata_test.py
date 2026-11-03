@@ -395,7 +395,7 @@ class ProjectionTest(unittest.TestCase):
         projected = self.project_slots(self.ab_entries()[:2])
         self.assertEqual(2, len(projected["partitions"]))
 
-    def run_main(self, version_content, entries=None):
+    def run_main(self, version_content, entries=None, image_id="ab"):
         with open(self.path, "wb") as output:
             output.write(image(entries=entries or self.ab_entries()))
         version_file = os.path.join(self.directory.name, "version.txt")
@@ -408,8 +408,8 @@ class ProjectionTest(unittest.TestCase):
             self.path,
             "--output",
             metadata,
-            "--slot-label-prefix",
-            "ab_",
+            "--slot-label-image-id",
+            image_id,
             "--image-version-file",
             version_file,
         ]
@@ -426,6 +426,15 @@ class ProjectionTest(unittest.TestCase):
         )
         with self.assertRaisesRegex(ValueError, "populated root partition labelled 'ab_2'"):
             self.run_main(b"2")
+
+    def test_version_file_label_beyond_gpt_limit_is_rejected(self):
+        # 'ab_<version>_verity' is 37 characters, one more than a GPT partition name holds.
+        with self.assertRaisesRegex(
+            SystemExit,
+            "IMAGE_VERSION_INVALID: invalid image_version_file .*'ab_123456789012345678901234567_verity' is 37 "
+            "characters, but GPT partition names are limited to 36",
+        ):
+            self.run_main(b"123456789012345678901234567\n")
 
     def test_invalid_version_file_is_rejected(self):
         for content in (b"", b"\n", b"1-2\n", b"1\n\n", b" 1"):

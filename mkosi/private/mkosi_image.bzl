@@ -1,7 +1,7 @@
 """Implementation of the public mkosi_image rule."""
 
 load("//mkosi/private:debian_snapshot.bzl", "DebianSnapshotInfo")
-load("//mkosi/private:image_identity.bzl", "validate_image_id", "validate_image_version")
+load("//mkosi/private:image_identity.bzl", "validate_image_id", "validate_image_version", "validate_slot_labels")
 
 MkosiImageInfo = provider(
     doc = """Stable output contract for mkosi_image.
@@ -456,6 +456,8 @@ def _mkosi_image_impl(ctx):
         validate_image_id(image_id)
     if image_version:
         validate_image_version(image_version)
+        if verity_enabled:
+            validate_slot_labels(image_id, image_version)
     if ctx.attr.config and ctx.attr.config_tree:
         fail("set exactly one of config and config_tree")
     if not ctx.attr.config and not ctx.attr.config_tree:
@@ -568,6 +570,9 @@ def _mkosi_image_impl(ctx):
     if image_version_file:
         arguments.add("--image-version-file")
         arguments.add(image_version_file.path)
+        if verity_enabled:
+            arguments.add("--slot-label-image-id")
+            arguments.add(image_id)
     arguments.add("--")
     if staging:
         arguments.add("-C")
@@ -677,8 +682,8 @@ def _mkosi_image_impl(ctx):
             partition_arguments.add("--slot-label")
             partition_arguments.add(image_id + "_" + image_version)
         if image_version_file and verity_enabled:
-            partition_arguments.add("--slot-label-prefix")
-            partition_arguments.add(image_id + "_")
+            partition_arguments.add("--slot-label-image-id")
+            partition_arguments.add(image_id)
             partition_arguments.add("--image-version-file")
             partition_arguments.add(image_version_file.path)
             slot_version_inputs = [image_version_file, ctx.file._image_version]
@@ -938,7 +943,9 @@ the common `toolchains` attribute, e.g. image_version = "$(OS_VERSION)".
 With verity='hash', the populated root and verity partitions must be labelled
 '<image_id>_<image_version>' and '<image_id>_<image_version>_verity' (repart 'Label=%M_%A' and
 'Label=%M_%A_verity'), and inactive A/B slots must be labelled '_empty', following the
-systemd-sysupdate partition conventions used by sysupdate_transfers and sysupdate_payload.
+systemd-sysupdate partition conventions used by sysupdate_transfers and sysupdate_payload. GPT partition names
+hold at most 36 characters, so the longer label, '<image_id>_<image_version>_verity', must fit in 36 characters;
+analysis fails otherwise.
 """,
         ),
         "image_version_file": attr.label(
@@ -949,8 +956,9 @@ Requires image_id and excludes image_version. Use it for versions derived from t
 genrule that reads bazel-out/stable-status.txt. The file must contain letters, digits and '.' only, optionally
 followed by one newline; this is the image_version rule, enforced when the actions that read the file run. The
 version is passed to mkosi as ImageVersion=, checked against the populated A/B slot labels, recorded in the build
-metadata, and used by sysupdate_payload. MkosiImageInfo.image_version is None and
-MkosiImageInfo.image_version_file is this file.
+metadata, and used by sysupdate_payload. With verity='hash', '<image_id>_<version>_verity' must also fit the
+36-character GPT partition name limit, which the image action checks before it starts mkosi.
+MkosiImageInfo.image_version is None and MkosiImageInfo.image_version_file is this file.
 """,
         ),
         "_image_version": attr.label(

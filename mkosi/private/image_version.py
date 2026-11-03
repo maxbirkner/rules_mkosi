@@ -12,6 +12,9 @@ from pathlib import Path
 
 VERSION_CHARACTERS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.")
 
+# GPT partition names hold at most 36 UTF-16 code units; systemd-repart silently replaces a longer Label=.
+GPT_PARTITION_NAME_MAX = 36
+
 
 def validate_image_version(image_version):
     """Returns image_version, or raises ValueError unless it is non-empty and uses only letters, digits and '.'.
@@ -26,8 +29,27 @@ def validate_image_version(image_version):
     return image_version
 
 
-def read_image_version(path):
+def validate_slot_labels(image_id, image_version):
+    """Raises ValueError unless the A/B root and verity partition labels fit in a GPT partition name.
+
+    The populated slots are labelled '<image_id>_<image_version>' and '<image_id>_<image_version>_verity'; the
+    verity label is the longer one. This mirrors validate_slot_labels in image_identity.bzl.
+    """
+    label = "{}_{}_verity".format(image_id, image_version)
+    length = len(label.encode("utf-16-le")) // 2
+    if length > GPT_PARTITION_NAME_MAX:
+        raise ValueError(
+            "A/B verity partition label {!r} is {} characters, but GPT partition names are limited to {}; "
+            "shorten image_id or image_version so that image_id + '_' + image_version + '_verity' fits".format(
+                label, length, GPT_PARTITION_NAME_MAX
+            )
+        )
+
+
+def read_image_version(path, slot_label_image_id=None):
     """Returns the validated version stored in path, which may end with one newline.
+
+    When slot_label_image_id is set, the version must also fit the A/B partition labels of that image id.
 
     Raises:
         ValueError: The file is not UTF-8 or does not contain a valid version.
@@ -35,7 +57,10 @@ def read_image_version(path):
     """
     try:
         content = Path(path).read_bytes().decode("utf-8")
-        return validate_image_version(content.removesuffix("\n"))
+        image_version = validate_image_version(content.removesuffix("\n"))
+        if slot_label_image_id is not None:
+            validate_slot_labels(slot_label_image_id, image_version)
+        return image_version
     except ValueError as error:
         raise ValueError("invalid image_version_file {}: {}".format(path, error)) from None
 

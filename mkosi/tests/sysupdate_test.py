@@ -178,6 +178,15 @@ class PayloadTest(unittest.TestCase):
                 self.assertIn("image_version must be non-empty and use only letters, digits and '.'", message)
                 self.assertFalse((self.root / "payload").exists())
 
+    def test_version_file_label_beyond_gpt_limit_is_rejected(self):
+        # 'os_<version>_verity' is 37 characters, one more than a GPT partition name holds.
+        (self.root / "version").write_text("20261103011813.45eed0f.1234\n")
+        with self.assertRaises(SystemExit) as raised:
+            self.run_payload(version_args=("--image-version-file={}".format(self.root / "version"),))
+        self.assertIn("SYSUPDATE_INVALID: invalid image_version_file", str(raised.exception))
+        self.assertIn("is 37 characters, but GPT partition names are limited to 36", str(raised.exception))
+        self.assertFalse((self.root / "payload").exists())
+
     def test_version_and_version_file_are_exclusive(self):
         (self.root / "version").write_text("7")
         version_args = ("--image-version=7", "--image-version-file={}".format(self.root / "version"))
