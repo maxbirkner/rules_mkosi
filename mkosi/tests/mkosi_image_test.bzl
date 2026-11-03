@@ -379,7 +379,6 @@ def _image_info_fixture_impl(ctx):
             root_image = None,
             root_hash = None,
             root_hash_image = None,
-            root_hash_signature = None,
             uki_metadata = None,
             verity_metadata = None,
             build_metadata = build_metadata,
@@ -558,7 +557,6 @@ def _immutable_release_provider_test_impl(ctx):
     asserts.equals(env, "immutable_release_subject.root.raw", info.root_image.basename)
     asserts.equals(env, "immutable_release_subject.roothash", info.root_hash.basename)
     asserts.equals(env, "immutable_release_subject.root-verity.raw", info.root_hash_image.basename)
-    asserts.equals(env, None, info.root_hash_signature)
     asserts.equals(env, "immutable_release_subject.uki.json", info.uki_metadata.basename)
     asserts.equals(env, "immutable_release_subject.verity.json", info.verity_metadata.basename)
     actions = analysistest.target_actions(env)

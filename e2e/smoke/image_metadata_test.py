@@ -24,7 +24,6 @@ def main() -> None:
         "root_image": immutable,
         "root_hash": immutable,
         "root_hash_image": immutable,
-        "root_hash_signature": False,
         "uki_metadata": immutable,
         "verity_metadata": immutable,
     }

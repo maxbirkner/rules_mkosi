@@ -157,7 +157,6 @@ def _artifact_roles(settings):
         "root_image": settings.verity,
         "root_hash": settings.verity,
         "root_hash_image": settings.verity,
-        "root_hash_signature": False,
         "uki_metadata": settings.uki,
         "verity_metadata": settings.verity,
     }

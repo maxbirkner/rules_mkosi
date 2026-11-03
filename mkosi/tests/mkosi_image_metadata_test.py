@@ -16,7 +16,6 @@ def main() -> None:
             "raw_image": True,
             "root_hash": False,
             "root_hash_image": False,
-            "root_hash_signature": False,
             "root_image": False,
             "uki": False,
             "uki_metadata": False,
