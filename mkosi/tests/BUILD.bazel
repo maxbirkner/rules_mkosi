@@ -43,7 +43,9 @@ py_test(
         "$(rootpath @mkosi_debian_tools//:launcher)",
     ],
     data = [
+        "//mkosi/private:file_hashing.py",
         "//mkosi/private:secure_boot.py",
+        "//mkosi/private:sibling_loader.py",
         "@mkosi_debian_tools//:launcher",
     ],
     main = "secure_boot_boundary_test.py",
@@ -103,6 +105,7 @@ py_test(
     name = "verity_metadata_test",
     srcs = [
         "verity_metadata_test.py",
+        "//mkosi/private:file_hashing.py",
         "//mkosi/private:gpt_partitions.py",
         "//mkosi/private:sibling_loader.py",
         "//mkosi/private:verity_metadata.py",
@@ -254,7 +257,10 @@ py_test(
         "$(rootpath @mkosi_debian_snapshot//:packages_all_xz)",
     ],
     data = [
+        "//mkosi/private:debian_control.py",
         "//mkosi/private:debian_snapshot.py",
+        "//mkosi/private:file_hashing.py",
+        "//mkosi/private:sibling_loader.py",
         "@mkosi_debian_snapshot//:inrelease",
         "@mkosi_debian_snapshot//:packages_all_xz",
         "@mkosi_debian_snapshot//:packages_xz",
@@ -266,10 +272,22 @@ py_test(
 )
 
 py_test(
+    name = "debian_control_test",
+    srcs = [
+        "debian_control_test.py",
+        "//mkosi/private:debian_control.py",
+    ],
+    main = "debian_control_test.py",
+)
+
+py_test(
     name = "debian_snapshot_unit_test",
     srcs = [
         "debian_snapshot_unit_test.py",
+        "//mkosi/private:debian_control.py",
         "//mkosi/private:debian_snapshot.py",
+        "//mkosi/private:file_hashing.py",
+        "//mkosi/private:sibling_loader.py",
     ],
     main = "debian_snapshot_unit_test.py",
 )
@@ -403,6 +421,7 @@ py_test(
     name = "sysupdate_test",
     srcs = [
         "sysupdate_test.py",
+        "//mkosi/private:file_hashing.py",
         "//mkosi/private:gpt_partitions.py",
         "//mkosi/private:image_version.py",
         "//mkosi/private:sibling_loader.py",

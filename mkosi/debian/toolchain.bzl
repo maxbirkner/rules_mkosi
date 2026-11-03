@@ -82,7 +82,7 @@ def _archive_impl(ctx):
         ctx,
         arguments = [ctx.file.archive_builder.path, output.path, ctx.file.package_manifest.path] +
                     [package.path for package in ctx.files.packages],
-        inputs = [ctx.file.archive_builder, ctx.file.package_manifest] + ctx.files.packages,
+        inputs = [ctx.file.archive_builder, ctx.file._extract_tree, ctx.file.package_manifest] + ctx.files.packages,
         output = output,
         mnemonic = "BuildDebianToolsArchive",
         progress_message = "Building Debian tools archive %{label}",
@@ -104,6 +104,8 @@ debian_tools_archive = rule(
             default = "//mkosi/debian:package_archive.py",
             doc = "Script that builds the archive.",
         ),
+        # package_archive.py loads its member path validation from this sibling.
+        "_extract_tree": attr.label(default = "//mkosi/debian:extract_tree.py", allow_single_file = True),
     } | _STATIC_PYTHON_ATTRS,
     exec_compatible_with = _LINUX_X86_64,
     doc = "Builds a flattened archive of the installed tree of checksum-pinned Debian packages.",

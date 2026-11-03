@@ -241,6 +241,13 @@ class BootLifecycleTest(unittest.TestCase):
             clock_values=(0, 0, 181),
         )
 
+    def test_readiness_deadline_elapsed_before_first_poll_still_reports_timeout(self):
+        self._run(
+            "READINESS_TIMEOUT",
+            process=_Process(),
+            clock_values=(0, 181),
+        )
+
     def test_unexpected_guest_exit_after_readiness(self):
         self._run(
             "GUEST_FAILURE",
@@ -427,6 +434,29 @@ class BootLifecycleTest(unittest.TestCase):
                         **boot_options,
                     )
             return observed["command"]
+
+    def test_nonpositive_deadlines_are_rejected_before_qemu_starts(self):
+        for option in (
+            "boot_timeout_seconds",
+            "qmp_initialization_timeout_seconds",
+            "shutdown_timeout_seconds",
+        ):
+            for value in (0, -1, float("nan")):
+                with self.subTest(option=option, value=value):
+                    with tempfile.TemporaryDirectory() as directory:
+                        with mock.patch.dict("os.environ", {"TEST_TMPDIR": directory}, clear=True):
+                            with self.assertRaisesRegex(ValueError, "^%s must be positive" % option):
+                                boot_test._boot(
+                                    "image.raw",
+                                    "qemu",
+                                    "qemu-data",
+                                    readiness_marker="READY",
+                                    shutdown_markers=("SHUTDOWN",),
+                                    process_factory=lambda *_args, **_kwargs: self.fail("QEMU started"),
+                                    qmp_handshake=lambda *_args: None,
+                                    sleep=lambda _seconds: None,
+                                    **{option: value},
+                                )
 
     def test_progress_markers_must_precede_readiness_in_order(self):
         command = self._lifecycle_boot(
