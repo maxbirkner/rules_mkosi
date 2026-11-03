@@ -3,30 +3,9 @@
 import os
 from dataclasses import dataclass, field
 
+from . import mkosi_options
+
 USAGE = "usage: run_mkosi.py MKOSI_SCRIPT [--executable-path PATH] -- [mkosi arguments]"
-
-PATH_OPTIONS = frozenset(
-    {
-        "-I",
-        "--include",
-        "-C",
-        "--directory",
-        "--tools-tree",
-        "--extra-search-path",
-        "--output-directory",
-        "--workspace-directory",
-        "--cache-directory",
-        "--package-cache-directory",
-        "--build-directory",
-        "--sandbox-tree",
-        "--repart-directory",
-        "--base-tree",
-        "--initrd",
-    }
-)
-
-# mkosi constants accepted in place of a path; they are not resolved against the working directory.
-PATH_CONSTANTS = {"--initrd": ("default",)}
 
 
 @dataclass
@@ -138,64 +117,74 @@ def _apply_preamble_option(preamble, argv, index):
 
 
 def preamble_value(argv, option):
-    """Returns the value of a run_mkosi.py preamble option, or None."""
-    for index, argument in enumerate(argv[:-1]):
-        if argument == "--":
+    """Returns the value of a run_mkosi.py preamble option, or None.
+
+    The preamble consists of option and value pairs up to the first --, so the mkosi arguments after it are ignored.
+    """
+    for index in range(0, len(argv) - 1, 2):
+        if argv[index] == "--":
             break
-        if argument == option:
+        if argv[index] == option:
             return argv[index + 1]
     return None
 
 
 def mkosi_option_value(argv, option):
-    """Returns the value of a separate-argument mkosi option after the preamble."""
+    """Returns the value of the mkosi option, in any spelling, in the mkosi arguments after the preamble's --."""
     arguments = argv[argv.index("--") + 1 :]
-    indices = [index for index, argument in enumerate(arguments[:-1]) if argument == option]
-    if len(indices) != 1:
+    values = [occurrence.value for occurrence in _occurrences_of(arguments, option)]
+    if len(values) != 1 or values[0] is None:
         raise SystemExit("expected exactly one mkosi {} argument".format(option))
-    return arguments[indices[0] + 1]
+    return values[0]
 
 
 def value_after(arguments, option):
-    """Returns the argument after the first occurrence of option."""
-    return arguments[arguments.index(option) + 1]
+    """Returns the value of the last occurrence of the mkosi option, in any spelling, as mkosi reads it."""
+    values = [occurrence.value for occurrence in _occurrences_of(arguments, option)]
+    if not values or values[-1] is None:
+        raise SystemExit("mkosi {} argument is missing".format(option))
+    return values[-1]
+
+
+def _occurrences_of(arguments, option):
+    dest = mkosi_options.option(option).dest
+    return [occurrence for occurrence in mkosi_options.occurrences(arguments) if occurrence.option.dest == dest]
+
+
+def configuration_directory(arguments):
+    """Returns the Occurrence of the -C/--directory option that mkosi uses, which is the last one, or None."""
+    directories = [
+        occurrence
+        for occurrence in mkosi_options.occurrences(arguments)
+        if occurrence.option.dest == mkosi_options.DIRECTORY
+    ]
+    if directories and directories[-1].value is None:
+        raise SystemExit("mkosi path option is missing its value")
+    return directories[-1] if directories else None
+
+
+def path_occurrences(arguments):
+    """Returns the Occurrences of mkosi options whose values are paths, and rejects a missing value."""
+    found = [occurrence for occurrence in mkosi_options.occurrences(arguments) if occurrence.option.path]
+    if any(occurrence.value is None for occurrence in found):
+        raise SystemExit("mkosi path option is missing its value")
+    return found
 
 
 def absolute_paths(arguments):
     """Resolves mkosi path option values now, because mkosi changes its working directory before it reads them."""
-    result = []
-    pending_option = None
-    for argument in arguments:
-        if pending_option:
-            result.append(_absolute_value(pending_option, argument))
-            pending_option = None
-        elif argument in PATH_OPTIONS:
-            result.append(argument)
-            pending_option = argument
-        else:
-            result.append(_absolute_assignment(argument))
-    if pending_option:
-        raise SystemExit("mkosi path option is missing its value")
+    result = list(arguments)
+    for occurrence in path_occurrences(result):
+        occurrence.replace(result, occurrence.option.map_paths(occurrence.value, os.path.abspath))
     return result
 
 
-def _absolute_value(option, value):
-    return value if value in PATH_CONSTANTS.get(option, ()) else os.path.abspath(value)
-
-
-def _absolute_assignment(argument):
-    option, separator, value = argument.partition("=")
-    if separator and option in PATH_OPTIONS:
-        return option + "=" + _absolute_value(option, value)
-    return argument
-
-
 def declared_paths(arguments):
-    """Returns the values of the separate-argument path options, which are the inputs that a release build may read."""
+    """Returns the paths of the mkosi path options, which are the inputs that a release build may read."""
     return [
-        value
-        for option, value in zip(arguments, arguments[1:])
-        if option in PATH_OPTIONS and value not in PATH_CONSTANTS.get(option, ())
+        path
+        for occurrence in path_occurrences(arguments)
+        for path in occurrence.option.declared_paths(occurrence.value)
     ]
 
 
