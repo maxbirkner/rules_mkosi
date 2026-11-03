@@ -273,8 +273,8 @@ class CommandLineTest(_WrapperTest):
     def test_declared_paths_skip_mkosi_constants(self):
         command_line = self.wrapper.command_line
         assert command_line.declared_paths(
-            ["-C", "/config", "--initrd", "default", "--initrd", "/initrd", "--base-tree=/base", "--sandbox-tree"]
-        ) == ["/config", "/initrd"]
+            ["-C", "/config", "--initrd", "default", "--initrd", "/initrd", "--base-tree=/base"]
+        ) == ["/config", "/initrd", "/base"]
 
     def test_initrd_default_constant_is_not_made_absolute(self):
         command_line = self.wrapper.command_line
@@ -665,4 +665,6 @@ class StagedConfigurationTest(_WrapperTest):
 
 if __name__ == "__main__":
     _WRAPPER_PATH = sys.argv.pop(1)
+    # run_mkosi.py reads mkosi's option table, so mkosi must be importable like in the image action.
+    sys.path.insert(0, os.fspath(pathlib.Path(sys.argv.pop(1)).resolve().parents[1]))
     unittest.main()
