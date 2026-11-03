@@ -7,10 +7,14 @@ import binascii
 import hashlib
 import json
 import os
+import runpy
 import shutil
 import struct
 import subprocess
 from pathlib import Path
+
+_load_sibling = runpy.run_path(str(Path(__file__).with_name("sibling_loader.py")))["load_sibling"]
+file_hashing = _load_sibling(__file__, "file_hashing")
 
 
 REQUEST_FORMAT = "mkosi-secure-boot-signing-request-v2"
@@ -24,11 +28,6 @@ _counter = 0
 MAX_DER_BYTES = 16 * 1024 * 1024
 MAX_DER_DEPTH = 32
 MAX_DER_CHILDREN = 4096
-
-
-def sha256(path):
-    with open(path, "rb") as source:
-        return hashlib.file_digest(source, "sha256").hexdigest()
 
 
 def _launcher(tool, arguments):
@@ -447,7 +446,7 @@ def create_request(args):
         "context": "uefi-secure-boot-uki",
         "format_version": REQUEST_FORMAT,
         "signature_algorithm": ALGORITHM,
-        "unsigned_uki_sha256": sha256(args.unsigned_uki),
+        "unsigned_uki_sha256": file_hashing.sha256_file(args.unsigned_uki),
     }
     write_json(args.output, document)
     Path(args.digest_output).write_text(request_digest(document) + "\n")
@@ -472,7 +471,7 @@ def _load_request(args):
         raise ValueError("signing request digest does not match request")
     if request["context"] != "uefi-secure-boot-uki" or request["signature_algorithm"] != ALGORITHM:
         raise ValueError("wrong signing context or algorithm")
-    if sha256(args.unsigned_uki) != request["unsigned_uki_sha256"]:
+    if file_hashing.sha256_file(args.unsigned_uki) != request["unsigned_uki_sha256"]:
         raise ValueError("unsigned UKI no longer matches its request")
     return request, recorded_request_digest
 
@@ -529,7 +528,7 @@ def verify(args):
         "certificate_sha256": fingerprint,
         "format_version": SIGNED_FORMAT,
         "request_digest": recorded_request_digest,
-        "signed_uki_sha256": sha256(args.signed_uki),
+        "signed_uki_sha256": file_hashing.sha256_file(args.signed_uki),
         "unsigned_uki_sha256": request["unsigned_uki_sha256"],
         "verification": "embedded-authenticode-sha256",
     })

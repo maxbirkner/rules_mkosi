@@ -2,27 +2,17 @@
 
 import contextlib
 import io
-import hashlib
 import os
+import runpy
 import shutil
 import stat
 import sys
 import tarfile
 
-
-def _member_path(name):
-    if name.startswith("/"):
-        raise ValueError("absolute package member: %s" % name)
-    while name.startswith("./"):
-        name = name[2:]
-    if name in ("", "."):
-        return ""
-    parts = name.split("/")
-    if parts and parts[-1] == "":
-        parts.pop()
-    if not parts or any(part in ("", ".", "..") for part in parts):
-        raise ValueError("unsafe package member: %s" % name)
-    return os.path.join(*parts)
+# extract_tree.py owns the member path validation and stream hashing; the archive action stages it next to this script.
+_extract_tree = runpy.run_path(os.path.join(os.path.dirname(__file__), "extract_tree.py"))
+_member_path = _extract_tree["member_path"]
+_sha256 = _extract_tree["sha256_stream"]
 
 
 def _ar_members(data):
@@ -74,16 +64,6 @@ def _read_manifest(manifest):
                 raise ValueError("invalid or duplicate package manifest entry")
             expected[fields[0]] = fields[1]
     return expected
-
-
-def _sha256(stream):
-    digest = hashlib.sha256()
-    while True:
-        chunk = stream.read(1024 * 1024)
-        if not chunk:
-            break
-        digest.update(chunk)
-    return digest.hexdigest()
 
 
 def _open_authenticated(package, expected_digest):
@@ -149,7 +129,7 @@ def _member_object(source, member, relative, work):
 def _collect_package(stream, objects, work):
     with tarfile.open(fileobj=io.BytesIO(_package_data(stream)), mode="r:*") as source:
         for member in source:
-            relative = _member_path(member.name)
+            relative = _member_path(member.name, "package")
             if not relative:
                 continue
             _ensure_parent(objects, relative)

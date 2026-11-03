@@ -12,6 +12,7 @@ from pathlib import Path
 
 _load_sibling = runpy.run_path(str(Path(__file__).with_name("sibling_loader.py")))["load_sibling"]
 gpt = _load_sibling(__file__, "gpt_partitions")
+file_hashing = _load_sibling(__file__, "file_hashing")
 
 _TRANSFER = """\
 [Transfer]
@@ -133,11 +134,6 @@ def _copy(source, destination):
     return digest.hexdigest()
 
 
-def _sha256(path):
-    with open(path, "rb") as source:
-        return hashlib.file_digest(source, "sha256").hexdigest()
-
-
 def _release_uki(args):
     """Returns the UKI to ship, rejecting a signed UKI whose signing request names another unsigned UKI."""
     if (args.signed_uki is None) != (args.signing_request is None):
@@ -145,7 +141,7 @@ def _release_uki(args):
     if args.signed_uki is None:
         return args.uki
     requested = json.loads(Path(args.signing_request).read_text(encoding="utf-8"))["unsigned_uki_sha256"]
-    actual = _sha256(args.uki)
+    actual = file_hashing.sha256_file(args.uki)
     if requested != actual:
         raise ValueError(
             "signed UKI was requested for unsigned UKI {} but the image's UKI is {}".format(requested, actual)
