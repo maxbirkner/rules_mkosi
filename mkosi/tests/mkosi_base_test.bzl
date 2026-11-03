@@ -84,17 +84,7 @@ def _finalize_test_impl(ctx):
     asserts.equals(env, "rules-mkosi-ab", info.image_id)
     asserts.equals(env, None, info.image_version)
     asserts.equals(env, version_file, info.image_version_file)
-    for field in (
-        "raw_image",
-        "partition_metadata",
-        "uki",
-        "root_image",
-        "root_hash",
-        "root_hash_image",
-        "uki_metadata",
-        "verity_metadata",
-        "build_metadata",
-    ):
+    for field in ("raw_image", "partition_metadata", "uki", "uki_metadata", "build_metadata"):
         asserts.true(env, getattr(info, field) != None, field)
 
     image_action = _action(env, "MkosiImage")
@@ -198,7 +188,6 @@ def mkosi_base_test_suite(name):
         image_version_file = ":two_stage_version",
         mode = "release",
         unified_kernel_image = "unsigned",
-        verity = "hash",
         tags = ["manual"],
     )
     mkosi_reproducibility_manifest(

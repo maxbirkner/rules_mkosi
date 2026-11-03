@@ -1,3 +1,0 @@
-The definitions in this directory describe a versioned A/B layout with one
-populated root and dm-verity slot labelled after the image id and version and
-one inactive `_empty` slot of the same fixed size.
