@@ -54,7 +54,7 @@
 
 #define ARRAY_SIZE(array) (sizeof(array) / sizeof((array)[0]))
 #define NORETURN __attribute__((noreturn))
-#define PRINTF_FORMAT(format_index, first_argument) \
+#define PRINTF_FORMAT(format_index, first_argument)                            \
   __attribute__((format(printf, format_index, first_argument)))
 
 #define OLD_ROOT_NAME ".namespace-oldroot"

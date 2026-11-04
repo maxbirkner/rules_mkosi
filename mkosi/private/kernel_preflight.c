@@ -60,6 +60,8 @@ extern char **environ;
 #endif
 
 #define ARRAY_SIZE(array) (sizeof(array) / sizeof((array)[0]))
+#define PRINTF_FORMAT(format_index, first_argument)                            \
+  __attribute__((format(printf, format_index, first_argument)))
 
 struct rules_mkosi_mount_attr {
   unsigned long long attr_set;
@@ -101,7 +103,7 @@ static const int required_capabilities[] = {
     CAP_SETFCAP,
 };
 
-__attribute__((format(printf, 4, 5)))
+PRINTF_FORMAT(4, 5)
 static void report(FILE *output, const char *status, const char *name,
                    const char *format, ...) {
   va_list arguments;
