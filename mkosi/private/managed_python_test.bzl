@@ -39,12 +39,12 @@ def _managed_python_test_impl(ctx):
     ]
 
 _managed_python_attrs = {
+    "data": attr.label_list(allow_files = True),
     "src": attr.label(
         allow_single_file = [".py"],
         mandatory = True,
         doc = "Python script automatically passed as the interpreter's first argument.",
     ),
-    "data": attr.label_list(allow_files = True),
     # The interpreter is resolved for rules_mkosi's Python line in its own configuration, so the test and its data
     # stay in the consumer's configuration.
     "_python": attr.label(

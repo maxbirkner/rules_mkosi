@@ -96,28 +96,28 @@ def _request_impl(ctx):
 
 # Private attributes of every rule that runs secure_boot.py.
 _TOOL_ATTRS = {
-    "_tool": attr.label(default = "//mkosi/private:secure_boot.py", allow_single_file = True, cfg = "exec"),
+    "_debian_tools": attr.label(default = "@mkosi_debian_tools//:launcher", executable = True, cfg = "exec"),
     "_file_hashing": attr.label(default = "//mkosi/private:file_hashing.py", allow_single_file = True, cfg = "exec"),
     "_sibling_loader": attr.label(
         default = "//mkosi/private:sibling_loader.py",
         allow_single_file = True,
         cfg = "exec",
     ),
-    "_debian_tools": attr.label(default = "@mkosi_debian_tools//:launcher", executable = True, cfg = "exec"),
+    "_tool": attr.label(default = "//mkosi/private:secure_boot.py", allow_single_file = True, cfg = "exec"),
 }
 
 secure_boot_signing_request = rule(
     implementation = _request_impl,
     attrs = dict({
-        "image": attr.label(
-            mandatory = True,
-            providers = [MkosiImageInfo],
-            doc = "mkosi_image with an unsigned UKI.",
-        ),
         "certificate": attr.label(
             mandatory = True,
             allow_files = True,
             doc = "Expected signer certificate: a single file or a secure_boot_ephemeral_test_fixture.",
+        ),
+        "image": attr.label(
+            mandatory = True,
+            providers = [MkosiImageInfo],
+            doc = "mkosi_image with an unsigned UKI.",
         ),
         "signature_algorithm": attr.string(
             default = "authenticode-sha256",

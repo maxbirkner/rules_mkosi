@@ -4,11 +4,6 @@ load(":mkosi_action.bzl", "mkosi_execution_requirements", "pefile_root")
 load(":python_action.bzl", "mkosi_toolchain_info", "run_python")
 
 IMAGE_METADATA_ATTRS = {
-    "_image_version": attr.label(
-        cfg = "exec",
-        default = "//mkosi/private:image_version.py",
-        allow_single_file = True,
-    ),
     "_file_hashing": attr.label(
         cfg = "exec",
         default = "//mkosi/private:file_hashing.py",
@@ -19,14 +14,19 @@ IMAGE_METADATA_ATTRS = {
         default = "//mkosi/private:gpt_partitions.py",
         allow_single_file = True,
     ),
-    "_sibling_loader": attr.label(
+    "_image_version": attr.label(
         cfg = "exec",
-        default = "//mkosi/private:sibling_loader.py",
+        default = "//mkosi/private:image_version.py",
         allow_single_file = True,
     ),
     "_partition_metadata": attr.label(
         cfg = "exec",
         default = "//mkosi/private:partition_metadata.py",
+        allow_single_file = True,
+    ),
+    "_sibling_loader": attr.label(
+        cfg = "exec",
+        default = "//mkosi/private:sibling_loader.py",
         allow_single_file = True,
     ),
     "_uki_metadata": attr.label(
@@ -153,10 +153,10 @@ def _artifact_roles(settings):
         "manifest": settings.manifest,
         "partition_metadata": settings.release_mode,
         "raw_image": True,
-        "uki": settings.uki,
-        "root_image": settings.verity,
         "root_hash": settings.verity,
         "root_hash_image": settings.verity,
+        "root_image": settings.verity,
+        "uki": settings.uki,
         "uki_metadata": settings.uki,
         "verity_metadata": settings.verity,
     }
@@ -177,6 +177,7 @@ def _build_metadata(ctx, settings):
     # filenames or binaries.
     metadata = {
         "artifacts": _artifact_roles(settings),
+        "firmware": settings.firmware,
         "format_version": "mkosi-image-build-metadata-v3",
         "mkosi": {
             "compression": "none",
@@ -185,7 +186,6 @@ def _build_metadata(ctx, settings):
             "version": mkosi_toolchain_info(ctx).version,
         },
         "mode": settings.mode,
-        "firmware": settings.firmware,
     }
     if settings.image_id:
         metadata["image"] = {"id": settings.image_id, "version": settings.image_version}
