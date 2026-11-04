@@ -7,20 +7,20 @@ load(":qemu_accelerator.bzl", "QEMU_ACCELERATOR_DOC", "qemu_accelerator_args")
 QEMU_TOOLCHAIN_TYPE = "//mkosi/toolchain:qemu_toolchain_type"
 
 _TEST_TIMEOUT_SECONDS = {
-    "short": 60,
-    "moderate": 300,
     "long": 900,
+    "moderate": 300,
+    "short": 60,
 }
 _CLEANUP_MARGIN_SECONDS = 30
 
 QemuBootConfigInfo = provider(
     "Validated lifecycle deadlines of a QEMU boot test configuration.",
     fields = {
-        "test_timeout": "Bazel test timeout category.",
-        "qmp_initialization_timeout_seconds": "Deadline for QMP to become ready.",
         "boot_timeout_seconds": "Deadline for the readiness marker.",
-        "shutdown_timeout_seconds": "Deadline for the clean shutdown.",
         "cleanup_margin_seconds": "Time reserved within the test timeout for cleanup.",
+        "qmp_initialization_timeout_seconds": "Deadline for QMP to become ready.",
+        "shutdown_timeout_seconds": "Deadline for the clean shutdown.",
+        "test_timeout": "Bazel test timeout category.",
     },
 )
 
@@ -29,11 +29,18 @@ BOOT_CONFIG_ATTRS = {
         default = "auto",
         doc = QEMU_ACCELERATOR_DOC,
     ),
+    "boot_timeout_seconds": attr.int(mandatory = True),
+    "diagnostic_bytes": attr.int(mandatory = True),
     "image": attr.label(
         mandatory = True,
         providers = [MkosiImageInfo],
         doc = "mkosi_image whose raw_image is booted through a QEMU snapshot, leaving the image unchanged.",
     ),
+    "machine_args": attr.string_list(
+        mandatory = True,
+        doc = "QEMU machine and memory arguments.",
+    ),
+    "qmp_initialization_timeout_seconds": attr.int(mandatory = True),
     "readiness_marker": attr.string(
         mandatory = True,
         doc = "Exact serial marker proving guest userspace readiness.",
@@ -42,14 +49,7 @@ BOOT_CONFIG_ATTRS = {
         mandatory = True,
         doc = "Exact serial markers proving guest-initiated clean shutdown.",
     ),
-    "machine_args": attr.string_list(
-        mandatory = True,
-        doc = "QEMU machine and memory arguments.",
-    ),
-    "boot_timeout_seconds": attr.int(mandatory = True),
-    "qmp_initialization_timeout_seconds": attr.int(mandatory = True),
     "shutdown_timeout_seconds": attr.int(mandatory = True),
-    "diagnostic_bytes": attr.int(mandatory = True),
     "test_timeout": attr.string(default = "moderate"),
     "_kernel_preflight": attr.label(
         cfg = "exec",
