@@ -11,7 +11,7 @@ from typing import Any
 
 _EXECROOT_PREFIXES = ("external/", "bazel-out/")
 # Interpreter options that make Python ignore PYTHONPATH.
-_PYTHONPATH_IGNORING_OPTIONS = {"-E", "-I"}
+_PYTHONPATH_IGNORING_OPTIONS = frozenset("EI")
 
 
 def _is_execroot_path_list(value: str) -> bool:
@@ -31,45 +31,90 @@ EXPECTED: dict[str, Callable[[str], bool]] = {
     "MKOSI_HOST_RELEASE": str.isalnum,
     "SOURCE_DATE_EPOCH": str.isdigit,
 }
+# Every image action sets these.
 REQUIRED = frozenset({"PATH", "PYTHONNOUSERSITE", "MKOSI_FORCE_USERNS_FALLBACK", "PYTHONPATH"})
-# Release builds pin the host distribution and the timestamp together; tracer builds set none of them.
+# Release actions pin the host distribution and the timestamp; network-backed tracer actions set none of them.
 RELEASE = frozenset({"MKOSI_HOST_DISTRIBUTION", "MKOSI_HOST_RELEASE", "SOURCE_DATE_EPOCH"})
+# Short interpreter options whose value follows, attached or as the next argument.
+_VALUE_OPTIONS = frozenset("WX")
+# Short interpreter options that end the interpreter options and start the program.
+_PROGRAM_OPTIONS = frozenset("cm")
+_VALUE_LONG_OPTIONS = frozenset({"--check-hash-based-pycs"})
 
 
-def _interpreter_options(arguments: Sequence[str]) -> list[str]:
-    options = []
+def is_release(action: Mapping[str, Any]) -> bool:
+    """Returns whether an action is a hermetic release build, which runs with the network blocked."""
+    return any(entry.get("key") == "block-network" for entry in action.get("executionInfo", []))
+
+
+def _scan_short_options(cluster: str) -> tuple[set[str], bool, bool]:
+    """Scans a short option cluster such as `sI` from `-sI`.
+
+    Returns:
+        The option letters before any option value, whether the next argument is an option value, and whether the
+        cluster starts the program.
+    """
+    letters = set()
+    for index, letter in enumerate(cluster):
+        letters.add(letter)
+        if letter in _PROGRAM_OPTIONS:
+            return letters, False, True
+        if letter in _VALUE_OPTIONS:
+            return letters, index == len(cluster) - 1, False
+    return letters, False, False
+
+
+def interpreter_flags(arguments: Sequence[str]) -> set[str]:
+    """Returns the short option letters that a Python command line passes to the interpreter itself."""
+    flags: set[str] = set()
+    expects_value = False
     for argument in arguments[1:]:
-        if not argument.startswith("-"):
+        if expects_value:
+            expects_value = False
+            continue
+        if argument in ("-", "--") or not argument.startswith("-"):
             break
-        options.append(argument)
-    return options
+        if argument.startswith("--"):
+            expects_value = argument in _VALUE_LONG_OPTIONS
+            continue
+        letters, expects_value, starts_program = _scan_short_options(argument[1:])
+        flags |= letters
+        if starts_program:
+            break
+    return flags
 
 
 def environment_errors(action: Mapping[str, Any]) -> list[str]:
     """Returns every way in which an MkosiImage action's environment differs from the expectations."""
     environment = {variable["key"]: variable.get("value", "") for variable in action.get("environmentVariables", [])}
-    errors = [f"missing {key}" for key in sorted(REQUIRED - environment.keys())]
+    release = is_release(action)
+    required = REQUIRED | RELEASE if release else REQUIRED
+    allowed = EXPECTED.keys() if release else EXPECTED.keys() - RELEASE
+    errors = [f"missing {key}" for key in sorted(required - environment.keys())]
     for key, value in sorted(environment.items()):
-        if key not in EXPECTED:
+        if key not in allowed:
             errors.append(f"unexpected {key}={value}")
         elif not EXPECTED[key](value):
             errors.append(f"invalid {key}={value}")
-    release = RELEASE & environment.keys()
-    if release and release != RELEASE:
-        errors.append(f"incomplete release environment: {', '.join(sorted(release))}")
-    ignoring = _PYTHONPATH_IGNORING_OPTIONS.intersection(_interpreter_options(action.get("arguments", [])))
+    ignoring = _PYTHONPATH_IGNORING_OPTIONS & interpreter_flags(action.get("arguments", []))
     if ignoring:
-        errors.append(f"interpreter options {', '.join(sorted(ignoring))} ignore PYTHONPATH")
+        errors.append(f"interpreter options {', '.join('-' + flag for flag in sorted(ignoring))} ignore PYTHONPATH")
     return errors
 
 
 def graph_errors(graph: Mapping[str, Any]) -> list[str]:
-    """Returns the environment errors of every MkosiImage action in an aquery graph, prefixed by its target."""
+    """Returns the environment errors of every MkosiImage action in an aquery graph, prefixed by its target.
+
+    The graph must contain at least one release and one tracer action, so that both expectations are checked.
+    """
     labels = {target["id"]: target["label"] for target in graph.get("targets", [])}
     actions = [action for action in graph.get("actions", []) if action.get("mnemonic") == "MkosiImage"]
-    if not actions:
-        return ["no MkosiImage action in the graph"]
-    return [
+    kinds = {is_release(action) for action in actions}
+    errors = []
+    for kind, release in (("release", True), ("tracer", False)):
+        if release not in kinds:
+            errors.append(f"no {kind} MkosiImage action in the graph")
+    return errors + [
         f"{labels.get(action.get('targetId'), '<unknown target>')}: {error}"
         for action in actions
         for error in environment_errors(action)
