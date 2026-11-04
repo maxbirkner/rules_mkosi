@@ -92,9 +92,9 @@ enum {
 };
 
 static const int required_capabilities[] = {
-    CAP_CHOWN,       CAP_DAC_OVERRIDE, CAP_DAC_READ_SEARCH, CAP_FOWNER,
-    CAP_FSETID,      CAP_SETGID,       CAP_SETUID,          CAP_SETPCAP,
-    CAP_SYS_CHROOT,  CAP_SYS_PTRACE,   CAP_SYS_ADMIN,       CAP_SYS_RESOURCE,
+    CAP_CHOWN,      CAP_DAC_OVERRIDE, CAP_DAC_READ_SEARCH, CAP_FOWNER,
+    CAP_FSETID,     CAP_SETGID,       CAP_SETUID,          CAP_SETPCAP,
+    CAP_SYS_CHROOT, CAP_SYS_PTRACE,   CAP_SYS_ADMIN,       CAP_SYS_RESOURCE,
     CAP_SETFCAP,
 };
 
@@ -228,8 +228,8 @@ static bool starts_as_host_root(unsigned long outside_uid) {
 }
 
 static bool has_host_sys_admin(uint64_t effective_capabilities) {
-  int ambient = prctl(PR_CAP_AMBIENT, PR_CAP_AMBIENT_IS_SET, CAP_SYS_ADMIN, 0,
-                      0);
+  int ambient =
+      prctl(PR_CAP_AMBIENT, PR_CAP_AMBIENT_IS_SET, CAP_SYS_ADMIN, 0, 0);
 
   return (effective_capabilities & (UINT64_C(1) << CAP_SYS_ADMIN)) != 0 ||
          ambient > 0;
@@ -360,8 +360,8 @@ static int check_required_ambient_and_bounding(void) {
 
   for (index = 0; index < ARRAY_SIZE(required_capabilities); ++index) {
     int capability = required_capabilities[index];
-    int ambient = prctl(PR_CAP_AMBIENT, PR_CAP_AMBIENT_IS_SET, capability, 0,
-                        0);
+    int ambient =
+        prctl(PR_CAP_AMBIENT, PR_CAP_AMBIENT_IS_SET, capability, 0, 0);
     if (ambient <= 0) {
       return ambient < 0 ? -errno : -EPERM;
     }
@@ -379,15 +379,15 @@ static int check_required_capability_sets(void) {
   if (read_capability_sets(data) < 0) {
     return -errno;
   }
-  if (!contains_all(combine_capability_words(data[0].permitted,
-                                             data[1].permitted),
-                    required) ||
-      !contains_all(combine_capability_words(data[0].effective,
-                                             data[1].effective),
-                    required) ||
-      !contains_all(combine_capability_words(data[0].inheritable,
-                                             data[1].inheritable),
-                    required)) {
+  if (!contains_all(
+          combine_capability_words(data[0].permitted, data[1].permitted),
+          required) ||
+      !contains_all(
+          combine_capability_words(data[0].effective, data[1].effective),
+          required) ||
+      !contains_all(
+          combine_capability_words(data[0].inheritable, data[1].inheritable),
+          required)) {
     return -EPERM;
   }
   return check_required_ambient_and_bounding();
@@ -500,8 +500,8 @@ static int check_capability_exec(void) {
 }
 
 /* A trailing slash makes the final component "." so it names the directory. */
-static int split_parent_path(const char *path, char *parent,
-                             size_t parent_size, const char **name) {
+static int split_parent_path(const char *path, char *parent, size_t parent_size,
+                             const char **name) {
   const char *slash = strrchr(path, '/');
 
   if (slash == NULL) {
@@ -679,8 +679,8 @@ static int check_fd_mount_api(fd_mount_probe_result *probe) {
     record_fd_mount_failure(probe, RULES_MKOSI_FD_MOUNT_OP_SETUP, errno);
   } else {
     for (index = 0; index < ARRAY_SIZE(fd_mount_steps); ++index) {
-      if (probe_fd_mount_step(&fd_mount_steps[index], &expected[index],
-                              probe) < 0) {
+      if (probe_fd_mount_step(&fd_mount_steps[index], &expected[index], probe) <
+          0) {
         break;
       }
     }
@@ -712,15 +712,14 @@ static int await_identity_mapping(const child_setup_context *context) {
   if (rules_mkosi_write_all(context->ready, &signal, 1) < 0) {
     return -1;
   }
-  return read(context->acknowledgement, &signal, 1) != 1 || signal != 'A'
-             ? -1
-             : 0;
+  return read(context->acknowledgement, &signal, 1) != 1 || signal != 'A' ? -1
+                                                                          : 0;
 }
 
 static int become_namespace_root(const child_setup_context *context) {
   (void)context;
-  return setresgid(0, 0, 0) < 0 || setresuid(0, 0, 0) < 0 ||
-                 geteuid() != 0 || getegid() != 0
+  return setresgid(0, 0, 0) < 0 || setresuid(0, 0, 0) < 0 || geteuid() != 0 ||
+                 getegid() != 0
              ? -1
              : 0;
 }
@@ -770,8 +769,7 @@ static int bind_from_old_root(const child_setup_context *context) {
   if (mkdir("newroot/etc", 0755) < 0) {
     return -1;
   }
-  return mount("/oldroot/etc", "newroot/etc", NULL, MS_BIND | MS_REC, NULL) <
-                 0
+  return mount("/oldroot/etc", "newroot/etc", NULL, MS_BIND | MS_REC, NULL) < 0
              ? -1
              : 0;
 }
@@ -1040,10 +1038,9 @@ static const char *fd_mount_operation_name(
   }
 }
 
-static void report_fd_mount_failure(FILE *output,
-                                    const rules_mkosi_namespace_checks *checks) {
-  const char *operation =
-      fd_mount_operation_name(checks->fd_mount_operation);
+static void report_fd_mount_failure(
+    FILE *output, const rules_mkosi_namespace_checks *checks) {
+  const char *operation = fd_mount_operation_name(checks->fd_mount_operation);
   int error = checks->fd_mount_errno;
 
   if (checks->fd_mount_operation == RULES_MKOSI_FD_MOUNT_OP_NONE ||
@@ -1081,7 +1078,7 @@ typedef struct {
   const char *fail_detail;
 } namespace_check_report;
 
-#define NAMESPACE_CHECK(field) \
+#define NAMESPACE_CHECK(field)                                                 \
   offsetof(rules_mkosi_namespace_checks, field), #field
 
 static const namespace_check_report namespace_check_reports[] = {
@@ -1137,8 +1134,8 @@ static int namespace_check_passed(const rules_mkosi_namespace_checks *checks,
   return passed;
 }
 
-static int report_namespace_checks(
-    FILE *output, const rules_mkosi_namespace_checks *checks) {
+static int report_namespace_checks(FILE *output,
+                                   const rules_mkosi_namespace_checks *checks) {
   int failures = 0;
   size_t index;
 
@@ -1262,8 +1259,8 @@ int rules_mkosi_kernel_preflight_with_ops(
   if (failures == 0) {
     report(output, "RESULT", "kernel_contract", "PASS (all checks passed)");
   } else {
-    report(output, "RESULT", "kernel_contract",
-           "FAIL (%d check%s failed)", failures, failures == 1 ? "" : "s");
+    report(output, "RESULT", "kernel_contract", "FAIL (%d check%s failed)",
+           failures, failures == 1 ? "" : "s");
   }
   return failures == 0 ? 0 : 1;
 }

@@ -75,7 +75,7 @@ void ResetInheritedSignals() {
   sigemptyset(&empty);
   sigprocmask(SIG_SETMASK, &empty, nullptr);
 
-  struct sigaction default_action {};
+  struct sigaction default_action{};
   default_action.sa_handler = SIG_DFL;
   sigemptyset(&default_action.sa_mask);
   const int signals[] = {SIGHUP,  SIGINT,  SIGQUIT, SIGILL,  SIGABRT,
@@ -88,7 +88,8 @@ void ResetInheritedSignals() {
 
 std::string ParentDirectory(const std::string& path) {
   const std::string::size_type separator = path.rfind('/');
-  return separator == std::string::npos ? std::string() : path.substr(0, separator);
+  return separator == std::string::npos ? std::string()
+                                        : path.substr(0, separator);
 }
 
 }  // namespace
