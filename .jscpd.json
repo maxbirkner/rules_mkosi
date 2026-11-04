@@ -34,5 +34,6 @@
   ],
   "minLines": 8,
   "minTokens": 60,
+  "mode": "weak",
   "threshold": 0
 }

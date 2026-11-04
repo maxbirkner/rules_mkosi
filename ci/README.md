@@ -21,7 +21,7 @@ Workflow YAML is checked by `prek run --all-files`.
 `prek run --all-files` fails on any block of at least 8 lines and 60 tokens that appears twice in Python, Starlark (`.bzl` and `BUILD` files), shell, C, or C++ sources.
 The check runs [jscpd](https://github.com/kucherenko/jscpd) with the settings in `.jscpd.json`; `npx jscpd@5.4.2 .` lists the clones.
 Move shared code into a helper instead of ignoring a clone.
-System `#include` lines and `MODULE.bazel` files, which cannot share code, are not compared.
+Comments, system `#include` lines, and `MODULE.bazel` files, which cannot share code, are not compared.
 
 ## Manual image artifacts
 
