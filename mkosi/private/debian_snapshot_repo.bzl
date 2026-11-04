@@ -317,9 +317,9 @@ debian_snapshot_repo = repository_rule(
     implementation = _impl,
     attrs = {
         "lock": attr.label(mandatory = True, allow_single_file = True),
-        "package_repo": attr.string(mandatory = True),
         "lock_sha256": attr.string(
             doc = "Optional expected SHA-256 of the lock file. The computed digest is always recorded.",
         ),
+        "package_repo": attr.string(mandatory = True),
     },
 )
