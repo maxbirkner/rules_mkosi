@@ -1,9 +1,10 @@
 #!/usr/bin/python3
 """Verify that a reproducibility build executed both subject actions."""
 
-import json
 import pathlib
 import sys
+
+from execution_log import read_entries
 
 EXPECTED = {
     ("MkosiImage", "//mkosi/tests:release_subject"),
@@ -18,20 +19,6 @@ EXPECTED = {
         "//mkosi/tests:two_stage_reproducibility",
     ),
 }
-
-
-def read_entries(path):
-    content = path.read_text()
-    decoder = json.JSONDecoder()
-    entries = []
-    index = 0
-    while index < len(content):
-        while index < len(content) and content[index].isspace():
-            index += 1
-        if index < len(content):
-            entry, index = decoder.raw_decode(content, index)
-            entries.append(entry)
-    return entries
 
 
 def verify(path, build_name):

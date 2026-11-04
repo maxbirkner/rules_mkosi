@@ -545,7 +545,12 @@ def validate(path):
     )
 
 
-if __name__ == "__main__":
+def main():
+    """Validates the image named by the only command-line argument; exits with a usage message otherwise."""
     if len(sys.argv) != 2:
-        raise SystemExit("usage: raw_image_validator.py IMAGE")
+        raise SystemExit("usage: %s IMAGE" % os.path.basename(sys.argv[0]))
     validate(image_path(sys.argv[1]))
+
+
+if __name__ == "__main__":
+    main()

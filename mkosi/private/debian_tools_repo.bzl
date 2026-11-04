@@ -94,7 +94,10 @@ bootstrap_binary(
 cc_binary(
     name = "namespace_runner_binary",
     srcs = ["@rules_mkosi//mkosi/debian:namespace_runner.c"],
-    deps = ["@rules_mkosi//mkosi/private:write_all"],
+    deps = [
+        "@rules_mkosi//mkosi/private:mount_api",
+        "@rules_mkosi//mkosi/private:write_all",
+    ],
     features = ["fully_static_link"],
     linkopts = ["-static", "-Wl,--strip-debug", "-Wl,--build-id=none"],
     exec_compatible_with = [

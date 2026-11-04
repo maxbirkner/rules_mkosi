@@ -10,7 +10,10 @@ py_test(
     name = "verify_reproducibility_execution_test",
     srcs = ["verify_reproducibility_execution_test.py"],
     args = ["$(rootpath :verify_reproducibility_execution.py)"],
-    data = [":verify_reproducibility_execution.py"],
+    data = [
+        ":execution_log.py",
+        ":verify_reproducibility_execution.py",
+    ],
     main = "verify_reproducibility_execution_test.py",
     visibility = ["//mkosi/tests:__pkg__"],
 )
@@ -19,7 +22,10 @@ py_test(
     name = "verify_two_stage_cache_test",
     srcs = ["verify_two_stage_cache_test.py"],
     args = ["$(rootpath :verify_two_stage_cache.py)"],
-    data = [":verify_two_stage_cache.py"],
+    data = [
+        ":execution_log.py",
+        ":verify_two_stage_cache.py",
+    ],
     main = "verify_two_stage_cache_test.py",
     visibility = ["//mkosi/tests:__pkg__"],
 )

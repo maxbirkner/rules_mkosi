@@ -1,26 +1,13 @@
 #!/usr/bin/python3
 """Verify that a new image version reuses the cached two-stage base."""
 
-import json
 import pathlib
 import sys
 
+from execution_log import read_entries
+
 BASE = ("MkosiBase", "//mkosi/tests:two_stage_base")
 IMAGE = ("MkosiImage", "//mkosi/tests:two_stage_release")
-
-
-def read_entries(path):
-    content = path.read_text()
-    decoder = json.JSONDecoder()
-    entries = []
-    index = 0
-    while index < len(content):
-        while index < len(content) and content[index].isspace():
-            index += 1
-        if index < len(content):
-            entry, index = decoder.raw_decode(content, index)
-            entries.append(entry)
-    return entries
 
 
 def _executions(entries, key):

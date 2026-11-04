@@ -70,6 +70,12 @@ managed_python_tool(
 
 # Shared by the kernel preflight and the Debian tools namespace runner.
 cc_library(
+    name = "mount_api",
+    hdrs = ["mount_api.h"],
+    visibility = ["//visibility:public"],
+)
+
+cc_library(
     name = "write_all",
     srcs = ["write_all.c"],
     hdrs = ["write_all.h"],
@@ -89,7 +95,10 @@ cc_library(
     srcs = ["kernel_preflight.c"],
     hdrs = ["kernel_preflight.h"],
     copts = ["-fPIC"],
-    deps = [":write_all"],
+    deps = [
+        ":mount_api",
+        ":write_all",
+    ],
 )
 
 cc_binary(
