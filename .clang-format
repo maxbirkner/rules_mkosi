@@ -1,0 +1,6 @@
+# Closest match to the existing hand-formatted C and C++ sources.
+BasedOnStyle: LLVM
+DerivePointerAlignment: true
+IndentCaseLabels: true
+PenaltyReturnTypeOnItsOwnLine: 200
+SpacesBeforeTrailingComments: 2

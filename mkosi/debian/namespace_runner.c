@@ -501,7 +501,7 @@ static void remount_bind(const char *target, bool readonly,
   }
 }
 
-/* Turns the extracted root into its own mount point so pivot_root accepts it. */
+/* Makes the extracted root its own mount point so pivot_root accepts it. */
 static void mount_extracted_root(const char *root) {
   int root_tree = pin_mount_path(root, true, unknown_identity);
   if (root_tree < 0) {
@@ -534,7 +534,7 @@ static void prepare_extracted_root(const char *root) {
   remount_bind(root, true, "cannot make extracted root read-only");
 }
 
-/* After the host root is detached nothing outside the extracted root is left. */
+/* Once the host root is detached, only the extracted root is left. */
 static void enter_root(const char *root) {
   if (chdir(root) < 0) {
     fail_errno("cannot enter extracted root");
