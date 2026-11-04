@@ -1,7 +1,6 @@
 # Functions longer than the limit enforced by ci/check_function_size.py, with their current length.
 # Entries may only be lowered or removed; run `python3 ci/check_function_size.py --update-baseline` after
 # shortening a function. Format: <path>:<qualified function name> <lines>
-e2e/smoke/image_metadata_test.py:main 41
 e2e/smoke/rootfs_payload_artifact_test.py:main 49
 e2e/smoke/sysupdate_payload_test.py:main 47
 mkosi/debian/debian_tools_security_test.py:DebianToolsSecurityTest.test_extraction_metadata_is_deterministic 52

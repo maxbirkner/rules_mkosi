@@ -31,15 +31,7 @@ def main() -> None:
     assert metadata["mode"] == sys.argv[2]
     if sys.argv[2] == "release":
         assert metadata["artifacts"]["uki"] is immutable
-        assert metadata["debian_snapshot"] == {
-            "architecture": "amd64",
-            "codename": "trixie",
-            "components": ["main"],
-            "format_version": "debian-snapshot-v1",
-            "lock_sha256": os.environ["DEBIAN_TOOLS_LOCK_SHA256"],
-            "snapshot": os.environ["DEBIAN_TOOLS_SNAPSHOT"],
-            "snapshot_url": os.environ["DEBIAN_TOOLS_SNAPSHOT_URL"],
-        }
+        assert metadata["debian_snapshot"] == json.loads(os.environ["DEBIAN_TOOLS_SNAPSHOT_METADATA"])
         assert metadata["reproducibility"] == {
             "seed": "00000000-0000-4000-8000-000000000015",
             "source_date_epoch": 0,
