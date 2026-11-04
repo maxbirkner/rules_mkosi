@@ -14,6 +14,7 @@ load("//mkosi/debian:toolchain.bzl", "debian_tools_launcher_probe", "debian_tool
 load(":behavior_targets.bzl", "behavior_targets")
 load(":consumer_isolation_test.bzl", "consumer_isolation_test_suite")
 load(":debian_snapshot_test.bzl", "debian_snapshot_provider_test")
+load(":debian_tools_provenance.bzl", "DEBIAN_TOOLS_PROVENANCE_ENV")
 load(
     ":extension_semantics_test.bzl",
     "conflicting_root_test",
@@ -309,6 +310,7 @@ py_test(
         "//mkosi/debian:extract_tree.py",
         "@mkosi_debian_tools//:tree",
     ],
+    env = DEBIAN_TOOLS_PROVENANCE_ENV,
     main = "debian_tools_archive_boundary_test.py",
 )
 
@@ -466,6 +468,7 @@ py_test(
     srcs = ["release_image_metadata_test.py"],
     args = ["$(rootpath :release_subject_build_metadata)"],
     data = [":release_subject_build_metadata"],
+    env = DEBIAN_TOOLS_PROVENANCE_ENV,
     main = "release_image_metadata_test.py",
 )
 

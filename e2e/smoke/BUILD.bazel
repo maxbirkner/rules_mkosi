@@ -16,6 +16,7 @@ load(
     "sysupdate_transfers",
 )
 load("@rules_mkosi//mkosi/tests:behavior_targets.bzl", "behavior_targets")
+load("@rules_mkosi//mkosi/tests:debian_tools_provenance.bzl", "DEBIAN_TOOLS_PROVENANCE_ENV")
 load("@rules_mkosi//mkosi/tests:runfiles_sh_test.bzl", "runfiles_sh_test")
 load("@rules_python//python:defs.bzl", "py_binary", "py_runtime", "py_runtime_pair", "py_test")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
@@ -473,6 +474,7 @@ py_test(
         "release",
     ],
     data = [":release_demo_build_metadata"],
+    env = DEBIAN_TOOLS_PROVENANCE_ENV,
     main = "image_metadata_test.py",
 )
 

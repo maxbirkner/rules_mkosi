@@ -468,12 +468,18 @@ class DebianToolsSecurityTest(unittest.TestCase):
             "usr/lib/systemd/system/x11-common.service",
         ):
             self.assertTrue((root / relative).is_symlink(), relative)
-        links = sum(
-            os.path.islink(os.path.join(directory, name))
+        links = [
+            pathlib.Path(directory, name)
             for directory, dirnames, names in os.walk(root)
             for name in dirnames + names
-        )
-        self.assertEqual(931, links)
+            if os.path.islink(os.path.join(directory, name))
+        ]
+        self.assertTrue(links)
+        for link in links:
+            with self.subTest(link=link.relative_to(root)):
+                self.assertFalse(os.path.isabs(os.readlink(link)))
+                self.assertTrue(link.resolve().is_relative_to(root.resolve()))
+                self.assertTrue(link.exists())
 
     def test_mount_roles_canonical_paths_and_collisions(self):
         source = self.work / "input"
