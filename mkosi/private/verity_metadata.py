@@ -2,6 +2,7 @@
 """Verify dm-verity split artifacts and project normalized integrity geometry."""
 
 import argparse
+import contextlib
 import hashlib
 import json
 import os
@@ -9,6 +10,7 @@ import runpy
 import struct
 import tempfile
 from pathlib import Path
+from typing import NamedTuple
 
 _load_sibling = runpy.run_path(str(Path(__file__).with_name("sibling_loader.py")))["load_sibling"]
 gpt = _load_sibling(__file__, "gpt_partitions")
@@ -65,7 +67,7 @@ def _read_superblock(path):
         "digest_size": digest_size,
         "hash_block_size": hash_block_size,
         "slot_size": slot_size,
-        "salt": value[88:88 + salt_size],
+        "salt": value[88 : 88 + salt_size],
         "superblock": value,
     }
 
@@ -137,14 +139,21 @@ def _expected_block(current, digests, geometry):
     return block
 
 
-def _verify_level(level, block_count, current_path, current_digests, emitted, geometry, output):
+class _DigestSpool(NamedTuple):
+    """A spool file holding the digests of one hash tree level."""
+
+    path: str
+    count: int
+
+
+def _verify_level(level, block_count, below, emitted, geometry, output):
     """Compares one emitted level with the digests of the level below and spools the level's own digests."""
     block_size = geometry["hash_block_size"]
     per_block = block_size // geometry["slot_size"]
     consumed = 0
-    with open(current_path, "rb") as current:
+    with open(below.path, "rb") as current:
         for block_index in range(block_count):
-            digests = min(per_block, current_digests - consumed)
+            digests = min(per_block, below.count - consumed)
             block = _expected_block(current, digests, geometry)
             consumed += digests
             if emitted.read(block_size) != block:
@@ -168,10 +177,8 @@ def _new_spool(paths):
 
 def _remove_spools(paths):
     for path in paths:
-        try:
+        with contextlib.suppress(FileNotFoundError):
             os.unlink(path)
-        except FileNotFoundError:
-            pass
 
 
 def _verify_tree(root_image_path, hash_image_path, geometry, tree_offset):
@@ -185,26 +192,23 @@ def _verify_tree(root_image_path, hash_image_path, geometry, tree_offset):
         leaf = _new_spool(paths)
         with leaf:
             _leaf_digests(root_image_path, geometry, leaf)
-        current_path, current_digests = leaf.name, geometry["data_blocks"]
+        below = _DigestSpool(leaf.name, geometry["data_blocks"])
         with open(hash_image_path, "rb") as emitted:
-            for level, (block_count, emitted_offset) in enumerate(zip(counts, level_offsets)):
+            for level, (block_count, emitted_offset) in enumerate(zip(counts, level_offsets, strict=True)):
                 spool = _new_spool(paths)
                 with spool:
                     emitted.seek(emitted_offset)
-                    _verify_level(level, block_count, current_path, current_digests, emitted, geometry, spool)
-                os.unlink(current_path)
-                paths.remove(current_path)
-                current_path, current_digests = spool.name, block_count
-        return counts, _read_root_digest(current_path, geometry["digest_size"]), tree_size
+                    _verify_level(level, block_count, below, emitted, geometry, spool)
+                os.unlink(below.path)
+                paths.remove(below.path)
+                below = _DigestSpool(spool.name, block_count)
+        return counts, _read_root_digest(below.path, geometry["digest_size"]), tree_size
     finally:
         _remove_spools(paths)
 
 
 def _all_zero(source):
-    for chunk in iter(lambda: source.read(1024 * 1024), b""):
-        if any(chunk):
-            return False
-    return True
+    return not any(any(chunk) for chunk in iter(lambda: source.read(1024 * 1024), b""))
 
 
 def _root_partitions(partition_metadata_path):
@@ -301,7 +305,7 @@ def main():
     try:
         metadata = project(args.root_hash, args.partition_metadata, args.root_image, args.hash_image)
     except (KeyError, OSError, UnicodeError, ValueError, json.JSONDecodeError) as error:
-        raise SystemExit("VERITY_METADATA_INVALID: {}".format(error))
+        raise SystemExit("VERITY_METADATA_INVALID: {}".format(error)) from error
     Path(args.output).write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n")
 
 

@@ -82,7 +82,7 @@ def option_table():
     classify = _PathClassifier(mkosi.config)
     table = {}
     # argparse exposes its option actions only through this attribute.
-    for action in parser._actions:  # noqa: SLF001
+    for action in parser._actions:
         if not action.option_strings:
             continue
         option = Option(action.dest, _arguments(action.nargs), *classify(action.dest))
@@ -223,5 +223,5 @@ def _is_negative_number(argument):
     """Returns whether mkosi's argument parser reads argument as a negative number, which is a value."""
     # argparse exposes its negative number rule only through these attributes.
     parser = _parser()
-    negative = parser._negative_number_matcher.match(argument)  # noqa: SLF001
-    return bool(negative) and not parser._has_negative_number_optionals  # noqa: SLF001
+    negative = parser._negative_number_matcher.match(argument)
+    return bool(negative) and not parser._has_negative_number_optionals

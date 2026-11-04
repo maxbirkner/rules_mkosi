@@ -1,9 +1,9 @@
 """Focused tests for raw GPT validation and normalized projection."""
 
-import os
 import ast
 import inspect
 import json
+import os
 import struct
 import sys
 import tempfile
@@ -70,12 +70,8 @@ def image(entries=None, primary_overrides=None, backup_overrides=None):
     backup_lba = SECTORS - 3
     raw[primary_lba * SECTOR : primary_lba * SECTOR + len(array)] = array
     raw[backup_lba * SECTOR : backup_lba * SECTOR + len(array)] = array
-    raw[SECTOR : 2 * SECTOR] = _header(
-        1, SECTORS - 1, primary_lba, array, **(primary_overrides or {})
-    )
-    raw[-SECTOR:] = _header(
-        SECTORS - 1, 1, backup_lba, array, **(backup_overrides or {})
-    )
+    raw[SECTOR : 2 * SECTOR] = _header(1, SECTORS - 1, primary_lba, array, **(primary_overrides or {}))
+    raw[-SECTOR:] = _header(SECTORS - 1, 1, backup_lba, array, **(backup_overrides or {}))
     return raw
 
 
@@ -87,9 +83,9 @@ def _recrc_header(raw, offset):
 
 def _rewrite_arrays(raw, mutate):
     for array_offset in (2 * SECTOR, (SECTORS - 3) * SECTOR):
-        array = bytearray(raw[array_offset:array_offset + COUNT * ENTRY_SIZE])
+        array = bytearray(raw[array_offset : array_offset + COUNT * ENTRY_SIZE])
         mutate(array)
-        raw[array_offset:array_offset + len(array)] = array
+        raw[array_offset : array_offset + len(array)] = array
         header_offset = SECTOR if array_offset == 2 * SECTOR else (SECTORS - 1) * SECTOR
         struct.pack_into("<I", raw, header_offset + 88, zlib.crc32(array))
         _recrc_header(raw, header_offset)
@@ -124,7 +120,7 @@ class ProjectionTest(unittest.TestCase):
         changed = bytearray(original)
         replacement_disk_guid = uuid.uuid4().bytes_le
         for header_offset in (SECTOR, (SECTORS - 1) * SECTOR):
-            changed[header_offset + 56:header_offset + 72] = replacement_disk_guid
+            changed[header_offset + 56 : header_offset + 72] = replacement_disk_guid
             _recrc_header(changed, header_offset)
         replacement_partition_guid = uuid.uuid4().bytes_le
         _rewrite_arrays(
@@ -139,12 +135,8 @@ class ProjectionTest(unittest.TestCase):
     def test_canonical_digest_preserves_partition_semantics(self):
         original = image()
         mutations = {
-            "attributes": lambda array: struct.pack_into(
-                "<Q", array, ENTRY_SIZE + 48, 1
-            ),
-            "lba": lambda array: struct.pack_into(
-                "<QQ", array, ENTRY_SIZE + 32, 4096, 6143
-            ),
+            "attributes": lambda array: struct.pack_into("<Q", array, ENTRY_SIZE + 48, 1),
+            "lba": lambda array: struct.pack_into("<QQ", array, ENTRY_SIZE + 32, 4096, 6143),
         }
         for name, mutation in mutations.items():
             with self.subTest(name=name):
@@ -175,15 +167,11 @@ class ProjectionTest(unittest.TestCase):
         for slot in range(count):
             offset = slot * ENTRY_SIZE
             array[offset : offset + 16] = uuid.UUID(
-                gpt_partitions.ROOT_X86_64
-                if slot == 0
-                else "0fc63daf-8483-4772-8e79-3d69d8477de4"
+                gpt_partitions.ROOT_X86_64 if slot == 0 else "0fc63daf-8483-4772-8e79-3d69d8477de4"
             ).bytes_le
             first = 2048 * (slot + 1)
             struct.pack_into("<QQ", array, offset + 32, first, first + 2047)
-            label = ("root-x86-64" if slot == 0 else "data-{}".format(slot)).encode(
-                "utf-16-le"
-            )
+            label = ("root-x86-64" if slot == 0 else "data-{}".format(slot)).encode("utf-16-le")
             array[offset + 56 : offset + 56 + len(label)] = label
         array_sectors = (len(array) + SECTOR - 1) // SECTOR
         backup_array_lba = sectors - 1 - array_sectors
@@ -247,9 +235,7 @@ class ProjectionTest(unittest.TestCase):
         slot_loop = next(
             node
             for node in ast.walk(tree)
-            if isinstance(node, ast.For)
-            and isinstance(node.target, ast.Name)
-            and node.target.id == "slot"
+            if isinstance(node, ast.For) and isinstance(node.target, ast.Name) and node.target.id == "slot"
         )
         nested_loops = [
             node
@@ -289,9 +275,8 @@ class ProjectionTest(unittest.TestCase):
 
     def test_truncation_and_non_divisible_size(self):
         for raw in (image()[:-SECTOR], image()[:-1]):
-            with self.subTest(size=len(raw)):
-                with self.assertRaises(ValueError):
-                    self.project(raw)
+            with self.subTest(size=len(raw)), self.assertRaises(ValueError):
+                self.project(raw)
 
     def test_hostile_count_entry_size_and_array_location(self):
         cases = [
@@ -299,9 +284,8 @@ class ProjectionTest(unittest.TestCase):
             {"entry_size": 8192},
         ]
         for overrides in cases:
-            with self.subTest(overrides=overrides):
-                with self.assertRaisesRegex(ValueError, "hostile|oversized"):
-                    self.project(image(primary_overrides=overrides))
+            with self.subTest(overrides=overrides), self.assertRaisesRegex(ValueError, "hostile|oversized"):
+                self.project(image(primary_overrides=overrides))
         raw = image()
         struct.pack_into("<Q", raw, SECTOR + 72, SECTORS - 1)
         _recrc_header(raw, SECTOR)
@@ -313,9 +297,8 @@ class ProjectionTest(unittest.TestCase):
             {"first_usable": SECTORS},
             {"last_usable": SECTORS - 1},
         ):
-            with self.subTest(overrides=overrides):
-                with self.assertRaisesRegex(ValueError, "usable"):
-                    self.project(image(primary_overrides=overrides))
+            with self.subTest(overrides=overrides), self.assertRaisesRegex(ValueError, "usable"):
+                self.project(image(primary_overrides=overrides))
         raw = image()
         struct.pack_into("<Q", raw, SECTOR + 32, 7)
         _recrc_header(raw, SECTOR)
@@ -346,9 +329,8 @@ class ProjectionTest(unittest.TestCase):
             ),
         ]
         for entries, message in cases:
-            with self.subTest(message=message):
-                with self.assertRaisesRegex(ValueError, message):
-                    self.project(image(entries=entries))
+            with self.subTest(message=message), self.assertRaisesRegex(ValueError, message):
+                self.project(image(entries=entries))
 
     def project_slots(self, entries, slot_label="ab_1"):
         with open(self.path, "wb") as output:
@@ -382,14 +364,16 @@ class ProjectionTest(unittest.TestCase):
             (self.ab_entries(root_label="ab_2"), "populated root partition labelled 'ab_1'"),
             (self.ab_entries(verity_label="ab_1-verity"), "populated verity partition labelled 'ab_1_verity'"),
             (self.ab_entries(root_label="root-x86-64"), "populated root partition"),
-            (self.ab_entries()[:2] + [(4, 6144, 8191, gpt_partitions.ROOT_X86_64, "ab_0")], "exactly one populated root"),
+            (
+                [*self.ab_entries()[:2], (4, 6144, 8191, gpt_partitions.ROOT_X86_64, "ab_0")],
+                "exactly one populated root",
+            ),
             (self.ab_entries()[:1], "exactly one populated verity"),
             (self.ab_entries(inactive_root_last=7167), "inactive root slots must be at least as large"),
         ]
         for entries, message in cases:
-            with self.subTest(message=message):
-                with self.assertRaisesRegex(ValueError, message):
-                    self.project_slots(entries)
+            with self.subTest(message=message), self.assertRaisesRegex(ValueError, message):
+                self.project_slots(entries)
 
     def test_inactive_slots_are_optional(self):
         projected = self.project_slots(self.ab_entries()[:2])
@@ -438,9 +422,11 @@ class ProjectionTest(unittest.TestCase):
 
     def test_invalid_version_file_is_rejected(self):
         for content in (b"", b"\n", b"1-2\n", b"1\n\n", b" 1"):
-            with self.subTest(content=content):
-                with self.assertRaisesRegex(SystemExit, "IMAGE_VERSION_INVALID: invalid image_version_file"):
-                    self.run_main(content)
+            with (
+                self.subTest(content=content),
+                self.assertRaisesRegex(SystemExit, "IMAGE_VERSION_INVALID: invalid image_version_file"),
+            ):
+                self.run_main(content)
 
 
 if __name__ == "__main__":

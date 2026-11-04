@@ -8,7 +8,6 @@ import sys
 import uuid
 import zlib
 
-
 SECTOR_SIZE = 512
 GPT_HEADER_SIZE = 92
 GPT_REVISION = 0x00010000
@@ -42,8 +41,8 @@ def _read(image, offset, size, message):
 def _physical_data_ranges(image, start, end):
     try:
         fd = image.fileno()
-    except (AttributeError, io.UnsupportedOperation):
-        raise AssertionError("physical data extents are unavailable for this image")
+    except (AttributeError, io.UnsupportedOperation) as error:
+        raise AssertionError("physical data extents are unavailable for this image") from error
     seek_data = getattr(os, "SEEK_DATA", 3)
     seek_hole = getattr(os, "SEEK_HOLE", 4)
     ranges = []
@@ -55,7 +54,7 @@ def _physical_data_ranges(image, start, end):
             if error.errno == errno.ENXIO:
                 break
             if error.errno in (errno.EINVAL, errno.ENOTSUP):
-                raise AssertionError("filesystem does not report physical data extents")
+                raise AssertionError("filesystem does not report physical data extents") from error
             raise
         if data >= end:
             break
@@ -63,7 +62,7 @@ def _physical_data_ranges(image, start, end):
             hole = os.lseek(fd, data, seek_hole)
         except OSError as error:
             if error.errno in (errno.EINVAL, errno.ENOTSUP):
-                raise AssertionError("filesystem does not report physical data extents")
+                raise AssertionError("filesystem does not report physical data extents") from error
             raise
         if hole <= data:
             raise AssertionError("filesystem returned an invalid physical data extent")
@@ -260,8 +259,7 @@ def _require_disjoint_group_metadata(metadata_blocks, group_end):
             metadata_start == 0
             or metadata_start + metadata_length > group_end
             or any(
-                metadata_start < other_start + other_length
-                and other_start < metadata_start + metadata_length
+                metadata_start < other_start + other_length and other_start < metadata_start + metadata_length
                 for other_index, (other_start, other_length) in enumerate(metadata_blocks)
                 if other_index != metadata_index
             )
@@ -336,10 +334,7 @@ def _root_directory_extents(fs, inode):
 def _require_allocated_extent(fs, physical, length, block_bitmap_data, data_ranges):
     if physical + length > fs.blocks_per_group:
         raise AssertionError("Linux root directory extent leaves its allocation group")
-    if any(
-        not (block_bitmap_data[block // 8] & (1 << (block % 8)))
-        for block in range(physical, physical + length)
-    ):
+    if any(not (block_bitmap_data[block // 8] & (1 << (block % 8))) for block in range(physical, physical + length)):
         raise AssertionError("Linux root inode extent is not marked allocated")
     extent_offset = fs.block_offset(physical)
     if not _range_fully_allocated(data_ranges, extent_offset, extent_offset + length * fs.block_size):

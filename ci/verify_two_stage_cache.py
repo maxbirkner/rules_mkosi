@@ -52,8 +52,9 @@ def verify(first_path, second_path):
     first_finalize = _executed(first, IMAGE)[0]
     finalize = _executed(second, IMAGE)[0]
     print(
-        "the new version reused the cached base: base {}, first finalization {}, "
-        "second finalization {}".format(_wall_time(base), _wall_time(first_finalize), _wall_time(finalize))
+        "the new version reused the cached base: base {}, first finalization {}, second finalization {}".format(
+            _wall_time(base), _wall_time(first_finalize), _wall_time(finalize)
+        )
     )
 
 

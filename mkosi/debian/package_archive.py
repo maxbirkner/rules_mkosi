@@ -22,7 +22,7 @@ def _ar_members(data):
     while offset < len(data):
         if offset + 60 > len(data):
             raise ValueError("truncated Debian ar header")
-        header = data[offset:offset + 60]
+        header = data[offset : offset + 60]
         if header[58:60] != b"`\n":
             raise ValueError("invalid Debian ar header")
         name = header[:16].decode("ascii").strip().rstrip("/")
@@ -57,7 +57,7 @@ def _ensure_parent(objects, relative):
 def _read_manifest(manifest):
     """Returns the expected SHA-256 of every package keyed by file name."""
     expected = {}
-    with open(manifest, "r", encoding="utf-8") as entries:
+    with open(manifest, encoding="utf-8") as entries:
         for line in entries:
             fields = line.rstrip("\n").split("|", 2)
             if len(fields) != 3 or fields[0] in expected:
@@ -75,8 +75,7 @@ def _open_authenticated(package, expected_digest):
     if actual != expected_digest:
         stream.close()
         raise ValueError(
-            "Debian package digest mismatch for %s: expected=%s actual=%s"
-            % (name, expected_digest, actual)
+            "Debian package digest mismatch for %s: expected=%s actual=%s" % (name, expected_digest, actual)
         )
     stream.seek(0)
     return stream
@@ -192,4 +191,4 @@ if __name__ == "__main__":
         main()
     except (OSError, tarfile.TarError, ValueError) as error:
         print("Debian package archive construction failed: %s" % error, file=sys.stderr)
-        raise SystemExit(1)
+        raise SystemExit(1) from error

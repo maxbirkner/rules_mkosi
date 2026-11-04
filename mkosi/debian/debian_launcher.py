@@ -1,5 +1,6 @@
 """Execute a Debian build tool from an authenticated, isolated package tree."""
 
+import contextlib
 import importlib.util
 import json
 import os
@@ -13,7 +14,6 @@ from typing import NamedTuple
 
 import click
 from python.runfiles import runfiles
-
 
 TOOLS = {
     "shell": "/bin/sh",
@@ -61,21 +61,13 @@ def _inside_root(root, path):
 
 def _require_directory(root, relative, allow_symlink=False):
     path = os.path.join(root, relative.lstrip("/"))
-    if (
-        not os.path.isdir(path)
-        or (os.path.islink(path) and not allow_symlink)
-        or not _inside_root(root, path)
-    ):
+    if not os.path.isdir(path) or (os.path.islink(path) and not allow_symlink) or not _inside_root(root, path):
         raise RuntimeError("Debian tools root has an invalid directory: %s" % relative)
 
 
 def _require_executable(root, relative, description):
     path = os.path.join(root, relative.lstrip("/"))
-    if (
-        not os.path.isfile(path)
-        or not os.access(path, os.X_OK)
-        or not _inside_root(root, path)
-    ):
+    if not os.path.isfile(path) or not os.access(path, os.X_OK) or not _inside_root(root, path):
         raise RuntimeError("%s is missing or not executable: %s" % (description, relative))
     return path
 
@@ -128,7 +120,7 @@ def _require_tools(root, tool):
 def _validate_root(root, tool):
     if not os.path.isdir(root) or os.path.islink(root):
         raise RuntimeError("Debian tools extraction did not produce a physical root")
-    for relative in _MOUNT_ROOTS + ("/etc", "/usr", "/usr/bin", "/usr/sbin"):
+    for relative in (*_MOUNT_ROOTS, "/etc", "/usr", "/usr/bin", "/usr/sbin"):
         _require_directory(root, relative)
     _require_ca_bundle(root)
     loader = _find_loader(root)
@@ -162,7 +154,7 @@ def _parse_bind(kind, specification):
     if not os.path.exists(source):
         raise FileNotFoundError("namespace bind source is missing: %s" % source)
     destination = _canonical_destination(destination)
-    if destination in ("/",) + tuple(_MOUNT_ROOTS):
+    if destination in ("/", *_MOUNT_ROOTS):
         raise RuntimeError("namespace bind destination is a reserved mount root: %s" % destination)
     source_stat = os.stat(source)
     bind = (source, destination, source_stat.st_dev, source_stat.st_ino, stat.S_ISDIR(source_stat.st_mode))
@@ -215,7 +207,6 @@ def _prepare_mountpoint(base, destination, source_is_directory):
         os.chmod(path, 0o644)
 
 
-
 def _scratch_parent_setting():
     scratch_parent = os.environ.get("MKOSI_DEBIAN_TOOLS_SCRATCH") or os.environ.get("TEST_TMPDIR")
     if not scratch_parent:
@@ -261,9 +252,7 @@ def _runtime_files():
     if config.get("format_version") != "debian-launcher-v1":
         raise RuntimeError("unsupported Debian launcher configuration")
     archive_sha256 = config.get("archive_sha256", "")
-    if len(archive_sha256) != 64 or any(
-        character not in "0123456789abcdef" for character in archive_sha256
-    ):
+    if len(archive_sha256) != 64 or any(character not in "0123456789abcdef" for character in archive_sha256):
         raise RuntimeError("Debian launcher archive digest is invalid")
     return RuntimeFiles(
         archive=_required_runfile(resolver, _RUNFILES["archive"]),
@@ -321,8 +310,8 @@ def _extract_root(archive, expected_digest, tool, binds, extractor_path):
     lock = os.path.join(scratch_parent, ".in-use")
     try:
         os.mkdir(lock, 0o700)
-    except FileExistsError:
-        raise RuntimeError("Debian tools scratch directory is already in use: %s" % scratch_parent)
+    except FileExistsError as error:
+        raise RuntimeError("Debian tools scratch directory is already in use: %s" % scratch_parent) from error
     root = os.path.join(scratch_parent, "root")
     try:
         if os.path.lexists(root):
@@ -338,10 +327,8 @@ def _extract_root(archive, expected_digest, tool, binds, extractor_path):
     finally:
         os.rmdir(lock)
         if not scratch_was_present and not os.path.lexists(root):
-            try:
+            with contextlib.suppress(OSError):
                 os.rmdir(scratch_parent)
-            except OSError:
-                pass
     return root
 
 
@@ -358,7 +345,7 @@ def _prepare_rw_mountpoints(workspace, outputs, rw_binds):
         prefix = "/workspace" if base == workspace else "/outputs"
         _prepare_mountpoint(
             base,
-            destination[len(prefix):] or "/",
+            destination[len(prefix) :] or "/",
             source_is_directory,
         )
 
@@ -376,11 +363,12 @@ def _run(
     tool,
     arguments,
     root,
-    ro_binds,
-    rw_binds,
+    binds,
     scratch_parent,
     namespace_runner,
 ):
+    """Runs tool in the namespace runner; binds is the pair of validated read-only and read-write binds."""
+    ro_binds, rw_binds = binds
     runtime = os.path.join(scratch_parent, ".runtime")
     os.mkdir(runtime, 0o700)
     try:
@@ -399,7 +387,10 @@ def _run(
             home,
             "/" + os.path.relpath(loader, root),
             tool,
-        ] + _mount_arguments(ro_binds, rw_binds) + ["--"] + arguments
+            *_mount_arguments(ro_binds, rw_binds),
+            "--",
+            *arguments,
+        ]
         return subprocess.run(
             command,
             env={"PATH": "", "HOME": "/root"},
@@ -459,8 +450,7 @@ def _launch(
         tool,
         list(tool_arguments),
         root,
-        ro_binds,
-        rw_binds,
+        (ro_binds, rw_binds),
         os.path.dirname(root),
         runtime.namespace_runner,
     )

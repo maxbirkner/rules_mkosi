@@ -5,6 +5,7 @@ import os
 
 os.environ["PATH"] = ""
 
+import contextlib
 import dataclasses
 import pathlib
 import runpy
@@ -13,6 +14,7 @@ import socket
 import subprocess
 import sys
 import time
+from collections.abc import Callable
 
 _load_sibling = runpy.run_path(str(pathlib.Path(__file__).with_name("sibling_loader.py")))["load_sibling"]
 diagnostics = _load_sibling(__file__, "diagnostics")
@@ -78,8 +80,8 @@ def _actual_boot_evidence(firmware, serial, limit, markers=(), accelerator=None)
                 b"systemd[1]: Hostname set to",
                 b"systemd-shutdown[1]: Powering off.",
                 b"reboot: Power down",
-            )
-            + tuple(marker.encode() for marker in markers if marker),
+                *(marker.encode() for marker in markers if marker),
+            ),
         ),
     )
     output = [b"[qemu] accelerator: " + (accelerator or "unknown").encode()]
@@ -162,7 +164,7 @@ def _perform_qmp_handshake(connection, timeout):
             # Asynchronous QMP events may precede the command reply.
             if not isinstance(reply, dict) or "event" not in reply:
                 return _accelerator_from_query_kvm(reply)
-    except socket.timeout as error:
+    except TimeoutError as error:
         raise QmpHandshakeError("QMP handshake timed out") from error
     finally:
         reader.close()
@@ -184,8 +186,7 @@ def _qmp_handshake(process, socket_path, timeout, monotonic=time.monotonic, slee
     while monotonic() < deadline:
         if process.poll() is not None:
             raise QmpHandshakeError(
-                "QEMU exited with status %d before QMP initialization"
-                % process.returncode,
+                "QEMU exited with status %d before QMP initialization" % process.returncode,
             )
         connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         try:
@@ -382,34 +383,81 @@ def _absolute_or_none(path):
     return os.path.abspath(path) if path else path
 
 
-def _qemu_command(files, image, qemu, system_data, *, arguments, firmware_code, firmware, accelerator_args,
-                  allow_reboot, share_arguments, disk_interface):
+@dataclasses.dataclass(frozen=True)
+class _BootOptions:
+    """Firmware, QEMU arguments, serial markers, and deadlines of one boot."""
+
+    qemu_args: tuple = ()
+    machine_args: tuple = ()
+    firmware_code: str | None = None
+    firmware_vars: str | None = None
+    firmware: str | None = None
+    firmware_kind: str = ""
+    disk_interface: str = "virtio"
+    accelerator_args: tuple = ()
+    kernel_preflight: str | None = None
+    readiness_marker: str = ""
+    progress_markers: tuple = ()
+    expected_failure_marker: str = ""
+    stop_after_readiness: bool = False
+    allow_reboot: bool = False
+    read_only_shares: tuple = ()
+    shutdown_markers: tuple = ()
+    boot_timeout_seconds: float = 180
+    qmp_initialization_timeout_seconds: float = 15
+    shutdown_timeout_seconds: float = 30
+    diagnostic_bytes: int = 65536
+
+
+@dataclasses.dataclass(frozen=True)
+class _BootHost:
+    """Process, QMP, and clock operations of the boot lifecycle, which unit tests replace."""
+
+    process_factory: Callable = subprocess.Popen
+    qmp_handshake: Callable = _qmp_handshake
+    monotonic: Callable = time.monotonic
+    sleep: Callable = time.sleep
+
+
+_HOST = _BootHost()
+
+
+def _qemu_command(files, image, qemu, system_data, options, share_arguments):
+    """Returns the QEMU command line; options carries absolute firmware paths."""
     expanded_arguments = [
-        argument.replace("{firmware_code}", firmware_code or "")
+        argument.replace("{firmware_code}", options.firmware_code or "")
         .replace("{firmware_vars}", str(files.vars_copy))
-        .replace("{firmware}", firmware or "")
+        .replace("{firmware}", options.firmware or "")
         .replace("{firmware_log}", str(files.firmware_log))
-        for argument in arguments
+        for argument in options.qemu_args or options.machine_args
     ]
-    return [
-        qemu,
-        "-L",
-        system_data,
-    ] + expanded_arguments + list(accelerator_args) + [
-        "-nodefaults",
-        "-nographic",
-    ] + ([] if allow_reboot else ["-no-reboot"]) + share_arguments + [
-        "-serial",
-        "none",
-        "-chardev",
-        "file,id=serial0,path=%s" % files.serial_log,
-        "-device",
-        "isa-serial,chardev=serial0",
-        "-qmp",
-        "unix:%s,server=on,wait=off" % _QMP_SOCKET,
-        "-drive",
-        "if=%s,format=raw,snapshot=on,file=%s" % (disk_interface, image),
-    ]
+    return (
+        [
+            qemu,
+            "-L",
+            system_data,
+        ]
+        + expanded_arguments
+        + list(options.accelerator_args)
+        + [
+            "-nodefaults",
+            "-nographic",
+        ]
+        + ([] if options.allow_reboot else ["-no-reboot"])
+        + share_arguments
+        + [
+            "-serial",
+            "none",
+            "-chardev",
+            "file,id=serial0,path=%s" % files.serial_log,
+            "-device",
+            "isa-serial,chardev=serial0",
+            "-qmp",
+            "unix:%s,server=on,wait=off" % _QMP_SOCKET,
+            "-drive",
+            "if=%s,format=raw,snapshot=on,file=%s" % (options.disk_interface, image),
+        ]
+    )
 
 
 def _share_arguments(files, read_only_shares):
@@ -471,14 +519,9 @@ def _observe(files, readiness):
     serial = _read_log(files.serial_log)
     firmware_output = _read_log(files.firmware_log)
     progress_offset, missing_progress = _ordered_progress(serial, readiness.progress_markers)
-    readiness_offset = (
-        serial.find(readiness.marker.encode(), progress_offset)
-        if missing_progress is None
-        else -1
-    )
+    readiness_offset = serial.find(readiness.marker.encode(), progress_offset) if missing_progress is None else -1
     failure_offset = (
-        serial.find(readiness.expected_failure_marker.encode())
-        if readiness.expected_failure_marker else -1
+        serial.find(readiness.expected_failure_marker.encode()) if readiness.expected_failure_marker else -1
     )
     return _SerialObservation(serial, firmware_output, missing_progress, readiness_offset, failure_offset)
 
@@ -487,11 +530,7 @@ def _print_expected_failure(observation, expected_failure_marker):
     serial = observation.serial
     excerpt_start = max(0, observation.failure_offset - 256)
     excerpt_end = min(len(serial), observation.failure_offset + len(expected_failure_marker) + 256)
-    print(
-        "Expected failure evidence:\n{}".format(
-            serial[excerpt_start:excerpt_end].decode(errors="replace")
-        )
-    )
+    print("Expected failure evidence:\n{}".format(serial[excerpt_start:excerpt_end].decode(errors="replace")))
 
 
 def _expected_failure_observed(files, observation, expected_failure_marker):
@@ -575,9 +614,8 @@ def _print_boot_evidence(files, markers, accelerator):
 
 
 def _ensure_stopped(files, process):
-    if process.poll() is None:
-        if not _stop_process(process):
-            files.fail("SHUTDOWN_FAILURE", "QEMU did not exit after the kill deadline")
+    if process.poll() is None and not _stop_process(process):
+        files.fail("SHUTDOWN_FAILURE", "QEMU did not exit after the kill deadline")
 
 
 def _validate_deadlines(**deadlines):
@@ -587,93 +625,69 @@ def _validate_deadlines(**deadlines):
             raise ValueError("%s must be positive, got %r" % (name, seconds))
 
 
-def _boot(
-    image,
-    qemu,
-    system_data,
-    *,
-    qemu_args=(),
-    machine_args=(),
-    firmware_code=None,
-    firmware_vars=None,
-    firmware=None,
-    firmware_kind="",
-    disk_interface="virtio",
-    accelerator_args=(),
-    kernel_preflight=None,
-    readiness_marker="",
-    progress_markers=(),
-    expected_failure_marker="",
-    stop_after_readiness=False,
-    allow_reboot=False,
-    read_only_shares=(),
-    shutdown_markers=(),
-    boot_timeout_seconds=180,
-    qmp_initialization_timeout_seconds=15,
-    shutdown_timeout_seconds=30,
-    diagnostic_bytes=65536,
-    process_factory=subprocess.Popen,
-    qmp_handshake=_qmp_handshake,
-    monotonic=time.monotonic,
-    sleep=time.sleep,
-):
+def _boot(image, qemu, system_data, options, host=_HOST):
     _validate_deadlines(
-        boot_timeout_seconds=boot_timeout_seconds,
-        qmp_initialization_timeout_seconds=qmp_initialization_timeout_seconds,
-        shutdown_timeout_seconds=shutdown_timeout_seconds,
+        boot_timeout_seconds=options.boot_timeout_seconds,
+        qmp_initialization_timeout_seconds=options.qmp_initialization_timeout_seconds,
+        shutdown_timeout_seconds=options.shutdown_timeout_seconds,
     )
     scratch = pathlib.Path(os.environ.get("TEST_TMPDIR", "boot-test-state"))
     scratch.mkdir(parents=True, exist_ok=True)
-    files = _BootFiles(scratch, diagnostic_bytes)
-    firmware_vars = _absolute_or_none(firmware_vars)
-    markers = tuple(progress_markers) + (readiness_marker,)
+    files = _BootFiles(scratch, options.diagnostic_bytes)
+    options = dataclasses.replace(
+        options,
+        firmware_code=_absolute_or_none(options.firmware_code),
+        firmware_vars=_absolute_or_none(options.firmware_vars),
+        firmware=_absolute_or_none(options.firmware),
+    )
+    markers = (*options.progress_markers, options.readiness_marker)
     readiness = _Readiness(
-        readiness_marker,
-        tuple(progress_markers),
-        expected_failure_marker,
-        stop_after_readiness,
-        firmware_kind,
-        boot_timeout_seconds,
+        options.readiness_marker,
+        tuple(options.progress_markers),
+        options.expected_failure_marker,
+        options.stop_after_readiness,
+        options.firmware_kind,
+        options.boot_timeout_seconds,
     )
     accelerator = None
     try:
-        if kernel_preflight:
-            diagnostics.run_kernel_preflight(kernel_preflight, "QEMU boot test")
-        if firmware_vars:
-            shutil.copyfile(firmware_vars, files.vars_copy)
+        if options.kernel_preflight:
+            diagnostics.run_kernel_preflight(options.kernel_preflight, "QEMU boot test")
+        if options.firmware_vars:
+            shutil.copyfile(options.firmware_vars, files.vars_copy)
             files.vars_copy.chmod(0o600)
         command = _qemu_command(
             files,
             os.path.abspath(image),
             os.path.abspath(qemu),
             os.path.abspath(system_data),
-            arguments=qemu_args or machine_args,
-            firmware_code=_absolute_or_none(firmware_code),
-            firmware=_absolute_or_none(firmware),
-            accelerator_args=accelerator_args,
-            allow_reboot=allow_reboot,
-            share_arguments=_share_arguments(files, read_only_shares),
-            disk_interface=disk_interface,
+            options,
+            _share_arguments(files, options.read_only_shares),
         )
         with open(files.qemu_log, "wb") as output:
-            process = _start_qemu(files, process_factory, command, output)
+            process = _start_qemu(files, host.process_factory, command, output)
             try:
                 accelerator = _initialize_qmp(
-                    files, process, qmp_handshake, qmp_initialization_timeout_seconds, monotonic, sleep
+                    files,
+                    process,
+                    host.qmp_handshake,
+                    options.qmp_initialization_timeout_seconds,
+                    host.monotonic,
+                    host.sleep,
                 )
                 print("QEMU accelerator: {}".format(accelerator or "unknown"), flush=True)
-                if _await_readiness(files, process, readiness, monotonic, sleep):
+                if _await_readiness(files, process, readiness, host.monotonic, host.sleep):
                     return
-                _await_clean_shutdown(files, process, shutdown_markers, shutdown_timeout_seconds)
+                _await_clean_shutdown(files, process, options.shutdown_markers, options.shutdown_timeout_seconds)
                 _print_boot_evidence(files, markers, accelerator)
             finally:
                 _ensure_stopped(files, process)
     finally:
-        _export_boot_logs(files.serial_log, files.firmware_log, files.qemu_log, diagnostic_bytes, markers, accelerator)
-        try:
+        _export_boot_logs(
+            files.serial_log, files.firmware_log, files.qemu_log, options.diagnostic_bytes, markers, accelerator
+        )
+        with contextlib.suppress(FileNotFoundError):
             (scratch / _QMP_SOCKET).unlink()
-        except FileNotFoundError:
-            pass
 
 
 def _optional_runfile(config, key):
@@ -688,28 +702,30 @@ def main():
         _resolve_runfile(config["image"]),
         _resolve_runfile(config["qemu"]),
         _resolve_runfile(config["system_data"]),
-        qemu_args=config["qemu_args"],
-        firmware_code=_optional_runfile(config, "firmware_code"),
-        firmware_vars=_optional_runfile(config, "firmware_vars"),
-        firmware=_optional_runfile(config, "firmware"),
-        firmware_kind=config.get("firmware_kind", "ovmf"),
-        disk_interface=config.get("disk_interface", "virtio"),
-        accelerator_args=config["accelerator_args"],
-        kernel_preflight=_resolve_runfile(config["kernel_preflight"]),
-        readiness_marker=config["readiness_marker"],
-        progress_markers=config.get("progress_markers", ()),
-        expected_failure_marker=config.get("expected_failure_marker", ""),
-        stop_after_readiness=config.get("stop_after_readiness", False),
-        allow_reboot=config.get("allow_reboot", False),
-        read_only_shares=[
-            (_resolve_runfile_directory(share["directory"]), share["mount_tag"])
-            for share in config.get("read_only_shares", ())
-        ],
-        shutdown_markers=config["shutdown_markers"],
-        boot_timeout_seconds=config["boot_timeout_seconds"],
-        qmp_initialization_timeout_seconds=config["qmp_initialization_timeout_seconds"],
-        shutdown_timeout_seconds=config["shutdown_timeout_seconds"],
-        diagnostic_bytes=config["diagnostic_bytes"],
+        _BootOptions(
+            qemu_args=config["qemu_args"],
+            firmware_code=_optional_runfile(config, "firmware_code"),
+            firmware_vars=_optional_runfile(config, "firmware_vars"),
+            firmware=_optional_runfile(config, "firmware"),
+            firmware_kind=config.get("firmware_kind", "ovmf"),
+            disk_interface=config.get("disk_interface", "virtio"),
+            accelerator_args=config["accelerator_args"],
+            kernel_preflight=_resolve_runfile(config["kernel_preflight"]),
+            readiness_marker=config["readiness_marker"],
+            progress_markers=config.get("progress_markers", ()),
+            expected_failure_marker=config.get("expected_failure_marker", ""),
+            stop_after_readiness=config.get("stop_after_readiness", False),
+            allow_reboot=config.get("allow_reboot", False),
+            read_only_shares=[
+                (_resolve_runfile_directory(share["directory"]), share["mount_tag"])
+                for share in config.get("read_only_shares", ())
+            ],
+            shutdown_markers=config["shutdown_markers"],
+            boot_timeout_seconds=config["boot_timeout_seconds"],
+            qmp_initialization_timeout_seconds=config["qmp_initialization_timeout_seconds"],
+            shutdown_timeout_seconds=config["shutdown_timeout_seconds"],
+            diagnostic_bytes=config["diagnostic_bytes"],
+        ),
     )
 
 

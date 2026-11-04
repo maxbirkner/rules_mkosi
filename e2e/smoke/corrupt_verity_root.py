@@ -14,7 +14,8 @@ def main():
     parser.add_argument("--partitions", required=True)
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
-    metadata = json.load(open(args.partitions, encoding="utf-8"))
+    with open(args.partitions, encoding="utf-8") as partitions:
+        metadata = json.load(partitions)
     roots = [p for p in metadata["partitions"] if p["type_guid"] == ROOT_X86_64]
     if len(roots) != 1:
         raise SystemExit("expected exactly one x86-64 root partition")
