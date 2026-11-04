@@ -12,6 +12,7 @@ load(
     "QemuOvmfBootConfigInfo",
     "SysupdatePayloadInfo",
 )
+load("@rules_mkosi//mkosi/debian:provenance.bzl", "DEBIAN_TOOLS_PYTHON_VERSION", "DEBIAN_TOOLS_SNAPSHOT")
 
 def _public_api_test_impl(ctx):
     env = analysistest.begin(ctx)
@@ -19,7 +20,7 @@ def _public_api_test_impl(ctx):
     asserts.true(env, DebianToolsInfo in target)
     asserts.equals(env, "debian", target[DebianToolsInfo].distribution)
     asserts.equals(env, "13", target[DebianToolsInfo].release)
-    asserts.equals(env, "3.14.10", target[DebianToolsInfo].python_version)
+    asserts.equals(env, DEBIAN_TOOLS_PYTHON_VERSION, target[DebianToolsInfo].python_version)
     asserts.true(env, target[DebianToolsInfo].launcher.executable != None)
     return analysistest.end(env)
 
@@ -59,7 +60,7 @@ snapshot_public_api_test = analysistest.make(
     _snapshot_public_api_test_impl,
     attrs = {
         "expected_components": attr.string_list(default = ["main"]),
-        "expected_snapshot": attr.string(default = "20260912T080811Z"),
+        "expected_snapshot": attr.string(default = DEBIAN_TOOLS_SNAPSHOT),
     },
 )
 

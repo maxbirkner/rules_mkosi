@@ -1,6 +1,7 @@
 """Checks the public MkosiImageInfo metadata projection in a consumer module."""
 
 import json
+import os
 import pathlib
 import sys
 
@@ -35,9 +36,9 @@ def main() -> None:
             "codename": "trixie",
             "components": ["main"],
             "format_version": "debian-snapshot-v1",
-            "lock_sha256": "38c9e6d7e3585c0b6ce5ccd71b03eababc0d6e2a0f0ffce77d1e6843e11fb4d8",
-            "snapshot": "20260912T080811Z",
-            "snapshot_url": "https://snapshot.debian.org/archive/debian/20260912T080811Z",
+            "lock_sha256": os.environ["DEBIAN_TOOLS_LOCK_SHA256"],
+            "snapshot": os.environ["DEBIAN_TOOLS_SNAPSHOT"],
+            "snapshot_url": os.environ["DEBIAN_TOOLS_SNAPSHOT_URL"],
         }
         assert metadata["reproducibility"] == {
             "seed": "00000000-0000-4000-8000-000000000015",
