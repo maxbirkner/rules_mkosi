@@ -24,7 +24,7 @@ bazel test //...
 ```
 
 The root `.bazelignore` excludes `e2e/`, so a root `bazel test //...` does not load this module as part of the root repository.
-The consumer pins Bazel 8.8.2, uses its own lockfile and disk cache, and imports the root `.bazelrc.ci` configs described in [CONTRIBUTING.md](../CONTRIBUTING.md#configs-and-tags).
+The consumer pins the root module's Bazel version, uses its own lockfile and disk cache, and imports the root `.bazelrc.ci` configs described in [CONTRIBUTING.md](../CONTRIBUTING.md#configs-and-tags).
 
 ## `e2e/module_resolution`
 

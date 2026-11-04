@@ -25,6 +25,15 @@ py_test(
 )
 
 py_test(
+    name = "check_bazel_versions_test",
+    srcs = [
+        "check_bazel_versions.py",
+        "check_bazel_versions_test.py",
+    ],
+    main = "check_bazel_versions_test.py",
+)
+
+py_test(
     name = "action_graph_validator_test",
     srcs = [
         "action_graph_validator.py",

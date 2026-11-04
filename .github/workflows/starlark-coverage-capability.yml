@@ -9,15 +9,18 @@ permissions:
   contents: read
 
 jobs:
+  bazel-versions:
+    name: Bazel versions
+    uses: ./.github/workflows/read-bazel-versions.yml
+
   probe:
     name: Bazel ${{ matrix.bazel }}
+    needs: bazel-versions
     runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
       matrix:
-        bazel:
-          - "8.8.2"
-          - "9.3.1"
+        bazel: ${{ fromJSON(needs.bazel-versions.outputs.tested) }}
     env:
       USE_BAZEL_VERSION: ${{ matrix.bazel }}
     steps:
