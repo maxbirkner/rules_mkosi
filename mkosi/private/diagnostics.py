@@ -30,9 +30,9 @@ def report(category, detail, original=b""):
 def fail(category, detail, original=b"", exit_code=1):
     """Report a failure and terminate with its validated action status."""
     if (
-        isinstance(exit_code, bool) or
-        not isinstance(exit_code, int) or
-        not _MIN_EXIT_STATUS <= exit_code <= _MAX_EXIT_STATUS
+        isinstance(exit_code, bool)
+        or not isinstance(exit_code, int)
+        or not _MIN_EXIT_STATUS <= exit_code <= _MAX_EXIT_STATUS
     ):
         raise ValueError("diagnostic exit code must be an integer from 1 through 255")
     report(category, detail, original)

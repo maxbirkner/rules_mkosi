@@ -16,9 +16,7 @@ spec.loader.exec_module(extract_tree)
 
 class ExtractTreeSecurityTest(unittest.TestCase):
     def setUp(self):
-        self.directory = pathlib.Path(os.environ.get("TEST_TMPDIR", ".")) / (
-            "extract-tree-security-%s" % os.getpid()
-        )
+        self.directory = pathlib.Path(os.environ.get("TEST_TMPDIR", ".")) / ("extract-tree-security-%s" % os.getpid())
         shutil.rmtree(self.directory, ignore_errors=True)
         self.directory.mkdir(parents=True)
 

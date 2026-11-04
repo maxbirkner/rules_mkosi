@@ -19,13 +19,13 @@ def main():
             section = line[1:-1]
             continue
         name, separator, value = line.partition("=")
-        if separator and ((section == "Output" and name == "Seed") or
-                          (section == "Content" and name == "SourceDateEpoch")):
+        if separator and (
+            (section == "Output" and name == "Seed") or (section == "Content" and name == "SourceDateEpoch")
+        ):
             values[name] = value
     if values != EXPECTED:
         raise AssertionError("tracer determinism settings changed: %r" % values)
-    print("tracer determinism settings: Seed=%s SourceDateEpoch=%s" %
-          (values["Seed"], values["SourceDateEpoch"]))
+    print("tracer determinism settings: Seed=%s SourceDateEpoch=%s" % (values["Seed"], values["SourceDateEpoch"]))
 
 
 if __name__ == "__main__":

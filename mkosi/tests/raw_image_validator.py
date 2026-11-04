@@ -259,8 +259,7 @@ def _require_disjoint_group_metadata(metadata_blocks, group_end):
             metadata_start == 0
             or metadata_start + metadata_length > group_end
             or any(
-                metadata_start < other_start + other_length
-                and other_start < metadata_start + metadata_length
+                metadata_start < other_start + other_length and other_start < metadata_start + metadata_length
                 for other_index, (other_start, other_length) in enumerate(metadata_blocks)
                 if other_index != metadata_index
             )
@@ -335,10 +334,7 @@ def _root_directory_extents(fs, inode):
 def _require_allocated_extent(fs, physical, length, block_bitmap_data, data_ranges):
     if physical + length > fs.blocks_per_group:
         raise AssertionError("Linux root directory extent leaves its allocation group")
-    if any(
-        not (block_bitmap_data[block // 8] & (1 << (block % 8)))
-        for block in range(physical, physical + length)
-    ):
+    if any(not (block_bitmap_data[block // 8] & (1 << (block % 8))) for block in range(physical, physical + length)):
         raise AssertionError("Linux root inode extent is not marked allocated")
     extent_offset = fs.block_offset(physical)
     if not _range_fully_allocated(data_ranges, extent_offset, extent_offset + length * fs.block_size):

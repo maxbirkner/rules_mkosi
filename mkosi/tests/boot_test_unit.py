@@ -86,13 +86,17 @@ class BootLifecycleTest(unittest.TestCase):
                 return last[0]
 
             stderr = io.StringIO()
-            with contextlib.redirect_stderr(stderr), self.assertRaises(SystemExit), mock.patch.dict(
-                "os.environ",
-                {
-                    "TEST_TMPDIR": directory,
-                    "TEST_UNDECLARED_OUTPUTS_DIR": str(outputs),
-                },
-                clear=False,
+            with (
+                contextlib.redirect_stderr(stderr),
+                self.assertRaises(SystemExit),
+                mock.patch.dict(
+                    "os.environ",
+                    {
+                        "TEST_TMPDIR": directory,
+                        "TEST_UNDECLARED_OUTPUTS_DIR": str(outputs),
+                    },
+                    clear=False,
+                ),
             ):
                 boot_test._boot(
                     "image.raw",
@@ -344,20 +348,22 @@ class BootLifecycleTest(unittest.TestCase):
 
             def factory(_command, stdout, **_kwargs):
                 (root / "firmware.log").write_bytes(
-                    b"SeaBIOS (version actual-build)\n"
-                    b"Booting from Hard Disk...\n",
+                    b"SeaBIOS (version actual-build)\nBooting from Hard Disk...\n",
                 )
                 stdout.write(b"actual qemu output\n")
                 return process
 
             stdout = io.StringIO()
-            with contextlib.redirect_stdout(stdout), mock.patch.dict(
-                "os.environ",
-                {
-                    "TEST_TMPDIR": directory,
-                    "TEST_UNDECLARED_OUTPUTS_DIR": str(outputs),
-                },
-                clear=False,
+            with (
+                contextlib.redirect_stdout(stdout),
+                mock.patch.dict(
+                    "os.environ",
+                    {
+                        "TEST_TMPDIR": directory,
+                        "TEST_UNDECLARED_OUTPUTS_DIR": str(outputs),
+                    },
+                    clear=False,
+                ),
             ):
                 boot_test._boot(
                     "image.raw",
@@ -657,10 +663,13 @@ class BootLifecycleTest(unittest.TestCase):
                 return _Process()
 
             stdout = io.StringIO()
-            with contextlib.redirect_stdout(stdout), mock.patch.dict(
-                "os.environ",
-                {"TEST_TMPDIR": directory, "TEST_UNDECLARED_OUTPUTS_DIR": str(outputs)},
-                clear=True,
+            with (
+                contextlib.redirect_stdout(stdout),
+                mock.patch.dict(
+                    "os.environ",
+                    {"TEST_TMPDIR": directory, "TEST_UNDECLARED_OUTPUTS_DIR": str(outputs)},
+                    clear=True,
+                ),
             ):
                 boot_test._boot(
                     "image.raw",
@@ -696,10 +705,14 @@ class BootLifecycleTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as directory:
             outputs = pathlib.Path(directory) / "outputs"
-            with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit), mock.patch.dict(
-                "os.environ",
-                {"TEST_TMPDIR": directory, "TEST_UNDECLARED_OUTPUTS_DIR": str(outputs)},
-                clear=True,
+            with (
+                contextlib.redirect_stderr(io.StringIO()),
+                self.assertRaises(SystemExit),
+                mock.patch.dict(
+                    "os.environ",
+                    {"TEST_TMPDIR": directory, "TEST_UNDECLARED_OUTPUTS_DIR": str(outputs)},
+                    clear=True,
+                ),
             ):
                 boot_test._boot(
                     "image.raw",

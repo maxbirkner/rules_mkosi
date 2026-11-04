@@ -52,10 +52,7 @@ def _same_except(actual, reference, patches, diagnostic):
         mutable.update(range(start, end))
     differences = [i for i in range(len(reference)) if i not in mutable and actual[i] != reference[i]]
     if differences:
-        detail = ", ".join(
-            "0x{:x}={:02x}/{:02x}".format(i, actual[i], reference[i])
-            for i in differences[:16]
-        )
+        detail = ", ".join("0x{:x}={:02x}/{:02x}".format(i, actual[i], reference[i]) for i in differences[:16])
         raise AssertionError("{}: {}".format(diagnostic, detail))
 
 
@@ -124,10 +121,12 @@ def _debugfs(launcher, root, command):
         for n in ("RUNFILES_DIR", "RUNFILES_MANIFEST_FILE", "RUNFILES_MANIFEST_ONLY")
         if n in os.environ
     }
-    environment.update({
-        "MKOSI_DEBIAN_TOOLS_SCRATCH": os.path.join(os.environ["TEST_TMPDIR"], "bios-debugfs-{}".format(invocation)),
-        "PATH": "",
-    })
+    environment.update(
+        {
+            "MKOSI_DEBIAN_TOOLS_SCRATCH": os.path.join(os.environ["TEST_TMPDIR"], "bios-debugfs-{}".format(invocation)),
+            "PATH": "",
+        }
+    )
     result = subprocess.run(
         [
             launcher,
@@ -156,10 +155,12 @@ def _mtype(launcher, esp):
         for n in ("RUNFILES_DIR", "RUNFILES_MANIFEST_FILE", "RUNFILES_MANIFEST_ONLY")
         if n in os.environ
     }
-    environment.update({
-        "MKOSI_DEBIAN_TOOLS_SCRATCH": os.path.join(os.environ["TEST_TMPDIR"], "bios-mtype-{}".format(invocation)),
-        "PATH": "",
-    })
+    environment.update(
+        {
+            "MKOSI_DEBIAN_TOOLS_SCRATCH": os.path.join(os.environ["TEST_TMPDIR"], "bios-mtype-{}".format(invocation)),
+            "PATH": "",
+        }
+    )
     listing = subprocess.run(
         [
             launcher,
@@ -206,11 +207,7 @@ def _mtype(launcher, esp):
     if result.returncode:
         raise AssertionError("GRUB ESP configuration inspection failed: " + result.stdout + result.stderr)
     _mtype.esp = esp
-    _mtype.entries = {
-        line.strip().removeprefix("::").lower()
-        for line in listing.stdout.splitlines()
-        if line.strip()
-    }
+    _mtype.entries = {line.strip().removeprefix("::").lower() for line in listing.stdout.splitlines() if line.strip()}
     return result.stdout
 
 
@@ -222,10 +219,14 @@ def _fat_regular(launcher, esp, path):
         for n in ("RUNFILES_DIR", "RUNFILES_MANIFEST_FILE", "RUNFILES_MANIFEST_ONLY")
         if n in os.environ
     }
-    environment.update({
-        "MKOSI_DEBIAN_TOOLS_SCRATCH": os.path.join(os.environ["TEST_TMPDIR"], "bios-fat-stat-{}".format(invocation)),
-        "PATH": "",
-    })
+    environment.update(
+        {
+            "MKOSI_DEBIAN_TOOLS_SCRATCH": os.path.join(
+                os.environ["TEST_TMPDIR"], "bios-fat-stat-{}".format(invocation)
+            ),
+            "PATH": "",
+        }
+    )
     result = subprocess.run(
         [
             launcher,
@@ -359,9 +360,7 @@ def validate_boot_files(entries, modules, config):
     referenced.update(re.findall(r"(?m)^\s*insmod\s+([A-Za-z0-9_]+)\s*$", body))
     for module in sorted(referenced):
         if modules.get(module) != "regular":
-            raise AssertionError(
-                "required GRUB i386-pc module is missing: {} ({})".format(module, modules.get(module))
-            )
+            raise AssertionError("required GRUB i386-pc module is missing: {} ({})".format(module, modules.get(module)))
 
 
 def main():

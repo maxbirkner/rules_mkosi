@@ -22,7 +22,7 @@ def _ar_members(data):
     while offset < len(data):
         if offset + 60 > len(data):
             raise ValueError("truncated Debian ar header")
-        header = data[offset:offset + 60]
+        header = data[offset : offset + 60]
         if header[58:60] != b"`\n":
             raise ValueError("invalid Debian ar header")
         name = header[:16].decode("ascii").strip().rstrip("/")
@@ -75,8 +75,7 @@ def _open_authenticated(package, expected_digest):
     if actual != expected_digest:
         stream.close()
         raise ValueError(
-            "Debian package digest mismatch for %s: expected=%s actual=%s"
-            % (name, expected_digest, actual)
+            "Debian package digest mismatch for %s: expected=%s actual=%s" % (name, expected_digest, actual)
         )
     stream.seek(0)
     return stream

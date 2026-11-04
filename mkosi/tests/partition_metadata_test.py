@@ -70,12 +70,8 @@ def image(entries=None, primary_overrides=None, backup_overrides=None):
     backup_lba = SECTORS - 3
     raw[primary_lba * SECTOR : primary_lba * SECTOR + len(array)] = array
     raw[backup_lba * SECTOR : backup_lba * SECTOR + len(array)] = array
-    raw[SECTOR : 2 * SECTOR] = _header(
-        1, SECTORS - 1, primary_lba, array, **(primary_overrides or {})
-    )
-    raw[-SECTOR:] = _header(
-        SECTORS - 1, 1, backup_lba, array, **(backup_overrides or {})
-    )
+    raw[SECTOR : 2 * SECTOR] = _header(1, SECTORS - 1, primary_lba, array, **(primary_overrides or {}))
+    raw[-SECTOR:] = _header(SECTORS - 1, 1, backup_lba, array, **(backup_overrides or {}))
     return raw
 
 
@@ -87,9 +83,9 @@ def _recrc_header(raw, offset):
 
 def _rewrite_arrays(raw, mutate):
     for array_offset in (2 * SECTOR, (SECTORS - 3) * SECTOR):
-        array = bytearray(raw[array_offset:array_offset + COUNT * ENTRY_SIZE])
+        array = bytearray(raw[array_offset : array_offset + COUNT * ENTRY_SIZE])
         mutate(array)
-        raw[array_offset:array_offset + len(array)] = array
+        raw[array_offset : array_offset + len(array)] = array
         header_offset = SECTOR if array_offset == 2 * SECTOR else (SECTORS - 1) * SECTOR
         struct.pack_into("<I", raw, header_offset + 88, zlib.crc32(array))
         _recrc_header(raw, header_offset)
@@ -124,7 +120,7 @@ class ProjectionTest(unittest.TestCase):
         changed = bytearray(original)
         replacement_disk_guid = uuid.uuid4().bytes_le
         for header_offset in (SECTOR, (SECTORS - 1) * SECTOR):
-            changed[header_offset + 56:header_offset + 72] = replacement_disk_guid
+            changed[header_offset + 56 : header_offset + 72] = replacement_disk_guid
             _recrc_header(changed, header_offset)
         replacement_partition_guid = uuid.uuid4().bytes_le
         _rewrite_arrays(
@@ -139,12 +135,8 @@ class ProjectionTest(unittest.TestCase):
     def test_canonical_digest_preserves_partition_semantics(self):
         original = image()
         mutations = {
-            "attributes": lambda array: struct.pack_into(
-                "<Q", array, ENTRY_SIZE + 48, 1
-            ),
-            "lba": lambda array: struct.pack_into(
-                "<QQ", array, ENTRY_SIZE + 32, 4096, 6143
-            ),
+            "attributes": lambda array: struct.pack_into("<Q", array, ENTRY_SIZE + 48, 1),
+            "lba": lambda array: struct.pack_into("<QQ", array, ENTRY_SIZE + 32, 4096, 6143),
         }
         for name, mutation in mutations.items():
             with self.subTest(name=name):
@@ -175,15 +167,11 @@ class ProjectionTest(unittest.TestCase):
         for slot in range(count):
             offset = slot * ENTRY_SIZE
             array[offset : offset + 16] = uuid.UUID(
-                gpt_partitions.ROOT_X86_64
-                if slot == 0
-                else "0fc63daf-8483-4772-8e79-3d69d8477de4"
+                gpt_partitions.ROOT_X86_64 if slot == 0 else "0fc63daf-8483-4772-8e79-3d69d8477de4"
             ).bytes_le
             first = 2048 * (slot + 1)
             struct.pack_into("<QQ", array, offset + 32, first, first + 2047)
-            label = ("root-x86-64" if slot == 0 else "data-{}".format(slot)).encode(
-                "utf-16-le"
-            )
+            label = ("root-x86-64" if slot == 0 else "data-{}".format(slot)).encode("utf-16-le")
             array[offset + 56 : offset + 56 + len(label)] = label
         array_sectors = (len(array) + SECTOR - 1) // SECTOR
         backup_array_lba = sectors - 1 - array_sectors
@@ -247,9 +235,7 @@ class ProjectionTest(unittest.TestCase):
         slot_loop = next(
             node
             for node in ast.walk(tree)
-            if isinstance(node, ast.For)
-            and isinstance(node.target, ast.Name)
-            and node.target.id == "slot"
+            if isinstance(node, ast.For) and isinstance(node.target, ast.Name) and node.target.id == "slot"
         )
         nested_loops = [
             node
