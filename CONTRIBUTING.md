@@ -75,15 +75,15 @@ Pass runfiles as `$(rlocationpath ...)` arguments and resolve them in the script
 
 The consumer lock fixtures are regenerated from `e2e/smoke` as described in their READMEs; `//mkosi/debian:generate_lock_test` covers the generator.
 The built-in `mkosi/debian/debian13.lock.json` is the Debian tools closure plus the essential packages that release images need, resolved from `mkosi/debian/debian13.spec.json`.
-To move it to a new snapshot, update the URL in the specification and regenerate the lock:
+Move it to a new snapshot with one command, optionally together with a new static Python from python-build-standalone:
 
 ```console
-bazel run //mkosi/debian:generate_lock -- \
-  --spec mkosi/debian/debian13.spec.json --output mkosi/debian/debian13.lock.json
+bazel run //mkosi/debian:refresh_debian_tools -- --snapshot 20260912T080811Z \
+  [--python-release 20261026 --python-version 3.14.10]
 ```
 
-Then update the snapshot, `DEBIAN_TOOLS_LOCK_SHA256`, and `DEBIAN_TOOLS_ARCHIVE_SHA256` in `mkosi/debian/provenance.bzl`, and the `Snapshot=` of the test configurations that use `@mkosi_debian_snapshot`.
-Building `@mkosi_debian_tools//:tree_root` reports the new archive digest.
+It regenerates the lock, rewrites `mkosi/debian/provenance.bzl` including the archive digest, which it builds `@mkosi_debian_tools//:tree` to compute, and moves the test configurations and README examples to the new snapshot.
+Tests read the expected values from `provenance.bzl`.
 
 ### mkosi versions
 
