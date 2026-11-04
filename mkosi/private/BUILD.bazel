@@ -58,6 +58,7 @@ filegroup(
         "mkosi_runner/release_patches.py",
         "mkosi_runner/release_sandbox.py",
         "mkosi_runner/release_validation.py",
+        "mkosi_runner/repart_definitions.py",
         "mkosi_runner/tree.py",
     ],
     visibility = ["//visibility:public"],
