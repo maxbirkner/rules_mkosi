@@ -7,5 +7,7 @@ build --disk_cache=.cache/bazel-disk
 # Surface failed consumer test output without a second invocation.
 test --test_output=errors
 
+# Fail on warnings in rules_mkosi's own C and C++ helpers.
+try-import %workspace%/../../.bazelrc.warnings
 # Reuse the repository's execution profiles from the standalone consumer.
 try-import %workspace%/../../.bazelrc.ci

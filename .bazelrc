@@ -7,6 +7,9 @@ build --disk_cache=.cache/bazel-disk
 # Print failed test output immediately so local failures are actionable.
 test --test_output=errors
 
+# Fail on warnings in rules_mkosi's own C and C++ helpers.
+import %workspace%/.bazelrc.warnings
+
 # Make the checked-in execution profiles available without requiring them.
 try-import %workspace%/.bazelrc.ci
 # Allow ignored developer overrides while keeping a clean checkout sufficient.
