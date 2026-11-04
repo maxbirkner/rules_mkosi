@@ -4,3 +4,5 @@ common --@rules_mkosi//mkosi/toolchain:bootstrap_platform=//:bootstrap_musl
 common --@rules_python//python/config_settings:bootstrap_impl=script
 # Surface failed fixture test output without a second invocation.
 test --test_output=errors
+# Fail on warnings in rules_mkosi's own C and C++ helpers, built here with the consumer's toolchains.
+import %workspace%/../../../.bazelrc.warnings

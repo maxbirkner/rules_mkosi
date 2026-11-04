@@ -3,6 +3,7 @@
  * single static binary, so its source is included with main renamed.
  */
 #define main namespace_runner_main
+int namespace_runner_main(int argc, char **argv);
 #include "mkosi/debian/namespace_runner.c"
 #undef main
 
@@ -34,7 +35,8 @@ static child_result run_in_child(void (*test)(const void *), const void *data) {
   close(output[1]);
   size_t length = 0;
   ssize_t bytes;
-  while ((bytes = read(output[0], result.output + length,
+  while (length < sizeof(result.output) - 1 &&
+         (bytes = read(output[0], result.output + length,
                        sizeof(result.output) - 1 - length)) > 0) {
     length += (size_t)bytes;
   }

@@ -1,6 +1,7 @@
 load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test")
 load("//mkosi:toolchain.bzl", "managed_python_tool")
 load("//mkosi:versions.bzl", "DEFAULT_PYTHON_VERSION")
+load(":c_options.bzl", "C_WARNINGS")
 
 package(default_visibility = ["//visibility:private"])
 
@@ -8,6 +9,7 @@ exports_files([
     "reproducibility_manifest.py",
     "boot_test.py",
     "bootstrap_binary.bzl",
+    "c_options.bzl",
     "debian_control.py",
     "diagnostics.py",
     "file_hashing.py",
@@ -73,13 +75,14 @@ cc_library(
     name = "write_all",
     srcs = ["write_all.c"],
     hdrs = ["write_all.h"],
-    copts = ["-fPIC"],
+    copts = C_WARNINGS + ["-fPIC"],
     visibility = ["//visibility:public"],
 )
 
 cc_test(
     name = "write_all_test",
     srcs = ["write_all_test.c"],
+    copts = C_WARNINGS,
     linkstatic = True,
     deps = [":write_all"],
 )
@@ -88,13 +91,14 @@ cc_library(
     name = "kernel_preflight_lib",
     srcs = ["kernel_preflight.c"],
     hdrs = ["kernel_preflight.h"],
-    copts = ["-fPIC"],
+    copts = C_WARNINGS + ["-fPIC"],
     deps = [":write_all"],
 )
 
 cc_binary(
     name = "kernel_preflight",
     srcs = ["kernel_preflight_main.c"],
+    copts = C_WARNINGS,
     linkstatic = True,
     visibility = ["//visibility:public"],
     deps = [":kernel_preflight_lib"],
@@ -103,6 +107,7 @@ cc_binary(
 cc_test(
     name = "kernel_preflight_test",
     srcs = ["kernel_preflight_test.c"],
+    copts = C_WARNINGS,
     linkstatic = True,
     deps = [":kernel_preflight_lib"],
 )
@@ -110,6 +115,7 @@ cc_test(
 cc_test(
     name = "kernel_preflight_host_test",
     srcs = ["kernel_preflight_host_test.c"],
+    copts = C_WARNINGS,
     linkstatic = True,
     tags = ["requires_kernel_contract"],
     deps = [":kernel_preflight_lib"],
