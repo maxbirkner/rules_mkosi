@@ -23,15 +23,22 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
+  bazel-versions:
+    name: Bazel versions
+    uses: ./.github/workflows/read-bazel-versions.yml
+
   test:
-    name: Qualified Bazel ${{ matrix.bazel }} / ${{ matrix.label }}
+    name: >-
+      Qualified Bazel ${{ matrix.bazel }} /
+      ${{ matrix.suite != 'audit' && matrix.label ||
+      matrix.bazel == needs.bazel-versions.outputs.default && 'release reproducibility and audits' ||
+      'audits' }}
+    needs: bazel-versions
     runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
       matrix:
-        bazel:
-          - "8.8.2"
-          - "9.3.1"
+        bazel: ${{ fromJSON(needs.bazel-versions.outputs.tested) }}
         suite:
           - root
           - consumer
@@ -62,13 +69,8 @@ jobs:
             disk-cache: "false"
             external-cache: root
             repository-cache: "true"
-          - bazel: "8.8.2"
-            suite: audit
-            label: release reproducibility and audits
-          - bazel: "9.3.1"
-            suite: audit
-            label: audits
     env:
+      DEFAULT_BAZEL_VERSION: ${{ needs.bazel-versions.outputs.default }}
       USE_BAZEL_VERSION: ${{ matrix.bazel }}
     steps:
       - name: Check out repository
@@ -121,7 +123,7 @@ jobs:
             test "$(group-free bazel --version)" = "$expected_bazel_version"
           )
           preflight_configs=()
-          if [ "${{ matrix.bazel }}" = "9.3.1" ]; then
+          if [ "$USE_BAZEL_VERSION" != "$DEFAULT_BAZEL_VERSION" ]; then
             preflight_configs=(--config=bazel9)
           fi
           group-free bazel shutdown
@@ -140,9 +142,9 @@ jobs:
         if: matrix.module != ''
         working-directory: ${{ matrix.module }}
         run: |
-          if [ "${{ matrix.bazel }}" = "9.3.1" ]; then
-            # Bazel 9 uses a newer lockfile format; compatibility is tested
-            # without rewriting the committed Bazel 8 lockfile.
+          if [ "$USE_BAZEL_VERSION" != "$DEFAULT_BAZEL_VERSION" ]; then
+            # Other Bazel versions may use another lockfile format; they are
+            # tested without rewriting the committed lockfiles.
             bazel_configs=(--config=portable --config=bazel9)
             manifest_configs=(--config=manifest --config=bazel9)
           else
@@ -159,7 +161,7 @@ jobs:
         if: matrix.suite == 'root'
         run: |
           version_configs=()
-          if [ "${{ matrix.bazel }}" = "9.3.1" ]; then
+          if [ "$USE_BAZEL_VERSION" != "$DEFAULT_BAZEL_VERSION" ]; then
             version_configs=(--config=bazel9)
           fi
           target=//mkosi/tests:qemu_ovmf_smoke_test
@@ -172,12 +174,12 @@ jobs:
           grep -Fx "QEMU accelerator: tcg" "$test_log"
 
       - name: Verify release reproducibility
-        if: matrix.suite == 'audit' && matrix.bazel == '8.8.2'
+        if: matrix.suite == 'audit' && matrix.bazel == env.DEFAULT_BAZEL_VERSION
         run: |
           group-free ./ci/verify-release-reproducibility.sh
 
       - name: Verify two-stage base reuse
-        if: matrix.suite == 'audit' && matrix.bazel == '8.8.2'
+        if: matrix.suite == 'audit' && matrix.bazel == env.DEFAULT_BAZEL_VERSION
         run: |
           group-free ./ci/verify-two-stage-cache.sh
 
@@ -193,7 +195,7 @@ jobs:
           mkdir -p "$evidence_dir"
           echo "has_evidence=false" >> "$GITHUB_OUTPUT"
           info_configs=()
-          if [ "${{ matrix.bazel }}" = "9.3.1" ]; then
+          if [ "$USE_BAZEL_VERSION" != "$DEFAULT_BAZEL_VERSION" ]; then
             info_configs=(--config=bazel9)
           fi
           has_evidence=false
@@ -282,7 +284,7 @@ jobs:
         if: >-
           github.event_name == 'workflow_dispatch' &&
           inputs.upload_artifacts &&
-          matrix.bazel == '8.8.2' &&
+          matrix.bazel == env.DEFAULT_BAZEL_VERSION &&
           matrix.suite == 'root'
         run: |
           artifact_dir="$RUNNER_TEMP/mkosi-manual-test"
@@ -322,7 +324,7 @@ jobs:
         if: >-
           github.event_name == 'workflow_dispatch' &&
           inputs.upload_artifacts &&
-          matrix.bazel == '8.8.2' &&
+          matrix.bazel == env.DEFAULT_BAZEL_VERSION &&
           matrix.suite == 'root'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -335,7 +337,7 @@ jobs:
       - name: Audit Debian tools action graph
         if: matrix.suite == 'audit'
         run: |
-          if [ "${{ matrix.bazel }}" = "8.8.2" ]; then
+          if [ "$USE_BAZEL_VERSION" = "$DEFAULT_BAZEL_VERSION" ]; then
             mode=error
           else
             mode=off
@@ -366,10 +368,11 @@ jobs:
             *"python3"*"/mkosi/__main__.py"*) ;;
             *) echo "mkosi image action is not using the direct managed-Python entrypoint" >&2; exit 1 ;;
           esac
-          case "$image_graph" in
-            *"Environment: [MKOSI_FORCE_USERNS_FALLBACK=1, PATH=, PYTHONNOUSERSITE=1, PYTHONPATH="*) ;;
-            *) echo "mkosi image action environment is not hermetically declared" >&2; exit 1 ;;
-          esac
+          group-free bazel aquery --lockfile_mode="${mode}" --config=qualified --output=jsonproto \
+            'mnemonic("MkosiImage", set(//mkosi/tests:real_image //mkosi/tests:release_subject))' \
+            > image-aquery.json
+          python3 ci/image_environment_validator.py image-aquery.json
+          rm image-aquery.json
           case "$image_graph" in
             *"mkosi_cli"*|*"mkosi_launcher.sh"*)
               echo "host-shell mkosi launcher leaked into the image action" >&2
@@ -610,7 +613,7 @@ jobs:
         if: matrix.suite == 'audit'
         run: |
           mode=off
-          if [ "${{ matrix.bazel }}" = "8.8.2" ]; then
+          if [ "$USE_BAZEL_VERSION" = "$DEFAULT_BAZEL_VERSION" ]; then
             mode=error
           fi
           graph="$(group-free bazel --bazelrc=/dev/null aquery \
@@ -632,7 +635,7 @@ jobs:
         if: matrix.suite == 'audit'
         run: |
           mode=error
-          if [ "${{ matrix.bazel }}" = "9.3.1" ]; then
+          if [ "$USE_BAZEL_VERSION" != "$DEFAULT_BAZEL_VERSION" ]; then
             mode=off
           fi
           install_base="$(group-free bazel info --lockfile_mode="$mode" install_base)"
@@ -642,8 +645,6 @@ jobs:
   namespace-contract:
     name: Namespace production contract
     runs-on: ubuntu-22.04
-    env:
-      USE_BAZEL_VERSION: "8.8.2"
     steps:
       - name: Check out repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -693,13 +694,12 @@ jobs:
 
   module-resolution:
     name: Module resolution ${{ matrix.bazel }} / ${{ matrix.fixture }}
+    needs: bazel-versions
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
-        bazel:
-          - "8.8.2"
-          - "9.3.1"
+        bazel: ${{ fromJSON(needs.bazel-versions.outputs.tested) }}
         fixture:
           - default
           - explicit
@@ -774,8 +774,6 @@ jobs:
   bootstrap-determinism:
     name: Deterministic bootstrap binaries
     runs-on: ubuntu-22.04
-    env:
-      USE_BAZEL_VERSION: "8.8.2"
     steps:
       - name: Check out repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -848,6 +846,7 @@ jobs:
     name: CI conclusion
     if: always()
     needs:
+      - bazel-versions
       - lint
       - lockfile
       - test
@@ -860,11 +859,11 @@ jobs:
         env:
           RESULTS: ${{ join(needs.*.result, ' ') }}
         run: |-
-          # Keep this count in sync with the six entries in `needs` above.
+          # Keep this count in sync with the seven entries in `needs` above.
           # shellcheck disable=SC2086 # Split the space-separated results into positional parameters.
           set -- $RESULTS
-          if [ "$#" -ne 6 ]; then
-            echo "expected six required CI results, got $#" >&2
+          if [ "$#" -ne 7 ]; then
+            echo "expected seven required CI results, got $#" >&2
             exit 1
           fi
           for result; do
