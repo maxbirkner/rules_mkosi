@@ -21,7 +21,7 @@
 prek run --all-files                 # Formatting, linting, spelling, secrets.
 prek install                         # Optional: run the same checks as Git hooks.
 bazel test //...                     # Root module; excludes e2e/.
-bazel mod deps --lockfile_mode=error # Committed lockfile is current.
+ci/regen-lockfiles.sh --check       # Committed lockfiles are current.
 (cd e2e/smoke && bazel test //...)   # Independent consumer module.
 e2e/module_resolution/test.sh consumer_isolation  # One module-resolution fixture.
 ```
@@ -38,8 +38,8 @@ Test Bazel 9 without rewriting them:
 USE_BAZEL_VERSION=9.3.1 bazel test --config=portable --config=bazel9 //...
 ```
 
-When dependencies change, regenerate both lockfiles with Bazel 8.8.2 by running `bazel mod deps --lockfile_mode=update` in the root and in `e2e/smoke`.
-Other commands in update mode can drop the entries of extensions they do not evaluate, which `--lockfile_mode=error` then reports as missing.
+When dependencies change, regenerate every committed lockfile with `ci/regen-lockfiles.sh`.
+It runs `bazel mod deps --lockfile_mode=update` with the Bazel version in `.bazelversion` in each module, because other commands in update mode can drop the entries of extensions they do not evaluate.
 Never edit lockfiles by hand.
 Module-resolution fixtures have no lockfiles.
 
