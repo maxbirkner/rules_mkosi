@@ -34,6 +34,12 @@ repos:
         language: fail
         types:
           - binary
+      - id: function-size
+        name: function size
+        entry: python3 ci/check_function_size.py
+        language: system
+        files: \.(py|bzl)$|^ci/function_size_baseline\.txt$
+        pass_filenames: false
 
   - repo: https://github.com/keith/pre-commit-buildifier
     rev: ec25c1dca1a4a74c0efaa48052b4ea99a9ac19d7 # frozen: 8.5.1.3

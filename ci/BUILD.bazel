@@ -33,6 +33,15 @@ py_test(
     main = "action_graph_validator_test.py",
 )
 
+py_test(
+    name = "check_function_size_test",
+    srcs = [
+        "check_function_size.py",
+        "check_function_size_test.py",
+    ],
+    main = "check_function_size_test.py",
+)
+
 sh_test(
     name = "check_pr_title_test",
     srcs = ["check_pr_title_test.sh"],
