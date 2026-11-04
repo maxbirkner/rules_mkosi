@@ -97,29 +97,29 @@ def _request_impl(ctx):
 secure_boot_signing_request = rule(
     implementation = _request_impl,
     attrs = {
-        "image": attr.label(
-            mandatory = True,
-            providers = [MkosiImageInfo],
-            doc = "mkosi_image with an unsigned UKI.",
-        ),
         "certificate": attr.label(
             mandatory = True,
             allow_files = True,
             doc = "Expected signer certificate: a single file or a secure_boot_ephemeral_test_fixture.",
+        ),
+        "image": attr.label(
+            mandatory = True,
+            providers = [MkosiImageInfo],
+            doc = "mkosi_image with an unsigned UKI.",
         ),
         "signature_algorithm": attr.string(
             default = "authenticode-sha256",
             values = ["authenticode-sha256"],
             doc = "Required embedded signature algorithm.",
         ),
-        "_tool": attr.label(default = "//mkosi/private:secure_boot.py", allow_single_file = True, cfg = "exec"),
+        "_debian_tools": attr.label(default = "@mkosi_debian_tools//:launcher", executable = True, cfg = "exec"),
         "_file_hashing": attr.label(default = "//mkosi/private:file_hashing.py", allow_single_file = True, cfg = "exec"),
         "_sibling_loader": attr.label(
             default = "//mkosi/private:sibling_loader.py",
             allow_single_file = True,
             cfg = "exec",
         ),
-        "_debian_tools": attr.label(default = "@mkosi_debian_tools//:launcher", executable = True, cfg = "exec"),
+        "_tool": attr.label(default = "//mkosi/private:secure_boot.py", allow_single_file = True, cfg = "exec"),
     },
     doc = "Creates a request for an external signer to sign an image's unsigned UKI with the expected certificate.",
     toolchains = [MKOSI_TOOLCHAIN_TYPE],
@@ -179,14 +179,14 @@ secure_boot_import_response = rule(
             allow_files = True,
             doc = "The signed UKI: a single file or a secure_boot_ephemeral_test_fixture.",
         ),
-        "_tool": attr.label(default = "//mkosi/private:secure_boot.py", allow_single_file = True, cfg = "exec"),
+        "_debian_tools": attr.label(default = "@mkosi_debian_tools//:launcher", executable = True, cfg = "exec"),
         "_file_hashing": attr.label(default = "//mkosi/private:file_hashing.py", allow_single_file = True, cfg = "exec"),
         "_sibling_loader": attr.label(
             default = "//mkosi/private:sibling_loader.py",
             allow_single_file = True,
             cfg = "exec",
         ),
-        "_debian_tools": attr.label(default = "@mkosi_debian_tools//:launcher", executable = True, cfg = "exec"),
+        "_tool": attr.label(default = "//mkosi/private:secure_boot.py", allow_single_file = True, cfg = "exec"),
     },
     doc = """Imports an externally signed UKI.
 
@@ -230,14 +230,14 @@ secure_boot_ephemeral_test_fixture = rule(
     implementation = _fixture_impl,
     attrs = {
         "unsigned_uki": attr.label(mandatory = True, allow_single_file = True, doc = "The UKI to sign."),
-        "_tool": attr.label(default = "//mkosi/private:secure_boot.py", allow_single_file = True, cfg = "exec"),
+        "_debian_tools": attr.label(default = "@mkosi_debian_tools//:launcher", executable = True, cfg = "exec"),
         "_file_hashing": attr.label(default = "//mkosi/private:file_hashing.py", allow_single_file = True, cfg = "exec"),
         "_sibling_loader": attr.label(
             default = "//mkosi/private:sibling_loader.py",
             allow_single_file = True,
             cfg = "exec",
         ),
-        "_debian_tools": attr.label(default = "@mkosi_debian_tools//:launcher", executable = True, cfg = "exec"),
+        "_tool": attr.label(default = "//mkosi/private:secure_boot.py", allow_single_file = True, cfg = "exec"),
     },
     doc = "For tests: signs a UKI with a throwaway key that never leaves the action, and outputs its certificate.",
     toolchains = [MKOSI_TOOLCHAIN_TYPE],

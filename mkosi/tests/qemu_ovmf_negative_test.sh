@@ -1,5 +1,6 @@
 #!/bin/sh
 set -eu
+# shellcheck disable=SC2123 # PATH is cleared on purpose so no host command can be resolved.
 PATH=
 export PATH
 

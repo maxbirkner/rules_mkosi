@@ -2,7 +2,7 @@
 set -eu
 
 fixture="${1:?fixture name is required}"
-root="$(CDPATH= cd -- "$(dirname "$0")/$fixture" && pwd)"
+root="$(CDPATH='' cd -- "$(dirname "$0")/$fixture" && pwd)"
 bazel_command="${BAZEL:-bazel}"
 lockfile_mode="${LOCKFILE_MODE:-off}"
 

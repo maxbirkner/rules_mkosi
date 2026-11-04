@@ -24,10 +24,6 @@ for `mkosi_image(mode = "release", debian_snapshot = ...)`. Generate the lock
 with `bazel run @rules_mkosi//mkosi/debian:generate_lock`.
 """,
     attrs = {
-        "name": attr.string(
-            mandatory = True,
-            doc = "Apparent repository name; an internal `<name>_packages` repository is also created.",
-        ),
         "lock": attr.label(
             mandatory = True,
             allow_single_file = [".json"],
@@ -35,6 +31,10 @@ with `bazel run @rules_mkosi//mkosi/debian:generate_lock`.
         ),
         "lock_sha256": attr.string(
             doc = "Optional expected SHA-256 of `lock`; the computed digest is always recorded in DebianSnapshotInfo.",
+        ),
+        "name": attr.string(
+            mandatory = True,
+            doc = "Apparent repository name; an internal `<name>_packages` repository is also created.",
         ),
     },
 )
