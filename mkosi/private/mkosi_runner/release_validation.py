@@ -4,6 +4,8 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
+from . import repart_definitions
+
 
 @dataclass(frozen=True)
 class ReleaseSettings:
@@ -317,6 +319,18 @@ def _configuration_paths(value):
             yield from _configuration_paths(item)
 
 
+def _check_verity_hash_sizes(config, context):
+    unsized = repart_definitions.unsized_verity_hash_definitions(getattr(config, "repart_dirs", ()))
+    if unsized:
+        raise SystemExit(
+            "release configuration repart definition {} sets Verity=hash without SizeMinBytes= or Minimize=, so "
+            "systemd-repart would give its hash partition only 4 KiB; add SizeMinBytes= with room for the hash tree "
+            "(about 1% of the data partition), or Minimize=best to it and to its Verity=data partition".format(
+                unsized[0]
+            )
+        )
+
+
 def _check_unsupported(config, context):
     _reject_first(config, _UNSUPPORTED_RULES, "release configuration {} is not supported")
 
@@ -331,5 +345,6 @@ _PRIMARY_IMAGE_CHECKS = (
     _check_extra_trees,
     _check_host_modules,
     _check_declared_paths,
+    _check_verity_hash_sizes,
     _check_unsupported,
 )

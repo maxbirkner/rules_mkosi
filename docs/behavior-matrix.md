@@ -33,6 +33,7 @@ Exactly one of `config` (one file) and `config_tree` is required; release mode r
 
 <!-- behavior:BHV-IMAGE-IMMUTABLE -->
 Unsigned UKI and hash-only dm-verity are release-only, and verity requires the UKI.
+A `Verity=hash` repart definition without `SizeMinBytes=` or `Minimize=` is rejected.
 The verity projection checks split artifacts against the GPT and recomputes the complete hash tree, rejecting truncation, mutation, and nonzero padding.
 Inactive `_empty` slots are excluded.
 
