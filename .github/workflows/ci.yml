@@ -688,20 +688,8 @@ jobs:
           cache-save: ${{ github.event_name != 'pull_request' }}
           repository-cache: true
 
-      - name: Verify committed lockfile
-        run: |
-          actual="$(bazel --version)"
-          echo "$actual"
-          test "$actual" = "bazel $(cat "$GITHUB_WORKSPACE/.bazelversion")"
-          bazel mod deps --lockfile_mode=error
-
-      - name: Verify committed e2e lockfile
-        working-directory: e2e/smoke
-        run: |
-          actual="$(bazel --version)"
-          echo "$actual"
-          test "$actual" = "bazel $(cat "$GITHUB_WORKSPACE/.bazelversion")"
-          bazel mod deps --lockfile_mode=error
+      - name: Verify committed lockfiles
+        run: ci/regen-lockfiles.sh --check
 
   module-resolution:
     name: Module resolution ${{ matrix.bazel }} / ${{ matrix.fixture }}
