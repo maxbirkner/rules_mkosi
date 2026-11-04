@@ -4,6 +4,7 @@
 
 - Bazelisk, or the Bazel version in `.bazelversion` (8.8.2).
 - [`prek`](https://prek.j178.dev/) 0.5 or newer.
+- Optional: [ShellCheck](https://www.shellcheck.net/) on `PATH`, so prek's actionlint hook also checks workflow `run:` scripts as CI does.
 - Host Python 3.11 or newer, only for the [`tools/bazel`](tools/README.md) wrapper.
 - A host that meets the [requirements](README.md#requirements), with the Bazel server started without supplementary groups:
 
