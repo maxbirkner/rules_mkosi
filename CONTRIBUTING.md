@@ -92,7 +92,7 @@ Adding or changing an entry in `mkosi/versions.bzl` requires reviewing those pat
 
 ## Pull requests
 
-- Use [Conventional Commits](https://www.conventionalcommits.org/) for commit messages.
+- Use [Conventional Commits](https://www.conventionalcommits.org/) for commit messages and pull request titles; the `PR title` check enforces the title, which becomes the squashed commit message.
 - Public API changes need analysis tests and consumer tests in `e2e/smoke`.
 - Releases follow Semantic Versioning, and release notes are generated from pull requests, so describe user-visible and compatibility changes in the title and description.
 - Every change to `main` goes through a pull request that passes the `CI conclusion` check.

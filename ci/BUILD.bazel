@@ -1,4 +1,5 @@
 load("@rules_python//python:defs.bzl", "py_test")
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
 
 exports_files([
     "verify-release-reproducibility.sh",
@@ -30,4 +31,11 @@ py_test(
         "action_graph_validator_test.py",
     ],
     main = "action_graph_validator_test.py",
+)
+
+sh_test(
+    name = "check_pr_title_test",
+    srcs = ["check_pr_title_test.sh"],
+    args = ["$(rootpath :check-pr-title.sh)"],
+    data = [":check-pr-title.sh"],
 )
