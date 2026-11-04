@@ -287,7 +287,7 @@ def _canonical_header(header, array_crc):
     result[16:20] = b"\0" * 4
     result[56:72] = b"\0" * 16
     struct.pack_into("<I", result, 88, array_crc)
-    struct.pack_into("<I", result, 16, zlib.crc32(result[:header["header_size"]]))
+    struct.pack_into("<I", result, 16, zlib.crc32(result[: header["header_size"]]))
     return bytes(result)
 
 
@@ -323,7 +323,7 @@ def canonical_image_sha256(path):
     array = bytearray(primary["array"])
     for slot in range(primary["count"]):
         offset = slot * primary["entry_size"]
-        array[offset + 16:offset + 32] = b"\0" * 16
+        array[offset + 16 : offset + 32] = b"\0" * 16
     array = bytes(array)
     array_crc = zlib.crc32(array)
     patches = [

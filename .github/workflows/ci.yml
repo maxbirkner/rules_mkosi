@@ -129,7 +129,10 @@ jobs:
           group-free bazel test --config=kernel_preflight \
             "${preflight_configs[@]}" //... 2>&1 | tee kernel-preflight.log
           grep -F "Executed 1 out of 1 test" kernel-preflight.log
-          ! grep -F "(cached)" kernel-preflight.log
+          if grep -F "(cached)" kernel-preflight.log; then
+            echo "kernel preflight result was cached" >&2
+            exit 1
+          fi
           rm kernel-preflight.log
 
       - name: Run complete ${{ matrix.label }}
@@ -659,6 +662,7 @@ jobs:
 
       - name: Run production namespace and image targets
         run: |
+          # shellcheck disable=SC2016 # The inner shell expands its own variables.
           group-free sh -eu -c '
               bazel shutdown
               override_graph="$(bazel aquery --lockfile_mode=error --output=text \
@@ -865,6 +869,7 @@ jobs:
           RESULTS: ${{ join(needs.*.result, ' ') }}
         run: |-
           # Keep this count in sync with the six entries in `needs` above.
+          # shellcheck disable=SC2086 # Split the space-separated results into positional parameters.
           set -- $RESULTS
           if [ "$#" -ne 6 ]; then
             echo "expected six required CI results, got $#" >&2

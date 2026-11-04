@@ -11,7 +11,6 @@ import stat
 import sys
 import tarfile
 
-
 # These links are intentionally dangling in the flattened Debian package
 # set.  The service masks become valid when bubblewrap supplies /dev/null;
 # environment.d and the two optional compatibility links are package-provided
@@ -245,9 +244,8 @@ def _validate_symlink_graph(root, symlinks, members_by_path):
                 visit(dependency)
         dependencies[relative] = direct_dependencies
         target_path = os.path.join(root, target)
-        if not os.path.exists(target_path):
-            if relative not in _ALLOWED_DANGLING_SYMLINKS:
-                raise ValueError("dangling symlink: %s -> %s" % (relative, symlinks[relative].linkname))
+        if not os.path.exists(target_path) and relative not in _ALLOWED_DANGLING_SYMLINKS:
+            raise ValueError("dangling symlink: %s -> %s" % (relative, symlinks[relative].linkname))
         state[relative] = "done"
         resolved[relative] = target
 
@@ -316,8 +314,7 @@ def _authenticate(archive_stream, expected_digest):
     actual_digest = sha256_stream(archive_stream)
     if actual_digest != expected_digest:
         raise ValueError(
-            "Debian tools archive digest mismatch: expected=%s actual=%s"
-            % (expected_digest, actual_digest)
+            "Debian tools archive digest mismatch: expected=%s actual=%s" % (expected_digest, actual_digest)
         )
     archive_stream.seek(0)
 

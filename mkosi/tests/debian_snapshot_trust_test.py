@@ -1,13 +1,13 @@
 """Exercise the pinned sqv/keyring against mutated signed metadata."""
 
-import pathlib
+import hashlib
+import importlib.util
 import os
+import pathlib
 import shutil
 import subprocess
 import sys
 import unittest
-import hashlib
-import importlib.util
 
 
 class DebianSnapshotTrustTest(unittest.TestCase):
@@ -52,7 +52,7 @@ class DebianSnapshotTrustTest(unittest.TestCase):
             }
         )
         return subprocess.run(
-            [str(self.launcher)] + arguments,
+            [str(self.launcher), *arguments],
             env=environment,
             capture_output=True,
             text=True,
@@ -107,9 +107,7 @@ class DebianSnapshotTrustTest(unittest.TestCase):
         header_end = data.index(b"\n", data.index(b"BEGIN PGP SIGNATURE")) + 1
         while data[header_end] in b"\r\n":
             header_end += 1
-        replacement = {ord("A"): ord("B"), ord("B"): ord("C")}.get(
-            data[header_end], ord("A")
-        )
+        replacement = {ord("A"): ord("B"), ord("B"): ord("C")}.get(data[header_end], ord("A"))
         mutated.write_bytes(data[:header_end] + bytes([replacement]) + data[header_end + 1 :])
         baseline = self._detached(self.release_gpg)
         self.assertEqual(0, baseline.returncode, baseline.stderr)
@@ -124,29 +122,33 @@ class DebianSnapshotTrustTest(unittest.TestCase):
         output = self.work / "stage-output"
         output.mkdir()
         scratch = self.work / "stage-scratch"
-        args = type("Args", (), {
-            "inrelease": str(self.inrelease),
-            "release": str(self.release),
-            "release_gpg": str(self.release_gpg),
-            "packages_xz": str(mutated),
-            "packages_all_xz": str(self.packages_all),
-            "output": str(output),
-            "scratch": str(scratch),
-            "launcher": str(self.launcher),
-            "inrelease_sha256": hashlib.sha256(self.inrelease.read_bytes()).hexdigest(),
-            "release_sha256": hashlib.sha256(self.release.read_bytes()).hexdigest(),
-            "release_gpg_sha256": hashlib.sha256(self.release_gpg.read_bytes()).hexdigest(),
-            "packages_xz_sha256": hashlib.sha256(data[:-1] + bytes([data[-1] ^ 1])).hexdigest(),
-            "packages_all_xz_sha256": hashlib.sha256(self.packages_all.read_bytes()).hexdigest(),
-            "packages_path": "dists/trixie/main/binary-amd64/Packages.xz",
-            "packages_all_path": "dists/trixie/main/binary-all/Packages.xz",
-            "codename": "trixie",
-            "component_indexes": [],
-            "component_index_files": [],
-            "package_records": [],
-            "package_names": [],
-            "packages": [],
-        })()
+        args = type(
+            "Args",
+            (),
+            {
+                "inrelease": str(self.inrelease),
+                "release": str(self.release),
+                "release_gpg": str(self.release_gpg),
+                "packages_xz": str(mutated),
+                "packages_all_xz": str(self.packages_all),
+                "output": str(output),
+                "scratch": str(scratch),
+                "launcher": str(self.launcher),
+                "inrelease_sha256": hashlib.sha256(self.inrelease.read_bytes()).hexdigest(),
+                "release_sha256": hashlib.sha256(self.release.read_bytes()).hexdigest(),
+                "release_gpg_sha256": hashlib.sha256(self.release_gpg.read_bytes()).hexdigest(),
+                "packages_xz_sha256": hashlib.sha256(data[:-1] + bytes([data[-1] ^ 1])).hexdigest(),
+                "packages_all_xz_sha256": hashlib.sha256(self.packages_all.read_bytes()).hexdigest(),
+                "packages_path": "dists/trixie/main/binary-amd64/Packages.xz",
+                "packages_all_path": "dists/trixie/main/binary-all/Packages.xz",
+                "codename": "trixie",
+                "component_indexes": [],
+                "component_index_files": [],
+                "package_records": [],
+                "package_names": [],
+                "packages": [],
+            },
+        )()
         with self.assertRaisesRegex(ValueError, "Release metadata"):
             self.snapshot.stage(args)
 

@@ -61,9 +61,9 @@ class LockError(Exception):
 
 
 # The Debian snapshot staging action parses the same Packages indexes with this parser.
-_parse_paragraphs = runpy.run_path(
-    os.path.join(os.path.dirname(__file__), os.pardir, "private", "debian_control.py")
-)["paragraphs"]
+_parse_paragraphs = runpy.run_path(os.path.join(os.path.dirname(__file__), os.pardir, "private", "debian_control.py"))[
+    "paragraphs"
+]
 
 
 def _order(character):
@@ -148,9 +148,7 @@ def compare_versions(left, right):
     right_epoch, right_upstream, right_revision = _split_version(right)
     if left_epoch != right_epoch:
         return left_epoch - right_epoch
-    return _compare_fragment(left_upstream, right_upstream) or _compare_fragment(
-        left_revision, right_revision
-    )
+    return _compare_fragment(left_upstream, right_upstream) or _compare_fragment(left_revision, right_revision)
 
 
 _RELATION_OPERATORS = {
@@ -353,16 +351,14 @@ class Universe:
         result = []
         for package in self._packages.get(relation.name, ()):
             if self._architecture_matches(package, relation.arch) and (
-                not relation.operator
-                or version_satisfies(package.version, relation.operator, relation.version)
+                not relation.operator or version_satisfies(package.version, relation.operator, relation.version)
             ):
                 result.append(package)
         for package, provided_version in self._providers.get(relation.name, ()):
             if not self._architecture_matches(package, relation.arch) or package in result:
                 continue
             if relation.operator and (
-                provided_version is None
-                or not version_satisfies(provided_version, relation.operator, relation.version)
+                provided_version is None or not version_satisfies(provided_version, relation.operator, relation.version)
             ):
                 continue
             result.append(package)
@@ -397,11 +393,7 @@ class _Closure:
 
 def _select_bootstrap(universe, closure):
     bootstrap = sorted(
-        {
-            package.name
-            for package in universe.packages()
-            if package.essential or package.priority == "required"
-        }
+        {package.name for package in universe.packages() if package.essential or package.priority == "required"}
     )
     for name in bootstrap:
         closure.select(universe.newest(name), "the bootstrap set")
@@ -458,8 +450,7 @@ def resolve(universe, requested):
             satisfied = _satisfying_candidate(universe, closure.selected, group)
             if satisfied is None:
                 raise LockError(
-                    "%s %s has an unsatisfiable dependency: %s"
-                    % (package.name, package.version, _format_group(group))
+                    "%s %s has an unsatisfiable dependency: %s" % (package.name, package.version, _format_group(group))
                 )
             closure.select(satisfied, "%s %s" % (package.name, package.version))
             if satisfied.name != package.name:
@@ -532,7 +523,7 @@ def _channel(source):
     if len(words) < 2:
         raise LockError("source channel must name a suite and at least one component")
     suite, components = words[0], words[1:]
-    for name in [suite] + components:
+    for name in [suite, *components]:
         if not _IDENTIFIER.fullmatch(name):
             raise LockError("invalid suite or component name: %s" % name)
     if len(set(components)) != len(components):
@@ -569,7 +560,7 @@ def load_specification(data):
         snapshot_url=url,
         snapshot=snapshot,
         suite=suite,
-        components=("main",) + tuple(sorted(set(components) - {"main"})),
+        components=("main", *sorted(set(components) - {"main"})),
         packages=_requested_packages(data),
     )
 
@@ -622,8 +613,7 @@ def _release_number(fields, specification, release):
     """Checks that Release provides the requested suite, components and architecture; returns its number."""
     if fields.get("Codename") != specification.suite:
         raise LockError(
-            "source suite %s must be the Release codename %s"
-            % (specification.suite, fields.get("Codename"))
+            "source suite %s must be the Release codename %s" % (specification.suite, fields.get("Codename"))
         )
     available = set(fields.get("Components", "").split())
     missing = sorted(set(specification.components) - available)

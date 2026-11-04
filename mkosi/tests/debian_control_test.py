@@ -88,9 +88,8 @@ class DebianControlTest(unittest.TestCase):
             ("Package: one\nno colon\n", "malformed Debian metadata field: no colon"),
             ("Package: one\nPackage: two\n", "duplicate Debian metadata field: Package"),
         ):
-            with self.subTest(text=text):
-                with self.assertRaisesRegex(ValueError, "^%s$" % message):
-                    debian_control.paragraphs(text)
+            with self.subTest(text=text), self.assertRaisesRegex(ValueError, "^%s$" % message):
+                debian_control.paragraphs(text)
 
 
 if __name__ == "__main__":

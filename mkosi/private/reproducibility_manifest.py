@@ -103,9 +103,7 @@ def project(raw_image, build_metadata, partition_metadata_path, artifacts=()):
     metadata = _small_json(build_metadata)
     partition_artifact, partitions = _metadata_projection(partition_metadata_path)
     result = {
-        "excluded_variable_fields": [
-            {"field": field, "reason": reason} for field, reason in _EXCLUDED_VARIABLE_FIELDS
-        ],
+        "excluded_variable_fields": [{"field": field, "reason": reason} for field, reason in _EXCLUDED_VARIABLE_FIELDS],
         "format_version": "mkosi-reproducibility-manifest-v1",
         "immutable_artifacts": {
             "build_metadata": _artifact_projection(build_metadata),

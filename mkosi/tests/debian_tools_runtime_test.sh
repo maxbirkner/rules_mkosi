@@ -1,7 +1,9 @@
+# shellcheck shell=sh
 # Sourced by run_with_runfiles.sh; arguments are rlocation paths.
 # This test intentionally uses only POSIX shell builtins outside the
 # advertised launcher.  All commands inspected below are from the packaged
 # Debian root, never from the host PATH.
+# shellcheck disable=SC2123 # PATH is cleared on purpose so no host command can be resolved.
 PATH=
 export PATH
 launcher="$(rlocation "$1")"
@@ -79,6 +81,7 @@ runtime_scratch="$TEST_TMPDIR/debian-tools-runtime"
 host_marker="$TEST_TMPDIR/debian-tools-host-only"
 printf '%s\n' host-only > "$host_marker"
 set +e
+# shellcheck disable=SC2016 # The inner shell expands its own variables.
 runtime_output="$(
     MKOSI_DEBIAN_TOOLS_SCRATCH="$runtime_scratch" "$launcher" /bin/sh -c '
         [ "$PWD" = /workspace ]
@@ -139,10 +142,10 @@ case "$runtime_output" in
         ;;
 esac
 
-input="$bind_directory/debian-tools-input"
 output="$bind_directory/debian-tools-output"
 counter="$bind_directory/debian-tools-counter"
 set +e
+# shellcheck disable=SC2016 # The inner shell expands its own variables.
 bind_output="$(
     MKOSI_DEBIAN_TOOLS_SCRATCH="$TEST_TMPDIR/../debian-tools-binds" "$launcher" \
         --ro-bind "$bind_source:/inputs/input-dir" \

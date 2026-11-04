@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Bazel launcher with a securely anchored module-local disk cache."""
 
+import contextlib
 import os
 import pathlib
 import secrets
@@ -42,20 +43,14 @@ def _backend(wrapper):
             if os.path.samefile(resolved, wrapper):
                 continue
             return resolved
-    raise WrapperError(
-        f"could not find a Bazel or Bazelisk executable other than {wrapper}"
-    )
+    raise WrapperError(f"could not find a Bazel or Bazelisk executable other than {wrapper}")
 
 
 def _verified_directory(path):
-    try:
+    with contextlib.suppress(FileExistsError):
         os.mkdir(path, mode=0o700)
-    except FileExistsError:
-        pass
     directory_stat = path.stat(follow_symlinks=False)
-    if stat.S_ISLNK(directory_stat.st_mode) or not stat.S_ISDIR(
-        directory_stat.st_mode
-    ):
+    if stat.S_ISLNK(directory_stat.st_mode) or not stat.S_ISDIR(directory_stat.st_mode):
         raise WrapperError(f"refusing unsafe cache directory: {path}")
     descriptor = os.open(
         path,
@@ -80,9 +75,7 @@ def _reject_unsafe_component(directory_fd, name, expected_type):
         )
     except FileNotFoundError:
         return
-    if stat.S_ISLNK(component_stat.st_mode) or not expected_type(
-        component_stat.st_mode
-    ):
+    if stat.S_ISLNK(component_stat.st_mode) or not expected_type(component_stat.st_mode):
         raise WrapperError(f"refusing unsafe cache component: {name}")
 
 
@@ -115,16 +108,11 @@ def _write_rc(module_root):
         ).encode()
 
         for _ in range(100):
-            temporary_name = (
-                f".{rc_name}.{os.getpid()}.{secrets.token_hex(16)}"
-            )
+            temporary_name = f".{rc_name}.{os.getpid()}.{secrets.token_hex(16)}"
             try:
                 temporary_fd = os.open(
                     temporary_name,
-                    os.O_WRONLY
-                    | os.O_CREAT
-                    | os.O_EXCL
-                    | os.O_NOFOLLOW,
+                    os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
                     0o600,
                     dir_fd=directory_fd,
                 )
@@ -150,15 +138,12 @@ def _write_rc(module_root):
 
         path_stat = cache_directory.stat(follow_symlinks=False)
         opened_stat = os.fstat(directory_fd)
-        if (
-            stat.S_ISLNK(path_stat.st_mode)
-            or (path_stat.st_dev, path_stat.st_ino)
-            != (opened_stat.st_dev, opened_stat.st_ino)
+        if stat.S_ISLNK(path_stat.st_mode) or (path_stat.st_dev, path_stat.st_ino) != (
+            opened_stat.st_dev,
+            opened_stat.st_ino,
         ):
             os.unlink(rc_name, dir_fd=directory_fd)
-            raise WrapperError(
-                f"cache directory changed while publishing rc: {cache_directory}"
-            )
+            raise WrapperError(f"cache directory changed while publishing rc: {cache_directory}")
         _reject_unsafe_component(directory_fd, rc_name, stat.S_ISREG)
         rc_stat = os.stat(
             rc_name,
@@ -169,10 +154,8 @@ def _write_rc(module_root):
             raise WrapperError(f"generated rc has unsafe permissions: {rc}")
     finally:
         if temporary_name is not None and not replaced:
-            try:
+            with contextlib.suppress(FileNotFoundError):
                 os.unlink(temporary_name, dir_fd=directory_fd)
-            except FileNotFoundError:
-                pass
         os.close(directory_fd)
     return rc
 
