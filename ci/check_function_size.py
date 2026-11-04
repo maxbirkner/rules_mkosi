@@ -3,11 +3,13 @@
 
 Functions that were already too long are listed with their current length in a baseline file.
 A listed function may shrink but never grow, and the baseline itself may only shrink: entries for
-functions that were removed, fit the limit, or got shorter must be removed or lowered.
+functions that were removed, fit the limit, or got shorter must be removed or lowered, and no entry may be added
+or raised compared with the baseline committed at the base revision.
 """
 
 import argparse
 import ast
+import os
 import pathlib
 import subprocess
 import sys
@@ -16,6 +18,8 @@ from collections.abc import Iterable, Mapping
 MAX_LINES = 40
 BASELINE = pathlib.Path("ci/function_size_baseline.txt")
 SOURCE_PATTERNS = ("*.py", "*.bzl")
+# CI sets this to the pull request's base commit; without it the baseline is compared with the one at HEAD.
+BASE_REF_ENVIRONMENT = "FUNCTION_SIZE_BASE_REF"
 BASELINE_HEADER = """\
 # Functions longer than the limit enforced by ci/check_function_size.py, with their current length.
 # Entries may only be lowered or removed; run `python3 ci/check_function_size.py --update-baseline` after
@@ -106,6 +110,19 @@ def violations(lengths: Mapping[str, int], baseline: Mapping[str, int], max_line
     return errors
 
 
+def ratchet_violations(baseline: Mapping[str, int], base_baseline: Mapping[str, int]) -> list[str]:
+    """Return one message per baseline entry that is missing from, or higher than in, the base revision's baseline."""
+    errors = []
+    for key, allowed in sorted(baseline.items()):
+        if key not in base_baseline:
+            errors.append("%s: new baseline entry; shorten the function instead of listing it" % key)
+        elif allowed > base_baseline[key]:
+            errors.append(
+                "%s: baseline entry raised from %d to %d; entries may only shrink" % (key, base_baseline[key], allowed)
+            )
+    return errors
+
+
 def shrunk_baseline(lengths: Mapping[str, int], baseline: Mapping[str, int], max_lines: int) -> dict[str, int]:
     """Return the baseline with stale entries removed and shrunk ones lowered; it never adds or raises entries."""
     return {
@@ -126,12 +143,45 @@ def tracked_sources(root: pathlib.Path) -> list[str]:
     return sorted(path for path in result.stdout.split("\0") if path)
 
 
+def _git(root: pathlib.Path, *arguments: str) -> str:
+    return subprocess.run(["git", "-C", str(root), *arguments], check=True, capture_output=True, text=True).stdout
+
+
+def base_revision(root: pathlib.Path, base_ref: str | None) -> str:
+    """Return the merge base of HEAD and base_ref, or HEAD when base_ref is empty.
+
+    Raises:
+        subprocess.CalledProcessError: if base_ref is unknown or shares no history with HEAD.
+    """
+    if not base_ref:
+        return "HEAD"
+    return _git(root, "merge-base", "HEAD", base_ref).strip()
+
+
+def committed_baseline(root: pathlib.Path, revision: str, path: pathlib.Path) -> dict[str, int] | None:
+    """Return the baseline file committed at revision, or None if revision has no such file.
+
+    Raises:
+        subprocess.CalledProcessError: if revision is not a commit.
+    """
+    _git(root, "rev-parse", "--verify", "--quiet", revision + "^{commit}")
+    blob = "%s:%s" % (revision, path.as_posix())
+    if subprocess.run(["git", "-C", str(root), "cat-file", "-e", blob], check=False, capture_output=True).returncode:
+        return None
+    return read_baseline(_git(root, "show", blob))
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--root", type=pathlib.Path, default=pathlib.Path())
     parser.add_argument("--baseline", type=pathlib.Path, default=BASELINE, help="relative to --root")
     parser.add_argument("--max-lines", type=int, default=MAX_LINES)
     parser.add_argument("--update-baseline", action="store_true", help="remove stale and lower shrunk entries")
+    parser.add_argument(
+        "--base-ref",
+        default=os.environ.get(BASE_REF_ENVIRONMENT),
+        help="compare the baseline with its version at the merge base with this ref instead of HEAD",
+    )
     args = parser.parse_args(argv)
 
     baseline_path = args.root / args.baseline
@@ -141,6 +191,9 @@ def main(argv: list[str] | None = None) -> int:
         baseline = shrunk_baseline(lengths, baseline, args.max_lines)
         baseline_path.write_text(format_baseline(baseline), encoding="utf-8")
     errors = violations(lengths, baseline, args.max_lines)
+    base_baseline = committed_baseline(args.root, base_revision(args.root, args.base_ref), args.baseline)
+    if base_baseline is not None:
+        errors += ratchet_violations(baseline, base_baseline)
     for error in errors:
         print(error, file=sys.stderr)
     if errors:
