@@ -8,7 +8,6 @@ import sys
 import uuid
 import zlib
 
-
 SECTOR_SIZE = 512
 GPT_HEADER_SIZE = 92
 GPT_REVISION = 0x00010000
@@ -42,8 +41,8 @@ def _read(image, offset, size, message):
 def _physical_data_ranges(image, start, end):
     try:
         fd = image.fileno()
-    except (AttributeError, io.UnsupportedOperation):
-        raise AssertionError("physical data extents are unavailable for this image")
+    except (AttributeError, io.UnsupportedOperation) as error:
+        raise AssertionError("physical data extents are unavailable for this image") from error
     seek_data = getattr(os, "SEEK_DATA", 3)
     seek_hole = getattr(os, "SEEK_HOLE", 4)
     ranges = []
@@ -55,7 +54,7 @@ def _physical_data_ranges(image, start, end):
             if error.errno == errno.ENXIO:
                 break
             if error.errno in (errno.EINVAL, errno.ENOTSUP):
-                raise AssertionError("filesystem does not report physical data extents")
+                raise AssertionError("filesystem does not report physical data extents") from error
             raise
         if data >= end:
             break
@@ -63,7 +62,7 @@ def _physical_data_ranges(image, start, end):
             hole = os.lseek(fd, data, seek_hole)
         except OSError as error:
             if error.errno in (errno.EINVAL, errno.ENOTSUP):
-                raise AssertionError("filesystem does not report physical data extents")
+                raise AssertionError("filesystem does not report physical data extents") from error
             raise
         if hole <= data:
             raise AssertionError("filesystem returned an invalid physical data extent")

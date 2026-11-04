@@ -200,7 +200,7 @@ def _copy_manifest(output, entries, executable_paths):
             for index in range(1, len(parts) + 1)
             if index < len(parts) or kind == "directory"
         )
-    for path, (_, kind, source, link_target) in sorted(entries.items()):
+    for path, (_, kind, _, _) in sorted(entries.items()):
         target = output.joinpath(*path.split("/"))
         if kind == "directory":
             target.mkdir(parents=True, exist_ok=True)

@@ -57,7 +57,7 @@ def _ensure_parent(objects, relative):
 def _read_manifest(manifest):
     """Returns the expected SHA-256 of every package keyed by file name."""
     expected = {}
-    with open(manifest, "r", encoding="utf-8") as entries:
+    with open(manifest, encoding="utf-8") as entries:
         for line in entries:
             fields = line.rstrip("\n").split("|", 2)
             if len(fields) != 3 or fields[0] in expected:
@@ -192,4 +192,4 @@ if __name__ == "__main__":
         main()
     except (OSError, tarfile.TarError, ValueError) as error:
         print("Debian package archive construction failed: %s" % error, file=sys.stderr)
-        raise SystemExit(1)
+        raise SystemExit(1) from error

@@ -1,9 +1,9 @@
 """Focused tests for raw GPT validation and normalized projection."""
 
-import os
 import ast
 import inspect
 import json
+import os
 import struct
 import sys
 import tempfile
@@ -289,9 +289,8 @@ class ProjectionTest(unittest.TestCase):
 
     def test_truncation_and_non_divisible_size(self):
         for raw in (image()[:-SECTOR], image()[:-1]):
-            with self.subTest(size=len(raw)):
-                with self.assertRaises(ValueError):
-                    self.project(raw)
+            with self.subTest(size=len(raw)), self.assertRaises(ValueError):
+                self.project(raw)
 
     def test_hostile_count_entry_size_and_array_location(self):
         cases = [
@@ -299,9 +298,8 @@ class ProjectionTest(unittest.TestCase):
             {"entry_size": 8192},
         ]
         for overrides in cases:
-            with self.subTest(overrides=overrides):
-                with self.assertRaisesRegex(ValueError, "hostile|oversized"):
-                    self.project(image(primary_overrides=overrides))
+            with self.subTest(overrides=overrides), self.assertRaisesRegex(ValueError, "hostile|oversized"):
+                self.project(image(primary_overrides=overrides))
         raw = image()
         struct.pack_into("<Q", raw, SECTOR + 72, SECTORS - 1)
         _recrc_header(raw, SECTOR)
@@ -313,9 +311,8 @@ class ProjectionTest(unittest.TestCase):
             {"first_usable": SECTORS},
             {"last_usable": SECTORS - 1},
         ):
-            with self.subTest(overrides=overrides):
-                with self.assertRaisesRegex(ValueError, "usable"):
-                    self.project(image(primary_overrides=overrides))
+            with self.subTest(overrides=overrides), self.assertRaisesRegex(ValueError, "usable"):
+                self.project(image(primary_overrides=overrides))
         raw = image()
         struct.pack_into("<Q", raw, SECTOR + 32, 7)
         _recrc_header(raw, SECTOR)
@@ -346,9 +343,8 @@ class ProjectionTest(unittest.TestCase):
             ),
         ]
         for entries, message in cases:
-            with self.subTest(message=message):
-                with self.assertRaisesRegex(ValueError, message):
-                    self.project(image(entries=entries))
+            with self.subTest(message=message), self.assertRaisesRegex(ValueError, message):
+                self.project(image(entries=entries))
 
     def project_slots(self, entries, slot_label="ab_1"):
         with open(self.path, "wb") as output:
@@ -382,14 +378,16 @@ class ProjectionTest(unittest.TestCase):
             (self.ab_entries(root_label="ab_2"), "populated root partition labelled 'ab_1'"),
             (self.ab_entries(verity_label="ab_1-verity"), "populated verity partition labelled 'ab_1_verity'"),
             (self.ab_entries(root_label="root-x86-64"), "populated root partition"),
-            (self.ab_entries()[:2] + [(4, 6144, 8191, gpt_partitions.ROOT_X86_64, "ab_0")], "exactly one populated root"),
+            (
+                [*self.ab_entries()[:2], (4, 6144, 8191, gpt_partitions.ROOT_X86_64, "ab_0")],
+                "exactly one populated root",
+            ),
             (self.ab_entries()[:1], "exactly one populated verity"),
             (self.ab_entries(inactive_root_last=7167), "inactive root slots must be at least as large"),
         ]
         for entries, message in cases:
-            with self.subTest(message=message):
-                with self.assertRaisesRegex(ValueError, message):
-                    self.project_slots(entries)
+            with self.subTest(message=message), self.assertRaisesRegex(ValueError, message):
+                self.project_slots(entries)
 
     def test_inactive_slots_are_optional(self):
         projected = self.project_slots(self.ab_entries()[:2])
@@ -438,9 +436,11 @@ class ProjectionTest(unittest.TestCase):
 
     def test_invalid_version_file_is_rejected(self):
         for content in (b"", b"\n", b"1-2\n", b"1\n\n", b" 1"):
-            with self.subTest(content=content):
-                with self.assertRaisesRegex(SystemExit, "IMAGE_VERSION_INVALID: invalid image_version_file"):
-                    self.run_main(content)
+            with (
+                self.subTest(content=content),
+                self.assertRaisesRegex(SystemExit, "IMAGE_VERSION_INVALID: invalid image_version_file"),
+            ):
+                self.run_main(content)
 
 
 if __name__ == "__main__":

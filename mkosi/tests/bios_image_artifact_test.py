@@ -1,7 +1,7 @@
 """Validate repository-owned GRUB BIOS installation evidence."""
 
-import os
 import errno
+import os
 import pathlib
 import re
 import struct
@@ -9,8 +9,9 @@ import subprocess
 import sys
 import tarfile
 
-from mkosi.private import gpt_partitions, partition_metadata
 from python.runfiles import runfiles
+
+from mkosi.private import gpt_partitions, partition_metadata
 
 SECTOR = 512
 # grub-core/boot/i386/pc/boot.S and include/grub/i386/pc/boot.h (GRUB 2.12):
@@ -98,7 +99,7 @@ def validate_boot_regions(image, metadata, boot_reference, diskboot_reference):
         _same_except(
             mbr,
             boot_reference,
-            BOOT_PATCHES + ((0x1B8, 0x1BE), (0x1BE, 0x1FE)),
+            (*BOOT_PATCHES, (0x1B8, 0x1BE), (0x1BE, 0x1FE)),
             "GRUB installation MBR invariant differs from pinned boot.img",
         )
         source.seek(start)
@@ -118,14 +119,29 @@ def validate_boot_regions(image, metadata, boot_reference, diskboot_reference):
 def _debugfs(launcher, root, command):
     invocation = getattr(_debugfs, "invocation", 0)
     _debugfs.invocation = invocation + 1
-    environment = {n: os.environ[n] for n in ("RUNFILES_DIR", "RUNFILES_MANIFEST_FILE", "RUNFILES_MANIFEST_ONLY") if n in os.environ}
+    environment = {
+        n: os.environ[n]
+        for n in ("RUNFILES_DIR", "RUNFILES_MANIFEST_FILE", "RUNFILES_MANIFEST_ONLY")
+        if n in os.environ
+    }
     environment.update({
         "MKOSI_DEBIAN_TOOLS_SCRATCH": os.path.join(os.environ["TEST_TMPDIR"], "bios-debugfs-{}".format(invocation)),
         "PATH": "",
     })
     result = subprocess.run(
-        [launcher, "--ro-bind", "{}:/inputs/root.ext4".format(root), "/usr/sbin/debugfs", "-R", command, "/inputs/root.ext4"],
-        env=environment, capture_output=True, check=False, text=True,
+        [
+            launcher,
+            "--ro-bind",
+            "{}:/inputs/root.ext4".format(root),
+            "/usr/sbin/debugfs",
+            "-R",
+            command,
+            "/inputs/root.ext4",
+        ],
+        env=environment,
+        capture_output=True,
+        check=False,
+        text=True,
     )
     if result.returncode:
         raise AssertionError("GRUB root filesystem inspection failed: " + result.stdout + result.stderr)
@@ -145,8 +161,21 @@ def _mtype(launcher, esp):
         "PATH": "",
     })
     listing = subprocess.run(
-        [launcher, "--ro-bind", "{}:/inputs/esp.fat".format(esp), "/usr/bin/mdir", "-i", "/inputs/esp.fat", "-b", "-/", "::"],
-        env=environment, capture_output=True, check=False, text=True,
+        [
+            launcher,
+            "--ro-bind",
+            "{}:/inputs/esp.fat".format(esp),
+            "/usr/bin/mdir",
+            "-i",
+            "/inputs/esp.fat",
+            "-b",
+            "-/",
+            "::",
+        ],
+        env=environment,
+        capture_output=True,
+        check=False,
+        text=True,
     )
     configs = [line.strip() for line in listing.stdout.splitlines() if line.strip().lower().endswith("/grub.cfg")]
     if listing.returncode:
@@ -160,8 +189,19 @@ def _mtype(launcher, esp):
         os.environ["TEST_TMPDIR"], "bios-mtype-{}".format(invocation)
     )
     result = subprocess.run(
-        [launcher, "--ro-bind", "{}:/inputs/esp.fat".format(esp), "/usr/bin/mtype", "-i", "/inputs/esp.fat", configs[0]],
-        env=environment, capture_output=True, check=False, text=True,
+        [
+            launcher,
+            "--ro-bind",
+            "{}:/inputs/esp.fat".format(esp),
+            "/usr/bin/mtype",
+            "-i",
+            "/inputs/esp.fat",
+            configs[0],
+        ],
+        env=environment,
+        capture_output=True,
+        check=False,
+        text=True,
     )
     if result.returncode:
         raise AssertionError("GRUB ESP configuration inspection failed: " + result.stdout + result.stderr)
@@ -187,8 +227,20 @@ def _fat_regular(launcher, esp, path):
         "PATH": "",
     })
     result = subprocess.run(
-        [launcher, "--ro-bind", "{}:/inputs/esp.fat".format(esp), "/usr/bin/mtype", "-i", "/inputs/esp.fat", "::" + path],
-        env=environment, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, check=False, text=True,
+        [
+            launcher,
+            "--ro-bind",
+            "{}:/inputs/esp.fat".format(esp),
+            "/usr/bin/mtype",
+            "-i",
+            "/inputs/esp.fat",
+            "::" + path,
+        ],
+        env=environment,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        check=False,
+        text=True,
     )
     return "regular" if result.returncode == 0 else "missing"
 
@@ -253,7 +305,8 @@ def _stat_type(launcher, root, path):
     return match.group(1)
 
 
-def validate_boot_files(entries, modules, config):
+def _menuentry_body(config):
+    """Returns the uncommented body of the first GRUB menuentry."""
     body_lines = []
     depth = 0
     found = False
@@ -269,7 +322,11 @@ def validate_boot_files(entries, modules, config):
             break
     if not found or depth != 0:
         raise AssertionError("GRUB configuration has no genuine menuentry body: {!r}".format(config[:2048]))
-    body = "\n".join(body_lines)
+    return "\n".join(body_lines)
+
+
+def _boot_paths(body):
+    """Returns the kernel and initrd paths of a menuentry body whose kernel and initrd versions match."""
     linux = re.search(r"(?m)^\s*linux\S*\s+(\S+)", body)
     initrd = re.search(r"(?m)^\s*initrd\S*\s+(.+)$", body)
     if not linux or not initrd:
@@ -288,7 +345,12 @@ def validate_boot_files(entries, modules, config):
             initrd_versions.append(match.group(1))
     if not kernel_version or kernel_version.group(1) not in initrd_versions:
         raise AssertionError("GRUB kernel and initrd versions do not match")
-    for path in [kernel_path] + initrd_paths:
+    return [kernel_path, *initrd_paths]
+
+
+def validate_boot_files(entries, modules, config):
+    body = _menuentry_body(config)
+    for path in _boot_paths(body):
         if entries.get(path) != "regular":
             raise AssertionError(
                 "GRUB menuentry references missing non-regular file: {} ({})".format(path, entries.get(path))

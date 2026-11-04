@@ -1,14 +1,13 @@
 """Unit tests for Debian snapshot authentication and validation."""
 
-import importlib.util
 import hashlib
+import importlib.util
 import lzma
 import os
 import pathlib
 import types
 import unittest
 from unittest import mock
-
 
 _HERE = pathlib.Path(__file__).resolve().parent
 _SPEC = importlib.util.spec_from_file_location(

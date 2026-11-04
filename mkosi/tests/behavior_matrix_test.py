@@ -3,7 +3,6 @@ import re
 import sys
 import unittest
 
-
 ID_RE = re.compile(r"^BHV-[A-Z0-9]+(?:-[A-Z0-9]+)*$")
 LAYERS = {"analysis", "artifact", "consumer", "module-resolution", "runtime"}
 ROOT_LAYERS = LAYERS - {"consumer"}
@@ -35,36 +34,40 @@ def parse_matrix(text):
         cases = set(cases_text.split(","))
         if not cases or not cases <= {"positive", "boundary", "negative"}:
             raise ValueError(f"{behavior_id} has invalid cases")
-        if not tests_text:
-            raise ValueError(f"{behavior_id} has no mapped test target")
-        mappings = []
-        mapping_keys = set()
-        for entry in tests_text.split(";"):
-            layer, target = entry.split("=", 1)
-            mapping_key = (layer, target)
-            if mapping_key in mapping_keys:
-                raise ValueError(
-                    f"{behavior_id} has duplicate mapping {layer}={target}"
-                )
-            mapping_keys.add(mapping_key)
-            mapping = {"layer": layer, "target": target}
-            mappings.append(mapping)
-        for mapping in mappings:
-            if mapping["layer"] not in LAYERS:
-                raise ValueError(
-                    f"{behavior_id} has invalid layer {mapping['layer']}"
-                )
-            if not mapping["target"].startswith("//"):
-                raise ValueError(
-                    f"{behavior_id} has non-canonical target {mapping['target']}"
-                )
         by_id[behavior_id] = {
             "behavior": behavior,
             "cases": sorted(cases),
             "surface": surface,
-            "tests": mappings,
+            "tests": parse_mappings(behavior_id, tests_text),
         }
     return by_id
+
+
+def parse_mappings(behavior_id, tests_text):
+    if not tests_text:
+        raise ValueError(f"{behavior_id} has no mapped test target")
+    mappings = []
+    mapping_keys = set()
+    for entry in tests_text.split(";"):
+        layer, target = entry.split("=", 1)
+        mapping_key = (layer, target)
+        if mapping_key in mapping_keys:
+            raise ValueError(
+                f"{behavior_id} has duplicate mapping {layer}={target}"
+            )
+        mapping_keys.add(mapping_key)
+        mapping = {"layer": layer, "target": target}
+        mappings.append(mapping)
+    for mapping in mappings:
+        if mapping["layer"] not in LAYERS:
+            raise ValueError(
+                f"{behavior_id} has invalid layer {mapping['layer']}"
+            )
+        if not mapping["target"].startswith("//"):
+            raise ValueError(
+                f"{behavior_id} has non-canonical target {mapping['target']}"
+            )
+    return mappings
 
 
 def load_matrix(path):
@@ -113,7 +116,7 @@ class BehaviorMatrixTest(unittest.TestCase):
 
     def test_root_and_consumer_layers_are_not_conflated(self):
         matrix = load_matrix(pathlib.Path(sys.argv[2]))
-        for behavior_id, row in matrix.items():
+        for row in matrix.values():
             for mapping in row["tests"]:
                 target = mapping["target"]
                 if mapping["layer"] == "consumer":

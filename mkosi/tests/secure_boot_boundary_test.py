@@ -1,8 +1,8 @@
 """Boundary tests for embedded Authenticode import."""
 
-import json
-import importlib.util
 import hashlib
+import importlib.util
+import json
 import os
 import pathlib
 import shutil
@@ -12,7 +12,6 @@ import sys
 import unittest
 from types import SimpleNamespace
 from unittest import mock
-
 
 TOOL, DEBIAN_TOOLS = sys.argv[1:3]
 SPEC = importlib.util.spec_from_file_location("secure_boot", TOOL)

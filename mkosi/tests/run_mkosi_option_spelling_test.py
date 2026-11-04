@@ -55,7 +55,7 @@ class OptionSpellingTest(unittest.TestCase):
     def test_configuration_directory_spellings_match_mkosi(self):
         for spelling in DIRECTORY_SPELLINGS:
             with self.subTest(spelling=spelling):
-                arguments = _spell(spelling, "/config") + ["build"]
+                arguments = [*_spell(spelling, "/config"), "build"]
                 self.assertEqual("/config", self._mkosi_parse(arguments).directory)
                 self.assertEqual("/config", self.command_line.configuration_directory(arguments).value)
 
@@ -124,7 +124,7 @@ class OptionSpellingTest(unittest.TestCase):
             ["--sandbox-tree", "/base"],
         ):
             with self.subTest(arguments=arguments):
-                self.assertEqual(["/base"], self.command_line.declared_paths(arguments + ["build"]))
+                self.assertEqual(["/base"], self.command_line.declared_paths([*arguments, "build"]))
         self.assertEqual(["/a", "/b", "/c"], self.command_line.declared_paths(["--include=/a,/b", "-I", "/c"]))
 
     def test_constants_resets_and_other_options_are_not_declared(self):
@@ -167,8 +167,8 @@ class OptionSpellingTest(unittest.TestCase):
     def test_output_directory_spellings_match_mkosi(self):
         for spelling in (("-O", "{}"), ("-O{}",), ("-O={}",), ("--output-directory={}",), ("--output-dir", "{}")):
             with self.subTest(spelling=spelling):
-                arguments = _spell(spelling, self.root / "out") + ["build"]
-                value = self.command_line.mkosi_option_value(["--kernel-preflight", "p", "--"] + arguments, "-O")
+                arguments = [*_spell(spelling, self.root / "out"), "build"]
+                value = self.command_line.mkosi_option_value(["--kernel-preflight", "p", "--", *arguments], "-O")
                 self.assertEqual(self._mkosi_parse(arguments).output_dir, pathlib.Path(value))
 
     def test_workspace_and_tools_tree_spellings(self):
