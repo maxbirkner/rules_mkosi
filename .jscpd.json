@@ -1,0 +1,38 @@
+{
+  "exitCode": 1,
+  "format": [
+    "bash",
+    "c",
+    "c-header",
+    "cpp",
+    "cpp-header",
+    "python"
+  ],
+  "formatsExts": {
+    "python": [
+      "py",
+      "bzl"
+    ]
+  },
+  "formatsNames": {
+    "bash": [
+      "group-free"
+    ],
+    "python": [
+      "BUILD",
+      "BUILD.bazel",
+      "bazel"
+    ]
+  },
+  "ignore": [
+    "**/*.lock",
+    "**/*.lock.json",
+    "**/requirements_lock.txt"
+  ],
+  "ignorePattern": [
+    "#include\\s*<[^>]+>"
+  ],
+  "minLines": 8,
+  "minTokens": 60,
+  "threshold": 0
+}
