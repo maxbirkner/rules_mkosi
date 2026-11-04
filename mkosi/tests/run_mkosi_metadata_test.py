@@ -574,6 +574,45 @@ class BaseConfigurationTest(_WrapperTest):
                 _expect_exit(lambda settings=settings: base(**settings), message)
 
 
+class VerityHashSizeTest(_WrapperTest):
+    """A Verity=hash partition needs SizeMinBytes= or Minimize=; systemd-repart reserves only 4 KiB for it."""
+
+    def _validate(self, definitions):
+        """Validates repart definitions, keyed by their path below the first or the second repart directory."""
+        directories = [self.root / "first", self.root / "second"]
+        for directory in directories:
+            shutil.rmtree(directory, ignore_errors=True)
+        for path, text in definitions.items():
+            (self.root / path).parent.mkdir(parents=True, exist_ok=True)
+            (self.root / path).write_text("[Partition]\n" + text)
+        return _validate(self.wrapper, _configuration(repart_dirs=directories), [self.root])
+
+    def test_sized_verity_hash_partition_is_accepted(self):
+        for definitions in (
+            {"first/20-hash.conf": "Verity=hash\nSizeMinBytes=64M\n"},
+            {"first/20-hash.conf": "Verity=hash\nMinimize=best\n"},
+            {"first/20-hash.conf": "Verity=hash\nMinimize=yes\n"},
+            {"first/10-data.conf": "Verity=data\nFormat=erofs\n"},
+            {"first/20-hash.conf": "Verity=hash\n", "first/20-hash.conf.d/size.conf": "SizeMinBytes=64M\n"},
+            {"first/20-hash.conf": "Verity=hash\nMinimize=guess\n", "second/20-hash.conf": "Verity=hash\n"},
+        ):
+            with self.subTest(definitions=definitions):
+                self._validate(definitions)
+
+    def test_unsized_verity_hash_partition_is_rejected(self):
+        for definitions in (
+            {"second/20-hash.conf": "Verity=hash\n"},
+            {"first/20-hash.conf": "Verity=hash\nSizeMaxBytes=64M\n"},
+            {"first/20-hash.conf": "Verity=hash\nMinimize=off\n"},
+            {"first/20-hash.conf": "Verity=hash\nMinimize=best\n", "second/20-hash.conf.d/off.conf": "Minimize=no\n"},
+        ):
+            with self.subTest(definitions=definitions):
+                _expect_exit(
+                    lambda definitions=definitions: self._validate(definitions),
+                    "20-hash.conf sets Verity=hash without SizeMinBytes= or Minimize=",
+                )
+
+
 class FinalizeConfigDirectoryTest(_WrapperTest):
     def setUp(self):
         super().setUp()
