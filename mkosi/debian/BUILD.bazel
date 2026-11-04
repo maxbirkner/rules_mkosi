@@ -1,5 +1,6 @@
 load("@rules_cc//cc:defs.bzl", "cc_library", "cc_test")
 load("@rules_python//python:defs.bzl", "py_binary", "py_test")
+load("//mkosi/private:c_options.bzl", "C_WARNINGS")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -47,6 +48,7 @@ cc_library(
 cc_test(
     name = "namespace_runner_test",
     srcs = ["namespace_runner_test.c"],
+    copts = C_WARNINGS,
     linkstatic = True,
     deps = [":namespace_runner_source"],
 )

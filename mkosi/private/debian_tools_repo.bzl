@@ -7,6 +7,7 @@ load("@rules_python//python:defs.bzl", "py_binary")
 load("@rules_mkosi//mkosi/debian:toolchain.bzl", "debian_tools_archive", "debian_tools_toolchain", "debian_tools_tree")
 load("@rules_mkosi//mkosi:versions.bzl", "DEFAULT_PYTHON_VERSION")
 load("@rules_mkosi//mkosi/private:bootstrap_binary.bzl", "bootstrap_binary")
+load("@rules_mkosi//mkosi/private:c_options.bzl", "CXX_WARNINGS", "C_WARNINGS")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -60,6 +61,7 @@ cc_binary(
     srcs = [
         "@rules_mkosi//mkosi/debian:launcher_main.cc",
     ],
+    copts = CXX_WARNINGS,
     data = [
         ":launcher_cli",
         ":python",
@@ -94,6 +96,7 @@ bootstrap_binary(
 cc_binary(
     name = "namespace_runner_binary",
     srcs = ["@rules_mkosi//mkosi/debian:namespace_runner.c"],
+    copts = C_WARNINGS,
     deps = ["@rules_mkosi//mkosi/private:write_all"],
     features = ["fully_static_link"],
     linkopts = ["-static", "-Wl,--strip-debug", "-Wl,--build-id=none"],
