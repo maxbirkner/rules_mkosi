@@ -67,7 +67,7 @@ def _read_superblock(path):
         "digest_size": digest_size,
         "hash_block_size": hash_block_size,
         "slot_size": slot_size,
-        "salt": value[88:88 + salt_size],
+        "salt": value[88 : 88 + salt_size],
         "superblock": value,
     }
 

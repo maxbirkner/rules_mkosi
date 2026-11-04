@@ -280,9 +280,7 @@ class CommandLineTest(_WrapperTest):
     def test_initrd_default_constant_is_not_made_absolute(self):
         command_line = self.wrapper.command_line
         # mkosi's "default" initrd constant is not a path relative to the action's working directory.
-        assert command_line.absolute_paths(
-            ["--initrd=default", "--initrd", "default", "--base-tree", "base.tar"]
-        ) == [
+        assert command_line.absolute_paths(["--initrd=default", "--initrd", "default", "--base-tree", "base.tar"]) == [
             "--initrd=default",
             "--initrd",
             "default",

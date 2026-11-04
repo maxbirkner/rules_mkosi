@@ -18,19 +18,14 @@ file_hashing = _load_sibling(__file__, "file_hashing")
 def _verify_digest(path, expected, description):
     actual = file_hashing.sha256_file(path)
     if actual != expected:
-        raise ValueError(
-            "%s digest mismatch: expected=%s actual=%s" % (description, expected, actual)
-        )
+        raise ValueError("%s digest mismatch: expected=%s actual=%s" % (description, expected, actual))
 
 
 def _verify_package(path, expected_digest, expected_size, description):
     _verify_digest(path, expected_digest, description)
     actual_size = os.stat(path).st_size
     if actual_size != expected_size:
-        raise ValueError(
-            "%s size mismatch: expected=%d actual=%d"
-            % (description, expected_size, actual_size)
-        )
+        raise ValueError("%s size mismatch: expected=%d actual=%d" % (description, expected_size, actual_size))
 
 
 def _sha256_entries(release):

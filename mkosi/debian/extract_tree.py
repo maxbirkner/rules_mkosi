@@ -314,8 +314,7 @@ def _authenticate(archive_stream, expected_digest):
     actual_digest = sha256_stream(archive_stream)
     if actual_digest != expected_digest:
         raise ValueError(
-            "Debian tools archive digest mismatch: expected=%s actual=%s"
-            % (expected_digest, actual_digest)
+            "Debian tools archive digest mismatch: expected=%s actual=%s" % (expected_digest, actual_digest)
         )
     archive_stream.seek(0)
 

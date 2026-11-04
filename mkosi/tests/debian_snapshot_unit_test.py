@@ -10,18 +10,14 @@ import unittest
 from unittest import mock
 
 _HERE = pathlib.Path(__file__).resolve().parent
-_SPEC = importlib.util.spec_from_file_location(
-    "debian_snapshot", _HERE.parent / "private/debian_snapshot.py"
-)
+_SPEC = importlib.util.spec_from_file_location("debian_snapshot", _HERE.parent / "private/debian_snapshot.py")
 debian_snapshot = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(debian_snapshot)
 
 
 class DebianSnapshotUnitTest(unittest.TestCase):
     def setUp(self):
-        self.work = pathlib.Path(os.environ.get("TEST_TMPDIR", ".")) / (
-            "debian-snapshot-%s" % os.getpid()
-        )
+        self.work = pathlib.Path(os.environ.get("TEST_TMPDIR", ".")) / ("debian-snapshot-%s" % os.getpid())
         self.work.mkdir(parents=True, exist_ok=True)
 
     def tearDown(self):
@@ -82,16 +78,8 @@ class DebianSnapshotUnitTest(unittest.TestCase):
         )
 
     def test_sqv_release_payload_may_omit_final_newline(self):
-        self.assertTrue(
-            debian_snapshot._authenticated_release_matches(
-                b"Release payload", b"Release payload\n"
-            )
-        )
-        self.assertFalse(
-            debian_snapshot._authenticated_release_matches(
-                b"Release payload\nX", b"Release payload\n"
-            )
-        )
+        self.assertTrue(debian_snapshot._authenticated_release_matches(b"Release payload", b"Release payload\n"))
+        self.assertFalse(debian_snapshot._authenticated_release_matches(b"Release payload\nX", b"Release payload\n"))
 
     def test_release_rejects_duplicate_sha256_path(self):
         release = (
@@ -145,36 +133,28 @@ class DebianSnapshotUnitTest(unittest.TestCase):
         first = self.work / "amd64"
         second = self.work / "all"
         paragraph = (
-            b"Package: demo\nVersion: 1\nArchitecture: all\n"
-            b"Filename: pool/main/d/demo.deb\nSize: 3\n"
-            b"SHA256: abc\n\n"
+            b"Package: demo\nVersion: 1\nArchitecture: all\nFilename: pool/main/d/demo.deb\nSize: 3\nSHA256: abc\n\n"
         )
         first.write_bytes(paragraph)
         second.write_bytes(paragraph)
         expected = {("demo", "1", "all"): ("pool/main/d/demo.deb", 3, "abc")}
         self.assertEqual(
             expected,
-            debian_snapshot._read_package_metadata(
-                ((str(first), "amd64"), (str(second), "all")), expected
-            ),
+            debian_snapshot._read_package_metadata(((str(first), "amd64"), (str(second), "all")), expected),
         )
 
     def test_conflicting_all_architecture_duplicates_are_rejected(self):
         first = self.work / "amd64"
         second = self.work / "all"
         first.write_text(
-            "Package: demo\nVersion: 1\nArchitecture: all\n"
-            "Filename: pool/main/d/demo.deb\nSize: 3\nSHA256: abc\n\n"
+            "Package: demo\nVersion: 1\nArchitecture: all\nFilename: pool/main/d/demo.deb\nSize: 3\nSHA256: abc\n\n"
         )
         second.write_text(
-            "Package: demo\nVersion: 1\nArchitecture: all\n"
-            "Filename: pool/main/d/other.deb\nSize: 3\nSHA256: abc\n\n"
+            "Package: demo\nVersion: 1\nArchitecture: all\nFilename: pool/main/d/other.deb\nSize: 3\nSHA256: abc\n\n"
         )
         expected = {("demo", "1", "all"): ("pool/main/d/demo.deb", 3, "abc")}
         with self.assertRaisesRegex(ValueError, "conflicting"):
-            debian_snapshot._read_package_metadata(
-                ((str(first), "amd64"), (str(second), "all")), expected
-            )
+            debian_snapshot._read_package_metadata(((str(first), "amd64"), (str(second), "all")), expected)
 
     def _write_index(self, name, content):
         path = self.work / name
@@ -205,9 +185,7 @@ class DebianSnapshotUnitTest(unittest.TestCase):
             firmware, firmware_paragraph, firmware_record = self._package(
                 "firmware-%d" % index, component, b"firmware payload %d" % index
             )
-            indexes.append(
-                (component, "amd64", self._write_index(component + "-amd64.xz", firmware_paragraph))
-            )
+            indexes.append((component, "amd64", self._write_index(component + "-amd64.xz", firmware_paragraph)))
             indexes.append((component, "all", self._write_index(component + "-all.xz", b"")))
             packages.append((firmware, firmware_record + "|pkg_%03d.deb" % (index + 1)))
         digests = {
@@ -294,9 +272,7 @@ class DebianSnapshotUnitTest(unittest.TestCase):
     def test_component_index_must_be_authenticated_by_release(self):
         args = self._arguments(("non-free-firmware",))
         release = pathlib.Path(args.release).read_bytes()
-        release = b"\n".join(
-            line for line in release.split(b"\n") if b"non-free-firmware/binary-amd64" not in line
-        )
+        release = b"\n".join(line for line in release.split(b"\n") if b"non-free-firmware/binary-amd64" not in line)
         pathlib.Path(args.release).write_bytes(release)
         args.release_sha256 = hashlib.sha256(release).hexdigest()
         with self.assertRaisesRegex(ValueError, "exactly one"):

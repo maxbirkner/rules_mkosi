@@ -186,8 +186,7 @@ def _qmp_handshake(process, socket_path, timeout, monotonic=time.monotonic, slee
     while monotonic() < deadline:
         if process.poll() is not None:
             raise QmpHandshakeError(
-                "QEMU exited with status %d before QMP initialization"
-                % process.returncode,
+                "QEMU exited with status %d before QMP initialization" % process.returncode,
             )
         connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         try:
@@ -432,25 +431,33 @@ def _qemu_command(files, image, qemu, system_data, options, share_arguments):
         .replace("{firmware_log}", str(files.firmware_log))
         for argument in options.qemu_args or options.machine_args
     ]
-    return [
-        qemu,
-        "-L",
-        system_data,
-    ] + expanded_arguments + list(options.accelerator_args) + [
-        "-nodefaults",
-        "-nographic",
-    ] + ([] if options.allow_reboot else ["-no-reboot"]) + share_arguments + [
-        "-serial",
-        "none",
-        "-chardev",
-        "file,id=serial0,path=%s" % files.serial_log,
-        "-device",
-        "isa-serial,chardev=serial0",
-        "-qmp",
-        "unix:%s,server=on,wait=off" % _QMP_SOCKET,
-        "-drive",
-        "if=%s,format=raw,snapshot=on,file=%s" % (options.disk_interface, image),
-    ]
+    return (
+        [
+            qemu,
+            "-L",
+            system_data,
+        ]
+        + expanded_arguments
+        + list(options.accelerator_args)
+        + [
+            "-nodefaults",
+            "-nographic",
+        ]
+        + ([] if options.allow_reboot else ["-no-reboot"])
+        + share_arguments
+        + [
+            "-serial",
+            "none",
+            "-chardev",
+            "file,id=serial0,path=%s" % files.serial_log,
+            "-device",
+            "isa-serial,chardev=serial0",
+            "-qmp",
+            "unix:%s,server=on,wait=off" % _QMP_SOCKET,
+            "-drive",
+            "if=%s,format=raw,snapshot=on,file=%s" % (options.disk_interface, image),
+        ]
+    )
 
 
 def _share_arguments(files, read_only_shares):
@@ -512,14 +519,9 @@ def _observe(files, readiness):
     serial = _read_log(files.serial_log)
     firmware_output = _read_log(files.firmware_log)
     progress_offset, missing_progress = _ordered_progress(serial, readiness.progress_markers)
-    readiness_offset = (
-        serial.find(readiness.marker.encode(), progress_offset)
-        if missing_progress is None
-        else -1
-    )
+    readiness_offset = serial.find(readiness.marker.encode(), progress_offset) if missing_progress is None else -1
     failure_offset = (
-        serial.find(readiness.expected_failure_marker.encode())
-        if readiness.expected_failure_marker else -1
+        serial.find(readiness.expected_failure_marker.encode()) if readiness.expected_failure_marker else -1
     )
     return _SerialObservation(serial, firmware_output, missing_progress, readiness_offset, failure_offset)
 
@@ -528,11 +530,7 @@ def _print_expected_failure(observation, expected_failure_marker):
     serial = observation.serial
     excerpt_start = max(0, observation.failure_offset - 256)
     excerpt_end = min(len(serial), observation.failure_offset + len(expected_failure_marker) + 256)
-    print(
-        "Expected failure evidence:\n{}".format(
-            serial[excerpt_start:excerpt_end].decode(errors="replace")
-        )
-    )
+    print("Expected failure evidence:\n{}".format(serial[excerpt_start:excerpt_end].decode(errors="replace")))
 
 
 def _expected_failure_observed(files, observation, expected_failure_marker):

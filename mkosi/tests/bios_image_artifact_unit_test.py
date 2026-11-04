@@ -38,14 +38,10 @@ class BiosArtifactTest(unittest.TestCase):
 
     def check(self, pattern):
         with self.assertRaisesRegex(AssertionError, pattern):
-            validator.validate_boot_regions(
-                self.image, self.metadata, bytes(self.boot), bytes(self.diskboot)
-            )
+            validator.validate_boot_regions(self.image, self.metadata, bytes(self.boot), bytes(self.diskboot))
 
     def test_valid_installation_evidence(self):
-        validator.validate_boot_regions(
-            self.image, self.metadata, bytes(self.boot), bytes(self.diskboot)
-        )
+        validator.validate_boot_regions(self.image, self.metadata, bytes(self.boot), bytes(self.diskboot))
 
     def test_mbr_signature(self):
         self.raw[510] ^= 1
@@ -135,9 +131,7 @@ class BiosArtifactTest(unittest.TestCase):
         for name in validator.REQUIRED_MODULES:
             entries, modules, config = self.files()
             del modules[name]
-            with self.subTest(name=name), self.assertRaisesRegex(
-                AssertionError, "module is missing: " + name
-            ):
+            with self.subTest(name=name), self.assertRaisesRegex(AssertionError, "module is missing: " + name):
                 validator.validate_boot_files(entries, modules, config)
 
 

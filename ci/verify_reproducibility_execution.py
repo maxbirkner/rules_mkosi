@@ -45,9 +45,7 @@ def verify(path, build_name):
     for key in sorted(EXPECTED):
         entries = observed.get(key, [])
         if len(entries) != 1:
-            errors.append(
-                "{} {}: expected one execution, found {}".format(*key, len(entries))
-            )
+            errors.append("{} {}: expected one execution, found {}".format(*key, len(entries)))
         elif entries[0].get("cacheHit") is not False:
             errors.append("{} {}: action was satisfied from a cache".format(*key))
     if errors:

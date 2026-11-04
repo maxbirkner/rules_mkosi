@@ -17,9 +17,7 @@ def project(uki_path, root_hash_path=None):
     for section in pe.sections:
         name = section.Name.rstrip(b"\0").decode("ascii")
         content = section.get_data()
-        sections.append(
-            {"name": name, "sha256": hashlib.sha256(content).hexdigest(), "size": len(content)}
-        )
+        sections.append({"name": name, "sha256": hashlib.sha256(content).hexdigest(), "size": len(content)})
         section_data[name] = content
     required = {".linux", ".initrd", ".cmdline", ".osrel"}
     missing = sorted(required - section_data.keys())

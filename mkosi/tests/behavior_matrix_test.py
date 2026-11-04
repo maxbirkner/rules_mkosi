@@ -22,9 +22,7 @@ def parse_matrix(text):
         raise ValueError("matrix header is invalid")
     by_id = {}
     for line in lines[1:]:
-        behavior_id, surface, cases_text, behavior, tests_text = line.split(
-            "\t"
-        )
+        behavior_id, surface, cases_text, behavior, tests_text = line.split("\t")
         if not ID_RE.fullmatch(behavior_id):
             raise ValueError(f"invalid behavior ID: {behavior_id}")
         if behavior_id in by_id:
@@ -52,21 +50,15 @@ def parse_mappings(behavior_id, tests_text):
         layer, target = entry.split("=", 1)
         mapping_key = (layer, target)
         if mapping_key in mapping_keys:
-            raise ValueError(
-                f"{behavior_id} has duplicate mapping {layer}={target}"
-            )
+            raise ValueError(f"{behavior_id} has duplicate mapping {layer}={target}")
         mapping_keys.add(mapping_key)
         mapping = {"layer": layer, "target": target}
         mappings.append(mapping)
     for mapping in mappings:
         if mapping["layer"] not in LAYERS:
-            raise ValueError(
-                f"{behavior_id} has invalid layer {mapping['layer']}"
-            )
+            raise ValueError(f"{behavior_id} has invalid layer {mapping['layer']}")
         if not mapping["target"].startswith("//"):
-            raise ValueError(
-                f"{behavior_id} has non-canonical target {mapping['target']}"
-            )
+            raise ValueError(f"{behavior_id} has non-canonical target {mapping['target']}")
     return mappings
 
 
@@ -75,27 +67,15 @@ def load_matrix(path):
 
 
 def validate_registered_targets(matrix, manifest, scope):
-    registered = {
-        target.replace("@@//", "//", 1) for target in manifest.splitlines()
-    }
+    registered = {target.replace("@@//", "//", 1) for target in manifest.splitlines()}
     layers = {"consumer"} if scope == "consumer" else ROOT_LAYERS
-    mapped = {
-        mapping["target"]
-        for row in matrix.values()
-        for mapping in row["tests"]
-        if mapping["layer"] in layers
-    }
+    mapped = {mapping["target"] for row in matrix.values() for mapping in row["tests"] if mapping["layer"] in layers}
     if scope == "consumer":
-        registered = {
-            target.replace("//:", "//e2e/smoke:", 1) for target in registered
-        }
+        registered = {target.replace("//:", "//e2e/smoke:", 1) for target in registered}
     missing = mapped - registered
     extra = registered - mapped
     if missing or extra:
-        raise ValueError(
-            f"{scope} target manifest differs: missing={sorted(missing)}, "
-            f"extra={sorted(extra)}"
-        )
+        raise ValueError(f"{scope} target manifest differs: missing={sorted(missing)}, extra={sorted(extra)}")
 
 
 class BehaviorMatrixTest(unittest.TestCase):
@@ -122,9 +102,7 @@ class BehaviorMatrixTest(unittest.TestCase):
                 if mapping["layer"] == "consumer":
                     self.assertTrue(target.startswith("//e2e/smoke:"))
                 elif mapping["layer"] == "module-resolution":
-                    self.assertTrue(
-                        target.startswith("//:e2e/module_resolution/")
-                    )
+                    self.assertTrue(target.startswith("//:e2e/module_resolution/"))
                 else:
                     self.assertFalse(target.startswith("//e2e/smoke:"))
 
@@ -150,8 +128,7 @@ class BehaviorMatrixTest(unittest.TestCase):
 
     def test_stale_mapping_is_rejected_by_manifest_contract(self):
         matrix = parse_matrix(
-            "id\tsurface\tcases\tbehavior\ttests\n"
-            "BHV-STALE\tfailure\tnegative\tstale\tanalysis=//:stale\n"
+            "id\tsurface\tcases\tbehavior\ttests\nBHV-STALE\tfailure\tnegative\tstale\tanalysis=//:stale\n"
         )
         with self.assertRaisesRegex(ValueError, "missing=.*//:stale"):
             validate_registered_targets(matrix, "//:maintained\n", "root")

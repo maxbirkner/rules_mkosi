@@ -13,9 +13,7 @@ _EPOCH = (0, 0)
 
 def _normalise_relative(path):
     parts = pathlib.PurePosixPath(path).parts
-    if not parts or pathlib.PurePosixPath(path).is_absolute() or any(
-        part in ("", ".", "..") for part in parts
-    ):
+    if not parts or pathlib.PurePosixPath(path).is_absolute() or any(part in ("", ".", "..") for part in parts):
         raise ValueError("invalid staged path: {}".format(path))
     return "/".join(parts)
 
@@ -29,11 +27,7 @@ def _check_link(source_path, root):
         or link_target.endswith("/")
         or posixpath.normpath(link_target) != link_target
     ):
-        raise ValueError(
-            "symlink target is not canonical POSIX relative syntax: {}".format(
-                source_path
-            )
-        )
+        raise ValueError("symlink target is not canonical POSIX relative syntax: {}".format(source_path))
     resolved = (source_path.parent / link_target).resolve()
     if not resolved.is_relative_to(root) or not resolved.exists():
         raise ValueError("symlink escapes or is dangling in declared tree: {}".format(source_path))
@@ -45,11 +39,7 @@ def _tree_item_entry(item, source, owner, generated):
     if item.is_symlink():
         if generated and os.path.isabs(os.readlink(source_path)):
             if not source_path.resolve().is_file():
-                raise ValueError(
-                    "generated tree transport link is not a file: {}".format(
-                        source_path
-                    )
-                )
+                raise ValueError("generated tree transport link is not a file: {}".format(source_path))
             return (owner, "file", source_path.resolve(), None)
         return (owner, "symlink", source_path, _check_link(source_path, source))
     if item.is_dir(follow_symlinks=False):
@@ -93,11 +83,7 @@ def _check_source_overlap(canonical_sources, source):
             or canonical.is_relative_to(prior_canonical)
             or prior_canonical.is_relative_to(canonical)
         ):
-            raise ValueError(
-                "source alias '{}' and '{}' overlap at '{}'".format(
-                    prior_source, source, canonical
-                )
-            )
+            raise ValueError("source alias '{}' and '{}' overlap at '{}'".format(prior_source, source, canonical))
     canonical_sources[canonical] = source
 
 
@@ -122,9 +108,7 @@ def _check_prefix_collisions(entries, destination, owner):
         if prior[0] == owner or not destination or not prior_path:
             continue
         config_directory_contains_mapping = (
-            destination.startswith(prior_path + "/")
-            and prior[1] == "directory"
-            and prior[0].endswith(" -> .")
+            destination.startswith(prior_path + "/") and prior[1] == "directory" and prior[0].endswith(" -> .")
         )
         if config_directory_contains_mapping:
             continue
@@ -133,11 +117,7 @@ def _check_prefix_collisions(entries, destination, owner):
             or destination.startswith(prior_path + "/")
             or prior_path.startswith(destination + "/")
         ):
-            raise ValueError(
-                "prefix staged collision between '{}' and '{}'".format(
-                    destination, prior_path
-                )
-            )
+            raise ValueError("prefix staged collision between '{}' and '{}'".format(destination, prior_path))
 
 
 def _add_mapping(entries, canonical_sources, source_string, destination_string, role):
@@ -223,19 +203,19 @@ def _copy_manifest(output, entries, executable_paths):
 def _write_manifest(path, entries, executable_paths):
     manifest = []
     for staged_path, (_, kind, _, link_target) in sorted(entries.items()):
-        manifest.append({
-            "path": staged_path,
-            "kind": kind,
-            "link_target": link_target,
-            "mode": 0o755 if staged_path in executable_paths else 0o644,
-        })
+        manifest.append(
+            {
+                "path": staged_path,
+                "kind": kind,
+                "link_target": link_target,
+                "mode": 0o755 if staged_path in executable_paths else 0o644,
+            }
+        )
     path.write_text(json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n")
 
 
 def _executable_paths(executables, entries):
-    executable_paths = {
-        _normalise_relative(path) for path in executables
-    }
+    executable_paths = {_normalise_relative(path) for path in executables}
     for path in executable_paths:
         if path not in entries or entries[path][1] != "file":
             raise ValueError("executable path is not a staged file: {}".format(path))

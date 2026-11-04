@@ -79,9 +79,7 @@ class VersionTest(unittest.TestCase):
 
 class RelationParsingTest(unittest.TestCase):
     def test_alternatives_qualifiers_and_versions(self):
-        groups = generate_lock.parse_relations(
-            "libc6 (>= 2.36), perl:any, foo | bar (<< 3~),\n baz [amd64] <!nocheck>"
-        )
+        groups = generate_lock.parse_relations("libc6 (>= 2.36), perl:any, foo | bar (<< 3~),\n baz [amd64] <!nocheck>")
         self.assertEqual(4, len(groups))
         self.assertEqual(generate_lock.Relation("libc6", None, ">=", "2.36"), groups[0][0])
         self.assertEqual("any", groups[1][0].arch)
@@ -130,9 +128,7 @@ class ResolverTest(unittest.TestCase):
             _stanza("first"),
             _stanza("second"),
         )
-        self.assertEqual(
-            ["app", "first", "needs-second", "second"], _names(universe, ["app"])
-        )
+        self.assertEqual(["app", "first", "needs-second", "second"], _names(universe, ["app"]))
         universe = _universe(
             _stanza("base", Essential="yes", Depends="second"),
             _stanza("app", Depends="first | second"),
@@ -209,9 +205,7 @@ class ResolverTest(unittest.TestCase):
     def test_architecture_all_packages_satisfy_native_relations(self):
         universe = generate_lock.Universe(
             generate_lock.parse_packages(_stanza("app", Depends="data"), "main", "amd64")
-            + generate_lock.parse_packages(
-                _stanza("data", architecture="all"), "main", "all"
-            )
+            + generate_lock.parse_packages(_stanza("data", architecture="all"), "main", "all")
         )
         selected, _ = generate_lock.resolve(universe, ["app"])
         self.assertEqual("all", selected["data"].architecture)
@@ -262,9 +256,7 @@ class SpecificationTest(unittest.TestCase):
     def _specification(self, **overrides):
         data = {
             "version": 1,
-            "sources": [
-                {"channel": "trixie non-free-firmware main", "url": _SNAPSHOT_URL + "/"}
-            ],
+            "sources": [{"channel": "trixie non-free-firmware main", "url": _SNAPSHOT_URL + "/"}],
             "archs": ["amd64"],
             "packages": ["bb", "aa", "bb"],
         }
@@ -299,14 +291,10 @@ class GenerateTest(unittest.TestCase):
         self.indexes = {
             "main/binary-amd64/Packages.xz": lzma.compress(
                 (
-                    _stanza("base-files", Essential="yes")
-                    + "\n"
-                    + _stanza("libc6", version="2.41-12", Depends="data")
+                    _stanza("base-files", Essential="yes") + "\n" + _stanza("libc6", version="2.41-12", Depends="data")
                 ).encode()
             ),
-            "main/binary-all/Packages.xz": lzma.compress(
-                _stanza("data", architecture="all").encode()
-            ),
+            "main/binary-all/Packages.xz": lzma.compress(_stanza("data", architecture="all").encode()),
             "non-free-firmware/binary-amd64/Packages.xz": lzma.compress(
                 _stanza(
                     "amd64-microcode",
@@ -341,9 +329,7 @@ class GenerateTest(unittest.TestCase):
         self.specification = generate_lock.load_specification(
             {
                 "version": 1,
-                "sources": [
-                    {"channel": "trixie main non-free-firmware", "url": _SNAPSHOT_URL}
-                ],
+                "sources": [{"channel": "trixie main non-free-firmware", "url": _SNAPSHOT_URL}],
                 "archs": ["amd64"],
                 "packages": ["amd64-microcode"],
             }

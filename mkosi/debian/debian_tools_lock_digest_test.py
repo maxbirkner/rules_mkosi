@@ -22,8 +22,7 @@ class DebianToolsLockDigestTest(unittest.TestCase):
         repository = next(
             fields[2]
             for fields in (
-                line.split(",", 2)
-                for line in (runfiles / "_repo_mapping").read_text(encoding="utf-8").splitlines()
+                line.split(",", 2) for line in (runfiles / "_repo_mapping").read_text(encoding="utf-8").splitlines()
             )
             if len(fields) == 3 and fields[1] == "mkosi_debian_package_inputs"
         )
@@ -33,10 +32,7 @@ class DebianToolsLockDigestTest(unittest.TestCase):
         self.assertEqual(len(packages), len(entries))
         self.assertEqual(
             [(entry[0], entry[1], entry[2]) for entry in entries],
-            [
-                ("pkg_%03d.deb" % index, package["sha256"], package["key"])
-                for index, package in enumerate(packages)
-            ],
+            [("pkg_%03d.deb" % index, package["sha256"], package["key"]) for index, package in enumerate(packages)],
         )
 
 
