@@ -87,8 +87,8 @@ def main() -> int:
         print(error, file=sys.stderr)
         return 1
     errors = check_copies(root, versions) + check_presubmit(root, versions)
-    for error in errors:
-        print(error, file=sys.stderr)
+    for message in errors:
+        print(message, file=sys.stderr)
     return 1 if errors else 0
 
 

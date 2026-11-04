@@ -143,7 +143,7 @@ class _DigestSpool(NamedTuple):
     """A spool file holding the digests of one hash tree level."""
 
     path: str
-    count: int
+    digest_count: int
 
 
 def _verify_level(level, block_count, below, emitted, geometry, output):
@@ -153,7 +153,7 @@ def _verify_level(level, block_count, below, emitted, geometry, output):
     consumed = 0
     with open(below.path, "rb") as current:
         for block_index in range(block_count):
-            digests = min(per_block, below.count - consumed)
+            digests = min(per_block, below.digest_count - consumed)
             block = _expected_block(current, digests, geometry)
             consumed += digests
             if emitted.read(block_size) != block:

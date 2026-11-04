@@ -90,7 +90,9 @@ class EnvironmentErrorsTest(unittest.TestCase):
                 "unexpected MKOSI_HOST_RELEASE=trixie",
                 "unexpected SOURCE_DATE_EPOCH=0",
             ],
-            environment_errors(image_action(**RELEASE)),
+            environment_errors(
+                image_action(MKOSI_HOST_DISTRIBUTION="debian", MKOSI_HOST_RELEASE="trixie", SOURCE_DATE_EPOCH="0")
+            ),
         )
 
     def test_requires_release_variables_on_release_action(self) -> None:
@@ -131,7 +133,7 @@ class GraphErrorsTest(unittest.TestCase):
         self.assertEqual(["//pkg:image: invalid PATH=/bin"], graph_errors(graph))
 
     def test_requires_release_and_tracer_actions(self) -> None:
-        cases = (
+        cases: tuple[tuple[list[dict[str, Any]], list[str]], ...] = (
             ([image_action()], ["no release MkosiImage action in the graph"]),
             ([image_action(release=True)], ["no tracer MkosiImage action in the graph"]),
             ([], ["no release MkosiImage action in the graph", "no tracer MkosiImage action in the graph"]),

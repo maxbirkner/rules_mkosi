@@ -9,6 +9,7 @@ _SPEC = importlib.util.spec_from_file_location(
     "debian_launcher",
     pathlib.Path(__file__).with_name("debian_launcher.py"),
 )
+assert _SPEC is not None and _SPEC.loader is not None
 debian_launcher = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(debian_launcher)
 

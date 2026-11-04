@@ -15,6 +15,7 @@ from unittest import mock
 
 TOOL, DEBIAN_TOOLS = sys.argv[1:3]
 SPEC = importlib.util.spec_from_file_location("secure_boot", TOOL)
+assert SPEC is not None and SPEC.loader is not None
 SECURE_BOOT = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(SECURE_BOOT)
 

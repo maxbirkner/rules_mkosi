@@ -9,6 +9,7 @@ import unittest
 
 sys.path.insert(0, str(pathlib.Path(sys.argv[1]).parent))
 spec = importlib.util.spec_from_file_location("verify_two_stage_cache", sys.argv[1])
+assert spec is not None and spec.loader is not None
 verify_cache = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(verify_cache)
 

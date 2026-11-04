@@ -10,6 +10,7 @@ import unittest
 spec = importlib.util.spec_from_file_location(
     "extract_tree", os.path.join(os.path.dirname(__file__), "extract_tree.py")
 )
+assert spec is not None and spec.loader is not None
 extract_tree = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(extract_tree)
 

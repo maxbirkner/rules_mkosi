@@ -9,6 +9,7 @@ import unittest
 spec = importlib.util.spec_from_file_location(
     "validator", pathlib.Path(__file__).with_name("bios_image_artifact_test.py")
 )
+assert spec is not None and spec.loader is not None
 validator = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(validator)
 

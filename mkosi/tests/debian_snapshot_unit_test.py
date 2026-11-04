@@ -11,6 +11,7 @@ from unittest import mock
 
 _HERE = pathlib.Path(__file__).resolve().parent
 _SPEC = importlib.util.spec_from_file_location("debian_snapshot", _HERE.parent / "private/debian_snapshot.py")
+assert _SPEC is not None and _SPEC.loader is not None
 debian_snapshot = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(debian_snapshot)
 

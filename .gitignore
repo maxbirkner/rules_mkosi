@@ -18,6 +18,7 @@ bazel-*
 /*.iso
 
 # Local tooling
+/.mypy_cache/
 /.direnv/
 /.envrc
 /.idea/

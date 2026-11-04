@@ -71,6 +71,20 @@ repos:
       - id: ruff-check
       - id: ruff-format
 
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: ad26ebfa797fcb9b8f83275937c1c1d6e126719c # frozen: v2.4.1
+    hooks:
+      - id: mypy
+        # mypy.ini selects the checked files, so every run checks the same set.
+        args: []
+        additional_dependencies:
+          - click==8.5.0
+        files: ^((ci|mkosi|tools)/|mypy\.ini$)
+        types_or:
+          - ini
+          - python
+        pass_filenames: false
+
   - repo: https://github.com/google/yamlfmt
     rev: 21ca5323a9c87ee37a434e0ca908efc0a89daa07 # frozen: v0.21.0
     hooks:
