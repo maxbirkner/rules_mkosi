@@ -18,6 +18,14 @@ load(
     "qemu_seabios_boot_config",
     "secure_boot_ephemeral_test_fixture",
 )
+load(
+    "//mkosi/debian:provenance.bzl",
+    "DEBIAN_TOOLS_ARCHIVE_SHA256",
+    "DEBIAN_TOOLS_LOCK_SHA256",
+    "DEBIAN_TOOLS_PYTHON_VERSION",
+    "DEBIAN_TOOLS_SNAPSHOT",
+    "DEBIAN_TOOLS_SNAPSHOT_URL",
+)
 load("//mkosi/debian:toolchain.bzl", "DebianToolsInfo")
 
 _qemu_ovmf_boot_config = qemu_ovmf_boot_config
@@ -102,7 +110,7 @@ def _provider_test_impl(ctx):
     asserts.equals(env, "--debian-tools-sha256", argv[7])
     asserts.equals(
         env,
-        "95049fee1d6eda13d3390aec5c473ab73e96dc7fe3b644ee58d941ecce2404e3",
+        DEBIAN_TOOLS_ARCHIVE_SHA256,
         argv[8],
     )
     kernel_preflight = argv.index("--kernel-preflight")
@@ -222,26 +230,26 @@ def _debian_tools_provider_test_impl(ctx):
     asserts.equals(env, "13", info.release)
     asserts.equals(
         env,
-        "95049fee1d6eda13d3390aec5c473ab73e96dc7fe3b644ee58d941ecce2404e3",
+        DEBIAN_TOOLS_ARCHIVE_SHA256,
         info.archive_sha256,
     )
     asserts.equals(env, "trixie", info.codename)
     asserts.equals(env, "amd64", info.architecture)
-    asserts.equals(env, "20260912T080811Z", info.snapshot)
+    asserts.equals(env, DEBIAN_TOOLS_SNAPSHOT, info.snapshot)
     asserts.equals(
         env,
-        "38c9e6d7e3585c0b6ce5ccd71b03eababc0d6e2a0f0ffce77d1e6843e11fb4d8",
+        DEBIAN_TOOLS_LOCK_SHA256,
         info.lock_sha256,
     )
     asserts.equals(
         env,
-        "https://snapshot.debian.org/archive/debian/20260912T080811Z",
+        DEBIAN_TOOLS_SNAPSHOT_URL,
         info.snapshot_url,
     )
     asserts.equals(env, "flat.tar", info.tree.basename)
     asserts.equals(env, "tree_root_root", info.tree_root.basename)
     asserts.equals(env, "launcher", info.launcher.executable.basename)
-    asserts.equals(env, "3.14.10", info.python_version)
+    asserts.equals(env, DEBIAN_TOOLS_PYTHON_VERSION, info.python_version)
     asserts.equals(env, "python", info.python.basename)
     asserts.true(env, info.launcher.executable != None)
     asserts.true(env, info.tree_files_to_run.executable == None)

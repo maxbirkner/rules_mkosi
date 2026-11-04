@@ -27,6 +27,30 @@ py_binary(
     main = "generate_lock.py",
 )
 
+py_binary(
+    name = "refresh_debian_tools",
+    srcs = [
+        "generate_lock.py",
+        "refresh_debian_tools.py",
+    ],
+    data = ["//mkosi/private:debian_control.py"],
+    main = "refresh_debian_tools.py",
+)
+
+py_test(
+    name = "refresh_debian_tools_test",
+    srcs = [
+        "generate_lock.py",
+        "refresh_debian_tools.py",
+        "refresh_debian_tools_test.py",
+    ],
+    data = [
+        "provenance.bzl",
+        "//mkosi/private:debian_control.py",
+    ],
+    main = "refresh_debian_tools_test.py",
+)
+
 py_test(
     name = "generate_lock_test",
     srcs = [

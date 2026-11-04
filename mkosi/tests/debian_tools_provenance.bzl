@@ -1,0 +1,16 @@
+"""Passes the built-in Debian tools provenance to Python tests, so they need no copies of its values."""
+
+load(
+    "//mkosi/debian:provenance.bzl",
+    "DEBIAN_TOOLS_ARCHIVE_SHA256",
+    "DEBIAN_TOOLS_LOCK_SHA256",
+    "DEBIAN_TOOLS_SNAPSHOT",
+    "DEBIAN_TOOLS_SNAPSHOT_URL",
+)
+
+DEBIAN_TOOLS_PROVENANCE_ENV = {
+    "DEBIAN_TOOLS_ARCHIVE_SHA256": DEBIAN_TOOLS_ARCHIVE_SHA256,
+    "DEBIAN_TOOLS_LOCK_SHA256": DEBIAN_TOOLS_LOCK_SHA256,
+    "DEBIAN_TOOLS_SNAPSHOT": DEBIAN_TOOLS_SNAPSHOT,
+    "DEBIAN_TOOLS_SNAPSHOT_URL": DEBIAN_TOOLS_SNAPSHOT_URL,
+}
