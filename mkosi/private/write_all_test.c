@@ -1,4 +1,7 @@
+/* Some toolchains already define _GNU_SOURCE on the command line. */
+#ifndef _GNU_SOURCE
 #define _GNU_SOURCE
+#endif
 
 #include "mkosi/private/write_all.h"
 

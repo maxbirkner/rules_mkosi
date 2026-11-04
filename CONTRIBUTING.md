@@ -60,6 +60,12 @@ Module-resolution fixtures have no lockfiles.
 Executable tests use only the semantic tags `requires-network`, `requires_kernel_contract`, and `manifest`.
 `manual` is reserved for analysis-test subjects that must not run on their own.
 
+### C and C++ helpers
+
+C and C++ targets use the warning flags in `mkosi/private/c_options.bzl`.
+`.bazelrc.warnings` turns them into errors for this repository and its fixtures, but not for consumers, whose compilers may warn differently.
+Fix warnings in code rather than suppressing them.
+
 ### Shell tests
 
 Write shell tests with `runfiles_sh_test` from `//mkosi/tests:runfiles_sh_test.bzl`.

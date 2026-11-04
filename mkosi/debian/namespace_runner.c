@@ -1,4 +1,7 @@
+/* Some toolchains already define _GNU_SOURCE on the command line. */
+#ifndef _GNU_SOURCE
 #define _GNU_SOURCE
+#endif
 
 #include <errno.h>
 #include <fcntl.h>
@@ -24,6 +27,8 @@
 
 #define ARRAY_SIZE(array) (sizeof(array) / sizeof((array)[0]))
 #define NORETURN __attribute__((noreturn))
+#define PRINTF_FORMAT(format_index, first_argument)                            \
+  __attribute__((format(printf, format_index, first_argument)))
 
 #define OLD_ROOT_NAME ".namespace-oldroot"
 
@@ -89,7 +94,7 @@ static const struct {
     {"PWD", "/workspace"},
 };
 
-NORETURN static void fail(const char *format, ...) {
+NORETURN PRINTF_FORMAT(1, 2) static void fail(const char *format, ...) {
   va_list arguments;
   va_start(arguments, format);
   vfprintf(stderr, format, arguments);
@@ -102,6 +107,7 @@ NORETURN static void fail_errno(const char *message) {
   fail("%s: %s", message, strerror(errno));
 }
 
+PRINTF_FORMAT(4, 5)
 static int format_or_fail(char *buffer, size_t size, const char *too_long,
                           const char *format, ...) {
   va_list arguments;
@@ -303,11 +309,12 @@ static int open_tree_path(const char *path, bool recursive) {
   if (recursive) {
     flags |= AT_RECURSIVE;
   }
-  int tree = syscall(SYS_open_tree, parent_fd, name, flags);
+  long tree = syscall(SYS_open_tree, parent_fd, name, flags);
   int error = errno;
   close(parent_fd);
   errno = error;
-  return tree;
+  /* open_tree returns a file descriptor or -1, both of which fit in int. */
+  return (int)tree;
 }
 
 static struct mount_identity identity_of(const struct stat *status) {

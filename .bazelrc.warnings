@@ -1,0 +1,4 @@
+# Turn the warnings that rules_mkosi's C and C++ helpers enable into errors for this repository's own builds and
+# fixtures. The targets keep only the warning flags, so consumers on other compilers are never broken by -Werror.
+build --per_file_copt=^(external/rules_mkosi[^/]*/)?mkosi/.*[.](c|cc)$@-Werror
+build --host_per_file_copt=^(external/rules_mkosi[^/]*/)?mkosi/.*[.](c|cc)$@-Werror
