@@ -43,6 +43,15 @@ py_test(
 )
 
 py_test(
+    name = "check_function_size_test",
+    srcs = [
+        "check_function_size.py",
+        "check_function_size_test.py",
+    ],
+    main = "check_function_size_test.py",
+)
+
+py_test(
     name = "image_environment_validator_test",
     srcs = [
         "image_environment_validator.py",

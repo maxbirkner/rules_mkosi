@@ -14,6 +14,7 @@ CI puts `bin` on `PATH` and runs every Bazel command through it.
 | `check_bazel_versions.py` | The copies of the Bazel versions in `.bazelversion` and `ci/bazel_versions.json` that must stay literal agree with them, and the BCR presubmit checks the lockfile strictly only with the default version. Runs as a prek hook. | `//ci:check_bazel_versions_test` |
 | `regen-lockfiles.sh` | With `--check`, every committed `MODULE.bazel.lock` is current for the Bazel version in `.bazelversion`; without it, regenerates them. | — |
 | `check-pr-title.sh` | A pull request title is a Conventional Commit subject of at most 100 characters, because it becomes the squashed commit message. | `//ci:check_pr_title_test` |
+| `check_function_size.py` | No Python or Starlark function exceeds 40 lines, counted from `def` to its last line. Longer existing functions are listed in `function_size_baseline.txt` and may only shrink; after shortening one, run `python3 ci/check_function_size.py --update-baseline`. Entries must not be added or raised compared with `HEAD`, or in CI with the merge base of the pull request (`--base-ref`). | `//ci:check_function_size_test` |
 | `check-starlark-coverage-support.sh` | Whether Bazel can report Starlark coverage; see [Starlark coverage status](../docs/starlark-coverage.md). | — |
 
 Workflow YAML is checked by `prek run --all-files`.

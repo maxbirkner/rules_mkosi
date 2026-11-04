@@ -34,6 +34,12 @@ repos:
         language: fail
         types:
           - binary
+      - id: function-size
+        name: function size
+        entry: python3 ci/check_function_size.py
+        language: system
+        files: \.(py|bzl)$|^ci/function_size_baseline\.txt$
+        pass_filenames: false
       - id: bazel-versions
         name: check Bazel version copies
         entry: python3 ci/check_bazel_versions.py

@@ -755,9 +755,15 @@ jobs:
   lint:
     name: prek
     runs-on: ubuntu-24.04
+    env:
+      # ci/check_function_size.py rejects baseline entries that the pull request adds or raises.
+      FUNCTION_SIZE_BASE_REF: ${{ github.event.pull_request.base.sha }}
     steps:
       - name: Check out repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          # The function-size check needs the merge base with the pull request's base commit.
+          fetch-depth: 0
 
       - name: Run prek
         uses: j178/prek-action@4e14d07f9231acabce116ccfca13b13dd9755ece # v3.0.0
