@@ -234,6 +234,7 @@ It has no authenticated or measured boot chain and is not qualified on physical 
 
 In release mode, `unified_kernel_image = "unsigned"` produces a UKI and `verity = "hash"` (which requires the UKI) produces a dm-verity protected root whose root hash is embedded in the UKI.
 Both require UEFI.
+Give the `Verity=hash` partition a size, such as `SizeMinBytes=`, or minimize it together with its data partition; the bundled `systemd-repart` does not reserve a default size for it.
 To sign the UKI outside Bazel, see [Secure Boot](docs/secure-boot.md).
 
 ### Two-stage releases
