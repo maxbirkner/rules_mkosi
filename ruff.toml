@@ -1,0 +1,22 @@
+# Host scripts such as tools/bazel and ci/action_graph_validator.py run on the CI runners' Python 3.10.
+target-version = "py310"
+line-length = 120
+
+[lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "C90", "PLR0911", "PLR0912", "PLR0913", "PLR0915", "RUF"]
+# printf-style and str.format() calls are left as they are; rewriting them to f-strings is churn without a defect.
+ignore = ["UP031", "UP032"]
+
+[lint.isort]
+# Upstream mkosi shares its top-level package name with this repository's mkosi/ directory.
+known-first-party = ["mkosi.debian", "mkosi.private", "mkosi.tests"]
+known-third-party = ["mkosi"]
+
+[lint.mccabe]
+max-complexity = 10
+
+[lint.pylint]
+max-args = 6
+max-branches = 12
+max-returns = 6
+max-statements = 50

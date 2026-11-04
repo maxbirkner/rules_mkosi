@@ -1,8 +1,8 @@
 """Boundary tests for embedded Authenticode import."""
 
-import json
-import importlib.util
 import hashlib
+import importlib.util
+import json
 import os
 import pathlib
 import shutil
@@ -12,7 +12,6 @@ import sys
 import unittest
 from types import SimpleNamespace
 from unittest import mock
-
 
 TOOL, DEBIAN_TOOLS = sys.argv[1:3]
 SPEC = importlib.util.spec_from_file_location("secure_boot", TOOL)
@@ -36,9 +35,9 @@ def minimal_pe(marker=b"requested UKI"):
     struct.pack_into("<H", data, optional + 68, 10)
     struct.pack_into("<I", data, optional + 108, 16)
     section = optional + 0xF0
-    data[section:section + 8] = b".linux\0\0"
+    data[section : section + 8] = b".linux\0\0"
     struct.pack_into("<IIII", data, section + 8, 0x200, 0x1000, 0x200, 0x200)
-    data[0x200:0x200 + len(marker)] = marker
+    data[0x200 : 0x200 + len(marker)] = marker
     return bytes(data)
 
 
@@ -55,26 +54,41 @@ class SecureBootBoundaryTest(unittest.TestCase):
         self.other_signed = self.work / "same-layout-other-signed.efi"
         self.run_tool(
             "ephemeral-fixture",
-            "--openssl", DEBIAN_TOOLS,
-            "--sbsign", DEBIAN_TOOLS,
-            "--unsigned-uki", self.unsigned,
-            "--certificate", self.cert,
-            "--signed-uki", self.signed,
-            "--scratch", self.work / "private-scratch",
-            "--other-unsigned", self.other_unsigned,
-            "--other-signed", self.other_signed,
+            "--openssl",
+            DEBIAN_TOOLS,
+            "--sbsign",
+            DEBIAN_TOOLS,
+            "--unsigned-uki",
+            self.unsigned,
+            "--certificate",
+            self.cert,
+            "--signed-uki",
+            self.signed,
+            "--scratch",
+            self.work / "private-scratch",
+            "--other-unsigned",
+            self.other_unsigned,
+            "--other-signed",
+            self.other_signed,
         )
         self.request = self.work / "request.json"
         self.request_digest = self.work / "request.sha256"
         self.run_tool(
             "request",
-            "--openssl", DEBIAN_TOOLS,
-            "--unsigned-uki", self.unsigned,
-            "--certificate", self.cert,
-            "--certificate-output", self.work / "normalized-certificate.der",
-            "--algorithm", "authenticode-sha256",
-            "--output", self.request,
-            "--digest-output", self.request_digest,
+            "--openssl",
+            DEBIAN_TOOLS,
+            "--unsigned-uki",
+            self.unsigned,
+            "--certificate",
+            self.cert,
+            "--certificate-output",
+            self.work / "normalized-certificate.der",
+            "--algorithm",
+            "authenticode-sha256",
+            "--output",
+            self.request,
+            "--digest-output",
+            self.request_digest,
         )
         self.normalized_certificate = self.work / "normalized-certificate.der"
 
@@ -91,18 +105,30 @@ class SecureBootBoundaryTest(unittest.TestCase):
     def verify(self, signed=None, request=None, certificate=None):
         return self.run_tool(
             "verify",
-            "--openssl", DEBIAN_TOOLS,
-            "--request", request or self.request,
-            "--request-digest", self.request_digest,
-            "--unsigned-uki", self.unsigned,
-            "--signed-uki", signed or self.signed,
-            "--certificate", certificate or self.cert,
-            "--expected-pem", self.work / "expected-certificate.pem",
-            "--pkcs7", self.work / "signature.der",
-            "--content", self.work / "content.bin",
-            "--verified-signer", self.work / "verified-signer.pem",
-            "--output", self.work / "verified.efi",
-            "--metadata", self.work / "verification.json",
+            "--openssl",
+            DEBIAN_TOOLS,
+            "--request",
+            request or self.request,
+            "--request-digest",
+            self.request_digest,
+            "--unsigned-uki",
+            self.unsigned,
+            "--signed-uki",
+            signed or self.signed,
+            "--certificate",
+            certificate or self.cert,
+            "--expected-pem",
+            self.work / "expected-certificate.pem",
+            "--pkcs7",
+            self.work / "signature.der",
+            "--content",
+            self.work / "content.bin",
+            "--verified-signer",
+            self.work / "verified-signer.pem",
+            "--output",
+            self.work / "verified.efi",
+            "--metadata",
+            self.work / "verification.json",
             check=False,
         )
 
@@ -162,9 +188,9 @@ class SecureBootBoundaryTest(unittest.TestCase):
         original = self.signed.read_bytes()
         _, _, certificate_offset, certificate_size = self._security(original)
         for name, data in {
-            "bounds": original[:certificate_offset + certificate_size - 1],
+            "bounds": original[: certificate_offset + certificate_size - 1],
             "trailing": original + b"x",
-            "duplicate": original + original[certificate_offset:certificate_offset + certificate_size],
+            "duplicate": original + original[certificate_offset : certificate_offset + certificate_size],
         }.items():
             candidate = bytearray(data)
             if name == "duplicate":
@@ -186,13 +212,20 @@ class SecureBootBoundaryTest(unittest.TestCase):
             path.write_bytes(candidate)
             result = self.run_tool(
                 "request",
-                "--openssl", DEBIAN_TOOLS,
-                "--unsigned-uki", path,
-                "--certificate", self.cert,
-                "--certificate-output", self.work / (name + ".pem.normalized"),
-                "--algorithm", "authenticode-sha256",
-                "--output", self.work / (name + ".json"),
-                "--digest-output", self.work / (name + ".sha256"),
+                "--openssl",
+                DEBIAN_TOOLS,
+                "--unsigned-uki",
+                path,
+                "--certificate",
+                self.cert,
+                "--certificate-output",
+                self.work / (name + ".pem.normalized"),
+                "--algorithm",
+                "authenticode-sha256",
+                "--output",
+                self.work / (name + ".json"),
+                "--digest-output",
+                self.work / (name + ".sha256"),
                 check=False,
             )
             self.assertNotEqual(result.returncode, 0, name)
@@ -204,12 +237,18 @@ class SecureBootBoundaryTest(unittest.TestCase):
         other_signed = self.work / "other-signed.efi"
         self.run_tool(
             "ephemeral-fixture",
-            "--openssl", DEBIAN_TOOLS,
-            "--sbsign", DEBIAN_TOOLS,
-            "--unsigned-uki", other_unsigned,
-            "--certificate", other_cert,
-            "--signed-uki", other_signed,
-            "--scratch", self.work / "other-private",
+            "--openssl",
+            DEBIAN_TOOLS,
+            "--sbsign",
+            DEBIAN_TOOLS,
+            "--unsigned-uki",
+            other_unsigned,
+            "--certificate",
+            other_cert,
+            "--signed-uki",
+            other_signed,
+            "--scratch",
+            self.work / "other-private",
         )
         self.assertIn("certificate", self.verify(certificate=other_cert).stderr)
         self.assertNotEqual(self.verify(signed=other_signed).returncode, 0)
@@ -223,12 +262,18 @@ class SecureBootBoundaryTest(unittest.TestCase):
         other_cert = self.work / "bundle-other.pem"
         self.run_tool(
             "ephemeral-fixture",
-            "--openssl", DEBIAN_TOOLS,
-            "--sbsign", DEBIAN_TOOLS,
-            "--unsigned-uki", self.other_unsigned,
-            "--certificate", other_cert,
-            "--signed-uki", self.work / "bundle-other-signed.efi",
-            "--scratch", self.work / "bundle-other-private",
+            "--openssl",
+            DEBIAN_TOOLS,
+            "--sbsign",
+            DEBIAN_TOOLS,
+            "--unsigned-uki",
+            self.other_unsigned,
+            "--certificate",
+            other_cert,
+            "--signed-uki",
+            self.work / "bundle-other-signed.efi",
+            "--scratch",
+            self.work / "bundle-other-private",
         )
         first = self.cert.read_bytes()
         second = other_cert.read_bytes()
@@ -242,13 +287,20 @@ class SecureBootBoundaryTest(unittest.TestCase):
             path.write_bytes(certificate)
             result = self.run_tool(
                 "request",
-                "--openssl", DEBIAN_TOOLS,
-                "--unsigned-uki", self.unsigned,
-                "--certificate", path,
-                "--certificate-output", self.work / (name + ".pem.normalized"),
-                "--algorithm", "authenticode-sha256",
-                "--output", self.work / (name + ".json"),
-                "--digest-output", self.work / (name + ".sha256"),
+                "--openssl",
+                DEBIAN_TOOLS,
+                "--unsigned-uki",
+                self.unsigned,
+                "--certificate",
+                path,
+                "--certificate-output",
+                self.work / (name + ".pem.normalized"),
+                "--algorithm",
+                "authenticode-sha256",
+                "--output",
+                self.work / (name + ".json"),
+                "--digest-output",
+                self.work / (name + ".sha256"),
                 check=False,
             )
             self.assertIn("certificate", result.stderr)
@@ -262,26 +314,40 @@ class SecureBootBoundaryTest(unittest.TestCase):
             certificate.write_bytes(value)
             result = self.run_tool(
                 "request",
-                "--openssl", DEBIAN_TOOLS,
-                "--unsigned-uki", self.unsigned,
-                "--certificate", certificate,
-                "--certificate-output", self.work / (name + ".normalized.der"),
-                "--algorithm", "authenticode-sha256",
-                "--output", self.work / (name + ".json"),
-                "--digest-output", self.work / (name + ".sha256"),
+                "--openssl",
+                DEBIAN_TOOLS,
+                "--unsigned-uki",
+                self.unsigned,
+                "--certificate",
+                certificate,
+                "--certificate-output",
+                self.work / (name + ".normalized.der"),
+                "--algorithm",
+                "authenticode-sha256",
+                "--output",
+                self.work / (name + ".json"),
+                "--digest-output",
+                self.work / (name + ".sha256"),
                 check=False,
             )
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("invalid X.509 certificate", result.stderr)
         result = self.run_tool(
             "request",
-            "--openssl", DEBIAN_TOOLS,
-            "--unsigned-uki", self.unsigned,
-            "--certificate", self.work / "normalized-certificate.der",
-            "--certificate-output", self.work / "der-positive.der",
-            "--algorithm", "authenticode-sha256",
-            "--output", self.work / "der-positive.json",
-            "--digest-output", self.work / "der-positive.sha256",
+            "--openssl",
+            DEBIAN_TOOLS,
+            "--unsigned-uki",
+            self.unsigned,
+            "--certificate",
+            self.work / "normalized-certificate.der",
+            "--certificate-output",
+            self.work / "der-positive.der",
+            "--algorithm",
+            "authenticode-sha256",
+            "--output",
+            self.work / "der-positive.json",
+            "--digest-output",
+            self.work / "der-positive.sha256",
             check=False,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -330,7 +396,7 @@ class SecureBootBoundaryTest(unittest.TestCase):
         _, _, source_offset, source_size = self._security(other)
         _, _, target_offset, target_size = self._security(original)
         self.assertEqual((source_offset, source_size), (target_offset, target_size))
-        original[target_offset:target_offset + target_size] = other[source_offset:source_offset + source_size]
+        original[target_offset : target_offset + target_size] = other[source_offset : source_offset + source_size]
         transplanted = self.work / "transplanted.efi"
         transplanted.write_bytes(original)
         self.assertNotEqual(self.verify(transplanted).returncode, 0)

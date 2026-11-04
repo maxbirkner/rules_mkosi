@@ -41,20 +41,14 @@ class ActionGraphValidatorTest(unittest.TestCase):
             validate_action_environment(self.action("gcc"), {"source.cc"})
 
     def test_accepts_declared_hermetic_zig_tool(self):
-        executable = (
-            "external/hermetic_cc_toolchain++toolchains+zig_config/"
-            "tools/x86_64-linux-musl/c++"
-        )
+        executable = "external/hermetic_cc_toolchain++toolchains+zig_config/tools/x86_64-linux-musl/c++"
         validate_action_environment(
             self.action(executable),
             {executable, "source.cc"},
         )
 
     def test_accepts_declared_hermetic_archiver(self):
-        executable = (
-            "external/hermetic_cc_toolchain++toolchains+zig_config/"
-            "tools/x86_64-linux-musl/ar"
-        )
+        executable = "external/hermetic_cc_toolchain++toolchains+zig_config/tools/x86_64-linux-musl/ar"
         validate_action_environment(
             self.action(executable, mnemonic="CppArchive"),
             {executable, "source.cc"},

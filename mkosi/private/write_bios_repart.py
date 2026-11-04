@@ -11,10 +11,7 @@ gpt = _load_sibling(__file__, "gpt_partitions")
 _DEFINITIONS = (
     (
         "00-bios-boot.conf",
-        "[Partition]\n"
-        f"Type={gpt.BIOS_BOOT}\n"
-        "SizeMinBytes=1M\n"
-        "SizeMaxBytes=1M\n",
+        f"[Partition]\nType={gpt.BIOS_BOOT}\nSizeMinBytes=1M\nSizeMaxBytes=1M\n",
     ),
     # mkosi v27's GRUB BIOS installer also requires an ESP as the location for
     # the generated GRUB configuration, even though firmware never executes it.
@@ -30,11 +27,7 @@ _DEFINITIONS = (
     ),
     (
         "02-root.conf",
-        "[Partition]\n"
-        "Type=root-x86-64\n"
-        "Format=ext4\n"
-        "CopyFiles=/:/\n"
-        "SizeMinBytes=512M\n",
+        "[Partition]\nType=root-x86-64\nFormat=ext4\nCopyFiles=/:/\nSizeMinBytes=512M\n",
     ),
 )
 
