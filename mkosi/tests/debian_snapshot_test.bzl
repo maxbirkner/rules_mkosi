@@ -2,6 +2,12 @@
 
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts")
 load("//mkosi:defs.bzl", "DebianSnapshotInfo")
+load(
+    "//mkosi/debian:provenance.bzl",
+    "DEBIAN_TOOLS_LOCK_SHA256",
+    "DEBIAN_TOOLS_SNAPSHOT",
+    "DEBIAN_TOOLS_SNAPSHOT_URL",
+)
 
 def _provider_test_impl(ctx):
     env = analysistest.begin(ctx)
@@ -14,20 +20,20 @@ def _provider_test_impl(ctx):
     asserts.equals(env, "trixie", info.codename)
     asserts.equals(env, "amd64", info.architecture)
     asserts.equals(env, ["main"], info.components)
-    asserts.equals(env, "20260912T080811Z", info.snapshot)
+    asserts.equals(env, DEBIAN_TOOLS_SNAPSHOT, info.snapshot)
     asserts.equals(
         env,
-        "https://snapshot.debian.org/archive/debian/20260912T080811Z",
+        DEBIAN_TOOLS_SNAPSHOT_URL,
         info.snapshot_url,
     )
     asserts.equals(
         env,
-        "38c9e6d7e3585c0b6ce5ccd71b03eababc0d6e2a0f0ffce77d1e6843e11fb4d8",
+        DEBIAN_TOOLS_LOCK_SHA256,
         info.lock_sha256,
     )
     asserts.equals(env, "repository_repository", info.repository.basename)
     asserts.equals(env, "inrelease", info.inrelease.basename)
-    asserts.equals(env, 191, len(info.package_files.to_list()))
+    asserts.equals(env, ctx.files.locked_packages, info.package_files.to_list())
     actions = analysistest.target_actions(env)
     asserts.equals(env, 1, len(actions))
     asserts.equals(env, "StageDebianSnapshot", actions[0].mnemonic)
@@ -50,4 +56,7 @@ def _assert_isolated_static_python(env, action):
         action.env,
     )
 
-debian_snapshot_provider_test = analysistest.make(_provider_test_impl)
+debian_snapshot_provider_test = analysistest.make(
+    _provider_test_impl,
+    attrs = {"locked_packages": attr.label(default = "@mkosi_debian_package_inputs//:all")},
+)
