@@ -23,6 +23,11 @@ The check runs [jscpd](https://github.com/kucherenko/jscpd) with the settings in
 Move shared code into a helper instead of ignoring a clone.
 System `#include` lines and `MODULE.bazel` files, which cannot share code, are not compared.
 
+## Type checking
+
+`prek run --all-files` type-checks the Python files in `ci/`, `mkosi/`, and `tools/` with [mypy](https://mypy-lang.org/) and the settings in `mypy.ini`.
+Only annotated functions are checked, so adding type annotations to a function opts it in.
+
 ## Manual image artifacts
 
 Run the `CI` workflow manually with **Upload artifacts** enabled to download the release test disk, its build and partition metadata, and its reproducibility manifest with a `SHA256SUMS` file.

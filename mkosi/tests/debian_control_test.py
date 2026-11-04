@@ -7,6 +7,7 @@ import unittest
 _SPEC = importlib.util.spec_from_file_location(
     "debian_control", pathlib.Path(__file__).resolve().parent.parent / "private/debian_control.py"
 )
+assert _SPEC is not None and _SPEC.loader is not None
 debian_control = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(debian_control)
 

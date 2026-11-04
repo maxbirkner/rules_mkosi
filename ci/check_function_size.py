@@ -96,13 +96,13 @@ def violations(lengths: Mapping[str, int], baseline: Mapping[str, int], max_line
         elif key not in baseline and length > max_lines:
             errors.append("%s: %d lines exceeds the %d-line limit" % (key, length, max_lines))
     for key, allowed in sorted(baseline.items()):
-        length = lengths.get(key)
-        if length is None:
+        current = lengths.get(key)
+        if current is None:
             errors.append("%s: function no longer exists; remove its baseline entry" % key)
-        elif length <= max_lines:
-            errors.append("%s: now %d lines and within the limit; remove its baseline entry" % (key, length))
-        elif length < allowed:
-            errors.append("%s: shrank to %d lines; lower its baseline entry from %d" % (key, length, allowed))
+        elif current <= max_lines:
+            errors.append("%s: now %d lines and within the limit; remove its baseline entry" % (key, current))
+        elif current < allowed:
+            errors.append("%s: shrank to %d lines; lower its baseline entry from %d" % (key, current, allowed))
     return errors
 
 

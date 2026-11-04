@@ -13,6 +13,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).parent))
 from bounded_reads import BoundedReader
 
 spec = importlib.util.spec_from_file_location("projection", sys.argv[1])
+assert spec is not None and spec.loader is not None
 projection = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(projection)
 
