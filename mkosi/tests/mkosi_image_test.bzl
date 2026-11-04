@@ -126,9 +126,9 @@ def _provider_test_impl(ctx):
     workspace = argv.index("--workspace-directory")
     asserts.true(env, argv[workspace + 1].endswith("/.{}-mkosi".format(ctx.attr.expected_name)))
     expected_suffixes = {
+        "--build-directory": "/build",
         "--cache-directory": "/cache",
         "--package-cache-directory": "/package-cache",
-        "--build-directory": "/build",
     }
     for option in expected_suffixes:
         asserts.true(env, option in argv)
@@ -410,11 +410,11 @@ def _image_info_fixture_impl(ctx):
 _image_info_fixture = rule(
     implementation = _image_info_fixture_impl,
     attrs = {
-        "raw_image": attr.bool(mandatory = True),
+        "build_metadata": attr.bool(mandatory = True),
         "manifest": attr.bool(mandatory = True),
         "partition_metadata": attr.bool(mandatory = True),
+        "raw_image": attr.bool(mandatory = True),
         "uki": attr.bool(mandatory = True),
-        "build_metadata": attr.bool(mandatory = True),
     },
 )
 
@@ -450,11 +450,11 @@ def _image_info_contract_test_impl(ctx):
 _image_info_contract_test = analysistest.make(
     _image_info_contract_test_impl,
     attrs = {
-        "expect_raw_image": attr.bool(mandatory = True),
+        "expect_build_metadata": attr.bool(mandatory = True),
         "expect_manifest": attr.bool(mandatory = True),
         "expect_partition_metadata": attr.bool(mandatory = True),
+        "expect_raw_image": attr.bool(mandatory = True),
         "expect_uki": attr.bool(mandatory = True),
-        "expect_build_metadata": attr.bool(mandatory = True),
     },
 )
 
@@ -687,10 +687,10 @@ def _boot_deadline_provider_test_impl(ctx):
 _boot_deadline_provider_test = analysistest.make(
     _boot_deadline_provider_test_impl,
     attrs = {
-        "expected_timeout": attr.string(mandatory = True),
-        "expected_qmp": attr.int(mandatory = True),
         "expected_boot": attr.int(mandatory = True),
+        "expected_qmp": attr.int(mandatory = True),
         "expected_shutdown": attr.int(mandatory = True),
+        "expected_timeout": attr.string(mandatory = True),
     },
 )
 
