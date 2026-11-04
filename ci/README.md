@@ -11,6 +11,7 @@ CI puts `bin` on `PATH` and runs every Bazel command through it.
 | `image_environment_validator.py` | Every environment variable of the mkosi image actions has an expected value, so host-dependent variables cannot slip in. | `//ci:image_environment_validator_test` |
 | `verify-two-stage-cache.sh`, `verify_two_stage_cache.py` | A second stamped version of `//mkosi/tests:two_stage_release` re-executes only the finalizing `MkosiImage` action, not `MkosiBase`. | `//ci:verify_two_stage_cache_test` |
 | `verify-release-reproducibility.sh`, `verify_reproducibility_execution.py` | Two clean builds of the release images produce identical reproducibility manifests and base digests, and every image action actually executed. | `//ci:verify_reproducibility_execution_test` |
+| `regen-lockfiles.sh` | With `--check`, every committed `MODULE.bazel.lock` is current for the Bazel version in `.bazelversion`; without it, regenerates them. | — |
 | `check-pr-title.sh` | A pull request title is a Conventional Commit subject of at most 100 characters, because it becomes the squashed commit message. | `//ci:check_pr_title_test` |
 | `check-starlark-coverage-support.sh` | Whether Bazel can report Starlark coverage; see [Starlark coverage status](../docs/starlark-coverage.md). | — |
 
