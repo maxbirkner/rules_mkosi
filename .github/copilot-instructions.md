@@ -27,7 +27,7 @@ Linux images with mkosi.
   Executed output behavior also needs an artifact test and coverage in the
   independent `e2e/smoke` consumer module.
 - `MODULE.bazel.lock` files are generated, committed artifacts. Regenerate
-  them deliberately with Bazel 8.8.2; never edit them manually. Bazel 9
+  them with `ci/regen-lockfiles.sh`; never edit them manually. Bazel 9
   compatibility commands may use lockfile mode off, but CI must never update
   committed lockfiles.
 - Keep GitHub Actions permissions minimal and pin third-party actions to full
