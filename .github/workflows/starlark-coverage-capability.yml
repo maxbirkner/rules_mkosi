@@ -11,7 +11,7 @@ permissions:
 jobs:
   bazel-versions:
     name: Bazel versions
-    uses: ./.github/workflows/bazel-versions.yml
+    uses: ./.github/workflows/read-bazel-versions.yml
 
   probe:
     name: Bazel ${{ matrix.bazel }}

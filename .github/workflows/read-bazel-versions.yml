@@ -1,0 +1,36 @@
+name: Read Bazel versions
+
+on:
+  workflow_call:
+    outputs:
+      default:
+        description: The default Bazel version from .bazelversion.
+        value: ${{ jobs.read.outputs.default }}
+      tested:
+        description: JSON array of every tested Bazel version from ci/bazel_versions.json.
+        value: ${{ jobs.read.outputs.tested }}
+
+permissions:
+  contents: read
+
+jobs:
+  read:
+    name: Read
+    runs-on: ubuntu-24.04
+    outputs:
+      default: ${{ steps.read.outputs.default }}
+      tested: ${{ steps.read.outputs.tested }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          sparse-checkout: |
+            .bazelversion
+            ci/bazel_versions.json
+          sparse-checkout-cone-mode: false
+
+      - name: Read Bazel versions
+        id: read
+        run: |-
+          echo "default=$(cat .bazelversion)" >> "$GITHUB_OUTPUT"
+          echo "tested=$(jq -c . ci/bazel_versions.json)" >> "$GITHUB_OUTPUT"
