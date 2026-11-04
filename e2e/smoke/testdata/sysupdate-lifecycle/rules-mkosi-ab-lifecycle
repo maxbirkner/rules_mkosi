@@ -24,10 +24,12 @@ install_release() {
     systemctl reboot --no-block
 }
 
+# shellcheck source=/dev/null # os-release only exists inside the guest image.
 . /usr/lib/os-release
 esp=$(bootctl --print-esp-path)
 roothash=
-for argument in $(cat /proc/cmdline); do
+read -r cmdline < /proc/cmdline
+for argument in ${cmdline}; do
     case "${argument}" in
     roothash=*) roothash="${argument#roothash=}" ;;
     esac
