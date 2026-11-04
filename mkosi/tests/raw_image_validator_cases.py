@@ -19,21 +19,15 @@ def gpt_image():
     data[446 + 4] = 0xEE
     struct.pack_into("<II", data, 446 + 8, 1, total_sectors - 1)
 
-    partition_array = bytearray(
-        raw_image_validator.GPT_ENTRY_COUNT * raw_image_validator.GPT_ENTRY_SIZE
-    )
+    partition_array = bytearray(raw_image_validator.GPT_ENTRY_COUNT * raw_image_validator.GPT_ENTRY_SIZE)
     partition_array[:16] = raw_image_validator.LINUX_ROOT_X86_64
     partition_array[16:32] = uuid.UUID(int=1).bytes_le
     struct.pack_into("<QQ", partition_array, 32, first_usable, last_usable)
     array_crc = zlib.crc32(partition_array) & 0xFFFFFFFF
     primary_array_lba = 2
     backup_array_lba = total_sectors - 1 - len(partition_array) // 512
-    data[
-        primary_array_lba * 512 : primary_array_lba * 512 + len(partition_array)
-    ] = partition_array
-    data[
-        backup_array_lba * 512 : backup_array_lba * 512 + len(partition_array)
-    ] = partition_array
+    data[primary_array_lba * 512 : primary_array_lba * 512 + len(partition_array)] = partition_array
+    data[backup_array_lba * 512 : backup_array_lba * 512 + len(partition_array)] = partition_array
     disk_guid = uuid.UUID(int=2).bytes_le
 
     def write_header(lba, backup_lba, array_lba):
@@ -98,12 +92,8 @@ def fake_ext4_root(image, include_data=True, junk=False):
         block_bitmap[block // 8] |= 1 << (block % 8)
     inode_bitmap = bytearray(block_size)
     inode_bitmap[0] = 1 << 1
-    image[
-        partition_offset + 2 * block_size : partition_offset + 3 * block_size
-    ] = block_bitmap
-    image[
-        partition_offset + 3 * block_size : partition_offset + 4 * block_size
-    ] = inode_bitmap
+    image[partition_offset + 2 * block_size : partition_offset + 3 * block_size] = block_bitmap
+    image[partition_offset + 3 * block_size : partition_offset + 4 * block_size] = inode_bitmap
 
     inode = bytearray(256)
     struct.pack_into("<H", inode, 0, 0x41ED)
@@ -123,9 +113,7 @@ def fake_ext4_root(image, include_data=True, junk=False):
         if junk:
             struct.pack_into("<IHBB", root_data, 24, 3, block_size - 24, 4, 8)
             root_data[32:36] = b"junk"
-        image[
-            partition_offset + 5 * block_size : partition_offset + 6 * block_size
-        ] = root_data
+        image[partition_offset + 5 * block_size : partition_offset + 6 * block_size] = root_data
     return image
 
 

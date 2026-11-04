@@ -61,21 +61,13 @@ def _inside_root(root, path):
 
 def _require_directory(root, relative, allow_symlink=False):
     path = os.path.join(root, relative.lstrip("/"))
-    if (
-        not os.path.isdir(path)
-        or (os.path.islink(path) and not allow_symlink)
-        or not _inside_root(root, path)
-    ):
+    if not os.path.isdir(path) or (os.path.islink(path) and not allow_symlink) or not _inside_root(root, path):
         raise RuntimeError("Debian tools root has an invalid directory: %s" % relative)
 
 
 def _require_executable(root, relative, description):
     path = os.path.join(root, relative.lstrip("/"))
-    if (
-        not os.path.isfile(path)
-        or not os.access(path, os.X_OK)
-        or not _inside_root(root, path)
-    ):
+    if not os.path.isfile(path) or not os.access(path, os.X_OK) or not _inside_root(root, path):
         raise RuntimeError("%s is missing or not executable: %s" % (description, relative))
     return path
 
@@ -215,7 +207,6 @@ def _prepare_mountpoint(base, destination, source_is_directory):
         os.chmod(path, 0o644)
 
 
-
 def _scratch_parent_setting():
     scratch_parent = os.environ.get("MKOSI_DEBIAN_TOOLS_SCRATCH") or os.environ.get("TEST_TMPDIR")
     if not scratch_parent:
@@ -261,9 +252,7 @@ def _runtime_files():
     if config.get("format_version") != "debian-launcher-v1":
         raise RuntimeError("unsupported Debian launcher configuration")
     archive_sha256 = config.get("archive_sha256", "")
-    if len(archive_sha256) != 64 or any(
-        character not in "0123456789abcdef" for character in archive_sha256
-    ):
+    if len(archive_sha256) != 64 or any(character not in "0123456789abcdef" for character in archive_sha256):
         raise RuntimeError("Debian launcher archive digest is invalid")
     return RuntimeFiles(
         archive=_required_runfile(resolver, _RUNFILES["archive"]),
@@ -356,7 +345,7 @@ def _prepare_rw_mountpoints(workspace, outputs, rw_binds):
         prefix = "/workspace" if base == workspace else "/outputs"
         _prepare_mountpoint(
             base,
-            destination[len(prefix):] or "/",
+            destination[len(prefix) :] or "/",
             source_is_directory,
         )
 

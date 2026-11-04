@@ -84,15 +84,8 @@ class BazelWrapperTest(unittest.TestCase):
             [],
         )
         self.assertEqual(
-            [
-                shlex.split(line)
-                for line in rc.read_text(encoding="utf-8").splitlines()
-                if not line.startswith("#")
-            ],
-            [
-                [command, f"--disk_cache={root}/.cache/bazel-disk"]
-                for command in ("build", "info", "query")
-            ],
+            [shlex.split(line) for line in rc.read_text(encoding="utf-8").splitlines() if not line.startswith("#")],
+            [[command, f"--disk_cache={root}/.cache/bazel-disk"] for command in ("build", "info", "query")],
         )
         return f"--bazelrc={rc}"
 

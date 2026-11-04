@@ -17,9 +17,7 @@ def _runfile(path: str) -> pathlib.Path:
         path = path[3:]
     elif not path.startswith("external/"):
         path = os.path.join(os.environ["TEST_WORKSPACE"], path)
-    return pathlib.Path(
-        runfiles.Create().Rlocation(path)
-    )
+    return pathlib.Path(runfiles.Create().Rlocation(path))
 
 
 def _root_partition(image: pathlib.Path, destination: pathlib.Path) -> None:
@@ -59,9 +57,7 @@ def main() -> None:
     }
     environment.update(
         {
-            "MKOSI_DEBIAN_TOOLS_SCRATCH": os.path.join(
-                os.environ["TEST_TMPDIR"], "release-apt-sources"
-            ),
+            "MKOSI_DEBIAN_TOOLS_SCRATCH": os.path.join(os.environ["TEST_TMPDIR"], "release-apt-sources"),
             "PATH": "",
         }
     )
