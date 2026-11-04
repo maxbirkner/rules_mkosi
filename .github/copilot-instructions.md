@@ -51,4 +51,4 @@ Linux images with mkosi.
   merges its own pull request.
 
 When compatibility-sensitive Starlark changes are made, repeat the root and
-consumer suites with `USE_BAZEL_VERSION=8.8.2`.
+consumer suites with every version in `ci/bazel_versions.json`.
