@@ -12,7 +12,7 @@ Bazel rules for building bootable Linux OS images with [mkosi](https://github.co
 
 | Requirement | Supported |
 | --- | --- |
-| Bazel | 8 and 9 (the current and previous LTS majors); CI tests 8.8.2 and 9.3.1. The minimum is 8.8.2. |
+| Bazel | 8 and 9 (the current and previous LTS majors). The minimum is 8.8.2. |
 | Execution platform | Linux x86-64, kernel 5.12 or newer, unprivileged user and mount namespaces under Bazel's Linux sandbox (see [host-kernel contract](docs/design/0004-host-kernel-contract.md)). |
 | Bazel server | Started without supplementary groups (see [below](#run-bazel-without-supplementary-groups)). |
 | Images | Debian 13 (trixie), amd64. |

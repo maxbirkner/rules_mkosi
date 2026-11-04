@@ -24,7 +24,7 @@ problems. Check:
    inputs and timestamps are pinned; output names and providers are stable.
 7. **Tests:** behavior is covered by analysis tests, executed artifact tests,
    and the independent `e2e/smoke` module where it affects consumers.
-8. **Lockfiles:** generated with Bazel 8.8.2 and changed only when module
+8. **Lockfiles:** generated with the Bazel version in `.bazelversion` and changed only when module
    resolution changed; they were not edited manually and CI never updates
    them. Bazel 9 compatibility commands may use lockfile mode off.
 9. **CI:** action references remain full commit SHAs, permissions remain

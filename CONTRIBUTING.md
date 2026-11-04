@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- Bazelisk, or the Bazel version in `.bazelversion` (8.8.2).
+- Bazelisk, or the Bazel version in `.bazelversion`.
 - [`prek`](https://prek.j178.dev/) 0.5 or newer.
 - Optional: [ShellCheck](https://www.shellcheck.net/) on `PATH`, so prek's actionlint hook also checks workflow `run:` scripts as CI does.
 - Host Python 3.11 or newer, only for the [`tools/bazel`](tools/README.md) wrapper.
@@ -31,14 +31,17 @@ See [`e2e/README.md`](e2e/README.md) for the consumer and module-resolution fixt
 
 ### Bazel versions and lockfiles
 
-Bazel 8.8.2 is the default and uses `--lockfile_mode=error` for both committed lockfiles (`MODULE.bazel.lock` and `e2e/smoke/MODULE.bazel.lock`).
-Test Bazel 9 without rewriting them:
+The Bazel version in `.bazelversion` is the default and uses `--lockfile_mode=error` for both committed lockfiles (`MODULE.bazel.lock` and `e2e/smoke/MODULE.bazel.lock`).
+CI also tests every other version in `ci/bazel_versions.json`; the lowest one is the supported minimum.
+Test Bazel 9 without rewriting the lockfiles:
 
 ```console
-USE_BAZEL_VERSION=9.3.1 bazel test --config=portable --config=bazel9 //...
+USE_BAZEL_VERSION=9.x bazel test --config=portable --config=bazel9 //...
 ```
 
-When dependencies change, regenerate both lockfiles with Bazel 8.8.2 by running `bazel mod deps --lockfile_mode=update` in the root and in `e2e/smoke`.
+To change a Bazel version, edit `.bazelversion` or `ci/bazel_versions.json`, then fix the copies that the `bazel-versions` prek hook reports.
+
+When dependencies change, regenerate both lockfiles with the default Bazel version by running `bazel mod deps --lockfile_mode=update` in the root and in `e2e/smoke`.
 Other commands in update mode can drop the entries of extensions they do not evaluate, which `--lockfile_mode=error` then reports as missing.
 Never edit lockfiles by hand.
 Module-resolution fixtures have no lockfiles.
