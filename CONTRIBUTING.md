@@ -39,7 +39,7 @@ Test Bazel 9 without rewriting the lockfiles:
 USE_BAZEL_VERSION=9.x bazel test --config=portable --config=bazel9 //...
 ```
 
-To change a Bazel version, edit `.bazelversion` or `ci/bazel_versions.json`, then fix the copies that the `bazel-versions` prek hook reports.
+To change a Bazel version, edit `.bazelversion` or `ci/bazel_versions.json`, then update the copies that the `bazel-versions` prek hook checks.
 
 When dependencies change, regenerate both lockfiles with the default Bazel version by running `bazel mod deps --lockfile_mode=update` in the root and in `e2e/smoke`.
 Other commands in update mode can drop the entries of extensions they do not evaluate, which `--lockfile_mode=error` then reports as missing.

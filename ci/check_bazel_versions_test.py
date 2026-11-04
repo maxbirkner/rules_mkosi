@@ -7,7 +7,21 @@ import tempfile
 import unittest
 
 sys.path.insert(0, str(pathlib.Path(__file__).parent))
-from check_bazel_versions import check_copies, find_stray_copies, load_versions
+from check_bazel_versions import check_copies, check_presubmit, load_versions
+
+
+def presubmit(*tasks: tuple[str, str]) -> str:
+    """Returns a BCR presubmit with one task per Bazel version and lockfile mode."""
+    lines = ["bcr_test_module:", "  matrix:", "    platform:", '      - "debian11"', "  tasks:"]
+    for index, (version, lockfile_mode) in enumerate(tasks):
+        lines += [
+            f"    task{index}:",
+            f'      bazel: "{version}"',
+            "      test_flags:",
+            f'        - "--lockfile_mode={lockfile_mode}"',
+        ]
+    return "\n".join(lines) + "\n"
+
 
 CONSISTENT = {
     ".bazelversion": "1.2.3\n",
@@ -15,7 +29,7 @@ CONSISTENT = {
     "e2e/smoke/.bazelversion": "1.2.3\n",
     "MODULE.bazel": 'module(bazel_compatibility = [">=1.2.3"])\n',
     "README.md": "| Bazel | 1 and 2. The minimum is 1.2.3. |\n",
-    ".bcr/presubmit.yml": 'tasks:\n  a:\n    bazel: "1.2.3"\n  b:\n    bazel: "2.0.1"\n',
+    ".bcr/presubmit.yml": presubmit(("1.2.3", "error"), ("2.0.1", "off")),
 }
 
 
@@ -32,10 +46,9 @@ class CheckBazelVersionsTest(unittest.TestCase):
         file.parent.mkdir(parents=True, exist_ok=True)
         file.write_text(text, encoding="utf-8")
 
-    def errors(self, *extra_paths: str) -> list[str]:
+    def errors(self) -> list[str]:
         versions = load_versions(self.root)
-        paths = [*CONSISTENT, *extra_paths]
-        return check_copies(self.root, versions) + find_stray_copies(self.root, paths, versions["tested"])
+        return check_copies(self.root, versions) + check_presubmit(self.root, versions)
 
     def test_accepts_consistent_copies(self) -> None:
         self.assertEqual([], self.errors())
@@ -60,7 +73,7 @@ class CheckBazelVersionsTest(unittest.TestCase):
     def test_reports_each_disagreeing_copy(self) -> None:
         self.write("e2e/smoke/.bazelversion", "2.0.1\n")
         self.write("MODULE.bazel", 'module(bazel_compatibility = [">=1.0.0"])\n')
-        self.write(".bcr/presubmit.yml", 'tasks:\n  a:\n    bazel: "1.2.3"\n')
+        self.write(".bcr/presubmit.yml", presubmit(("1.2.3", "error")))
 
         errors = self.errors()
 
@@ -69,23 +82,28 @@ class CheckBazelVersionsTest(unittest.TestCase):
         self.assertIn("MODULE.bazel: expected minimum", errors[1])
         self.assertIn(".bcr/presubmit.yml: expected tested", errors[2])
 
-    def test_reports_tested_version_in_other_file(self) -> None:
-        self.write("docs/guide.md", "Run USE_BAZEL_VERSION=2.0.1 bazel test.\n")
+    def test_requires_strict_lockfile_task_on_default_version(self) -> None:
+        self.write(".bazelversion", "2.0.1\n")
+        self.write("e2e/smoke/.bazelversion", "2.0.1\n")
 
         self.assertEqual(
-            ["docs/guide.md: names a tested Bazel version; derive it from .bazelversion or ci/bazel_versions.json"],
-            self.errors("docs/guide.md"),
+            [".bcr/presubmit.yml: expected strict-lockfile Bazel versions ['2.0.1'], found ['1.2.3']"],
+            self.errors(),
         )
 
-    def test_ignores_versions_inside_longer_numbers(self) -> None:
-        self.write("ci.yml", "qemu 11.2.3 and 1.2.3.1, sentence end 1.2.30.\n")
+    def test_rejects_strict_lockfile_on_other_versions(self) -> None:
+        self.write(".bcr/presubmit.yml", presubmit(("1.2.3", "error"), ("2.0.1", "error")))
 
-        self.assertEqual([], self.errors("ci.yml"))
+        self.assertEqual(
+            [".bcr/presubmit.yml: expected strict-lockfile Bazel versions ['1.2.3'], found ['1.2.3', '2.0.1']"],
+            self.errors(),
+        )
 
-    def test_reports_version_at_sentence_end(self) -> None:
-        self.write("notes.md", "The default is 1.2.3.\n")
+    def test_ignores_versions_outside_presubmit_tasks(self) -> None:
+        text = presubmit(("1.2.3", "error"), ("2.0.1", "off")).replace("  matrix:", '  bazel: "9.9.9"\n  matrix:')
+        self.write(".bcr/presubmit.yml", text)
 
-        self.assertEqual(1, len(self.errors("notes.md")))
+        self.assertEqual([], self.errors())
 
 
 if __name__ == "__main__":
