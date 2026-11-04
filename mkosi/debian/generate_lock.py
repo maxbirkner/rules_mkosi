@@ -532,7 +532,7 @@ def _channel(source):
     if len(words) < 2:
         raise LockError("source channel must name a suite and at least one component")
     suite, components = words[0], words[1:]
-    for name in [suite] + components:
+    for name in [suite, *components]:
         if not _IDENTIFIER.fullmatch(name):
             raise LockError("invalid suite or component name: %s" % name)
     if len(set(components)) != len(components):
@@ -569,7 +569,7 @@ def load_specification(data):
         snapshot_url=url,
         snapshot=snapshot,
         suite=suite,
-        components=("main",) + tuple(sorted(set(components) - {"main"})),
+        components=("main", *sorted(set(components) - {"main"})),
         packages=_requested_packages(data),
     )
 

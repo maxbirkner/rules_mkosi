@@ -194,7 +194,7 @@ def with_image_version(arguments, image_version):
     if len(image_ids) != 1:
         raise SystemExit("--image-version-file requires exactly one --image-id= mkosi argument")
     insert_at = image_ids[0] + 1
-    return arguments[:insert_at] + ["--image-version=" + image_version] + arguments[insert_at:]
+    return [*arguments[:insert_at], "--image-version=" + image_version, *arguments[insert_at:]]
 
 
 def release_stage(release, debian_snapshot_repository, base_tree, initrd, base_initrd_output):

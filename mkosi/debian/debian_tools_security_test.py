@@ -11,7 +11,6 @@ import tarfile
 import unittest
 from unittest import mock
 
-
 _HERE = pathlib.Path(__file__).resolve().parent
 
 
@@ -150,9 +149,11 @@ class DebianToolsSecurityTest(unittest.TestCase):
         with tampered.open("r+b") as output:
             output.seek(0)
             output.write(b"x")
-        with mock.patch.object(extract_tree.tarfile, "open", side_effect=AssertionError("tar opened")):
-            with self.assertRaisesRegex(ValueError, "digest mismatch"):
-                extract_tree.extract(str(tampered), str(self.work / "root"), "0" * 64)
+        with (
+            mock.patch.object(extract_tree.tarfile, "open", side_effect=AssertionError("tar opened")),
+            self.assertRaisesRegex(ValueError, "digest mismatch"),
+        ):
+            extract_tree.extract(str(tampered), str(self.work / "root"), "0" * 64)
         self.assertFalse((self.work / "root").exists())
 
     def test_archive_path_swap_after_hash_cannot_change_parsed_bytes(self):
@@ -204,11 +205,13 @@ class DebianToolsSecurityTest(unittest.TestCase):
         original = bytearray(package.read_bytes())
         original[-1] ^= 1
         package.write_bytes(original)
-        with mock.patch.object(package_archive, "_ar_members", side_effect=AssertionError("ar parsed")):
-            with self.assertRaisesRegex(ValueError, "package digest mismatch"):
-                package_archive._collect(
-                    [str(package)], str(manifest), str(self.work / "package-work")
-                )
+        with (
+            mock.patch.object(package_archive, "_ar_members", side_effect=AssertionError("ar parsed")),
+            self.assertRaisesRegex(ValueError, "package digest mismatch"),
+        ):
+            package_archive._collect(
+                [str(package)], str(manifest), str(self.work / "package-work")
+            )
 
     def test_package_digest_mismatch_closes_already_opened_packages(self):
         first, first_digest = self._package("first", b"first")
@@ -226,11 +229,13 @@ class DebianToolsSecurityTest(unittest.TestCase):
             opened.append(stream)
             return stream
 
-        with mock.patch.object(package_archive, "_open_authenticated", side_effect=record_open):
-            with self.assertRaisesRegex(ValueError, "package digest mismatch for second.deb"):
-                package_archive._collect(
-                    [str(first), str(second)], str(manifest), str(self.work / "package-work")
-                )
+        with (
+            mock.patch.object(package_archive, "_open_authenticated", side_effect=record_open),
+            self.assertRaisesRegex(ValueError, "package digest mismatch for second.deb"),
+        ):
+            package_archive._collect(
+                [str(first), str(second)], str(manifest), str(self.work / "package-work")
+            )
         self.assertEqual(1, len(opened))
         self.assertTrue(opened[0].closed)
 
@@ -245,15 +250,14 @@ class DebianToolsSecurityTest(unittest.TestCase):
         with mock.patch.dict(
             os.environ,
             {"MKOSI_DEBIAN_TOOLS_SCRATCH": str(scratch)},
-        ):
-            with self.assertRaisesRegex(ValueError, "digest mismatch"):
-                debian_launcher._extract_root(
-                    str(tampered),
-                    hashlib.sha256(archive.read_bytes()).hexdigest(),
-                    "/usr/bin/dpkg",
-                    ([], []),
-                    str(_HERE / "extract_tree.py"),
-                )
+        ), self.assertRaisesRegex(ValueError, "digest mismatch"):
+            debian_launcher._extract_root(
+                str(tampered),
+                hashlib.sha256(archive.read_bytes()).hexdigest(),
+                "/usr/bin/dpkg",
+                ([], []),
+                str(_HERE / "extract_tree.py"),
+            )
         self.assertFalse(scratch.exists())
 
     def test_forward_symlink_and_hardlink_graphs(self):
@@ -488,15 +492,13 @@ class DebianToolsSecurityTest(unittest.TestCase):
             (["--ro-bind", "%s:/inputs/x" % source, "--rw-bind", "%s:/inputs/x/y" % source], "overlap"),
         ]
         for arguments, message in cases:
-            with self.subTest(message=message):
-                with self.assertRaises(RuntimeError):
-                    debian_launcher._validate_binds(arguments)
+            with self.subTest(message=message), self.assertRaises(RuntimeError):
+                debian_launcher._validate_binds(arguments)
         for destination in ("/etc", "/usr/bin/tool", "/lib/x", "/etc/ssl/certs"):
-            with self.subTest(destination=destination):
-                with self.assertRaises(RuntimeError):
-                    debian_launcher._validate_binds(
-                        ["--rw-bind", "%s:/workspace/x" % source, "--ro-bind", "%s:%s" % (source, destination)]
-                    )
+            with self.subTest(destination=destination), self.assertRaises(RuntimeError):
+                debian_launcher._validate_binds(
+                    ["--rw-bind", "%s:/workspace/x" % source, "--ro-bind", "%s:%s" % (source, destination)]
+                )
         with self.assertRaisesRegex(RuntimeError, "overlap"):
             debian_launcher._validate_binds(
                 [
@@ -528,30 +530,38 @@ class DebianToolsSecurityTest(unittest.TestCase):
         preseed = self.work / "preseed"
         preseed.mkdir()
         (preseed / "root").mkdir()
-        with mock.patch.dict(os.environ, {"MKOSI_DEBIAN_TOOLS_SCRATCH": str(preseed)}):
-            with self.assertRaisesRegex(RuntimeError, "empty"):
-                debian_launcher._private_scratch()
+        with (
+            mock.patch.dict(os.environ, {"MKOSI_DEBIAN_TOOLS_SCRATCH": str(preseed)}),
+            self.assertRaisesRegex(RuntimeError, "empty"),
+        ):
+            debian_launcher._private_scratch()
 
         target = self.work / "target"
         target.mkdir()
         linked = self.work / "linked"
         linked.symlink_to(target, target_is_directory=True)
-        with mock.patch.dict(os.environ, {"MKOSI_DEBIAN_TOOLS_SCRATCH": str(linked)}):
-            with self.assertRaisesRegex(RuntimeError, "invalid"):
-                debian_launcher._private_scratch()
+        with (
+            mock.patch.dict(os.environ, {"MKOSI_DEBIAN_TOOLS_SCRATCH": str(linked)}),
+            self.assertRaisesRegex(RuntimeError, "invalid"),
+        ):
+            debian_launcher._private_scratch()
 
         stale = self.work / "stale"
         stale.mkdir()
         (stale / ".complete").write_text("stale\n", encoding="utf-8")
-        with mock.patch.dict(os.environ, {"MKOSI_DEBIAN_TOOLS_SCRATCH": str(stale)}):
-            with self.assertRaisesRegex(RuntimeError, "empty"):
-                debian_launcher._private_scratch()
+        with (
+            mock.patch.dict(os.environ, {"MKOSI_DEBIAN_TOOLS_SCRATCH": str(stale)}),
+            self.assertRaisesRegex(RuntimeError, "empty"),
+        ):
+            debian_launcher._private_scratch()
 
         wrong_type = self.work / "wrong-type"
         wrong_type.write_text("not a directory", encoding="utf-8")
-        with mock.patch.dict(os.environ, {"MKOSI_DEBIAN_TOOLS_SCRATCH": str(wrong_type)}):
-            with self.assertRaisesRegex(RuntimeError, "invalid"):
-                debian_launcher._private_scratch()
+        with (
+            mock.patch.dict(os.environ, {"MKOSI_DEBIAN_TOOLS_SCRATCH": str(wrong_type)}),
+            self.assertRaisesRegex(RuntimeError, "invalid"),
+        ):
+            debian_launcher._private_scratch()
 
     def test_concurrent_scratch_claim_is_rejected(self):
         archive = self._archive([(tarfile.TarInfo("safe"), b"safe")])
@@ -562,15 +572,14 @@ class DebianToolsSecurityTest(unittest.TestCase):
         with mock.patch.dict(
             os.environ,
             {"MKOSI_DEBIAN_TOOLS_SCRATCH": str(scratch)},
-        ):
-            with self.assertRaisesRegex(RuntimeError, "already in use"):
-                debian_launcher._extract_root(
-                    str(archive),
-                    digest,
-                    "/usr/bin/dpkg",
-                    ([], []),
-                    str(_HERE / "extract_tree.py"),
-                )
+        ), self.assertRaisesRegex(RuntimeError, "already in use"):
+            debian_launcher._extract_root(
+                str(archive),
+                digest,
+                "/usr/bin/dpkg",
+                ([], []),
+                str(_HERE / "extract_tree.py"),
+            )
 
 
 if __name__ == "__main__":

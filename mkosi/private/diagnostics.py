@@ -3,7 +3,6 @@
 import subprocess
 import sys
 
-
 _ACTIONS = {
     "KERNEL_CAPABILITY_FAILURE": "select a Linux runner that satisfies the kernel contract",
     "TOOLCHAIN_FAILURE": "register the required Bazel toolchain",

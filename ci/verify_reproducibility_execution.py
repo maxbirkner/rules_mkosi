@@ -5,7 +5,6 @@ import json
 import pathlib
 import sys
 
-
 EXPECTED = {
     ("MkosiImage", "//mkosi/tests:release_subject"),
     (

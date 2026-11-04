@@ -1,5 +1,6 @@
 """Execute a Debian build tool from an authenticated, isolated package tree."""
 
+import contextlib
 import importlib.util
 import json
 import os
@@ -13,7 +14,6 @@ from typing import NamedTuple
 
 import click
 from python.runfiles import runfiles
-
 
 TOOLS = {
     "shell": "/bin/sh",
@@ -128,7 +128,7 @@ def _require_tools(root, tool):
 def _validate_root(root, tool):
     if not os.path.isdir(root) or os.path.islink(root):
         raise RuntimeError("Debian tools extraction did not produce a physical root")
-    for relative in _MOUNT_ROOTS + ("/etc", "/usr", "/usr/bin", "/usr/sbin"):
+    for relative in (*_MOUNT_ROOTS, "/etc", "/usr", "/usr/bin", "/usr/sbin"):
         _require_directory(root, relative)
     _require_ca_bundle(root)
     loader = _find_loader(root)
@@ -162,7 +162,7 @@ def _parse_bind(kind, specification):
     if not os.path.exists(source):
         raise FileNotFoundError("namespace bind source is missing: %s" % source)
     destination = _canonical_destination(destination)
-    if destination in ("/",) + tuple(_MOUNT_ROOTS):
+    if destination in ("/", *_MOUNT_ROOTS):
         raise RuntimeError("namespace bind destination is a reserved mount root: %s" % destination)
     source_stat = os.stat(source)
     bind = (source, destination, source_stat.st_dev, source_stat.st_ino, stat.S_ISDIR(source_stat.st_mode))
@@ -321,8 +321,8 @@ def _extract_root(archive, expected_digest, tool, binds, extractor_path):
     lock = os.path.join(scratch_parent, ".in-use")
     try:
         os.mkdir(lock, 0o700)
-    except FileExistsError:
-        raise RuntimeError("Debian tools scratch directory is already in use: %s" % scratch_parent)
+    except FileExistsError as error:
+        raise RuntimeError("Debian tools scratch directory is already in use: %s" % scratch_parent) from error
     root = os.path.join(scratch_parent, "root")
     try:
         if os.path.lexists(root):
@@ -338,10 +338,8 @@ def _extract_root(archive, expected_digest, tool, binds, extractor_path):
     finally:
         os.rmdir(lock)
         if not scratch_was_present and not os.path.lexists(root):
-            try:
+            with contextlib.suppress(OSError):
                 os.rmdir(scratch_parent)
-            except OSError:
-                pass
     return root
 
 
@@ -376,11 +374,12 @@ def _run(
     tool,
     arguments,
     root,
-    ro_binds,
-    rw_binds,
+    binds,
     scratch_parent,
     namespace_runner,
 ):
+    """Runs tool in the namespace runner; binds is the pair of validated read-only and read-write binds."""
+    ro_binds, rw_binds = binds
     runtime = os.path.join(scratch_parent, ".runtime")
     os.mkdir(runtime, 0o700)
     try:
@@ -399,7 +398,10 @@ def _run(
             home,
             "/" + os.path.relpath(loader, root),
             tool,
-        ] + _mount_arguments(ro_binds, rw_binds) + ["--"] + arguments
+            *_mount_arguments(ro_binds, rw_binds),
+            "--",
+            *arguments,
+        ]
         return subprocess.run(
             command,
             env={"PATH": "", "HOME": "/root"},
@@ -459,8 +461,7 @@ def _launch(
         tool,
         list(tool_arguments),
         root,
-        ro_binds,
-        rw_binds,
+        (ro_binds, rw_binds),
         os.path.dirname(root),
         runtime.namespace_runner,
     )

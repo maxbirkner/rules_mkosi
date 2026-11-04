@@ -50,7 +50,7 @@ def main():
     try:
         metadata = project(args.uki, args.root_hash)
     except (OSError, UnicodeError, ValueError, pefile.PEFormatError) as error:
-        raise SystemExit("UKI_METADATA_INVALID: {}".format(error))
+        raise SystemExit("UKI_METADATA_INVALID: {}".format(error)) from error
     Path(args.output).write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n")
 
 

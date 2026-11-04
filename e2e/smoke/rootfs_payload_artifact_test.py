@@ -1,7 +1,7 @@
 """Inspects typed payloads in the independent consumer's release rootfs."""
 
-import json
 import itertools
+import json
 import os
 import pathlib
 import re

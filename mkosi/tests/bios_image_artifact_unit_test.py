@@ -6,7 +6,9 @@ import struct
 import tempfile
 import unittest
 
-spec = importlib.util.spec_from_file_location("validator", pathlib.Path(__file__).with_name("bios_image_artifact_test.py"))
+spec = importlib.util.spec_from_file_location(
+    "validator", pathlib.Path(__file__).with_name("bios_image_artifact_test.py")
+)
 validator = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(validator)
 
@@ -15,7 +17,11 @@ class BiosArtifactTest(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
         self.image = pathlib.Path(self.directory.name) / "image.raw"
-        self.metadata = {"partitions": [{"type_guid": validator.gpt_partitions.BIOS_BOOT, "start_bytes": 1048576, "size_bytes": 1048576}]}
+        self.metadata = {
+            "partitions": [
+                {"type_guid": validator.gpt_partitions.BIOS_BOOT, "start_bytes": 1048576, "size_bytes": 1048576}
+            ]
+        }
         self.boot = bytearray((index * 37 + 11) & 255 for index in range(512))
         self.boot[0x1BE:0x1FE] = bytes(64)
         self.boot[510:512] = b"\x55\xaa"

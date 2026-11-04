@@ -2,7 +2,6 @@
 
 import pathlib
 
-
 _FIXED_ZIG_PATH = "/bin:/usr/bin:/usr/local/bin"
 _HOST_TOOL_BASENAMES = {
     "ar",
