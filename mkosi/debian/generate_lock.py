@@ -1,6 +1,6 @@
 """Generate a rules_mkosi Debian snapshot lock from a package specification.
 
-The specification is JSON with the same shape as ``debian13.yaml``:
+The specification is JSON with the same shape as ``debian13.spec.json``:
 
     {
       "version": 1,

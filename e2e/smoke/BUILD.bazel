@@ -358,6 +358,7 @@ snapshot_public_api_test(
         "main",
         "non-free-firmware",
     ],
+    expected_snapshot = "20250814T000000Z",
     target_under_test = "@consumer_debian//:repository",
 )
 

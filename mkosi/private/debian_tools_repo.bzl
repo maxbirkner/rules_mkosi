@@ -1,5 +1,7 @@
 """Repository exposing the Debian package tree and toolchain."""
 
+load("//mkosi/debian:provenance.bzl", "DEBIAN_TOOLS_SNAPSHOT", "DEBIAN_TOOLS_SNAPSHOT_URL")
+
 _BUILD_TEMPLATE = """load("@rules_cc//cc:defs.bzl", "cc_binary")
 load("@rules_python//python:defs.bzl", "py_binary")
 load("@rules_mkosi//mkosi/debian:toolchain.bzl", "debian_tools_archive", "debian_tools_toolchain", "debian_tools_tree")
@@ -128,8 +130,8 @@ debian_tools_toolchain(
     release = "13",
     codename = "trixie",
     architecture = "amd64",
-    snapshot = "20250814T000000Z",
-    snapshot_url = "https://snapshot.debian.org/archive/debian/20250814T000000Z",
+    snapshot = "{snapshot}",
+    snapshot_url = "{snapshot_url}",
     lock_sha256 = "{lock_sha256}",
     archive_sha256 = "{archive_sha256}",
     python_version = "{python_version}",
@@ -173,6 +175,8 @@ def _impl(ctx):
             lock_sha256 = ctx.attr.lock_sha256,
             archive_sha256 = ctx.attr.archive_sha256,
             python_version = ctx.attr.python_version,
+            snapshot = DEBIAN_TOOLS_SNAPSHOT,
+            snapshot_url = DEBIAN_TOOLS_SNAPSHOT_URL,
         ),
     )
     if hasattr(ctx, "repo_metadata"):
