@@ -64,16 +64,16 @@ def _sysupdate_transfers_impl(ctx):
 sysupdate_transfers = rule(
     implementation = _sysupdate_transfers_impl,
     attrs = {
-        "image_id": attr.string(mandatory = True, doc = "IMAGE_ID shared by every release of the image."),
         "boot_attempts": attr.int(
             default = 3,
             doc = "systemd-boot boot-counting attempts (TriesLeft=) of a newly installed UKI; 0 disables boot counting.",
         ),
-        "instances": attr.int(default = 2, doc = "Number of A/B slots (InstancesMax=)."),
         "destination": attr.string(
             default = "/usr/lib/sysupdate.d",
             doc = "Image directory receiving the transfer files.",
         ),
+        "image_id": attr.string(mandatory = True, doc = "IMAGE_ID shared by every release of the image."),
+        "instances": attr.int(default = 2, doc = "Number of A/B slots (InstancesMax=)."),
     } | _SCRIPT_ATTRS,
     doc = """Generates systemd-sysupdate transfer definitions for A/B root, verity and UKI updates.
 

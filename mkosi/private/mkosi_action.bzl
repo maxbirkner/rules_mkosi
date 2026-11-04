@@ -15,10 +15,15 @@ MKOSI_BUILD_EXEC_CONSTRAINTS = [
 ]
 
 MKOSI_BUILD_ATTRS = {
-    "_stage_script": attr.label(
+    "_diagnostics": attr.label(
         cfg = "exec",
-        default = "//mkosi/private:stage_inputs.py",
+        default = "//mkosi/private:diagnostics.py",
         allow_single_file = True,
+    ),
+    "_kernel_preflight": attr.label(
+        cfg = "exec",
+        default = "//mkosi/private:kernel_preflight",
+        executable = True,
     ),
     "_run_script": attr.label(
         cfg = "exec",
@@ -30,14 +35,9 @@ MKOSI_BUILD_ATTRS = {
         default = "//mkosi/private:run_mkosi_modules",
         allow_files = True,
     ),
-    "_kernel_preflight": attr.label(
+    "_stage_script": attr.label(
         cfg = "exec",
-        default = "//mkosi/private:kernel_preflight",
-        executable = True,
-    ),
-    "_diagnostics": attr.label(
-        cfg = "exec",
-        default = "//mkosi/private:diagnostics.py",
+        default = "//mkosi/private:stage_inputs.py",
         allow_single_file = True,
     ),
 }

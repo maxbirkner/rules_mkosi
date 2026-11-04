@@ -39,7 +39,11 @@ repos:
     rev: ec25c1dca1a4a74c0efaa48052b4ea99a9ac19d7 # frozen: 8.5.1.3
     hooks:
       - id: buildifier
+        args:
+          - --warnings=all
       - id: buildifier-lint
+        args:
+          - --warnings=all
 
   - repo: https://github.com/google/yamlfmt
     rev: 21ca5323a9c87ee37a434e0ca908efc0a89daa07 # frozen: v0.21.0

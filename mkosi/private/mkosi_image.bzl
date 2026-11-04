@@ -34,34 +34,34 @@ and DefaultInfo contains every artifact that is not None. raw_image and build_me
 images add partition_metadata, and UEFI release images add their UKI, split dm-verity artifacts and metadata.
 """,
     fields = {
-        "format_version": "Contract version, currently mkosi-image-v3.",
-        "raw_image": "The raw disk image.",
-        "manifest": "mkosi JSON manifest of the installed packages when the rule sets manifest = True, or None.",
-        "partition_metadata": "Validated, normalized GPT partition metadata of a release image, or None.",
-        "uki": "The unsigned Unified Kernel Image, or None.",
-        "root_image": "Split root filesystem partition, or None.",
-        "root_hash": "ASCII dm-verity root hash, or None.",
-        "root_hash_image": "Split dm-verity hash partition, or None.",
-        "uki_metadata": "Normalized UKI section metadata, or None.",
-        "verity_metadata": "Normalized dm-verity linkage metadata, or None.",
         "build_metadata": "Normalized JSON metadata describing the build settings and output roles.",
         "firmware": "Firmware tier: uefi or bios.",
+        "format_version": "Contract version, currently mkosi-image-v3.",
+        "image": "Deprecated alias for raw_image.",
         "image_id": "os-release IMAGE_ID set by the rule, or None.",
         "image_version": "os-release IMAGE_VERSION set by the rule during analysis, or None.",
         "image_version_file": """File holding the os-release IMAGE_VERSION set through image_version_file, or None.
 
 The content is letters, digits and '.', optionally followed by one newline. At most one of image_version and
 image_version_file is set.""",
-        "image": "Deprecated alias for raw_image.",
+        "manifest": "mkosi JSON manifest of the installed packages when the rule sets manifest = True, or None.",
+        "partition_metadata": "Validated, normalized GPT partition metadata of a release image, or None.",
+        "raw_image": "The raw disk image.",
+        "root_hash": "ASCII dm-verity root hash, or None.",
+        "root_hash_image": "Split dm-verity hash partition, or None.",
+        "root_image": "Split root filesystem partition, or None.",
+        "uki": "The unsigned Unified Kernel Image, or None.",
+        "uki_metadata": "Normalized UKI section metadata, or None.",
+        "verity_metadata": "Normalized dm-verity linkage metadata, or None.",
     },
 )
 
 MkosiConfigTreeInfo = provider(
     doc = "An mkosi configuration directory.",
     fields = {
-        "tree": "The configuration directory artifact.",
         "executable_paths": "Relative paths that must keep their executable mode.",
         "is_generated": "Whether the tree is a generated TreeArtifact.",
+        "tree": "The configuration directory artifact.",
     },
 )
 
@@ -71,21 +71,21 @@ MkosiBaseInfo = provider(
 mkosi_image(base = ...) finalizes it for one image version.
 """,
     fields = {
-        "format_version": "Contract version, currently mkosi-base-v1.",
-        "root_tree": "Reproducible tar archive of the installed root, used as mkosi BaseTrees=.",
-        "initrd": "mkosi's default initrd for root_tree, used as mkosi Initrds=.",
         "debian_snapshot": "DebianSnapshotInfo of the packages in root_tree and initrd.",
+        "format_version": "Contract version, currently mkosi-base-v1.",
+        "initrd": "mkosi's default initrd for root_tree, used as mkosi Initrds=.",
         "release_seed": "Seed= UUID shared by the base and its finalization.",
         "release_source_date_epoch": "SourceDateEpoch= shared by the base and its finalization.",
+        "root_tree": "Reproducible tar archive of the installed root, used as mkosi BaseTrees=.",
     },
 )
 
 MkosiSourceTreeInfo = provider(
     doc = "A directory mounted for mkosi BuildSources=.",
     fields = {
-        "tree": "The source directory artifact.",
         "executable_paths": "Relative paths that must keep their executable mode.",
         "is_generated": "Whether the tree is a generated TreeArtifact.",
+        "tree": "The source directory artifact.",
     },
 )
 
@@ -95,8 +95,8 @@ MkosiRootfsPayloadInfo = provider(
         "artifact": "The file or directory artifact.",
         "destination": "Normalized absolute destination in the image root.",
         "executable_paths": "Relative paths in a directory, or [''] for a file, that must be executable.",
-        "is_tree": "Whether artifact is a directory whose contents are installed at destination.",
         "is_generated": "Whether artifact is generated rather than a source artifact.",
+        "is_tree": "Whether artifact is a directory whose contents are installed at destination.",
     },
 )
 
@@ -116,13 +116,13 @@ def _tree_target_impl(ctx, info):
 mkosi_config_tree = rule(
     implementation = lambda ctx: _tree_target_impl(ctx, MkosiConfigTreeInfo),
     attrs = {
+        "executable_paths": attr.string_list(
+            doc = "Relative configuration-tree paths that must be executable.",
+        ),
         "src": attr.label(
             mandatory = True,
             allow_files = True,
             doc = "A configuration directory that contains mkosi.conf.",
-        ),
-        "executable_paths": attr.string_list(
-            doc = "Relative configuration-tree paths that must be executable.",
         ),
     },
     doc = "Marks a directory as an mkosi configuration tree.",
@@ -131,13 +131,13 @@ mkosi_config_tree = rule(
 mkosi_source_tree = rule(
     implementation = lambda ctx: _tree_target_impl(ctx, MkosiSourceTreeInfo),
     attrs = {
+        "executable_paths": attr.string_list(
+            doc = "Relative source-tree paths that must be executable.",
+        ),
         "src": attr.label(
             mandatory = True,
             allow_files = True,
             doc = "A directory mounted for mkosi BuildSources=.",
-        ),
-        "executable_paths": attr.string_list(
-            doc = "Relative source-tree paths that must be executable.",
         ),
     },
     doc = "Marks a directory as an mkosi BuildSources= tree.",
@@ -173,17 +173,17 @@ def _rootfs_payload_impl(ctx):
 mkosi_rootfs_payload = rule(
     implementation = _rootfs_payload_impl,
     attrs = {
-        "src": attr.label(
-            mandatory = True,
-            allow_files = True,
-            doc = "A single source or generated file or directory.",
-        ),
         "destination": attr.string(
             mandatory = True,
             doc = "Normalized absolute path at which to install the file or the directory contents.",
         ),
         "executable_paths": attr.string_list(
             doc = "Relative paths in a directory to make executable; use [''] for an executable file.",
+        ),
+        "src": attr.label(
+            mandatory = True,
+            allow_files = True,
+            doc = "A single source or generated file or directory.",
         ),
     },
     doc = "Declares a root-owned file or directory to install into an image.",
@@ -248,9 +248,9 @@ mkosi_reproducibility_manifest = rule(
             default = "//mkosi/private:gpt_partitions.py",
             allow_single_file = True,
         ),
-        "_sibling_loader": attr.label(
+        "_partition_projector": attr.label(
             cfg = "exec",
-            default = "//mkosi/private:sibling_loader.py",
+            default = "//mkosi/private:partition_metadata.py",
             allow_single_file = True,
         ),
         "_projector": attr.label(
@@ -258,9 +258,9 @@ mkosi_reproducibility_manifest = rule(
             default = "//mkosi/private:reproducibility_manifest.py",
             allow_single_file = True,
         ),
-        "_partition_projector": attr.label(
+        "_sibling_loader": attr.label(
             cfg = "exec",
-            default = "//mkosi/private:partition_metadata.py",
+            default = "//mkosi/private:sibling_loader.py",
             allow_single_file = True,
         ),
     },
@@ -577,16 +577,6 @@ def _mkosi_image_impl(ctx):
 mkosi_image = rule(
     implementation = _mkosi_image_impl,
     attrs = {
-        "mode": attr.string(
-            default = "tracer",
-            doc = """"tracer" (default) installs packages from the network and is never cached; "release" installs packages
-only from debian_snapshot or base with the network blocked and may be cached. Both run locally only.""",
-        ),
-        "firmware": attr.string(
-            default = "uefi",
-            doc = """"uefi" (default) or "bios", a release-only x86-64 tier that boots with GRUB i386-pc from a GPT BIOS
-boot partition.""",
-        ),
         "base": attr.label(
             providers = [MkosiBaseInfo],
             doc = """mkosi_base to finalize for this image version instead of installing packages.
@@ -597,28 +587,6 @@ remove packages and holds only version-dependent settings, such as mkosi.repart/
 kernel command line.
 """,
         ),
-        "debian_snapshot": attr.label(
-            providers = [DebianSnapshotInfo],
-            doc = "Authenticated Debian snapshot; required in release mode unless base is set.",
-        ),
-        "release_seed": attr.string(
-            doc = "Fixed UUID matching the configuration's resolved Seed=; required in release mode unless base is set.",
-        ),
-        "release_source_date_epoch": attr.int(
-            default = -1,
-            doc = """Non-negative timestamp matching the configuration's resolved SourceDateEpoch=; required in release
-mode unless base is set.""",
-        ),
-        "unified_kernel_image": attr.string(
-            default = "none",
-            doc = """"none" (default) or "unsigned" to build an unsigned UKI. Requires release mode and uefi firmware;
-sign it with secure_boot_signing_request.""",
-        ),
-        "verity": attr.string(
-            default = "none",
-            doc = """"none" (default) or "hash" to split the root into dm-verity data and hash partitions. Requires
-unified_kernel_image = "unsigned".""",
-        ),
         "config": attr.label(
             allow_files = True,
             doc = "A single mkosi configuration file. Set exactly one of config and config_tree; release mode requires " +
@@ -628,15 +596,14 @@ unified_kernel_image = "unsigned".""",
             providers = [MkosiConfigTreeInfo],
             doc = "A complete mkosi configuration tree from mkosi_config_tree.",
         ),
-        "source_trees": attr.string_keyed_label_dict(
-            allow_files = True,
-            providers = [MkosiSourceTreeInfo],
-            doc = """mkosi_source_tree targets keyed by the normalized relative BuildSources= path, such as "src", at
-which their contents are staged.""",
+        "debian_snapshot": attr.label(
+            providers = [DebianSnapshotInfo],
+            doc = "Authenticated Debian snapshot; required in release mode unless base is set.",
         ),
-        "rootfs_payloads": attr.label_list(
-            providers = [MkosiRootfsPayloadInfo],
-            doc = "mkosi_rootfs_payload targets installed into the image root through mkosi.extra.",
+        "firmware": attr.string(
+            default = "uefi",
+            doc = """"uefi" (default) or "bios", a release-only x86-64 tier that boots with GRUB i386-pc from a GPT BIOS
+boot partition.""",
         ),
         "image_id": attr.string(
             doc = """os-release IMAGE_ID passed to mkosi as ImageId=, overriding the configuration.
@@ -668,6 +635,39 @@ file enforce them. MkosiImageInfo then sets image_version_file instead of image_
         ),
         "manifest": attr.bool(
             doc = "Also output mkosi's JSON manifest of the installed packages as MkosiImageInfo.manifest.",
+        ),
+        "mode": attr.string(
+            default = "tracer",
+            doc = """"tracer" (default) installs packages from the network and is never cached; "release" installs packages
+only from debian_snapshot or base with the network blocked and may be cached. Both run locally only.""",
+        ),
+        "release_seed": attr.string(
+            doc = "Fixed UUID matching the configuration's resolved Seed=; required in release mode unless base is set.",
+        ),
+        "release_source_date_epoch": attr.int(
+            default = -1,
+            doc = """Non-negative timestamp matching the configuration's resolved SourceDateEpoch=; required in release
+mode unless base is set.""",
+        ),
+        "rootfs_payloads": attr.label_list(
+            providers = [MkosiRootfsPayloadInfo],
+            doc = "mkosi_rootfs_payload targets installed into the image root through mkosi.extra.",
+        ),
+        "source_trees": attr.string_keyed_label_dict(
+            allow_files = True,
+            providers = [MkosiSourceTreeInfo],
+            doc = """mkosi_source_tree targets keyed by the normalized relative BuildSources= path, such as "src", at
+which their contents are staged.""",
+        ),
+        "unified_kernel_image": attr.string(
+            default = "none",
+            doc = """"none" (default) or "unsigned" to build an unsigned UKI. Requires release mode and uefi firmware;
+sign it with secure_boot_signing_request.""",
+        ),
+        "verity": attr.string(
+            default = "none",
+            doc = """"none" (default) or "hash" to split the root into dm-verity data and hash partitions. Requires
+unified_kernel_image = "unsigned".""",
         ),
         "_write_bios_repart": attr.label(
             cfg = "exec",
