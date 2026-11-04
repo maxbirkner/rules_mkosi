@@ -136,9 +136,9 @@ static void write_child_mapping(pid_t child, const char *name,
   char mapping[64];
   format_or_fail(path, sizeof(path), "namespace mapping path is too long",
                  "/proc/%ld/%s_map", (long)child, name);
-  int length = format_or_fail(mapping, sizeof(mapping),
-                              "namespace mapping is too long", "0 %lu 1\n",
-                              value);
+  int length =
+      format_or_fail(mapping, sizeof(mapping), "namespace mapping is too long",
+                     "0 %lu 1\n", value);
   int result = rules_mkosi_write_file(path, mapping, (size_t)length);
   if (result < 0) {
     fail("cannot write %s: %s", path, strerror(-result));
@@ -201,10 +201,8 @@ static void clear_supplementary_groups(void) {
   if (group_count < 0) {
     fail_errno("cannot inspect supplementary groups");
   }
-  if (group_count != 0 &&
-      (setgroups(0, NULL) < 0 || getgroups(0, NULL) != 0)) {
-    fail_errno(
-        "cannot clear supplementary groups before user namespace setup");
+  if (group_count != 0 && (setgroups(0, NULL) < 0 || getgroups(0, NULL) != 0)) {
+    fail_errno("cannot clear supplementary groups before user namespace setup");
   }
 }
 
@@ -227,8 +225,8 @@ NORETURN static void map_child_identity_and_exit(pid_t child, int ready[2],
   write_byte(acknowledgement[1], 'G');
   close(ready[0]);
   close(acknowledgement[1]);
-  _exit(wait_for_exit_status(child,
-                             "cannot wait for namespace identity mapper"));
+  _exit(
+      wait_for_exit_status(child, "cannot wait for namespace identity mapper"));
 }
 
 static void enter_mapped_user_namespace(int ready[2], int acknowledgement[2]) {
@@ -387,7 +385,7 @@ static long attach_detached_mount(int source_fd, const char *destination) {
 }
 
 static void verify_pinned_source(int source_fd, struct mount_identity expected,
-                                  bool directory) {
+                                 bool directory) {
   struct stat source_stat;
   if (fstat(source_fd, &source_stat) < 0) {
     fail_errno("cannot inspect pinned bind source");
@@ -402,9 +400,8 @@ static void verify_pinned_source(int source_fd, struct mount_identity expected,
  * The read-only attribute is applied to the detached tree before it is
  * attached, so the destination is never writable, not even briefly.
  */
-static void bind_mount_fd(int source_fd, const char *destination,
-                          bool readonly, struct mount_identity expected,
-                          bool directory) {
+static void bind_mount_fd(int source_fd, const char *destination, bool readonly,
+                          struct mount_identity expected, bool directory) {
   verify_pinned_source(source_fd, expected, directory);
   if (readonly && set_detached_mount_readonly(source_fd) != 0) {
     fail("recursive read-only detached mount_setattr is required before "
@@ -418,8 +415,8 @@ static void bind_mount_fd(int source_fd, const char *destination,
 }
 
 static void pin_and_bind_path(const char *source, const char *destination,
-                             bool readonly, struct mount_identity expected,
-                             bool directory) {
+                              bool readonly, struct mount_identity expected,
+                              bool directory) {
   int source_fd = pin_mount_path(source, directory, expected);
   if (source_fd < 0) {
     fail("cannot pin bind source %s with open_tree(parent_fd, name, "
@@ -437,7 +434,7 @@ static void bind_mount_path(const char *source, const char *destination,
     fail("cannot inspect bind source %s: %s", source, strerror(errno));
   }
   pin_and_bind_path(source, destination, readonly, unknown_identity,
-                   S_ISDIR(source_stat.st_mode));
+                    S_ISDIR(source_stat.st_mode));
 }
 
 static void close_non_stdio_fds(void) {
@@ -467,7 +464,7 @@ static void remount_bind(const char *target, bool readonly,
   }
 }
 
-/* Turns the extracted root into its own mount point so pivot_root accepts it. */
+/* Makes the extracted root its own mount point so pivot_root accepts it. */
 static void mount_extracted_root(const char *root) {
   int root_tree = pin_mount_path(root, true, unknown_identity);
   if (root_tree < 0) {
@@ -484,8 +481,8 @@ static void mount_extracted_root(const char *root) {
 static void make_root_directory(const char *root, const char *name,
                                 const char *failure) {
   char path[PATH_BUFFER_SIZE];
-  format_or_fail(path, sizeof(path), "extracted root path is too long",
-                 "%s/%s", root, name);
+  format_or_fail(path, sizeof(path), "extracted root path is too long", "%s/%s",
+                 root, name);
   if (mkdir(path, 0700) < 0 && errno != EEXIST) {
     fail_errno(failure);
   }
@@ -500,7 +497,7 @@ static void prepare_extracted_root(const char *root) {
   remount_bind(root, true, "cannot make extracted root read-only");
 }
 
-/* After the host root is detached nothing outside the extracted root is left. */
+/* Once the host root is detached, only the extracted root is left. */
 static void enter_root(const char *root) {
   if (chdir(root) < 0) {
     fail_errno("cannot enter extracted root");
@@ -524,8 +521,8 @@ static void enter_root(const char *root) {
 static void mount_runtime_filesystem(const char *root,
                                      const struct runtime_filesystem *fs) {
   char path[PATH_BUFFER_SIZE];
-  format_or_fail(path, sizeof(path), "extracted root path is too long",
-                 "%s/%s", root, fs->directory);
+  format_or_fail(path, sizeof(path), "extracted root path is too long", "%s/%s",
+                 root, fs->directory);
   if (mount(fs->source, path, fs->type, fs->flags, fs->data) < 0) {
     fail_errno(fs->failure);
   }
@@ -593,8 +590,7 @@ static bool is_mount_type(const char *type) {
  * Accepts only a positive decimal number that fits the identity field. Signs,
  * whitespace, and zero are rejected: zero is never a valid device or inode.
  */
-static bool parse_identity_number(const char *text,
-                                  unsigned long long *value) {
+static bool parse_identity_number(const char *text, unsigned long long *value) {
   if (text[0] < '0' || text[0] > '9') {
     return false;
   }
@@ -632,7 +628,7 @@ static void bind_typed_mount(int argc, char **argv, int index,
       parse_mount_identity(argv[index + 3], argv[index + 4]);
   bool directory = strcmp(argv[index + 5], "dir") == 0;
   pin_and_bind_path(argv[index + 1], destination, readonly, identity,
-                   directory);
+                    directory);
 }
 
 /* Returns the index of the "--" that separates mounts from tool arguments. */
@@ -668,9 +664,8 @@ NORETURN static void exec_packaged_tool(const struct runner_layout *layout,
   }
   command[0] = (char *)layout->loader;
   command[1] = "--library-path";
-  command[2] =
-      "/usr/lib/x86_64-linux-gnu:/lib/x86_64-linux-gnu:"
-      "/usr/lib/x86_64-linux-gnu/systemd:/usr/lib/systemd:/usr/lib64";
+  command[2] = "/usr/lib/x86_64-linux-gnu:/lib/x86_64-linux-gnu:"
+               "/usr/lib/x86_64-linux-gnu/systemd:/usr/lib/systemd:/usr/lib64";
   command[3] = (char *)layout->tool;
   for (size_t argument = 0; argument < argument_count; ++argument) {
     command[argument + 4] = arguments[argument];
@@ -900,8 +895,8 @@ static bool replacement_stays_writable(void) {
                                      strlen(SWAP_REPLACEMENT_CONTENTS));
   close(file);
   char contents[16] = {0};
-  ssize_t length = read_file_prefix(SWAP_READONLY_REPLACEMENT, contents,
-                                    sizeof(contents));
+  ssize_t length =
+      read_file_prefix(SWAP_READONLY_REPLACEMENT, contents, sizeof(contents));
   return result == 0 &&
          has_contents(contents, length, SWAP_REPLACEMENT_CONTENTS);
 }
@@ -916,8 +911,8 @@ static bool readonly_swap_scenario(void) {
       !create_empty_file(SWAP_READONLY_DESTINATION)) {
     return false;
   }
-  int readonly_fd = pin_mount_path(SWAP_READONLY_SOURCE, false,
-                                   unknown_identity);
+  int readonly_fd =
+      pin_mount_path(SWAP_READONLY_SOURCE, false, unknown_identity);
   if (readonly_fd < 0 || !attach_readonly_after_destination_swap(readonly_fd) ||
       !readonly_bind_reached_only_new_destination()) {
     return false;
@@ -971,8 +966,8 @@ static enum scenario_result file_swap_scenario(void) {
   unlink(SWAP_FILE_DESTINATION);
   unlink(SWAP_FILE_SOURCE);
   unlink(SWAP_FILE_REPLACEMENT);
-  return scenario_result_of(mounted && has_contents(contents, length,
-                                                    "original\n"));
+  return scenario_result_of(mounted &&
+                            has_contents(contents, length, "original\n"));
 }
 
 #define SWAP_DIRECTORY_SOURCE SWAP_TEST_BASE "/directory-source"
@@ -1030,8 +1025,8 @@ static enum scenario_result directory_swap_scenario(void) {
     return SCENARIO_ABORTED;
   }
   char contents[20] = {0};
-  ssize_t length = read_file_prefix(SWAP_DIRECTORY_DESTINATION_MARKER,
-                                    contents, sizeof(contents));
+  ssize_t length = read_file_prefix(SWAP_DIRECTORY_DESTINATION_MARKER, contents,
+                                    sizeof(contents));
   remove_directory_swap_fixture(directory_fd);
   return scenario_result_of(has_contents(contents, length, "directory\n"));
 }
@@ -1048,8 +1043,8 @@ static enum scenario_result ancestor_swap_scenario(void) {
       !create_file_with_contents(SWAP_ANCESTOR_SOURCE, "ancestor\n")) {
     return SCENARIO_ABORTED;
   }
-  int ancestor_fd = pin_mount_path(SWAP_ANCESTOR_SOURCE, false,
-                                   unknown_identity);
+  int ancestor_fd =
+      pin_mount_path(SWAP_ANCESTOR_SOURCE, false, unknown_identity);
   struct mount_identity identity;
   if (ancestor_fd < 0 || pinned_identity(ancestor_fd, &identity) < 0 ||
       !create_empty_file(SWAP_ANCESTOR_DESTINATION) ||
@@ -1057,8 +1052,7 @@ static enum scenario_result ancestor_swap_scenario(void) {
       mkdir(SWAP_ANCESTOR, 0700) < 0) {
     return SCENARIO_ABORTED;
   }
-  bind_mount_fd(ancestor_fd, SWAP_ANCESTOR_DESTINATION, false, identity,
-                false);
+  bind_mount_fd(ancestor_fd, SWAP_ANCESTOR_DESTINATION, false, identity, false);
   char contents[16] = {0};
   ssize_t length =
       read_file_prefix(SWAP_ANCESTOR_DESTINATION, contents, sizeof(contents));

@@ -258,9 +258,8 @@ static void test_focused_failure(unsigned int failure_mask,
 
   snprintf(root, sizeof(root), "kernel-preflight-fixture-%ld-%u",
            (long)getpid(), index);
-  run_failing_preflight(root, 1, &context,
-                        "focused fixture should fail closed", diagnostics,
-                        sizeof(diagnostics));
+  run_failing_preflight(root, 1, &context, "focused fixture should fail closed",
+                        diagnostics, sizeof(diagnostics));
   snprintf(expected, sizeof(expected), "FAIL %s", expected_name);
   must(strstr(diagnostics, expected) != NULL,
        "focused fixture should report the injected failure");
@@ -433,8 +432,9 @@ static void test_kernel_identity_is_read_once(void) {
     const char *sysname;
     const char *expected;
   } cases[] = {
-      {EPERM, "", "FAIL linux_kernel: mkosi actions require a Linux kernel "
-                  "(Operation not permitted)\n"},
+      {EPERM, "",
+       "FAIL linux_kernel: mkosi actions require a Linux kernel "
+       "(Operation not permitted)\n"},
       {0, "Darwin",
        "FAIL linux_kernel: mkosi actions require a Linux kernel (Darwin)\n"},
   };

@@ -39,7 +39,7 @@
 #define AT_EMPTY_PATH 0x1000
 #endif
 
-/* The mount_setattr argument, named to avoid clashing with newer libc headers. */
+/* mount_setattr argument, named to avoid clashing with newer libc headers. */
 struct rules_mkosi_mount_attr {
   unsigned long long attr_set;
   unsigned long long attr_clr;
