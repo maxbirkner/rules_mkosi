@@ -786,15 +786,16 @@ py_test(
     deps = ["@rules_python//python/runfiles"],
 )
 
+# Not raw_image_artifact_test.py: tests that share a source must have equal tags, or their PyCompile actions conflict.
 py_test(
     name = "release_image_artifact_test",
-    srcs = ["raw_image_artifact_test.py"],
+    srcs = ["release_image_artifact_test.py"],
     args = ["$(rootpath :release_raw_image)"],
     data = [
         "raw_image_validator.py",
         ":release_raw_image",
     ],
-    main = "raw_image_artifact_test.py",
+    main = "release_image_artifact_test.py",
     deps = ["@rules_python//python/runfiles"],
 )
 
