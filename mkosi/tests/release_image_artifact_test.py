@@ -9,6 +9,4 @@ sys.path.insert(0, runfiles.Create().Rlocation(os.path.join(os.environ["TEST_WOR
 import raw_image_validator
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        raise SystemExit("usage: release_image_artifact_test.py IMAGE")
-    raw_image_validator.validate(raw_image_validator.image_path(sys.argv[1]))
+    raw_image_validator.main()

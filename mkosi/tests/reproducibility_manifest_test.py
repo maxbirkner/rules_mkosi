@@ -9,6 +9,9 @@ import types
 import unittest
 from unittest import mock
 
+sys.path.insert(0, str(pathlib.Path(__file__).parent))
+from bounded_reads import BoundedReader
+
 spec = importlib.util.spec_from_file_location("projection", sys.argv[1])
 projection = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(projection)
@@ -91,27 +94,10 @@ class ProjectionTest(unittest.TestCase):
 
         original_open = pathlib.Path.open
 
-        class Guarded:
-            def __init__(self, wrapped):
-                self.wrapped = wrapped
-
-            def read(self, size=-1):
-                if size < 0 or size > projection._MAX_JSON_BYTES + 1:
-                    raise AssertionError("unbounded reproducibility read")
-                return self.wrapped.read(size)
-
-            def __getattr__(self, name):
-                return getattr(self.wrapped, name)
-
-            def __enter__(self):
-                self.wrapped.__enter__()
-                return self
-
-            def __exit__(self, *args):
-                return self.wrapped.__exit__(*args)
-
         def guarded_open(path, *args, **kwargs):
-            return Guarded(original_open(path, *args, **kwargs))
+            return BoundedReader(
+                original_open(path, *args, **kwargs), projection._MAX_JSON_BYTES + 1, "reproducibility"
+            )
 
         with (
             mock.patch.object(

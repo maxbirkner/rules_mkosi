@@ -19,6 +19,13 @@ CI puts `bin` on `PATH` and runs every Bazel command through it.
 
 Workflow YAML is checked by `prek run --all-files`.
 
+## Duplicated code
+
+`prek run --all-files` fails on any block of at least 8 lines and 60 tokens that appears twice in Python, Starlark (`.bzl` and `BUILD` files), shell, C, or C++ sources.
+The check runs [jscpd](https://github.com/kucherenko/jscpd) with the settings in `.jscpd.json`; `npx jscpd@5.4.2 .` lists the clones.
+Move shared code into a helper instead of ignoring a clone.
+Comments, system `#include` lines, and `MODULE.bazel` files, which cannot share code, are not compared.
+
 ## Manual image artifacts
 
 Run the `CI` workflow manually with **Upload artifacts** enabled to download the release test disk, its build and partition metadata, and its reproducibility manifest with a `SHA256SUMS` file.

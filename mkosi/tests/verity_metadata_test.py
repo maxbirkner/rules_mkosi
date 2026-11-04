@@ -7,8 +7,20 @@ from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "private"))
+sys.path.insert(0, str(Path(__file__).parent))
 import gpt_partitions
 import verity_metadata
+from bounded_reads import BoundedReader
+
+
+def _partition(number, type_guid, label, size_bytes=8192):
+    return {"number": number, "size_bytes": size_bytes, "type_guid": type_guid, "label": label}
+
+
+ACTIVE_AB_SLOT = (
+    _partition(1, gpt_partitions.ROOT_X86_64, "ab_1"),
+    _partition(2, gpt_partitions.ROOT_X86_64_VERITY, "ab_1_verity"),
+)
 
 
 class VerityMetadataTest(unittest.TestCase):
@@ -48,6 +60,9 @@ class VerityMetadataTest(unittest.TestCase):
             )
         )
 
+    def _write_partition_table(self, *partitions):
+        self.partitions.write_text(json.dumps({"partitions": list(partitions)}))
+
     def _project(self):
         return verity_metadata.project(self.roothash, self.partitions, self.root, self.hash)
 
@@ -74,47 +89,15 @@ class VerityMetadataTest(unittest.TestCase):
         self.assertEqual(hashlib.sha256(self.root.read_bytes()).hexdigest(), projected["artifacts"]["root"]["sha256"])
 
     def test_ignores_inactive_ab_slots(self):
-        self.partitions.write_text(
-            json.dumps(
-                {
-                    "partitions": [
-                        {"number": 1, "size_bytes": 8192, "type_guid": gpt_partitions.ROOT_X86_64, "label": "ab_1"},
-                        {
-                            "number": 2,
-                            "size_bytes": 8192,
-                            "type_guid": gpt_partitions.ROOT_X86_64_VERITY,
-                            "label": "ab_1_verity",
-                        },
-                        {"number": 3, "size_bytes": 8192, "type_guid": gpt_partitions.ROOT_X86_64, "label": "_empty"},
-                        {
-                            "number": 4,
-                            "size_bytes": 8192,
-                            "type_guid": gpt_partitions.ROOT_X86_64_VERITY,
-                            "label": "_empty",
-                        },
-                    ]
-                }
-            )
+        self._write_partition_table(
+            *ACTIVE_AB_SLOT,
+            _partition(3, gpt_partitions.ROOT_X86_64, "_empty"),
+            _partition(4, gpt_partitions.ROOT_X86_64_VERITY, "_empty"),
         )
         self.assertEqual(2, self._project()["data_blocks"])
 
     def test_rejects_second_populated_root(self):
-        self.partitions.write_text(
-            json.dumps(
-                {
-                    "partitions": [
-                        {"number": 1, "size_bytes": 8192, "type_guid": gpt_partitions.ROOT_X86_64, "label": "ab_1"},
-                        {
-                            "number": 2,
-                            "size_bytes": 8192,
-                            "type_guid": gpt_partitions.ROOT_X86_64_VERITY,
-                            "label": "ab_1_verity",
-                        },
-                        {"number": 3, "size_bytes": 8192, "type_guid": gpt_partitions.ROOT_X86_64, "label": "ab_0"},
-                    ]
-                }
-            )
-        )
+        self._write_partition_table(*ACTIVE_AB_SLOT, _partition(3, gpt_partitions.ROOT_X86_64, "ab_0"))
         with self.assertRaisesRegex(ValueError, "exactly one"):
             self._project()
 
@@ -205,28 +188,9 @@ class VerityMetadataTest(unittest.TestCase):
 
         original_open = open
 
-        class Guarded:
-            def __init__(self, wrapped):
-                self.wrapped = wrapped
-
-            def read(self, size=-1):
-                if size < 0 or size > 1024 * 1024:
-                    raise AssertionError("unbounded verifier read")
-                return self.wrapped.read(size)
-
-            def __getattr__(self, name):
-                return getattr(self.wrapped, name)
-
-            def __enter__(self):
-                self.wrapped.__enter__()
-                return self
-
-            def __exit__(self, *args):
-                return self.wrapped.__exit__(*args)
-
         def guarded_open(path, mode="r", *args, **kwargs):
             wrapped = original_open(path, mode, *args, **kwargs)
-            return Guarded(wrapped) if "b" in mode else wrapped
+            return BoundedReader(wrapped, 1024 * 1024, "verifier") if "b" in mode else wrapped
 
         with mock.patch("builtins.open", side_effect=guarded_open):
             projected = self._project()

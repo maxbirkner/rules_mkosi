@@ -55,7 +55,10 @@ py_test(
 
 py_test(
     name = "reproducibility_manifest_test",
-    srcs = ["reproducibility_manifest_test.py"],
+    srcs = [
+        "bounded_reads.py",
+        "reproducibility_manifest_test.py",
+    ],
     args = ["$(rootpath //mkosi/private:reproducibility_manifest.py)"],
     data = [
         "//mkosi/private:gpt_partitions.py",
@@ -106,6 +109,7 @@ py_test(
 py_test(
     name = "verity_metadata_test",
     srcs = [
+        "bounded_reads.py",
         "verity_metadata_test.py",
         "//mkosi/private:file_hashing.py",
         "//mkosi/private:gpt_partitions.py",
@@ -588,13 +592,13 @@ py_test(
 
 py_test(
     name = "override_image_artifact_test",
-    srcs = ["raw_image_override_artifact_test.py"],
+    srcs = ["raw_image_artifact_test.py"],
     args = ["$(rootpath :override_subject_raw)"],
     data = [
         "raw_image_validator.py",
         ":override_subject_raw",
     ],
-    main = "raw_image_override_artifact_test.py",
+    main = "raw_image_artifact_test.py",
     tags = ["requires-network"],
     deps = ["@rules_python//python/runfiles"],
 )
@@ -785,6 +789,7 @@ py_test(
     deps = ["@rules_python//python/runfiles"],
 )
 
+# Not raw_image_artifact_test.py: tests that share a source must have equal tags, or their PyCompile actions conflict.
 py_test(
     name = "release_image_artifact_test",
     srcs = ["release_image_artifact_test.py"],

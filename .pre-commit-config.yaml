@@ -40,6 +40,14 @@ repos:
         language: system
         files: \.(py|bzl)$|^ci/function_size_baseline\.txt$
         pass_filenames: false
+      - id: jscpd
+        name: duplicated code (jscpd)
+        entry: jscpd
+        language: node
+        additional_dependencies:
+          - jscpd@5.4.2
+        always_run: true
+        pass_filenames: false
       - id: bazel-versions
         name: check Bazel version copies
         entry: python3 ci/check_bazel_versions.py

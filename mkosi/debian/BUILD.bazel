@@ -66,7 +66,10 @@ cc_library(
     testonly = True,
     textual_hdrs = ["namespace_runner.c"],
     visibility = ["//visibility:private"],
-    deps = ["//mkosi/private:write_all"],
+    deps = [
+        "//mkosi/private:mount_api",
+        "//mkosi/private:write_all",
+    ],
 )
 
 cc_test(

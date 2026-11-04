@@ -22,35 +22,8 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include "mkosi/private/mount_api.h"
 #include "mkosi/private/write_all.h"
-
-#ifndef SYS_mount_setattr
-#define SYS_mount_setattr 442
-#endif
-#ifndef SYS_open_tree
-#define SYS_open_tree 428
-#endif
-#ifndef SYS_move_mount
-#define SYS_move_mount 429
-#endif
-#ifndef AT_RECURSIVE
-#define AT_RECURSIVE 0x8000
-#endif
-#ifndef MOUNT_ATTR_RDONLY
-#define MOUNT_ATTR_RDONLY 0x00000001ULL
-#endif
-#ifndef OPEN_TREE_CLONE
-#define OPEN_TREE_CLONE 1
-#endif
-#ifndef OPEN_TREE_CLOEXEC
-#define OPEN_TREE_CLOEXEC 0x80000
-#endif
-#ifndef MOVE_MOUNT_F_EMPTY_PATH
-#define MOVE_MOUNT_F_EMPTY_PATH 0x00000004
-#endif
-#ifndef AT_EMPTY_PATH
-#define AT_EMPTY_PATH 0x1000
-#endif
 
 #define ARRAY_SIZE(array) (sizeof(array) / sizeof((array)[0]))
 #define NORETURN __attribute__((noreturn))
@@ -63,13 +36,6 @@ enum { PATH_BUFFER_SIZE = 4096 };
 
 /* Each typed mount is OPTION SOURCE DESTINATION DEVICE INODE TYPE. */
 enum { FIRST_MOUNT_ARGUMENT = 7, TYPED_MOUNT_ARGUMENTS = 6 };
-
-struct mkosi_mount_attr {
-  unsigned long long attr_set;
-  unsigned long long attr_clr;
-  unsigned long long propagation;
-  unsigned long long userns_fd;
-};
 
 /*
  * Device and inode a bind source must still have when it is pinned. Without a
@@ -413,7 +379,7 @@ static int pin_mount_path(const char *path, bool directory,
 }
 
 static long set_detached_mount_readonly(int source_fd) {
-  struct mkosi_mount_attr attributes = {
+  struct rules_mkosi_mount_attr attributes = {
       .attr_set = MOUNT_ATTR_RDONLY,
   };
   return syscall(SYS_mount_setattr, source_fd, "", AT_EMPTY_PATH | AT_RECURSIVE,

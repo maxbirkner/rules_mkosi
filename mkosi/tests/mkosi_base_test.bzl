@@ -12,21 +12,9 @@ load(
     "mkosi_reproducibility_manifest",
     "mkosi_source_tree",
 )
+load(":analysis_test_helpers.bzl", "argv_preamble", "option_value", "single_action")
 
 _SEED = "00000000-0000-4000-8000-000000000007"
-
-def _action(env, mnemonic):
-    actions = [action for action in analysistest.target_actions(env) if action.mnemonic == mnemonic]
-    asserts.equals(env, 1, len(actions), "expected one %s action" % mnemonic)
-    return actions[0]
-
-def _option_value(argv, option):
-    if option not in argv:
-        return None
-    return argv[argv.index(option) + 1]
-
-def _preamble(argv):
-    return argv[:argv.index("--")]
 
 def _mkosi_arguments(argv):
     return argv[argv.index("--") + 1:]
@@ -44,18 +32,18 @@ def _base_test_impl(ctx):
     asserts.equals(env, 0, info.release_source_date_epoch)
     asserts.equals(env, [info.root_tree, info.initrd], target[DefaultInfo].files.to_list())
 
-    action = _action(env, "MkosiBase")
+    action = single_action(env, "MkosiBase")
     asserts.equals(env, [info.root_tree, info.initrd], action.outputs.to_list())
-    preamble = _preamble(action.argv)
-    asserts.equals(env, snapshot.repository.path, _option_value(preamble, "--debian-snapshot-repository"))
-    asserts.equals(env, info.initrd.path, _option_value(preamble, "--release-base-initrd-output"))
-    asserts.equals(env, _SEED, _option_value(preamble, "--release-seed"))
-    asserts.equals(env, "uefi", _option_value(preamble, "--release-firmware"))
+    preamble = argv_preamble(action.argv)
+    asserts.equals(env, snapshot.repository.path, option_value(preamble, "--debian-snapshot-repository"))
+    asserts.equals(env, info.initrd.path, option_value(preamble, "--release-base-initrd-output"))
+    asserts.equals(env, _SEED, option_value(preamble, "--release-seed"))
+    asserts.equals(env, "uefi", option_value(preamble, "--release-firmware"))
     arguments = _mkosi_arguments(action.argv)
     for argument in ("--format=tar", "--bootable=no", "--initrd=default", "--environment=INITRD=No"):
         asserts.true(env, argument in arguments, argument)
-    asserts.equals(env, "root", _option_value(arguments, "--output"))
-    asserts.equals(env, info.root_tree.dirname, _option_value(arguments, "--output-directory"))
+    asserts.equals(env, "root", option_value(arguments, "--output"))
+    asserts.equals(env, info.root_tree.dirname, option_value(arguments, "--output-directory"))
     asserts.equals(env, "1", action.env["MKOSI_FORCE_USERNS_FALLBACK"])
 
     # The base action must not depend on any version so that a new version reuses its cached result.
@@ -88,18 +76,18 @@ def _finalize_test_impl(ctx):
     for field in ("raw_image", "partition_metadata", "uki", "uki_metadata", "build_metadata"):
         asserts.true(env, getattr(info, field) != None, field)
 
-    image_action = _action(env, "MkosiImage")
-    preamble = _preamble(image_action.argv)
+    image_action = single_action(env, "MkosiImage")
+    preamble = argv_preamble(image_action.argv)
     asserts.false(env, "--debian-snapshot-repository" in preamble)
-    asserts.equals(env, base.root_tree.path, _option_value(preamble, "--release-base-tree"))
-    asserts.equals(env, base.initrd.path, _option_value(preamble, "--release-initrd"))
-    asserts.equals(env, base.release_seed, _option_value(preamble, "--release-seed"))
-    asserts.equals(env, str(base.release_source_date_epoch), _option_value(preamble, "--release-source-date-epoch"))
-    asserts.equals(env, base.debian_snapshot.snapshot, _option_value(preamble, "--release-snapshot"))
-    asserts.equals(env, version_file.path, _option_value(preamble, "--image-version-file"))
+    asserts.equals(env, base.root_tree.path, option_value(preamble, "--release-base-tree"))
+    asserts.equals(env, base.initrd.path, option_value(preamble, "--release-initrd"))
+    asserts.equals(env, base.release_seed, option_value(preamble, "--release-seed"))
+    asserts.equals(env, str(base.release_source_date_epoch), option_value(preamble, "--release-source-date-epoch"))
+    asserts.equals(env, base.debian_snapshot.snapshot, option_value(preamble, "--release-snapshot"))
+    asserts.equals(env, version_file.path, option_value(preamble, "--image-version-file"))
     arguments = _mkosi_arguments(image_action.argv)
-    asserts.equals(env, base.root_tree.path, _option_value(arguments, "--base-tree"))
-    asserts.equals(env, base.initrd.path, _option_value(arguments, "--initrd"))
+    asserts.equals(env, base.root_tree.path, option_value(arguments, "--base-tree"))
+    asserts.equals(env, base.initrd.path, option_value(arguments, "--initrd"))
     asserts.true(env, "--image-id=rules-mkosi-ab" in arguments)
     asserts.true(env, "--cache-only=always" in arguments)
     asserts.equals(env, base.debian_snapshot.distribution, image_action.env["MKOSI_HOST_DISTRIBUTION"])
@@ -117,8 +105,8 @@ def _finalize_test_impl(ctx):
         for output in action.outputs.to_list():
             asserts.false(env, output in (base.root_tree, base.initrd), output.path)
 
-    metadata_action = _action(env, "MkosiBuildMetadata")
-    metadata = json.decode(_option_value(metadata_action.argv, "--metadata-json"))
+    metadata_action = single_action(env, "MkosiBuildMetadata")
+    metadata = json.decode(option_value(metadata_action.argv, "--metadata-json"))
     asserts.equals(env, "mkosi-image-build-metadata-v3", metadata["format_version"])
     asserts.equals(env, base.debian_snapshot.lock_sha256, metadata["debian_snapshot"]["lock_sha256"])
     asserts.equals(

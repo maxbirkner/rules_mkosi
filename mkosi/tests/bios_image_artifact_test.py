@@ -113,34 +113,35 @@ def validate_boot_regions(image, metadata, boot_reference, diskboot_reference):
         raise AssertionError("GRUB installation payload in BIOS boot partition is empty")
 
 
-def _debugfs(launcher, root, command):
-    invocation = getattr(_debugfs, "invocation", 0)
-    _debugfs.invocation = invocation + 1
+def _run_tool(launcher, scratch, binding, command, **kwargs):
+    """Runs a hermetic Debian tool with one image file bound read-only, in a fresh scratch directory."""
+    invocation = getattr(_run_tool, "invocation", 0)
+    _run_tool.invocation = invocation + 1
     environment = {
         n: os.environ[n]
         for n in ("RUNFILES_DIR", "RUNFILES_MANIFEST_FILE", "RUNFILES_MANIFEST_ONLY")
         if n in os.environ
     }
-    environment.update(
-        {
-            "MKOSI_DEBIAN_TOOLS_SCRATCH": os.path.join(os.environ["TEST_TMPDIR"], "bios-debugfs-{}".format(invocation)),
-            "PATH": "",
-        }
+    environment["MKOSI_DEBIAN_TOOLS_SCRATCH"] = os.path.join(
+        os.environ["TEST_TMPDIR"], "bios-{}-{}".format(scratch, invocation)
     )
-    result = subprocess.run(
-        [
-            launcher,
-            "--ro-bind",
-            "{}:/inputs/root.ext4".format(root),
-            "/usr/sbin/debugfs",
-            "-R",
-            command,
-            "/inputs/root.ext4",
-        ],
+    environment["PATH"] = ""
+    return subprocess.run(
+        [launcher, "--ro-bind", binding, *command],
         env=environment,
-        capture_output=True,
         check=False,
         text=True,
+        **kwargs,
+    )
+
+
+def _debugfs(launcher, root, command):
+    result = _run_tool(
+        launcher,
+        "debugfs",
+        "{}:/inputs/root.ext4".format(root),
+        ["/usr/sbin/debugfs", "-R", command, "/inputs/root.ext4"],
+        capture_output=True,
     )
     if result.returncode:
         raise AssertionError("GRUB root filesystem inspection failed: " + result.stdout + result.stderr)
@@ -148,35 +149,13 @@ def _debugfs(launcher, root, command):
 
 
 def _mtype(launcher, esp):
-    invocation = getattr(_debugfs, "invocation", 0)
-    _debugfs.invocation = invocation + 1
-    environment = {
-        n: os.environ[n]
-        for n in ("RUNFILES_DIR", "RUNFILES_MANIFEST_FILE", "RUNFILES_MANIFEST_ONLY")
-        if n in os.environ
-    }
-    environment.update(
-        {
-            "MKOSI_DEBIAN_TOOLS_SCRATCH": os.path.join(os.environ["TEST_TMPDIR"], "bios-mtype-{}".format(invocation)),
-            "PATH": "",
-        }
-    )
-    listing = subprocess.run(
-        [
-            launcher,
-            "--ro-bind",
-            "{}:/inputs/esp.fat".format(esp),
-            "/usr/bin/mdir",
-            "-i",
-            "/inputs/esp.fat",
-            "-b",
-            "-/",
-            "::",
-        ],
-        env=environment,
+    binding = "{}:/inputs/esp.fat".format(esp)
+    listing = _run_tool(
+        launcher,
+        "mtype",
+        binding,
+        ["/usr/bin/mdir", "-i", "/inputs/esp.fat", "-b", "-/", "::"],
         capture_output=True,
-        check=False,
-        text=True,
     )
     configs = [line.strip() for line in listing.stdout.splitlines() if line.strip().lower().endswith("/grub.cfg")]
     if listing.returncode:
@@ -185,24 +164,12 @@ def _mtype(launcher, esp):
         return None
     if len(configs) != 1:
         raise AssertionError("GRUB ESP contains multiple grub.cfg files: " + listing.stdout)
-    invocation += 1
-    environment["MKOSI_DEBIAN_TOOLS_SCRATCH"] = os.path.join(
-        os.environ["TEST_TMPDIR"], "bios-mtype-{}".format(invocation)
-    )
-    result = subprocess.run(
-        [
-            launcher,
-            "--ro-bind",
-            "{}:/inputs/esp.fat".format(esp),
-            "/usr/bin/mtype",
-            "-i",
-            "/inputs/esp.fat",
-            configs[0],
-        ],
-        env=environment,
+    result = _run_tool(
+        launcher,
+        "mtype",
+        binding,
+        ["/usr/bin/mtype", "-i", "/inputs/esp.fat", configs[0]],
         capture_output=True,
-        check=False,
-        text=True,
     )
     if result.returncode:
         raise AssertionError("GRUB ESP configuration inspection failed: " + result.stdout + result.stderr)
@@ -212,36 +179,13 @@ def _mtype(launcher, esp):
 
 
 def _fat_regular(launcher, esp, path):
-    invocation = getattr(_debugfs, "invocation", 0)
-    _debugfs.invocation = invocation + 1
-    environment = {
-        n: os.environ[n]
-        for n in ("RUNFILES_DIR", "RUNFILES_MANIFEST_FILE", "RUNFILES_MANIFEST_ONLY")
-        if n in os.environ
-    }
-    environment.update(
-        {
-            "MKOSI_DEBIAN_TOOLS_SCRATCH": os.path.join(
-                os.environ["TEST_TMPDIR"], "bios-fat-stat-{}".format(invocation)
-            ),
-            "PATH": "",
-        }
-    )
-    result = subprocess.run(
-        [
-            launcher,
-            "--ro-bind",
-            "{}:/inputs/esp.fat".format(esp),
-            "/usr/bin/mtype",
-            "-i",
-            "/inputs/esp.fat",
-            "::" + path,
-        ],
-        env=environment,
+    result = _run_tool(
+        launcher,
+        "fat-stat",
+        "{}:/inputs/esp.fat".format(esp),
+        ["/usr/bin/mtype", "-i", "/inputs/esp.fat", "::" + path],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.PIPE,
-        check=False,
-        text=True,
     )
     return "regular" if result.returncode == 0 else "missing"
 

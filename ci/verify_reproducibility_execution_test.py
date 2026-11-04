@@ -7,6 +7,7 @@ import pathlib
 import sys
 import unittest
 
+sys.path.insert(0, str(pathlib.Path(sys.argv[1]).parent))
 spec = importlib.util.spec_from_file_location("verify_execution", sys.argv[1])
 verify_execution = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(verify_execution)

@@ -12,6 +12,7 @@ load(
     "sysupdate_payload",
     "sysupdate_transfers",
 )
+load(":analysis_test_helpers.bzl", "argv_preamble", "option_value", "single_action")
 
 def _template_variables_impl(ctx):
     return [platform_common.TemplateVariableInfo(ctx.attr.variables)]
@@ -35,16 +36,6 @@ def _signed_uki_impl(ctx):
 
 _signed_uki = rule(implementation = _signed_uki_impl)
 
-def _action(env, mnemonic):
-    actions = [action for action in analysistest.target_actions(env) if action.mnemonic == mnemonic]
-    asserts.equals(env, 1, len(actions), "expected one %s action" % mnemonic)
-    return actions[0]
-
-def _option_value(argv, option):
-    if option not in argv:
-        return None
-    return argv[argv.index(option) + 1]
-
 def _image_identity_test_impl(ctx):
     env = analysistest.begin(ctx)
     info = analysistest.target_under_test(env)[MkosiImageInfo]
@@ -54,7 +45,7 @@ def _image_identity_test_impl(ctx):
     asserts.equals(env, expected_version, info.image_version)
     asserts.equals(env, None, info.image_version_file)
 
-    argv = _action(env, "MkosiImage").argv
+    argv = single_action(env, "MkosiImage").argv
     asserts.false(env, "--image-version-file" in argv)
     asserts.equals(env, expected_id != None, "--image-id=%s" % ctx.attr.expected_id in argv)
     asserts.equals(env, expected_version != None, "--image-version=%s" % ctx.attr.expected_version in argv)
@@ -76,9 +67,9 @@ def _image_identity_test_impl(ctx):
         asserts.equals(env, {"id": expected_id, "version": expected_version}, metadata["image"])
 
     if info.partition_metadata != None:
-        partition_argv = _action(env, "MkosiPartitionMetadata").argv
+        partition_argv = single_action(env, "MkosiPartitionMetadata").argv
         expected_slot = ctx.attr.expected_slot_label or None
-        asserts.equals(env, expected_slot, _option_value(partition_argv, "--slot-label"))
+        asserts.equals(env, expected_slot, option_value(partition_argv, "--slot-label"))
     return analysistest.end(env)
 
 _image_identity_test = analysistest.make(
@@ -90,9 +81,6 @@ _image_identity_test = analysistest.make(
     },
 )
 
-def _preamble(argv):
-    return argv[:argv.index("--")]
-
 def _image_version_file_identity_test_impl(ctx):
     env = analysistest.begin(ctx)
     info = analysistest.target_under_test(env)[MkosiImageInfo]
@@ -101,30 +89,30 @@ def _image_version_file_identity_test_impl(ctx):
     asserts.equals(env, None, info.image_version)
     asserts.equals(env, version_file, info.image_version_file)
 
-    image_action = _action(env, "MkosiImage")
+    image_action = single_action(env, "MkosiImage")
     argv = image_action.argv
-    asserts.equals(env, version_file.path, _option_value(_preamble(argv), "--image-version-file"))
-    asserts.equals(env, "rules-mkosi-ab", _option_value(_preamble(argv), "--slot-label-image-id"))
+    asserts.equals(env, version_file.path, option_value(argv_preamble(argv), "--image-version-file"))
+    asserts.equals(env, "rules-mkosi-ab", option_value(argv_preamble(argv), "--slot-label-image-id"))
     asserts.true(env, "--image-id=rules-mkosi-ab" in argv)
     asserts.false(env, any([argument.startswith("--image-version=") for argument in argv]))
     image_inputs = image_action.inputs.to_list()
     asserts.true(env, version_file in image_inputs)
     asserts.true(env, "image_version.py" in [file.basename for file in image_inputs])
 
-    partition_action = _action(env, "MkosiPartitionMetadata")
-    asserts.equals(env, None, _option_value(partition_action.argv, "--slot-label"))
-    asserts.equals(env, "rules-mkosi-ab", _option_value(partition_action.argv, "--slot-label-image-id"))
-    asserts.equals(env, version_file.path, _option_value(partition_action.argv, "--image-version-file"))
+    partition_action = single_action(env, "MkosiPartitionMetadata")
+    asserts.equals(env, None, option_value(partition_action.argv, "--slot-label"))
+    asserts.equals(env, "rules-mkosi-ab", option_value(partition_action.argv, "--slot-label-image-id"))
+    asserts.equals(env, version_file.path, option_value(partition_action.argv, "--image-version-file"))
     asserts.true(env, version_file in partition_action.inputs.to_list())
 
-    metadata_action = _action(env, "MkosiBuildMetadata")
+    metadata_action = single_action(env, "MkosiBuildMetadata")
     asserts.equals(env, [info.build_metadata], metadata_action.outputs.to_list())
     asserts.true(env, version_file in metadata_action.inputs.to_list())
     asserts.true(env, metadata_action.argv[1].endswith("/image_version.py"))
     asserts.equals(env, "build-metadata", metadata_action.argv[2])
-    asserts.equals(env, version_file.path, _option_value(metadata_action.argv, "--image-version-file"))
-    asserts.equals(env, info.build_metadata.path, _option_value(metadata_action.argv, "--output"))
-    metadata = json.decode(_option_value(metadata_action.argv, "--metadata-json"))
+    asserts.equals(env, version_file.path, option_value(metadata_action.argv, "--image-version-file"))
+    asserts.equals(env, info.build_metadata.path, option_value(metadata_action.argv, "--output"))
+    metadata = json.decode(option_value(metadata_action.argv, "--metadata-json"))
     asserts.equals(env, {"id": "rules-mkosi-ab", "version": None}, metadata["image"])
     asserts.equals(env, "mkosi-image-build-metadata-v3", metadata["format_version"])
     asserts.equals(env, "", metadata_action.env["PATH"])
@@ -155,14 +143,14 @@ def _transfers_test_impl(ctx):
     asserts.true(env, info.is_generated)
     asserts.true(env, info.artifact.is_directory)
     asserts.equals(env, [info.artifact], target[DefaultInfo].files.to_list())
-    action = _action(env, "MkosiSysupdateTransfers")
+    action = single_action(env, "MkosiSysupdateTransfers")
     asserts.equals(env, [info.artifact], action.outputs.to_list())
     argv = action.argv
     asserts.true(env, argv[1].endswith("/sysupdate.py"))
     asserts.equals(env, "transfers", argv[2])
-    asserts.equals(env, ctx.attr.expected_id, _option_value(argv, "--image-id"))
-    asserts.equals(env, ctx.attr.expected_boot_attempts, _option_value(argv, "--boot-attempts"))
-    asserts.equals(env, ctx.attr.expected_instances, _option_value(argv, "--instances"))
+    asserts.equals(env, ctx.attr.expected_id, option_value(argv, "--image-id"))
+    asserts.equals(env, ctx.attr.expected_boot_attempts, option_value(argv, "--boot-attempts"))
+    asserts.equals(env, ctx.attr.expected_instances, option_value(argv, "--instances"))
     asserts.equals(env, "", action.env["PATH"])
     return analysistest.end(env)
 
@@ -183,22 +171,22 @@ def _payload_test_impl(ctx):
     asserts.equals(env, "rules-mkosi-ab", info.image_id)
     asserts.true(env, info.directory.is_directory)
     asserts.equals(env, [info.directory], target[DefaultInfo].files.to_list())
-    action = _action(env, "MkosiSysupdatePayload")
+    action = single_action(env, "MkosiSysupdatePayload")
     argv = action.argv
     asserts.equals(env, "payload", argv[2])
-    asserts.equals(env, "rules-mkosi-ab", _option_value(argv, "--image-id"))
+    asserts.equals(env, "rules-mkosi-ab", option_value(argv, "--image-id"))
     version_file = ctx.file.expected_version_file
     if version_file:
         asserts.equals(env, None, info.image_version)
         asserts.equals(env, version_file, info.image_version_file)
         asserts.false(env, "--image-version" in argv)
-        asserts.equals(env, version_file.path, _option_value(argv, "--image-version-file"))
+        asserts.equals(env, version_file.path, option_value(argv, "--image-version-file"))
         asserts.true(env, version_file in action.inputs.to_list())
         asserts.true(env, "image_version.py" in [file.basename for file in action.inputs.to_list()])
     else:
         asserts.equals(env, "7", info.image_version)
         asserts.equals(env, None, info.image_version_file)
-        asserts.equals(env, "7", _option_value(argv, "--image-version"))
+        asserts.equals(env, "7", option_value(argv, "--image-version"))
         asserts.false(env, "--image-version-file" in argv)
     image = ctx.attr.image_name
     for option, basename in (
@@ -208,18 +196,18 @@ def _payload_test_impl(ctx):
         ("--verity-image", image + ".root-verity.raw"),
         ("--uki", image + ".efi"),
     ):
-        asserts.true(env, _option_value(argv, option).endswith("/" + basename), option)
+        asserts.true(env, option_value(argv, option).endswith("/" + basename), option)
         asserts.true(env, basename in [file.basename for file in action.inputs.to_list()], basename)
     for option, basename in (
         ("--signed-uki", "signed_uki_subject.signed.efi"),
         ("--signing-request", "signed_uki_subject.secure-boot-request.json"),
     ):
         if ctx.attr.expect_signed_uki:
-            asserts.true(env, _option_value(argv, option).endswith("/" + basename), option)
+            asserts.true(env, option_value(argv, option).endswith("/" + basename), option)
             asserts.true(env, basename in [file.basename for file in action.inputs.to_list()], basename)
         else:
             asserts.false(env, option in argv, option)
-    asserts.equals(env, info.directory.path, _option_value(argv, "--output"))
+    asserts.equals(env, info.directory.path, option_value(argv, "--output"))
     return analysistest.end(env)
 
 _payload_test = analysistest.make(
