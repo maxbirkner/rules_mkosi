@@ -1,5 +1,7 @@
+# shellcheck shell=sh
 # Sourced by run_with_runfiles.sh; $1 and $2 are the rlocation paths Bazel passes for runfiles_test.sh and
 # @bazel_skylib//:LICENSE. They must equal the keys Bazel writes to runfiles manifests and trees.
+# shellcheck disable=SC2123 # PATH is cleared on purpose so no host command can be resolved.
 PATH=
 export PATH
 main_key=_main/mkosi/tests/runfiles_test.sh
