@@ -31,6 +31,15 @@ py_test(
 )
 
 py_test(
+    name = "check_bazel_versions_test",
+    srcs = [
+        "check_bazel_versions.py",
+        "check_bazel_versions_test.py",
+    ],
+    main = "check_bazel_versions_test.py",
+)
+
+py_test(
     name = "action_graph_validator_test",
     srcs = [
         "action_graph_validator.py",
@@ -46,6 +55,15 @@ py_test(
         "check_function_size_test.py",
     ],
     main = "check_function_size_test.py",
+)
+
+py_test(
+    name = "image_environment_validator_test",
+    srcs = [
+        "image_environment_validator.py",
+        "image_environment_validator_test.py",
+    ],
+    main = "image_environment_validator_test.py",
 )
 
 sh_test(

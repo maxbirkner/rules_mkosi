@@ -6,13 +6,11 @@ export PATH
 
 module_file="$(rlocation "$1")"
 python_version="${2:?rules_mkosi Python version is required}"
-floor=0
 qemu=0
 python_lines=0
 while IFS= read -r module_line
 do
     case "$module_line" in
-        *'">=8.8.2"'*) floor=1 ;;
         *'bazel_dep(name = "rules_qemu", version = "0.3.0")'*) qemu=1 ;;
     esac
     case "$module_line" in
@@ -26,10 +24,6 @@ done < "$module_file"
 # The Python default, toolchain, and locked pip hub must all use the line that rules_mkosi's rules select.
 [ "$python_lines" -eq 3 ] || {
     echo "MODULE.bazel must use Python $python_version for its default, toolchain, and pip hub" >&2
-    exit 1
-}
-[ "$floor" -eq 1 ] || {
-    echo "MODULE.bazel must advertise the supported Bazel 8.8.2 floor" >&2
     exit 1
 }
 [ "$qemu" -eq 1 ] || {
