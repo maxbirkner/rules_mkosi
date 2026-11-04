@@ -85,8 +85,8 @@ _image_identity_test = analysistest.make(
     _image_identity_test_impl,
     attrs = {
         "expected_id": attr.string(),
-        "expected_version": attr.string(),
         "expected_slot_label": attr.string(),
+        "expected_version": attr.string(),
     },
 )
 
@@ -169,10 +169,10 @@ def _transfers_test_impl(ctx):
 _transfers_test = analysistest.make(
     _transfers_test_impl,
     attrs = {
-        "expected_id": attr.string(mandatory = True),
         "expected_boot_attempts": attr.string(mandatory = True),
-        "expected_instances": attr.string(mandatory = True),
         "expected_destination": attr.string(mandatory = True),
+        "expected_id": attr.string(mandatory = True),
+        "expected_instances": attr.string(mandatory = True),
     },
 )
 
@@ -252,22 +252,22 @@ def _lifecycle_boot_config_test_impl(ctx):
 _lifecycle_boot_config_test = analysistest.make(
     _lifecycle_boot_config_test_impl,
     attrs = {
-        "expected_progress_markers": attr.string_list(),
         "expected_allow_reboot": attr.bool(),
         "expected_mount_tags": attr.string_list(),
+        "expected_progress_markers": attr.string_list(),
     },
 )
 
 def _boot_config(name, **kwargs):
     attrs = {
+        "boot_timeout_seconds": 180,
+        "diagnostic_bytes": 4096,
         "image": ":debian_subject",
+        "machine_args": ["-machine", "q35"],
+        "qmp_initialization_timeout_seconds": 15,
         "readiness_marker": "READY",
         "shutdown_markers": ["SHUTDOWN"],
-        "machine_args": ["-machine", "q35"],
-        "boot_timeout_seconds": 180,
-        "qmp_initialization_timeout_seconds": 15,
         "shutdown_timeout_seconds": 30,
-        "diagnostic_bytes": 4096,
         "tags": ["manual"],
     }
     attrs.update(kwargs)
@@ -496,7 +496,7 @@ def sysupdate_test_suite(name):
     tests += [":boundary_transfers_test", ":default_transfers_test"]
     for subject, kwargs, expected_error in [
         ("image_id", {"image_id": "Rules"}, "image_id must be non-empty"),
-        ("boot_attempts", {"image_id": "rules", "boot_attempts": -1}, "boot_attempts must be non-negative"),
+        ("boot_attempts", {"boot_attempts": -1, "image_id": "rules"}, "boot_attempts must be non-negative"),
         ("instances", {"image_id": "rules", "instances": 1}, "instances must be at least 2"),
     ]:
         sysupdate_transfers(
@@ -588,7 +588,7 @@ def sysupdate_test_suite(name):
         ("empty_progress_marker", {"progress_markers": ["FIRST", ""]}, "progress_markers must contain only nonempty markers"),
         (
             "progress_with_expected_failure",
-            {"progress_markers": ["FIRST"], "expected_failure_marker": "FAILED"},
+            {"expected_failure_marker": "FAILED", "progress_markers": ["FIRST"]},
             "cannot be combined with expected_failure_marker",
         ),
         ("file_share", {"read_only_shares": {"testdata/minimal.conf": "payload"}}, "must provide exactly one directory"),

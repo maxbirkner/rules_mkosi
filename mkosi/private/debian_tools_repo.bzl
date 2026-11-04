@@ -189,12 +189,12 @@ def _impl(ctx):
 debian_tools_repo = repository_rule(
     implementation = _impl,
     attrs = {
+        "archive_sha256": attr.string(mandatory = True),
+        "components": attr.label(mandatory = True),
+        "lock_sha256": attr.string(mandatory = True),
         "package_repo": attr.string(mandatory = True),
         "provenance": attr.label(mandatory = True),
-        "components": attr.label(mandatory = True),
-        "required_components": attr.string_list(mandatory = True),
-        "lock_sha256": attr.string(mandatory = True),
-        "archive_sha256": attr.string(mandatory = True),
         "python_version": attr.string(mandatory = True),
+        "required_components": attr.string_list(mandatory = True),
     },
 )

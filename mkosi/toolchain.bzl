@@ -28,24 +28,24 @@ _ManagedPythonRuntimeInfo = provider(
 MkosiToolchainInfo = provider(
     doc = "Information used to execute an mkosi image build.",
     fields = {
-        "format_version": "String identifying the toolchain output contract.",
-        "name": "Logical name of the selected toolchain.",
-        "version": "Pinned mkosi version.",
-        "source_url": "Immutable URL used to fetch the mkosi source.",
-        "source_sha256": "SHA-256 integrity hash of the mkosi source archive.",
-        "integrity": "SRI integrity string for the mkosi source archive.",
-        "python_version": "Required Bazel-managed Python major/minor line.",
-        "resolved_python_version": "Concrete version supplied by the selected Python toolchain.",
-        "resolved_python_interpreter": "Original interpreter selected by Python toolchain resolution.",
         "executable": "The Bazel-managed Python executable used to run mkosi.",
+        "files_to_run": "Compatibility alias for the managed Python FilesToRunProvider.",
+        "format_version": "String identifying the toolchain output contract.",
+        "integrity": "SRI integrity string for the mkosi source archive.",
+        "name": "Logical name of the selected toolchain.",
+        "pefile": "The pinned pefile module used by mkosi.",
         "python": "The Bazel-managed Python executable used to run mkosi.",
         "python_files_to_run": "FilesToRunProvider for the managed Python executable.",
-        "files_to_run": "Compatibility alias for the managed Python FilesToRunProvider.",
         "python_runtime_files": "Complete files from the managed Python runtime.",
-        "script": "The exact mkosi Python entrypoint script.",
-        "pefile": "The pinned pefile module used by mkosi.",
+        "python_version": "Required Bazel-managed Python major/minor line.",
+        "resolved_python_interpreter": "Original interpreter selected by Python toolchain resolution.",
+        "resolved_python_version": "Concrete version supplied by the selected Python toolchain.",
         "runfiles": "Runfiles object preserving mappings for mkosi and its dependencies.",
         "runfiles_files": "Complete mkosi source and dependency runfiles.",
+        "script": "The exact mkosi Python entrypoint script.",
+        "source_sha256": "SHA-256 integrity hash of the mkosi source archive.",
+        "source_url": "Immutable URL used to fetch the mkosi source.",
+        "version": "Pinned mkosi version.",
     },
 )
 
@@ -162,25 +162,6 @@ mkosi_toolchain = rule(
             default = "mkosi-v1",
             doc = "Output contract implemented by this toolchain.",
         ),
-        "toolchain_name": attr.string(
-            mandatory = True,
-            doc = "Logical name exposed for diagnostics.",
-        ),
-        "version": attr.string(mandatory = True, doc = "Pinned mkosi version."),
-        "source_url": attr.string(mandatory = True, doc = "Immutable source URL."),
-        "source_sha256": attr.string(
-            mandatory = True,
-            doc = "SHA-256 integrity hash of the source archive.",
-        ),
-        "source_integrity": attr.string(
-            mandatory = True,
-            doc = "SRI integrity string for the source archive.",
-        ),
-        "python_version": attr.string(
-            mandatory = True,
-            doc = "Bazel-managed Python runtime version. It is also selected for the locked Python dependencies, " +
-                  "independent of the consumer's default Python version.",
-        ),
         "python": attr.label(
             allow_files = True,
             cfg = "exec",
@@ -189,20 +170,39 @@ mkosi_toolchain = rule(
             providers = [_ManagedPythonRuntimeInfo],
             doc = "The Bazel-managed Python executable.",
         ),
-        "script": attr.label(
-            allow_single_file = True,
-            mandatory = True,
-            doc = "The mkosi Python entrypoint script.",
-        ),
         "python_dependency": attr.label(
             allow_files = True,
             mandatory = True,
             doc = "The pinned Python dependency containing pefile.py.",
         ),
+        "python_version": attr.string(
+            mandatory = True,
+            doc = "Bazel-managed Python runtime version. It is also selected for the locked Python dependencies, " +
+                  "independent of the consumer's default Python version.",
+        ),
         "runfiles": attr.label(
             mandatory = True,
             doc = "The complete mkosi source and dependency runfiles.",
         ),
+        "script": attr.label(
+            allow_single_file = True,
+            mandatory = True,
+            doc = "The mkosi Python entrypoint script.",
+        ),
+        "source_integrity": attr.string(
+            mandatory = True,
+            doc = "SRI integrity string for the source archive.",
+        ),
+        "source_sha256": attr.string(
+            mandatory = True,
+            doc = "SHA-256 integrity hash of the source archive.",
+        ),
+        "source_url": attr.string(mandatory = True, doc = "Immutable source URL."),
+        "toolchain_name": attr.string(
+            mandatory = True,
+            doc = "Logical name exposed for diagnostics.",
+        ),
+        "version": attr.string(mandatory = True, doc = "Pinned mkosi version."),
     },
     doc = "Defines an mkosi toolchain.",
 )

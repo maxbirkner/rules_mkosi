@@ -78,17 +78,17 @@ def _qemu_ovmf_boot_config_impl(ctx):
 qemu_ovmf_boot_config = rule(
     implementation = _qemu_ovmf_boot_config_impl,
     attrs = BOOT_CONFIG_ATTRS | {
-        "progress_markers": attr.string_list(
-            doc = "Exact serial markers that must appear in this order before readiness_marker.",
-        ),
-        "expected_failure_marker": attr.string(
-            doc = "Exact serial marker that makes an intentionally failing boot pass before readiness.",
-        ),
         "allow_reboot": attr.bool(
             doc = """Keep QEMU running across guest reboots instead of treating a reboot as an exit.
 
 The image snapshot and the copied OVMF variables persist across reboots for the lifetime of the test.
 """,
+        ),
+        "expected_failure_marker": attr.string(
+            doc = "Exact serial marker that makes an intentionally failing boot pass before readiness.",
+        ),
+        "progress_markers": attr.string_list(
+            doc = "Exact serial markers that must appear in this order before readiness_marker.",
         ),
         "read_only_shares": attr.label_keyed_string_dict(
             allow_files = True,

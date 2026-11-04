@@ -73,11 +73,20 @@ static void test_valid_identities_are_parsed(void) {
 /* An unusable identity must stop the runner instead of skipping the check. */
 static void test_unusable_identities_fail_closed(void) {
   static const identity_text cases[] = {
-      {"", "1"},     {"1", ""},     {"0", "1"},
-      {"1", "0"},    {"00", "1"},   {"18446744073709551616", "1"},
-      {"1", "99999999999999999999"}, {"-1", "1"}, {"+1", "1"},
-      {" 1", "1"},   {"1 ", "1"},   {"1x", "1"},
-      {"0x10", "1"}, {"1", "-0"},
+      {"", "1"},
+      {"1", ""},
+      {"0", "1"},
+      {"1", "0"},
+      {"00", "1"},
+      {"18446744073709551616", "1"},
+      {"1", "99999999999999999999"},
+      {"-1", "1"},
+      {"+1", "1"},
+      {" 1", "1"},
+      {"1 ", "1"},
+      {"1x", "1"},
+      {"0x10", "1"},
+      {"1", "-0"},
   };
   for (size_t index = 0; index < ARRAY_SIZE(cases); ++index) {
     child_result result = run_in_child(parse_identity_text, &cases[index]);
