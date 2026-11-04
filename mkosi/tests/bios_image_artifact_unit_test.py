@@ -6,7 +6,9 @@ import struct
 import tempfile
 import unittest
 
-spec = importlib.util.spec_from_file_location("validator", pathlib.Path(__file__).with_name("bios_image_artifact_test.py"))
+spec = importlib.util.spec_from_file_location(
+    "validator", pathlib.Path(__file__).with_name("bios_image_artifact_test.py")
+)
 validator = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(validator)
 
@@ -15,7 +17,11 @@ class BiosArtifactTest(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
         self.image = pathlib.Path(self.directory.name) / "image.raw"
-        self.metadata = {"partitions": [{"type_guid": validator.gpt_partitions.BIOS_BOOT, "start_bytes": 1048576, "size_bytes": 1048576}]}
+        self.metadata = {
+            "partitions": [
+                {"type_guid": validator.gpt_partitions.BIOS_BOOT, "start_bytes": 1048576, "size_bytes": 1048576}
+            ]
+        }
         self.boot = bytearray((index * 37 + 11) & 255 for index in range(512))
         self.boot[0x1BE:0x1FE] = bytes(64)
         self.boot[510:512] = b"\x55\xaa"
@@ -32,14 +38,10 @@ class BiosArtifactTest(unittest.TestCase):
 
     def check(self, pattern):
         with self.assertRaisesRegex(AssertionError, pattern):
-            validator.validate_boot_regions(
-                self.image, self.metadata, bytes(self.boot), bytes(self.diskboot)
-            )
+            validator.validate_boot_regions(self.image, self.metadata, bytes(self.boot), bytes(self.diskboot))
 
     def test_valid_installation_evidence(self):
-        validator.validate_boot_regions(
-            self.image, self.metadata, bytes(self.boot), bytes(self.diskboot)
-        )
+        validator.validate_boot_regions(self.image, self.metadata, bytes(self.boot), bytes(self.diskboot))
 
     def test_mbr_signature(self):
         self.raw[510] ^= 1
@@ -129,9 +131,7 @@ class BiosArtifactTest(unittest.TestCase):
         for name in validator.REQUIRED_MODULES:
             entries, modules, config = self.files()
             del modules[name]
-            with self.subTest(name=name), self.assertRaisesRegex(
-                AssertionError, "module is missing: " + name
-            ):
+            with self.subTest(name=name), self.assertRaisesRegex(AssertionError, "module is missing: " + name):
                 validator.validate_boot_files(entries, modules, config)
 
 

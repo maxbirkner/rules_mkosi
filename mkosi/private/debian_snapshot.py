@@ -4,11 +4,11 @@ import argparse
 import lzma
 import os
 import pathlib
+import re
 import runpy
 import shutil
 import subprocess
 import sys
-import re
 
 _load_sibling = runpy.run_path(str(pathlib.Path(__file__).with_name("sibling_loader.py")))["load_sibling"]
 debian_control = _load_sibling(__file__, "debian_control")
@@ -18,19 +18,14 @@ file_hashing = _load_sibling(__file__, "file_hashing")
 def _verify_digest(path, expected, description):
     actual = file_hashing.sha256_file(path)
     if actual != expected:
-        raise ValueError(
-            "%s digest mismatch: expected=%s actual=%s" % (description, expected, actual)
-        )
+        raise ValueError("%s digest mismatch: expected=%s actual=%s" % (description, expected, actual))
 
 
 def _verify_package(path, expected_digest, expected_size, description):
     _verify_digest(path, expected_digest, description)
     actual_size = os.stat(path).st_size
     if actual_size != expected_size:
-        raise ValueError(
-            "%s size mismatch: expected=%d actual=%d"
-            % (description, expected_size, actual_size)
-        )
+        raise ValueError("%s size mismatch: expected=%d actual=%d" % (description, expected_size, actual_size))
 
 
 def _sha256_entries(release):
@@ -81,7 +76,7 @@ def _run_sqv(launcher, binds, sqv_arguments, environment, scratch, description):
     command = [launcher]
     for option, source, destination in binds:
         command += [option, source + ":" + destination]
-    command += ["/usr/bin/sqv", _SQV_KEYRING] + sqv_arguments
+    command += ["/usr/bin/sqv", _SQV_KEYRING, *sqv_arguments]
     result = subprocess.run(
         command,
         env=dict(environment, MKOSI_DEBIAN_TOOLS_SCRATCH=scratch),
@@ -207,7 +202,7 @@ def _component_indexes(args):
         ("main", "amd64", args.packages_path, args.packages_xz_sha256, args.packages_xz),
         ("main", "all", args.packages_all_path, args.packages_all_xz_sha256, args.packages_all_xz),
     ]
-    for record, path in zip(args.component_indexes, args.component_index_files):
+    for record, path in zip(args.component_indexes, args.component_index_files, strict=True):
         fields = record.split("|")
         if len(fields) != 4:
             raise ValueError("component index record must have four fields")
@@ -301,7 +296,7 @@ def _stage_packages(args, expected, destination):
     records_by_name = {value[3]: (key, value) for key, value in expected.items()}
     if set(records_by_name) != set(args.package_names):
         raise ValueError("package inputs do not match lock package names")
-    for package, local_name in zip(args.packages, args.package_names):
+    for package, local_name in zip(args.packages, args.package_names, strict=True):
         _, (remote_filename, expected_size, digest, _) = records_by_name[local_name]
         _verify_package(package, digest, expected_size, "package %s" % local_name)
         relative = _safe_package_path(remote_filename)

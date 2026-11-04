@@ -15,9 +15,7 @@ _REQUESTS = itertools.count()
 
 def debugfs(launcher, directory, request):
     environment = dict(os.environ)
-    environment["MKOSI_DEBIAN_TOOLS_SCRATCH"] = str(
-        directory / "launcher-{}".format(next(_REQUESTS))
-    )
+    environment["MKOSI_DEBIAN_TOOLS_SCRATCH"] = str(directory / "launcher-{}".format(next(_REQUESTS)))
     result = subprocess.run(
         [
             launcher,
@@ -42,11 +40,7 @@ def debugfs(launcher, directory, request):
 
 
 def extract_root(image_path, partition_metadata, destination):
-    roots = [
-        partition
-        for partition in partition_metadata["partitions"]
-        if partition["label"] == "root-x86-64"
-    ]
+    roots = [partition for partition in partition_metadata["partitions"] if partition["label"] == "root-x86-64"]
     if len(roots) != 1:
         raise AssertionError("expected one root-x86-64 partition")
     with open(image_path, "rb") as image, destination.open("wb") as output:
@@ -62,9 +56,7 @@ def extract_root(image_path, partition_metadata, destination):
 
 def installed_version(status, package):
     for stanza in status.split("\n\n"):
-        fields = dict(
-            line.split(": ", 1) for line in stanza.splitlines() if ": " in line and not line.startswith(" ")
-        )
+        fields = dict(line.split(": ", 1) for line in stanza.splitlines() if ": " in line and not line.startswith(" "))
         if fields.get("Package") == package:
             if fields.get("Status") != "install ok installed":
                 raise AssertionError("{} is not installed: {!r}".format(package, fields.get("Status")))
@@ -83,9 +75,7 @@ def main():
     if len(locked) != 1:
         raise AssertionError("{} must be locked exactly once".format(_PACKAGE))
     locked = locked[0]
-    if locked["component"] != _COMPONENT or not locked["filename"].startswith(
-        "pool/{}/".format(_COMPONENT)
-    ):
+    if locked["component"] != _COMPONENT or not locked["filename"].startswith("pool/{}/".format(_COMPONENT)):
         raise AssertionError("{} is not locked from {}: {}".format(_PACKAGE, _COMPONENT, locked))
 
     build_metadata = json.loads(pathlib.Path(build_metadata_path).read_text())

@@ -58,11 +58,11 @@ class BootLifecycleTest(unittest.TestCase):
         *,
         serial=b"serial diagnostic\n",
         process=None,
-        process_error=None,
         handshake=None,
         clock_values=(0, 1),
         boot_options=None,
     ):
+        """Boots until the expected failure; process is the fake QEMU or the exception its launch raises."""
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
             outputs = root / "outputs"
@@ -73,45 +73,49 @@ class BootLifecycleTest(unittest.TestCase):
             def factory(_command, stdout, **_kwargs):
                 stdout.write(b"qemu diagnostic\n")
                 stdout.flush()
-                if process_error:
-                    raise process_error
+                if isinstance(process, Exception):
+                    raise process
                 return process
 
             clock = iter(clock_values)
             last = [0]
 
             def monotonic():
-                try:
+                with contextlib.suppress(StopIteration):
                     last[0] = next(clock)
-                except StopIteration:
-                    pass
                 return last[0]
 
             stderr = io.StringIO()
-            with contextlib.redirect_stderr(stderr):
-                with self.assertRaises(SystemExit):
-                    with mock.patch.dict(
-                        "os.environ",
-                        {
-                            "TEST_TMPDIR": directory,
-                            "TEST_UNDECLARED_OUTPUTS_DIR": str(outputs),
-                        },
-                        clear=False,
-                    ):
-                        boot_test._boot(
-                            "image.raw",
-                            "qemu",
-                            "qemu-data",
-                            firmware_code="code.fd",
-                            firmware_vars=str(root / "vars.fd"),
-                            readiness_marker="READY",
-                            shutdown_markers=("SHUTDOWN", "POWERDOWN"),
-                            process_factory=factory,
-                            qmp_handshake=handshake or (lambda *_args: None),
-                            monotonic=monotonic,
-                            sleep=lambda _seconds: None,
-                            **(boot_options or {}),
-                        )
+            with (
+                contextlib.redirect_stderr(stderr),
+                self.assertRaises(SystemExit),
+                mock.patch.dict(
+                    "os.environ",
+                    {
+                        "TEST_TMPDIR": directory,
+                        "TEST_UNDECLARED_OUTPUTS_DIR": str(outputs),
+                    },
+                    clear=False,
+                ),
+            ):
+                boot_test._boot(
+                    "image.raw",
+                    "qemu",
+                    "qemu-data",
+                    boot_test._BootOptions(
+                        firmware_code="code.fd",
+                        firmware_vars=str(root / "vars.fd"),
+                        readiness_marker="READY",
+                        shutdown_markers=("SHUTDOWN", "POWERDOWN"),
+                        **(boot_options or {}),
+                    ),
+                    boot_test._BootHost(
+                        process_factory=factory,
+                        qmp_handshake=handshake or (lambda *_args: None),
+                        monotonic=monotonic,
+                        sleep=lambda _seconds: None,
+                    ),
+                )
             output = stderr.getvalue()
             self.assertEqual(1, output.count("VM_FAILURE:"))
             self.assertIn(expected + ":", output)
@@ -147,15 +151,19 @@ class BootLifecycleTest(unittest.TestCase):
                     "image.raw",
                     "qemu",
                     "qemu-data",
-                    firmware_code="code.fd",
-                    firmware_vars=str(root / "vars.fd"),
-                    readiness_marker="READY",
-                    expected_failure_marker="VERITY FAILURE",
-                    stop_after_readiness=True,
-                    process_factory=factory,
-                    qmp_handshake=lambda *_args: None,
-                    monotonic=lambda: 0,
-                    sleep=lambda _seconds: None,
+                    boot_test._BootOptions(
+                        firmware_code="code.fd",
+                        firmware_vars=str(root / "vars.fd"),
+                        readiness_marker="READY",
+                        expected_failure_marker="VERITY FAILURE",
+                        stop_after_readiness=True,
+                    ),
+                    boot_test._BootHost(
+                        process_factory=factory,
+                        qmp_handshake=lambda *_args: None,
+                        monotonic=lambda: 0,
+                        sleep=lambda _seconds: None,
+                    ),
                 )
             self.assertTrue(process.terminated)
 
@@ -184,7 +192,7 @@ class BootLifecycleTest(unittest.TestCase):
         )
 
     def test_launch_failure(self):
-        self._run("QEMU_EXEC_FAILURE", process_error=OSError("missing qemu"))
+        self._run("QEMU_EXEC_FAILURE", process=OSError("missing qemu"))
 
     def test_qmp_initialization_failure(self):
         self._run(
@@ -302,13 +310,17 @@ class BootLifecycleTest(unittest.TestCase):
                     "image.raw",
                     "qemu",
                     "qemu-data",
-                    firmware_code="code.fd",
-                    firmware_vars=str(vars_file),
-                    readiness_marker="READY",
-                    shutdown_markers=(),
-                    process_factory=factory,
-                    qmp_handshake=handshake,
-                    sleep=lambda _seconds: None,
+                    boot_test._BootOptions(
+                        firmware_code="code.fd",
+                        firmware_vars=str(vars_file),
+                        readiness_marker="READY",
+                        shutdown_markers=(),
+                    ),
+                    boot_test._BootHost(
+                        process_factory=factory,
+                        qmp_handshake=handshake,
+                        sleep=lambda _seconds: None,
+                    ),
                 )
 
             self.assertEqual("qmp.sock", observed["socket_path"])
@@ -336,35 +348,40 @@ class BootLifecycleTest(unittest.TestCase):
 
             def factory(_command, stdout, **_kwargs):
                 (root / "firmware.log").write_bytes(
-                    b"SeaBIOS (version actual-build)\n"
-                    b"Booting from Hard Disk...\n",
+                    b"SeaBIOS (version actual-build)\nBooting from Hard Disk...\n",
                 )
                 stdout.write(b"actual qemu output\n")
                 return process
 
             stdout = io.StringIO()
-            with contextlib.redirect_stdout(stdout):
-                with mock.patch.dict(
+            with (
+                contextlib.redirect_stdout(stdout),
+                mock.patch.dict(
                     "os.environ",
                     {
                         "TEST_TMPDIR": directory,
                         "TEST_UNDECLARED_OUTPUTS_DIR": str(outputs),
                     },
                     clear=False,
-                ):
-                    boot_test._boot(
-                        "image.raw",
-                        "qemu",
-                        "qemu-data",
+                ),
+            ):
+                boot_test._boot(
+                    "image.raw",
+                    "qemu",
+                    "qemu-data",
+                    boot_test._BootOptions(
                         firmware_code="code.fd",
                         firmware_vars=str(root / "vars.fd"),
                         firmware_kind="seabios",
                         readiness_marker="actual-guest",
                         shutdown_markers=("Powering off.", "reboot: Power down"),
+                    ),
+                    boot_test._BootHost(
                         process_factory=factory,
                         qmp_handshake=lambda *_args: None,
                         sleep=lambda _seconds: None,
-                    )
+                    ),
+                )
 
             evidence = stdout.getvalue()
             self.assertIn("SeaBIOS (version actual-build)", evidence)
@@ -397,13 +414,17 @@ class BootLifecycleTest(unittest.TestCase):
                     "image.raw",
                     "qemu",
                     "qemu-data",
-                    firmware_code="code.fd",
-                    firmware_vars=str(root / "vars.fd"),
-                    readiness_marker="READY",
-                    shutdown_markers=(),
-                    process_factory=lambda *_args, **_kwargs: process,
-                    qmp_handshake=lambda *_args: None,
-                    sleep=lambda _seconds: None,
+                    boot_test._BootOptions(
+                        firmware_code="code.fd",
+                        firmware_vars=str(root / "vars.fd"),
+                        readiness_marker="READY",
+                        shutdown_markers=(),
+                    ),
+                    boot_test._BootHost(
+                        process_factory=lambda *_args, **_kwargs: process,
+                        qmp_handshake=lambda *_args: None,
+                        sleep=lambda _seconds: None,
+                    ),
                 )
 
     def _lifecycle_boot(self, serial, **boot_options):
@@ -418,21 +439,27 @@ class BootLifecycleTest(unittest.TestCase):
                 observed["command"] = command
                 return _Process()
 
-            with mock.patch.dict("os.environ", {"TEST_TMPDIR": directory}, clear=True):
-                with contextlib.redirect_stdout(io.StringIO()):
-                    boot_test._boot(
-                        "image.raw",
-                        "qemu",
-                        "qemu-data",
+            with (
+                mock.patch.dict("os.environ", {"TEST_TMPDIR": directory}, clear=True),
+                contextlib.redirect_stdout(io.StringIO()),
+            ):
+                boot_test._boot(
+                    "image.raw",
+                    "qemu",
+                    "qemu-data",
+                    boot_test._BootOptions(
                         firmware_code="code.fd",
                         firmware_vars=str(root / "vars.fd"),
                         readiness_marker="READY",
                         shutdown_markers=("SHUTDOWN",),
+                        **boot_options,
+                    ),
+                    boot_test._BootHost(
                         process_factory=factory,
                         qmp_handshake=lambda *_args: None,
                         sleep=lambda _seconds: None,
-                        **boot_options,
-                    )
+                    ),
+                )
             return observed["command"]
 
     def test_nonpositive_deadlines_are_rejected_before_qemu_starts(self):
@@ -442,21 +469,27 @@ class BootLifecycleTest(unittest.TestCase):
             "shutdown_timeout_seconds",
         ):
             for value in (0, -1, float("nan")):
-                with self.subTest(option=option, value=value):
-                    with tempfile.TemporaryDirectory() as directory:
-                        with mock.patch.dict("os.environ", {"TEST_TMPDIR": directory}, clear=True):
-                            with self.assertRaisesRegex(ValueError, "^%s must be positive" % option):
-                                boot_test._boot(
-                                    "image.raw",
-                                    "qemu",
-                                    "qemu-data",
-                                    readiness_marker="READY",
-                                    shutdown_markers=("SHUTDOWN",),
-                                    process_factory=lambda *_args, **_kwargs: self.fail("QEMU started"),
-                                    qmp_handshake=lambda *_args: None,
-                                    sleep=lambda _seconds: None,
-                                    **{option: value},
-                                )
+                with (
+                    self.subTest(option=option, value=value),
+                    tempfile.TemporaryDirectory() as directory,
+                    mock.patch.dict("os.environ", {"TEST_TMPDIR": directory}, clear=True),
+                    self.assertRaisesRegex(ValueError, "^%s must be positive" % option),
+                ):
+                    boot_test._boot(
+                        "image.raw",
+                        "qemu",
+                        "qemu-data",
+                        boot_test._BootOptions(
+                            readiness_marker="READY",
+                            shutdown_markers=("SHUTDOWN",),
+                            **{option: value},
+                        ),
+                        boot_test._BootHost(
+                            process_factory=lambda *_args, **_kwargs: self.fail("QEMU started"),
+                            qmp_handshake=lambda *_args: None,
+                            sleep=lambda _seconds: None,
+                        ),
+                    )
 
     def test_progress_markers_must_precede_readiness_in_order(self):
         command = self._lifecycle_boot(
@@ -478,22 +511,29 @@ class BootLifecycleTest(unittest.TestCase):
             (root / "guest-serial.log").write_bytes(b"FIRST\nREADY\n")
             clock = iter((0, 0, 181))
             stderr = io.StringIO()
-            with contextlib.redirect_stderr(stderr), self.assertRaises(SystemExit):
-                with mock.patch.dict("os.environ", {"TEST_TMPDIR": directory}, clear=True):
-                    boot_test._boot(
-                        "image.raw",
-                        "qemu",
-                        "qemu-data",
+            with (
+                contextlib.redirect_stderr(stderr),
+                self.assertRaises(SystemExit),
+                mock.patch.dict("os.environ", {"TEST_TMPDIR": directory}, clear=True),
+            ):
+                boot_test._boot(
+                    "image.raw",
+                    "qemu",
+                    "qemu-data",
+                    boot_test._BootOptions(
                         firmware_code="code.fd",
                         firmware_vars=str(root / "vars.fd"),
                         readiness_marker="READY",
                         progress_markers=("FIRST", "SECOND"),
                         shutdown_markers=("SHUTDOWN",),
+                    ),
+                    boot_test._BootHost(
                         process_factory=lambda *_args, **_kwargs: _Process(),
                         qmp_handshake=lambda *_args: None,
                         monotonic=lambda: next(clock, 181),
                         sleep=lambda _seconds: None,
-                    )
+                    ),
+                )
             self.assertIn("did not observe exact serial marker 'SECOND'", stderr.getvalue())
 
     def test_allow_reboot_keeps_qemu_running_across_guest_reboots(self):
@@ -608,9 +648,8 @@ class BootLifecycleTest(unittest.TestCase):
             b"not-json\n",
             b"",
         ):
-            with self.subTest(reply=reply):
-                with self.assertRaises(boot_test.QmpHandshakeError):
-                    self._qmp_session(reply)
+            with self.subTest(reply=reply), self.assertRaises(boot_test.QmpHandshakeError):
+                self._qmp_session(reply)
 
     def test_accelerator_arguments_are_passed_and_selected_accelerator_is_recorded(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -624,24 +663,30 @@ class BootLifecycleTest(unittest.TestCase):
                 return _Process()
 
             stdout = io.StringIO()
-            with contextlib.redirect_stdout(stdout):
-                with mock.patch.dict(
+            with (
+                contextlib.redirect_stdout(stdout),
+                mock.patch.dict(
                     "os.environ",
                     {"TEST_TMPDIR": directory, "TEST_UNDECLARED_OUTPUTS_DIR": str(outputs)},
                     clear=True,
-                ):
-                    boot_test._boot(
-                        "image.raw",
-                        "qemu",
-                        "qemu-data",
+                ),
+            ):
+                boot_test._boot(
+                    "image.raw",
+                    "qemu",
+                    "qemu-data",
+                    boot_test._BootOptions(
                         qemu_args=("-machine", "q35"),
                         accelerator_args=("-accel", "kvm", "-accel", "tcg"),
                         readiness_marker="READY",
                         shutdown_markers=("SHUTDOWN",),
+                    ),
+                    boot_test._BootHost(
                         process_factory=factory,
                         qmp_handshake=lambda *_args: "kvm",
                         sleep=lambda _seconds: None,
-                    )
+                    ),
+                )
 
             command = observed["command"]
             self.assertEqual(
@@ -660,23 +705,29 @@ class BootLifecycleTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as directory:
             outputs = pathlib.Path(directory) / "outputs"
-            with contextlib.redirect_stderr(io.StringIO()):
-                with self.assertRaises(SystemExit):
-                    with mock.patch.dict(
-                        "os.environ",
-                        {"TEST_TMPDIR": directory, "TEST_UNDECLARED_OUTPUTS_DIR": str(outputs)},
-                        clear=True,
-                    ):
-                        boot_test._boot(
-                            "image.raw",
-                            "qemu",
-                            "qemu-data",
-                            readiness_marker="READY",
-                            shutdown_markers=("SHUTDOWN",),
-                            process_factory=lambda *_args, **_kwargs: _Process(),
-                            qmp_handshake=handshake,
-                            sleep=lambda _seconds: None,
-                        )
+            with (
+                contextlib.redirect_stderr(io.StringIO()),
+                self.assertRaises(SystemExit),
+                mock.patch.dict(
+                    "os.environ",
+                    {"TEST_TMPDIR": directory, "TEST_UNDECLARED_OUTPUTS_DIR": str(outputs)},
+                    clear=True,
+                ),
+            ):
+                boot_test._boot(
+                    "image.raw",
+                    "qemu",
+                    "qemu-data",
+                    boot_test._BootOptions(
+                        readiness_marker="READY",
+                        shutdown_markers=("SHUTDOWN",),
+                    ),
+                    boot_test._BootHost(
+                        process_factory=lambda *_args, **_kwargs: _Process(),
+                        qmp_handshake=handshake,
+                        sleep=lambda _seconds: None,
+                    ),
+                )
             self.assertEqual(
                 "[qemu] accelerator: unknown",
                 (outputs / "boot-evidence.log").read_text().splitlines()[0],

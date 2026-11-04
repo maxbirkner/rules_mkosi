@@ -5,7 +5,6 @@ from unittest import mock
 
 from click.testing import CliRunner
 
-
 _SPEC = importlib.util.spec_from_file_location(
     "debian_launcher",
     pathlib.Path(__file__).with_name("debian_launcher.py"),

@@ -57,7 +57,7 @@ def _run_mkosi(script, arguments, runner=subprocess.run, environment=None):
     if environment is not None:
         options["env"] = environment
     try:
-        completed = runner([sys.executable, script] + arguments, **options)
+        completed = runner([sys.executable, script, *arguments], **options)
     except OSError as error:
         diagnostics.fail("TOOLCHAIN_FAILURE", "mkosi executable cannot start {}: {}".format(script, error))
     if completed.returncode:
@@ -240,7 +240,7 @@ def _activate_release_mode(preamble, arguments, stage, mirror, staged):
 
 
 def _run_mkosi_in_process(script, arguments):
-    sys.argv[:] = [script] + arguments
+    sys.argv[:] = [script, *arguments]
     try:
         runpy.run_path(script, run_name="__main__")
     except SystemExit as error:

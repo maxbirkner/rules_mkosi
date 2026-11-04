@@ -41,6 +41,12 @@ repos:
       - id: buildifier
       - id: buildifier-lint
 
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: 25bcf95026b96e2dd3c0aec3090c3d6ef6ca2e6c # frozen: v0.17.3
+    hooks:
+      - id: ruff-check
+      - id: ruff-format
+
   - repo: https://github.com/google/yamlfmt
     rev: 21ca5323a9c87ee37a434e0ca908efc0a89daa07 # frozen: v0.21.0
     hooks:
@@ -65,6 +71,13 @@ repos:
     rev: 914e7df21a07ef503a81201c76d2b11c789d3fca # frozen: v1.7.12
     hooks:
       - id: actionlint
+
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: 745eface02aef23e168a8afb6b5737818efbea95 # frozen: v0.11.0.1
+    hooks:
+      - id: shellcheck
+        types:
+          - shell
 
   - repo: meta
     hooks:

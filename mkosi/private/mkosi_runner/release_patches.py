@@ -274,13 +274,12 @@ def deterministic_make_tar(src, dst, *, sandbox=None):
 
     sandbox = sandbox or nosandbox
     root = workdir(src, sandbox)
-    with complete_step("Creating reproducible tar archive {}…".format(dst)):
-        with dst.open("wb") as archive:
-            run(
-                tar_command(root, tar_exclude_apivfs_tmp(), os.getuid()),
-                stdout=archive,
-                sandbox=sandbox(options=["--ro-bind", src, root, *finalize_passwd_symlinks(root)]),
-            )
+    with complete_step("Creating reproducible tar archive {}…".format(dst)), dst.open("wb") as archive:
+        run(
+            tar_command(root, tar_exclude_apivfs_tmp(), os.getuid()),
+            stdout=archive,
+            sandbox=sandbox(options=["--ro-bind", src, root, *finalize_passwd_symlinks(root)]),
+        )
 
 
 def tar_command(root, excludes, uid):

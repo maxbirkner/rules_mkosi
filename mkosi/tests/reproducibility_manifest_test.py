@@ -1,14 +1,13 @@
 """Unit tests for the reproducibility projection."""
 
-import importlib.util
 import hashlib
+import importlib.util
 import os
 import pathlib
 import sys
 import types
 import unittest
 from unittest import mock
-
 
 spec = importlib.util.spec_from_file_location("projection", sys.argv[1])
 projection = importlib.util.module_from_spec(spec)

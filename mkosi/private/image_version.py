@@ -86,7 +86,7 @@ def main():
     try:
         write_build_metadata(args.metadata_json, args.image_version_file, args.output)
     except (OSError, ValueError) as error:
-        raise SystemExit("IMAGE_VERSION_INVALID: {}".format(error))
+        raise SystemExit("IMAGE_VERSION_INVALID: {}".format(error)) from error
 
 
 if __name__ == "__main__":
