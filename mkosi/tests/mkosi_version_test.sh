@@ -1,3 +1,4 @@
+# shellcheck shell=sh
 # Sourced by run_with_runfiles.sh; arguments are rlocation paths.
 python="$(rlocation "$1")"
 main="$(rlocation "$2")"
@@ -54,6 +55,7 @@ fi
     exit 1
 }
 
+# shellcheck disable=SC2123 # PATH is cleared on purpose so no host command can be resolved.
 PATH=
 export PATH
 probe="$TEST_TMPDIR/pefile.version"
