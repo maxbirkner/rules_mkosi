@@ -42,6 +42,15 @@ py_test(
     main = "action_graph_validator_test.py",
 )
 
+py_test(
+    name = "image_environment_validator_test",
+    srcs = [
+        "image_environment_validator.py",
+        "image_environment_validator_test.py",
+    ],
+    main = "image_environment_validator_test.py",
+)
+
 sh_test(
     name = "check_pr_title_test",
     srcs = ["check_pr_title_test.sh"],

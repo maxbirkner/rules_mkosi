@@ -8,6 +8,7 @@ CI puts `bin` on `PATH` and runs every Bazel command through it.
 | Helper | Checks | Unit tests |
 | --- | --- | --- |
 | `action_graph_validator.py` | Debian toolchain actions do not resolve host executables. | `//ci:action_graph_validator_test` |
+| `image_environment_validator.py` | Every environment variable of the mkosi image actions has an expected value, so host-dependent variables cannot slip in. | `//ci:image_environment_validator_test` |
 | `verify-two-stage-cache.sh`, `verify_two_stage_cache.py` | A second stamped version of `//mkosi/tests:two_stage_release` re-executes only the finalizing `MkosiImage` action, not `MkosiBase`. | `//ci:verify_two_stage_cache_test` |
 | `verify-release-reproducibility.sh`, `verify_reproducibility_execution.py` | Two clean builds of the release images produce identical reproducibility manifests and base digests, and every image action actually executed. | `//ci:verify_reproducibility_execution_test` |
 | `check_bazel_versions.py` | The copies of the Bazel versions in `.bazelversion` and `ci/bazel_versions.json` that must stay literal agree with them, and the BCR presubmit checks the lockfile strictly only with the default version. Runs as a prek hook. | `//ci:check_bazel_versions_test` |
