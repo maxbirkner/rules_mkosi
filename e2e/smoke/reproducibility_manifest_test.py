@@ -4,7 +4,6 @@ import json
 import pathlib
 import sys
 
-
 manifest = json.loads(pathlib.Path(sys.argv[1]).read_text())
 assert manifest["format_version"] == "mkosi-reproducibility-manifest-v1"
 assert all(

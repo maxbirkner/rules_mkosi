@@ -224,7 +224,7 @@ def main():
         args.handler(args)
     except (KeyError, OSError, ValueError, json.JSONDecodeError) as error:
         shutil.rmtree(args.output, ignore_errors=True)
-        raise SystemExit("SYSUPDATE_INVALID: {}".format(error))
+        raise SystemExit("SYSUPDATE_INVALID: {}".format(error)) from error
 
 
 if __name__ == "__main__":

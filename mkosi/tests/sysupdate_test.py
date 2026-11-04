@@ -108,7 +108,11 @@ class PayloadTest(unittest.TestCase):
         partitions = [
             {"label": root_label, "type_guid": gpt_partitions.ROOT_X86_64, "uuid": root_uuid},
             {"label": "os_7_verity", "type_guid": gpt_partitions.ROOT_X86_64_VERITY, "uuid": verity_uuid},
-            {"label": "_empty", "type_guid": gpt_partitions.ROOT_X86_64, "uuid": "92f2ab90-254e-4065-973c-9d971ad97d58"},
+            {
+                "label": "_empty",
+                "type_guid": gpt_partitions.ROOT_X86_64,
+                "uuid": "92f2ab90-254e-4065-973c-9d971ad97d58",
+            },
         ]
         (self.root / "partitions.json").write_text(json.dumps({"partitions": partitions}))
 

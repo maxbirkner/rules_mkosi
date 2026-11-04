@@ -2,13 +2,12 @@
 
 import os
 import pathlib
-import shutil
 import shlex
+import shutil
 import stat
 import subprocess
 import sys
 import unittest
-
 
 _FAKE_BAZEL = r"""#!/usr/bin/env bash
 set -euo pipefail

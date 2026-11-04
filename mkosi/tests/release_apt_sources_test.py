@@ -9,7 +9,6 @@ import uuid
 
 from python.runfiles import runfiles
 
-
 _ROOT_TYPE_GUID = uuid.UUID("4f68bce3-e8cd-4db1-96e7-fbcaf984b709").bytes_le
 
 

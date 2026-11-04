@@ -5,6 +5,7 @@ import argparse
 import base64
 import binascii
 import hashlib
+import itertools
 import json
 import os
 import runpy
@@ -33,7 +34,7 @@ MAX_DER_CHILDREN = 4096
 def _launcher(tool, arguments):
     global _counter
     if Path(tool).name != "launcher":
-        return [tool] + arguments, None
+        return [tool, *arguments], None
     _counter += 1
     cwd = os.getcwd()
     env = dict(os.environ)
@@ -191,7 +192,7 @@ def _section_ranges(data, section_table, section_count, size_headers, file_align
                 raise ValueError("PE section raw data is out of bounds")
             sections.append((raw_offset, raw_size))
     sections.sort()
-    for previous, current in zip(sections, sections[1:]):
+    for previous, current in itertools.pairwise(sections):
         if previous[0] + previous[1] > current[0]:
             raise ValueError("PE section raw data overlaps")
     return sections
@@ -365,11 +366,11 @@ def der_oid(item):
         raise ValueError("truncated DER object identifier")
     first = subidentifiers[0]
     if first < 40:
-        values = [0, first] + subidentifiers[1:]
+        values = [0, first, *subidentifiers[1:]]
     elif first < 80:
-        values = [1, first - 40] + subidentifiers[1:]
+        values = [1, first - 40, *subidentifiers[1:]]
     else:
-        values = [2, first - 80] + subidentifiers[1:]
+        values = [2, first - 80, *subidentifiers[1:]]
     return ".".join(map(str, values))
 
 
@@ -555,7 +556,17 @@ def _sbsign(args, key, unsigned_uki, signed_uki):
 
 
 def _create_ephemeral_signer(args, key):
-    run_tool(args.openssl, "/usr/bin/openssl", "genpkey", "-algorithm", "RSA", "-pkeyopt", "rsa_keygen_bits:2048", "-out", str(key))
+    run_tool(
+        args.openssl,
+        "/usr/bin/openssl",
+        "genpkey",
+        "-algorithm",
+        "RSA",
+        "-pkeyopt",
+        "rsa_keygen_bits:2048",
+        "-out",
+        str(key),
+    )
     run_tool(
         args.openssl,
         "/usr/bin/openssl",
@@ -603,7 +614,20 @@ def main():
     request.add_argument("--digest-output", required=True)
     request.set_defaults(function=create_request)
     verify_parser = commands.add_parser("verify")
-    for name in ("openssl", "request", "request-digest", "unsigned-uki", "signed-uki", "certificate", "expected-pem", "pkcs7", "content", "verified-signer", "output", "metadata"):
+    for name in (
+        "openssl",
+        "request",
+        "request-digest",
+        "unsigned-uki",
+        "signed-uki",
+        "certificate",
+        "expected-pem",
+        "pkcs7",
+        "content",
+        "verified-signer",
+        "output",
+        "metadata",
+    ):
         verify_parser.add_argument("--" + name, required=True)
     verify_parser.set_defaults(function=verify)
     fixture = commands.add_parser("ephemeral-fixture")
@@ -619,7 +643,7 @@ def main():
         detail = getattr(error, "stderr", None)
         if isinstance(detail, bytes):
             detail = detail.decode(errors="replace")
-        raise SystemExit("SECURE_BOOT_INVALID: {}".format(detail or error))
+        raise SystemExit("SECURE_BOOT_INVALID: {}".format(detail or error)) from error
 
 
 if __name__ == "__main__":

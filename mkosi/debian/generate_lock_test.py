@@ -1,6 +1,7 @@
 """Hermetic tests for the Debian snapshot lock generator."""
 
 import hashlib
+import itertools
 import json
 import lzma
 import pathlib
@@ -9,7 +10,7 @@ import unittest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
-import generate_lock  # noqa: E402
+import generate_lock
 
 _SNAPSHOT_URL = "https://snapshot.debian.org/archive/debian/20250814T000000Z"
 
@@ -62,7 +63,7 @@ class VersionTest(unittest.TestCase):
             "1.10",
             "1:0.1",
         ]
-        for left, right in zip(ordered, ordered[1:]):
+        for left, right in itertools.pairwise(ordered):
             self.assertLess(generate_lock.compare_versions(left, right), 0, (left, right))
             self.assertGreater(generate_lock.compare_versions(right, left), 0, (left, right))
         self.assertEqual(0, generate_lock.compare_versions("0:1.0-1", "1.0-1"))

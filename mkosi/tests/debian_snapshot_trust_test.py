@@ -1,13 +1,13 @@
 """Exercise the pinned sqv/keyring against mutated signed metadata."""
 
-import pathlib
+import hashlib
+import importlib.util
 import os
+import pathlib
 import shutil
 import subprocess
 import sys
 import unittest
-import hashlib
-import importlib.util
 
 
 class DebianSnapshotTrustTest(unittest.TestCase):
@@ -52,7 +52,7 @@ class DebianSnapshotTrustTest(unittest.TestCase):
             }
         )
         return subprocess.run(
-            [str(self.launcher)] + arguments,
+            [str(self.launcher), *arguments],
             env=environment,
             capture_output=True,
             text=True,

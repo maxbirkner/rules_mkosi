@@ -212,7 +212,8 @@ class ReleaseSandboxTest(_WrapperTest):
         for section in ("Match", "TriggerMatch"):
             with self.subTest(section=section):
                 _expect_exit(
-                    lambda: wrapper.release_validation.validate_ini_section(section), "host-dependent matching"
+                    lambda section=section: wrapper.release_validation.validate_ini_section(section),
+                    "host-dependent matching",
                 )
         wrapper.release_validation.validate_ini_section("Content")
 
@@ -346,7 +347,7 @@ class ReleaseConfigurationTest(_WrapperTest):
         ):
             with self.subTest(repositories=repositories, components=components):
                 _expect_exit(
-                    lambda: _validate(
+                    lambda repositories=repositories, components=components: _validate(
                         wrapper, _configuration(repositories=repositories), [root], components=components
                     ),
                     "absent from the Debian snapshot: " + repositories[0],
@@ -366,7 +367,9 @@ class ReleaseConfigurationTest(_WrapperTest):
         ):
             with self.subTest(setting=setting):
                 _expect_exit(
-                    lambda: _validate(wrapper, _configuration(**{setting: value}), [root], firmware="bios"),
+                    lambda setting=setting, value=value: _validate(
+                        wrapper, _configuration(**{setting: value}), [root], firmware="bios"
+                    ),
                     message,
                 )
 
@@ -409,7 +412,7 @@ class ReleaseConfigurationTest(_WrapperTest):
             (_configuration(incremental=types.SimpleNamespace(value="yes")), "incremental mode is not supported"),
         ):
             with self.subTest(message=message):
-                _expect_exit(lambda: _validate(wrapper, configuration, [root]), message)
+                _expect_exit(lambda configuration=configuration: _validate(wrapper, configuration, [root]), message)
 
 
 class TwoStageReleaseTest(_WrapperTest):

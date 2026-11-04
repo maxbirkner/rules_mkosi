@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Bazel launcher with a securely anchored module-local disk cache."""
 
+import contextlib
 import os
 import pathlib
 import secrets
@@ -48,10 +49,8 @@ def _backend(wrapper):
 
 
 def _verified_directory(path):
-    try:
+    with contextlib.suppress(FileExistsError):
         os.mkdir(path, mode=0o700)
-    except FileExistsError:
-        pass
     directory_stat = path.stat(follow_symlinks=False)
     if stat.S_ISLNK(directory_stat.st_mode) or not stat.S_ISDIR(
         directory_stat.st_mode
@@ -169,10 +168,8 @@ def _write_rc(module_root):
             raise WrapperError(f"generated rc has unsafe permissions: {rc}")
     finally:
         if temporary_name is not None and not replaced:
-            try:
+            with contextlib.suppress(FileNotFoundError):
                 os.unlink(temporary_name, dir_fd=directory_fd)
-            except FileNotFoundError:
-                pass
         os.close(directory_fd)
     return rc
 
