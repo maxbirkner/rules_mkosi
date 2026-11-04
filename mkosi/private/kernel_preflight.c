@@ -1,4 +1,7 @@
+/* Some toolchains already define _GNU_SOURCE on the command line. */
+#ifndef _GNU_SOURCE
 #define _GNU_SOURCE
+#endif
 
 #include "kernel_preflight.h"
 
@@ -30,6 +33,8 @@
 extern char **environ;
 
 #define ARRAY_SIZE(array) (sizeof(array) / sizeof((array)[0]))
+#define PRINTF_FORMAT(format_index, first_argument)                            \
+  __attribute__((format(printf, format_index, first_argument)))
 
 typedef struct {
   rules_mkosi_fd_mount_operation operation;
@@ -64,6 +69,7 @@ static const int required_capabilities[] = {
     CAP_SETFCAP,
 };
 
+PRINTF_FORMAT(4, 5)
 static void report(FILE *output, const char *status, const char *name,
                    const char *format, ...) {
   va_list arguments;
@@ -505,10 +511,11 @@ static int open_tree_path(const char *path, bool recursive) {
   if (recursive) {
     flags |= AT_RECURSIVE;
   }
-  int tree = syscall(SYS_open_tree, parent_fd, name, flags);
+  long tree = syscall(SYS_open_tree, parent_fd, name, flags);
   int error = errno;
   close(parent_fd);
-  return tree < 0 ? -error : tree;
+  /* open_tree returns a file descriptor or -1, both of which fit in int. */
+  return tree < 0 ? -error : (int)tree;
 }
 
 static void record_fd_mount_failure(fd_mount_probe_result *probe,
