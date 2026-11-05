@@ -6,14 +6,9 @@
 - [`prek`](https://prek.j178.dev/) 0.5 or newer.
 - Optional: [ShellCheck](https://www.shellcheck.net/) on `PATH`, so prek's actionlint hook also checks workflow `run:` scripts as CI does.
 - Host Python 3.11 or newer, only for the [`tools/bazel`](tools/README.md) wrapper.
-- A host that meets the [requirements](README.md#requirements), with the Bazel server started without supplementary groups:
-
-  ```console
-  bazel shutdown
-  ci/bin/group-free bazel test //...
-  ```
-
-- Optional: read-write access to `/dev/kvm` for faster boot tests, granted with a user ACL such as `sudo setfacl -m "u:$USER:rw" /dev/kvm` (`group-free` drops group membership).
+- A host that meets the [requirements](README.md#requirements).
+- Optional: read-write access to `/dev/kvm` for faster boot tests, for example through membership in the `kvm` group.
+  `ci/bin/group-free` drops group membership, so a server started through it needs a user ACL such as `sudo setfacl -m "u:$USER:rw" /dev/kvm` instead.
 
 ## Checks
 

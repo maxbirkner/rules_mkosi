@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# Runs a command as the current user with an empty supplementary-group list,
-# which image builds require from the Bazel server.
+# Runs a command as the current user with an empty supplementary-group list.
 set -euo pipefail
 
 if [[ $# -eq 0 ]]; then

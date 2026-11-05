@@ -48,10 +48,13 @@ jobs:
         # suite's entries; the audit suite only reads the root suite's caches.
         # Bazelisk runs the root module through tools/bazel, which pins the
         # module-local .cache/bazel-disk, so only the consumer saves a disk cache.
+        # The root and audit suites keep the runner's supplementary groups, as a
+        # normally started Bazel server does; the consumer suite clears them.
         include:
           - suite: root
             label: root suite
             module: .
+            server-groups: kept
             cache-save: true
             disk-cache: "false"
             external-cache: root
@@ -59,12 +62,14 @@ jobs:
           - suite: consumer
             label: consumer suite
             module: e2e/smoke
+            server-groups: cleared
             cache-save: true
             disk-cache: consumer
             external-cache: consumer
             repository-cache: '["MODULE.bazel", "e2e/smoke/MODULE.bazel"]'
           - suite: audit
             module: ""
+            server-groups: kept
             cache-save: false
             disk-cache: "false"
             external-cache: root
@@ -72,6 +77,7 @@ jobs:
     env:
       DEFAULT_BAZEL_VERSION: ${{ needs.bazel-versions.outputs.default }}
       USE_BAZEL_VERSION: ${{ matrix.bazel }}
+      SERVER_GROUPS: ${{ matrix.server-groups }}
     steps:
       - name: Check out repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -103,32 +109,32 @@ jobs:
       - name: Enable KVM for QEMU boot tests
         if: matrix.module != ''
         run: |
-          # Bazel runs with an empty supplementary-group list, so membership in
-          # the kvm group cannot grant access; open the device to every user.
+          # A Bazel server without supplementary groups cannot use kvm group
+          # membership, so open the device to every user in every suite.
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' |
             sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
           sudo udevadm settle
           ls -l /dev/kvm
-          group-free sh -c ': <> /dev/kvm'
-          echo "The group-free Bazel identity can open /dev/kvm for reading and writing."
+          server-identity sh -c ': <> /dev/kvm'
+          echo "The Bazel server identity can open /dev/kvm for reading and writing."
 
       - name: Qualify host kernel
         run: |
           expected_bazel_version="bazel ${{ matrix.bazel }}"
-          test "$(group-free bazel --version)" = "$expected_bazel_version"
+          test "$(server-identity bazel --version)" = "$expected_bazel_version"
           (
             cd e2e/smoke
-            test "$(group-free bazel --version)" = "$expected_bazel_version"
+            test "$(server-identity bazel --version)" = "$expected_bazel_version"
           )
           preflight_configs=()
           if [ "$USE_BAZEL_VERSION" != "$DEFAULT_BAZEL_VERSION" ]; then
             preflight_configs=(--config=bazel9)
           fi
-          group-free bazel shutdown
+          server-identity bazel shutdown
           set -o pipefail
-          group-free bazel test --config=kernel_preflight \
+          server-identity bazel test --config=kernel_preflight \
             "${preflight_configs[@]}" //... 2>&1 | tee kernel-preflight.log
           grep -F "Executed 1 out of 1 test" kernel-preflight.log
           if grep -F "(cached)" kernel-preflight.log; then
@@ -153,9 +159,9 @@ jobs:
           fi
           # The preflight server ran from the repository root, and every module
           # in this job shares the output base configured by setup-bazel.
-          group-free bazel shutdown
-          group-free bazel test "${bazel_configs[@]}" //...
-          group-free bazel test "${manifest_configs[@]}" //...
+          server-identity bazel shutdown
+          server-identity bazel test "${bazel_configs[@]}" //...
+          server-identity bazel test "${manifest_configs[@]}" //...
 
       - name: Verify the QEMU fallback from KVM to TCG
         if: matrix.suite == 'root'
@@ -165,23 +171,23 @@ jobs:
             version_configs=(--config=bazel9)
           fi
           target=//mkosi/tests:qemu_ovmf_smoke_test
-          testlogs="$(group-free bazel info "${version_configs[@]}" bazel-testlogs)"
+          testlogs="$(server-identity bazel info "${version_configs[@]}" bazel-testlogs)"
           test_log="$testlogs/mkosi/tests/qemu_ovmf_smoke_test/test.log"
           # The same test uses KVM while /dev/kvm is usable and TCG once it is hidden.
-          group-free bazel test --config=qualified_runtime "${version_configs[@]}" "$target"
+          server-identity bazel test --config=qualified_runtime "${version_configs[@]}" "$target"
           grep -Fx "QEMU accelerator: kvm" "$test_log"
-          group-free bazel test --config=kvm_unavailable "${version_configs[@]}" "$target"
+          server-identity bazel test --config=kvm_unavailable "${version_configs[@]}" "$target"
           grep -Fx "QEMU accelerator: tcg" "$test_log"
 
       - name: Verify release reproducibility
         if: matrix.suite == 'audit' && matrix.bazel == env.DEFAULT_BAZEL_VERSION
         run: |
-          group-free ./ci/verify-release-reproducibility.sh
+          server-identity ./ci/verify-release-reproducibility.sh
 
       - name: Verify two-stage base reuse
         if: matrix.suite == 'audit' && matrix.bazel == env.DEFAULT_BAZEL_VERSION
         run: |
-          group-free ./ci/verify-two-stage-cache.sh
+          server-identity ./ci/verify-two-stage-cache.sh
 
       - name: Surface retained boot evidence
         id: boot_evidence
@@ -202,7 +208,7 @@ jobs:
           has_bios_evidence=false
           has_tcg_evidence=false
           if ! testlogs="$(
-            group-free bazel info "${info_configs[@]}" bazel-testlogs
+            server-identity bazel info "${info_configs[@]}" bazel-testlogs
           )"; then
             echo "The $module Bazel testlogs path is unavailable."
           elif [ ! -d "$testlogs" ]; then
@@ -293,7 +299,7 @@ jobs:
             //mkosi/tests:release_subject
             //mkosi/tests:release_reproducibility
           )
-          group-free bazel build --config=qualified "${targets[@]}"
+          server-identity bazel build --config=qualified "${targets[@]}"
           while IFS= read -r output; do
             destination="$artifact_dir/$(basename "$output")"
             if [ -e "$destination" ]; then
@@ -302,7 +308,7 @@ jobs:
             fi
             cp --reflink=auto "$output" "$destination"
           done < <(
-            group-free bazel cquery --config=qualified --output=files \
+            server-identity bazel cquery --config=qualified --output=files \
               "set(${targets[*]})"
           )
           expected=(
@@ -342,7 +348,7 @@ jobs:
           else
             mode=off
           fi
-          graph="$(group-free bazel aquery --lockfile_mode="${mode}" --output=text \
+          graph="$(server-identity bazel aquery --lockfile_mode="${mode}" --output=text \
             'deps(@mkosi_debian_tools//:launcher)')"
           case "$graph" in
             *"/bin/bash"*|*"local_config_cc"*)
@@ -362,13 +368,13 @@ jobs:
             *"mkosi_pypi_314_click"*"/click/"*common.py*|*"mkosi_pypi_314_click"*"/click/"*core.py*) ;;
             *) echo "locked Click runtime is missing from Debian launcher runfiles" >&2; exit 1 ;;
           esac
-          image_graph="$(group-free bazel aquery --lockfile_mode="${mode}" --config=qualified --output=text \
+          image_graph="$(server-identity bazel aquery --lockfile_mode="${mode}" --config=qualified --output=text \
             'mnemonic("MkosiImage", //mkosi/tests:real_image)')"
           case "$image_graph" in
             *"python3"*"/mkosi/__main__.py"*) ;;
             *) echo "mkosi image action is not using the direct managed-Python entrypoint" >&2; exit 1 ;;
           esac
-          group-free bazel aquery --lockfile_mode="${mode}" --config=qualified --output=jsonproto \
+          server-identity bazel aquery --lockfile_mode="${mode}" --config=qualified --output=jsonproto \
             'mnemonic("MkosiImage", set(//mkosi/tests:real_image //mkosi/tests:release_subject))' \
             > image-aquery.json
           python3 ci/image_environment_validator.py image-aquery.json
@@ -383,7 +389,7 @@ jobs:
             *"ExecutionInfo: {block-network: 1, no-cache: 1, no-remote-exec: 1}"*) ;;
             *) echo "offline tracer image execution requirements are incomplete" >&2; exit 1 ;;
           esac
-          release_image_graph="$(group-free bazel aquery --lockfile_mode="${mode}" --config=qualified --output=text \
+          release_image_graph="$(server-identity bazel aquery --lockfile_mode="${mode}" --config=qualified --output=text \
             'mnemonic("MkosiImage", //mkosi/tests:release_subject)')"
           case "$release_image_graph" in
             *"repository_repository"*"--debian-snapshot-repository"*) ;;
@@ -403,7 +409,7 @@ jobs:
             *"--format=disk"*"--output-extension=raw"*"--compress-output=none"*"--split-artifacts="*) ;;
             *) echo "mkosi image output contract overrides are missing" >&2; exit 1 ;;
           esac
-          group-free bazel aquery --lockfile_mode="${mode}" --output=jsonproto \
+          server-identity bazel aquery --lockfile_mode="${mode}" --output=jsonproto \
             'deps(@mkosi_debian_tools//:launcher)' > debian-tools-aquery.json
           python3 - debian-tools-aquery.json <<'PY'
           import json
@@ -592,7 +598,7 @@ jobs:
           rm debian-tools-aquery.json
           for target in launcher namespace_runner
           do
-            definition="$(group-free bazel cquery --lockfile_mode="${mode}" \
+            definition="$(server-identity bazel cquery --lockfile_mode="${mode}" \
               --output=build "@mkosi_debian_tools//:${target}")"
             case "$definition" in
               *"exec_compatible_with"*) ;;
@@ -616,7 +622,7 @@ jobs:
           if [ "$USE_BAZEL_VERSION" = "$DEFAULT_BAZEL_VERSION" ]; then
             mode=error
           fi
-          graph="$(group-free bazel --bazelrc=/dev/null aquery \
+          graph="$(server-identity bazel --bazelrc=/dev/null aquery \
             --lockfile_mode="${mode}" --output=text \
             'deps(@mkosi_debian_tools//:launcher)')"
           case "$graph" in
@@ -638,7 +644,7 @@ jobs:
           if [ "$USE_BAZEL_VERSION" != "$DEFAULT_BAZEL_VERSION" ]; then
             mode=off
           fi
-          install_base="$(group-free bazel info --lockfile_mode="$mode" install_base)"
+          install_base="$(server-identity bazel info --lockfile_mode="$mode" install_base)"
           test -x "${install_base}/linux-sandbox"
           "${install_base}/linux-sandbox" /bin/true
 
