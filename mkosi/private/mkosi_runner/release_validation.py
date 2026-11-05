@@ -299,10 +299,16 @@ def _check_host_modules(config, context):
 
 def _check_declared_paths(config, context):
     for name, value in vars(config).items():
+        if name in _IMAGE_PATH_SETTINGS:
+            continue
         for path in _configuration_paths(value):
             resolved = path.resolve()
             if not is_declared(resolved, context.allowed_roots):
                 raise SystemExit("release configuration {} resolves undeclared path {}".format(name, resolved))
+
+
+# Settings whose paths name files inside the image, not build inputs.
+_IMAGE_PATH_SETTINGS = frozenset({"splash"})
 
 
 def _configuration_paths(value):

@@ -356,6 +356,9 @@ class ReleaseConfigurationTest(_WrapperTest):
         safe_extra = root / "mkosi.extra"
         _validate(wrapper, _configuration(extra_trees=[types.SimpleNamespace(source=safe_extra)]), [root], safe_extra)
 
+    def test_splash_names_a_file_inside_the_image(self):
+        _validate(self.wrapper, _configuration(splash=pathlib.Path("/usr/share/boot/splash.bmp")), [self.root])
+
     def test_bios_release_rejects_uefi_settings(self):
         wrapper, root = self.wrapper, self.root
         for setting, value, message in (
