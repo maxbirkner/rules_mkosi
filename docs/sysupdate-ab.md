@@ -356,6 +356,7 @@ RequiredBy=boot-complete.target
 
 Enable the unit with a preset file.
 With `boot_attempts = 1`, one failed boot falls back to the previous release.
+With Secure Boot keys enrolled, a release whose UKI the firmware refuses does not fall back without a reset; see [releases that the firmware refuses](secure-boot.md#releases-that-the-firmware-refuses).
 Debian enables `systemd-sysupdate.timer`; disable it unless the transfers name a source the timer can reach.
 
 ## Runtime state

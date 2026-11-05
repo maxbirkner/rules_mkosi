@@ -43,12 +43,16 @@ load(":sysupdate_test.bzl", "sysupdate_test_suite")
 py_test(
     name = "secure_boot_boundary_test",
     timeout = "long",
-    srcs = ["secure_boot_boundary_test.py"],
+    srcs = [
+        "secure_boot_boundary_test.py",
+        "secure_boot_fixtures.py",
+    ],
     args = [
         "$(rootpath //mkosi/private:secure_boot.py)",
         "$(rootpath @mkosi_debian_tools//:launcher)",
     ],
     data = [
+        "//mkosi/private:efi_auth.py",
         "//mkosi/private:esp_files.py",
         "//mkosi/private:file_hashing.py",
         "//mkosi/private:gpt_partitions.py",
@@ -58,6 +62,33 @@ py_test(
         "@mkosi_debian_tools//:launcher",
     ],
     main = "secure_boot_boundary_test.py",
+)
+
+py_test(
+    name = "secure_boot_image_test",
+    timeout = "long",
+    srcs = [
+        "secure_boot_fixtures.py",
+        "secure_boot_image_test.py",
+    ],
+    args = [
+        "$(rootpath //mkosi/private:secure_boot.py)",
+        "$(rootpath //mkosi/private:secure_boot_image.py)",
+        "$(rootpath //mkosi/private:efi_auth.py)",
+        "$(rootpath @mkosi_debian_tools//:launcher)",
+    ],
+    data = [
+        "//mkosi/private:efi_auth.py",
+        "//mkosi/private:esp_files.py",
+        "//mkosi/private:file_hashing.py",
+        "//mkosi/private:gpt_partitions.py",
+        "//mkosi/private:launcher_tool.py",
+        "//mkosi/private:secure_boot.py",
+        "//mkosi/private:secure_boot_image.py",
+        "//mkosi/private:sibling_loader.py",
+        "@mkosi_debian_tools//:launcher",
+    ],
+    main = "secure_boot_image_test.py",
 )
 
 py_test(
@@ -195,6 +226,7 @@ behavior_targets(
         ":run_mkosi_option_spelling_test",
         ":secure_boot_analysis_tests",
         ":secure_boot_boundary_test",
+        ":secure_boot_image_test",
         ":snapshot_declaration_test",
         ":sysupdate_analysis_tests",
         ":sysupdate_test",

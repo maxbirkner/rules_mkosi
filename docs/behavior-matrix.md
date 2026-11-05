@@ -89,6 +89,10 @@ The macro's `timeout` accepts `short`, `moderate`, and `long`, propagates to the
 `allow_reboot` keeps one QEMU process, its image snapshot, and firmware variables across reboots.
 `read_only_shares` exposes directories as read-only virtio-9p shares with unique 1 to 31 character tags.
 
+<!-- behavior:BHV-BOOT-SECURE-BOOT -->
+`qemu_ovmf_boot_test(secure_boot = True)` boots Debian's Secure Boot capable OVMF with SMM and secure flash and an empty variable store, so the firmware starts in Setup Mode; the default keeps the toolchain's OVMF, and only Secure Boot tests download the firmware.
+The configuration rule rejects Secure Boot firmware code without its variable store.
+
 <!-- behavior:BHV-MANAGED-PYTHON -->
 `managed_python_test` requires one Python `src`, accepts optional `data`, and runs on the managed interpreter with isolated user-site state and an empty child `PATH`.
 
@@ -99,6 +103,10 @@ Secure Boot uses no key by default.
 Typed providers separate the unsigned binary (the UKI or a PE file read from the release image's ESP, such as systemd-boot), a digest-, path- and certificate-bound signing request, the externally signed binary, and its verified import.
 Production keys never enter Bazel; the ephemeral test key stays inside one uncached action that never runs remotely.
 Import checks the exact signer, the SHA-256 signature, and byte equivalence to the request; signed responses are not reproducible.
+
+<!-- behavior:BHV-SECURE-BOOT-IMAGE -->
+`secure_boot_signed_image` rewrites only the ESP of a copy of a UEFI release image: it replaces every copy of each requested unsigned binary with its verified signed binary, adds validated `.auth` files to `/loader/keys/auto/` and sets `secure-boot-enroll` in `loader.conf`.
+It rejects signed binaries without an unsigned copy, remaining unsigned PE files, missing PK, KEK or db files, malformed authenticated variables, and a db that does not trust the signer of every imported or already signed `*.efi` or boot entry binary on the ESP; the output is deterministic for the same inputs.
 
 <!-- behavior:BHV-SYSUPDATE-PAYLOAD -->
 `sysupdate_payload` requires a versioned image with an unsigned UKI and dm-verity, optionally substitutes a signed UKI bound to that image, names root and verity artifacts by their root-hash UUIDs, trims them to the bytes that dm-verity covers, rejects mismatching GPT UUIDs, writes `SHA256SUMS`, and exposes `SysupdatePayloadInfo`.

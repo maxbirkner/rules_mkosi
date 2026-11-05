@@ -13,6 +13,9 @@ load(
     "validate_lifecycle",
 )
 
+_SECURE_BOOT_CODE = Label("@mkosi_ovmf_secure_boot//:OVMF_CODE_4M.secboot.fd")
+_SECURE_BOOT_VARS = Label("@mkosi_ovmf_secure_boot//:OVMF_VARS_4M.fd")
+
 # QEMU rejects virtio-9p mount tags longer than 31 bytes.
 _MAX_MOUNT_TAG_LENGTH = 31
 _MOUNT_TAG_CHARACTERS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-"
@@ -37,6 +40,21 @@ def _read_only_shares(shares):
         validated.append((mount_tag, files[0]))
     return [(directory, mount_tag) for mount_tag, directory in sorted(validated)]
 
+def _firmware(ctx, qemu):
+    """Returns the OVMF code and variable store files and the QEMU arguments that the firmware needs."""
+    if (ctx.file.secure_boot_code == None) != (ctx.file.secure_boot_vars == None):
+        fail("secure_boot_code and secure_boot_vars must be set together")
+    if ctx.file.secure_boot_code == None:
+        return qemu.ovmf_code, qemu.ovmf_vars, []
+
+    # The Secure Boot firmware keeps its authenticated variables in SMM-protected flash.
+    return ctx.file.secure_boot_code, ctx.file.secure_boot_vars, [
+        "-machine",
+        "smm=on",
+        "-global",
+        "driver=cfi.pflash01,property=secure,value=on",
+    ]
+
 def _qemu_ovmf_boot_config_impl(ctx):
     image = ctx.attr.image[MkosiImageInfo].raw_image
     if image == None:
@@ -49,7 +67,8 @@ def _qemu_ovmf_boot_config_impl(ctx):
     shares = _read_only_shares(ctx.attr.read_only_shares)
     validate_deadlines(ctx)
     qemu = ctx.toolchains[QEMU_TOOLCHAIN_TYPE].qemu
-    config = boot_config(ctx, qemu, image, [
+    firmware_code, firmware_vars, firmware_args = _firmware(ctx, qemu)
+    config = boot_config(ctx, qemu, image, firmware_args + [
         "-drive",
         "if=pflash,format=raw,readonly=on,file={firmware_code}",
         "-drive",
@@ -57,8 +76,8 @@ def _qemu_ovmf_boot_config_impl(ctx):
     ]) | {
         "allow_reboot": ctx.attr.allow_reboot,
         "expected_failure_marker": ctx.attr.expected_failure_marker,
-        "firmware_code": qemu.ovmf_code.short_path,
-        "firmware_vars": qemu.ovmf_vars.short_path,
+        "firmware_code": firmware_code.short_path,
+        "firmware_vars": firmware_vars.short_path,
         "progress_markers": ctx.attr.progress_markers,
         "read_only_shares": [
             {"directory": directory.short_path, "mount_tag": mount_tag}
@@ -71,7 +90,7 @@ def _qemu_ovmf_boot_config_impl(ctx):
         qemu,
         config,
         image,
-        firmware_files = [qemu.ovmf_code, qemu.ovmf_vars],
+        firmware_files = [firmware_code, firmware_vars],
         extra_files = [directory for directory, _ in shares],
     )
 
@@ -94,6 +113,14 @@ The image snapshot and the copied OVMF variables persist across reboots for the 
             allow_files = True,
             doc = "Directory targets exposed to the guest as read-only virtio-9p shares, keyed to their mount tags.",
         ),
+        "secure_boot_code": attr.label(
+            allow_single_file = True,
+            doc = "Secure Boot capable OVMF code that replaces the toolchain's OVMF; needs secure_boot_vars.",
+        ),
+        "secure_boot_vars": attr.label(
+            allow_single_file = True,
+            doc = "Variable store template for secure_boot_code.",
+        ),
         "stop_after_readiness": attr.bool(
             doc = "Terminate QEMU successfully as soon as readiness is observed.",
         ),
@@ -101,6 +128,12 @@ The image snapshot and the copied OVMF variables persist across reboots for the 
     provides = [QemuBootConfigInfo],
     toolchains = [QEMU_TOOLCHAIN_TYPE],
 )
+
+def _secure_boot_firmware(secure_boot):
+    """Returns the qemu_ovmf_boot_config attributes that select the Secure Boot firmware, which only then is fetched."""
+    if not secure_boot:
+        return {}
+    return {"secure_boot_code": _SECURE_BOOT_CODE, "secure_boot_vars": _SECURE_BOOT_VARS}
 
 def qemu_ovmf_boot_test(
         name,
@@ -111,6 +144,7 @@ def qemu_ovmf_boot_test(
         stop_after_readiness = False,
         allow_reboot = False,
         read_only_shares = {},
+        secure_boot = False,
         shutdown_markers = [
             "systemd-shutdown[1]: Powering off.",
             "reboot: Power down",
@@ -125,14 +159,12 @@ def qemu_ovmf_boot_test(
         tags = []):
     """Boots an image with OVMF and checks its serial lifecycle markers.
 
-    Multi-boot lifecycles, such as an A/B update followed by a reboot, set
-    allow_reboot so that one QEMU process keeps the image snapshot and the
-    firmware variables across guest reboots, list their ordered checkpoints in
-    progress_markers, and may expose directories such as update payloads
-    through read_only_shares.
+    Multi-boot lifecycles, such as an A/B update followed by a reboot, set allow_reboot so that one QEMU process keeps
+    the image snapshot and the firmware variables across guest reboots, list their ordered checkpoints in
+    progress_markers, and may expose directories such as update payloads through read_only_shares.
 
-    accelerator selects KVM with a TCG fallback (`auto`, the default) or
-    forces TCG (`tcg`); the test log records the accelerator used.
+    accelerator selects KVM with a TCG fallback (`auto`, the default) or forces TCG (`tcg`); the test log records it.
+    secure_boot boots Debian's Secure Boot capable OVMF in Setup Mode on q35 instead; see docs/secure-boot.md.
     """
     boot_test(
         name = name,
@@ -153,4 +185,5 @@ def qemu_ovmf_boot_test(
         qmp_initialization_timeout_seconds = qmp_initialization_timeout_seconds,
         shutdown_timeout_seconds = shutdown_timeout_seconds,
         diagnostic_bytes = diagnostic_bytes,
+        **_secure_boot_firmware(secure_boot)
     )

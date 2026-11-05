@@ -24,6 +24,11 @@ def _argument(value, launcher):
     return WORK + "/" + os.path.normpath(path)
 
 
+def namespace_path(tool, path):
+    """Returns the path at which a command run through tool sees the file at path below the working directory."""
+    return _argument(Path(path), Path(tool).name == "launcher")
+
+
 def command(tool, arguments):
     """Returns the command line and environment that run arguments through tool."""
     global _counter

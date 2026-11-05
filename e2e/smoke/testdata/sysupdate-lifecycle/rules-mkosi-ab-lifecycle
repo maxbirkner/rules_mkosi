@@ -35,6 +35,11 @@ for argument in ${cmdline}; do
     esac
 done
 marker "running ${IMAGE_VERSION} from $(findmnt --noheadings --output FSTYPE /) with roothash ${roothash}"
+# The last byte of an EFI variable file is the value after its four attribute bytes.
+efi_global_variable() {
+    od -An -tu1 -j4 -N1 "/sys/firmware/efi/efivars/$1-8be4df61-93ca-11d2-aa0d-00e098032b8c" 2>/dev/null | tr -d ' ' || true
+}
+marker "SecureBoot=$(efi_global_variable SecureBoot) SetupMode=$(efi_global_variable SetupMode)"
 
 case "${IMAGE_VERSION}" in
 1)

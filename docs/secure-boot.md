@@ -44,6 +44,92 @@ secure_boot_import_response(
 
 Pass a signed UKI as `sysupdate_payload(signed_uki = ...)` to ship it in an [A/B update](sysupdate-ab.md#update-payloads).
 
+## Signed disk images and key auto-enrollment
+
+`secure_boot_signed_image` turns an unsigned UEFI release image into the disk image that you write to a device once.
+Its ESP holds the signed boot binaries and, optionally, the keys that systemd-boot enrolls on first boot.
+
+```starlark
+load("@rules_mkosi//mkosi:defs.bzl", "secure_boot_signed_image")
+
+secure_boot_signed_image(
+    name = "os_installer",
+    image = ":os",
+    signed_binaries = [":os_signed_uki", ":systemd_boot_signed"],
+    auto_enroll_keys = ["keys/PK.auth", "keys/KEK.auth", "keys/db.auth"],  # Optionally keys/dbx.auth.
+    secure_boot_enroll = "force",
+)
+```
+
+- Every ESP file with the bytes of a request's unsigned binary is replaced by its signed binary, so one signed systemd-boot replaces both `EFI/systemd/systemd-bootx64.efi` and `EFI/BOOT/BOOTX64.EFI`, and the signed UKI replaces the UKI under its boot-counted name.
+  The build fails if a signed binary has no unsigned copy on the ESP, or if any other unsigned PE/COFF binary stays on the ESP, because the firmware would refuse to load it.
+- `auto_enroll_keys` are public, pre-signed UEFI authenticated variables (`.auth` files) that you create outside Bazel with the PK and KEK private keys, for example with `sbvarsign` or `bootctl install --secure-boot-auto-enroll=yes`.
+  They are copied to `/loader/keys/auto/`, and `loader.conf` gets `secure-boot-enroll` set to `secure_boot_enroll`.
+  The build checks their structure and fails unless db holds, or holds an issuer of, the signer of every signed binary that the firmware or systemd-boot can start: the imported ones and binaries that were already signed, such as a distribution-signed systemd-boot or shim, whose embedded certificates may provide intermediates.
+  Startable binaries are the `*.efi` files and the `linux` and `efi` files of `loader/entries/*.conf`; other files, such as a kernel that kernel-install left on the ESP, are not checked.
+  For a shim chain, db must therefore also hold the vendor CA that signed the second stage, not only the CA that signed shim.
+  It does not verify the PKCS#7 signatures of the `.auth` files, which the firmware checks during enrollment.
+- Only the files of the ESP change.
+  The GPT, the other partitions, and the FAT volume ID, label and geometry stay as built, so the result is deterministic for the same signed inputs.
+- The rule returns DefaultInfo with the disk image and a JSON record of the changes, and the image's `MkosiImageInfo` with `raw_image` replaced, so `qemu_ovmf_boot_test` and install tooling accept it directly.
+
+The action copies the multi-gigabyte image; it uses the image build's execution requirements and the mnemonic `SecureBootSignedImage`, so you can keep its output out of caches like the image itself, for example with `--modify_execution_info=SecureBootSignedImage=+no-cache`.
+
+### Auto-enrollment on first boot
+
+systemd-boot (systemd 257, as in Debian 13) enrolls `/loader/keys/auto/` only while the firmware is in Setup Mode (no PK enrolled) or Audit Mode.
+It writes `db`, the optional `dbx`, `KEK` and finally `PK`, which takes the firmware out of Setup Mode, and then resets the machine; from the next boot on, the firmware only starts binaries that db trusts.
+
+| `secure_boot_enroll` | Behavior |
+| --- | --- |
+| `if-safe` (default) | Enrolls automatically only inside a virtual machine; on hardware it adds a boot menu entry. |
+| `force` | Also enrolls on hardware, after a 15-second countdown that a key press aborts. |
+| `manual` | Adds a boot menu entry "Enroll Secure Boot keys: auto". |
+
+Before using `force` on hardware:
+
+- Some firmware cannot clear an enrolled PK from its setup UI, so a wrong key set can leave a device that boots nothing but your signed binaries, or nothing at all.
+  Keep the PK private key: with it you can sign updates that rotate or remove the keys later.
+- Add the Microsoft UEFI CA certificates (Microsoft Corporation UEFI CA 2011 and Microsoft UEFI CA 2023) to db unless you are sure that you do not need them.
+  Option ROMs of plug-in graphics and network cards are signed with them, and without them a device may lose its display or network boot; they also keep shim-based rescue media bootable.
+- Test the exact `.auth` files on the device model, and keep the firmware's recovery procedure at hand.
+
+systemd-sysupdate never replaces systemd-boot: [update payloads](sysupdate-ab.md#update-payloads) carry only roots and UKIs, so the signed systemd-boot written at installation stays until you reinstall it.
+Sign the UKIs of later releases with the same db key and ship them with `sysupdate_payload(signed_uki = ...)`.
+
+### Releases that the firmware refuses
+
+Once the keys are enrolled, ship every payload with `sysupdate_payload(signed_uki = ...)`, signed by a key that db trusts.
+systemd-boot (systemd 257) bumps an entry's boot counter before `LoadImage`; when the firmware refuses the UKI, it logs `Error loading …: Access denied` and returns to the firmware instead of falling back to another entry.
+Recovering then needs a reset: a hardware watchdog, firmware that falls through to another boot option, or a power cycle.
+
+- With `boot_attempts = 1`, one reset suffices, because the refused release has no tries left and sorts last.
+- With the default of 3 attempts, it takes three resets.
+- A default that names the refused entry's exact ID (with `bootctl set-default` or `default` in `loader.conf`), or `default @saved`, keeps selecting it, so recovering needs console access to the boot menu.
+  Glob defaults such as the default `*` recover, because entries without tries left sort last.
+
+### Testing enrollment in QEMU
+
+The toolchain's OVMF is built without Secure Boot, so it neither enrolls keys nor refuses unsigned binaries.
+`qemu_ovmf_boot_test(secure_boot = True)` boots Debian's Secure Boot capable OVMF (`OVMF_CODE_4M.secboot.fd` with SMM and secure flash, from the pinned Debian 13 `ovmf` package) instead.
+Its variable store starts empty, in Setup Mode, so systemd-boot enrolls the image's keys on the first boot; `machine_args` must select the `q35` machine.
+Only tests that set `secure_boot` download this firmware.
+
+```starlark
+qemu_ovmf_boot_test(
+    name = "os_secure_boot_test",
+    allow_reboot = True,  # Enrollment resets the machine.
+    image = ":os_installer",
+    progress_markers = [
+        "Custom Secure Boot keys successfully enrolled, rebooting the system now!",
+        "EFI stub: UEFI Secure Boot is enabled.",
+    ],
+    secure_boot = True,
+)
+```
+
+[`e2e/smoke`](../e2e/smoke/BUILD.bazel) `secure_boot_lifecycle_test` enrolls the keys of `secure_boot_ephemeral_test_fixture`, checks the `SecureBoot` and `SetupMode` EFI variables from release 1, updates to release 2 with a signed UKI, and expects the firmware to refuse the unsigned UKI of release 3.
+
 ## Trust boundary
 
 | Protected against | Not protected against |
@@ -66,6 +152,6 @@ Secure Boot applies only to UEFI release images: their UKIs and the PE/COFF bina
 The dm-verity root hash is embedded in the unsigned UKI before the request is created.
 BIOS images cannot be signed.
 
-`secure_boot_ephemeral_test_fixture` signs the UKIs and `esp_paths` of `images` with a short-lived key for tests.
-Use it as both the `certificate` of the requests and the `signed_binary` of the imports; each import selects the fixture's binary that matches its request.
-The key never leaves one uncached action that runs on the local machine, never remotely; never use it for production.
+`secure_boot_ephemeral_test_fixture` signs the UKIs and `esp_paths` of `images` with a short-lived db key for tests, and writes `PK.auth`, `KEK.auth` and `db.auth` for short-lived PK and KEK keys.
+Use it as the `certificate` of the requests, the `signed_binary` of the imports and the `auto_enroll_keys` of `secure_boot_signed_image`; each import selects the fixture's binary that matches its request.
+The keys never leave one uncached action that runs on the local machine, never remotely; never use them for production.

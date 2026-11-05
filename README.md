@@ -137,9 +137,10 @@ Files under `//mkosi/private` are not API.
 | `mkosi_config_tree`, `mkosi_source_tree` | Mark a directory as an mkosi configuration tree or `BuildSources` tree. |
 | `mkosi_rootfs_payload` | Installs a Bazel file or directory at an absolute image path. |
 | `mkosi_reproducibility_manifest` | Normalized JSON projection of a release image for reproducibility comparisons. |
-| `qemu_ovmf_boot_test`, `qemu_seabios_boot_test` | Boot an image under QEMU with UEFI or BIOS firmware. |
+| `qemu_ovmf_boot_test`, `qemu_seabios_boot_test` | Boot an image under QEMU with UEFI (optionally [Secure Boot](docs/secure-boot.md#testing-enrollment-in-qemu)) or BIOS firmware. |
 | `sysupdate_transfers`, `sysupdate_payload` | A/B updates; see [A/B updates](docs/sysupdate-ab.md). |
 | `secure_boot_signing_request`, `secure_boot_import_response` | Offline signing of UKIs and ESP boot binaries such as systemd-boot; see [Secure Boot](docs/secure-boot.md). |
+| `secure_boot_signed_image` | Disk image with signed boot binaries and Secure Boot key auto-enrollment; see [Secure Boot](docs/secure-boot.md#signed-disk-images-and-key-auto-enrollment). |
 | `managed_python_test` | Runs a Python test on rules_mkosi's managed interpreter with an empty `PATH`. |
 | `MkosiToolchainInfo`, `MkosiQemuToolchainInfo`, `DebianToolsInfo`, `DebianSnapshotInfo` | Toolchain and snapshot providers for advanced integrations. |
 

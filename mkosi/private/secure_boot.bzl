@@ -32,6 +32,7 @@ SecureBootSignedBinaryInfo = provider(
 SecureBootEphemeralTestFixtureInfo = provider(
     doc = "Public outputs from one action-private ephemeral signing operation.",
     fields = {
+        "auto_enroll_keys": "PK.auth (self-signed), KEK.auth (signed by PK) and db.auth (signed by KEK) of the keys.",
         "certificate": "Ephemeral public certificate.",
         "execution_requirements": "No-remote, no-cache action policy.",
         "signed_binaries": "Authenticode-signed test binaries, one per requested UKI and ESP file.",
@@ -52,6 +53,7 @@ def _run(ctx, args, inputs, outputs, mnemonic, **kwargs):
         arguments = [args],
         inputs = [
             ctx.file._tool,
+            ctx.file._efi_auth,
             ctx.file._esp_files,
             ctx.file._file_hashing,
             ctx.file._gpt_partitions,
@@ -170,6 +172,7 @@ def _request_impl(ctx):
 # Private attributes of every rule that runs secure_boot.py.
 _TOOL_ATTRS = {
     "_debian_tools": attr.label(default = "@mkosi_debian_tools//:launcher", executable = True, cfg = "exec"),
+    "_efi_auth": attr.label(default = "//mkosi/private:efi_auth.py", allow_single_file = True, cfg = "exec"),
     "_esp_files": attr.label(default = "//mkosi/private:esp_files.py", allow_single_file = True, cfg = "exec"),
     "_file_hashing": attr.label(default = "//mkosi/private:file_hashing.py", allow_single_file = True, cfg = "exec"),
     "_gpt_partitions": attr.label(
@@ -302,6 +305,21 @@ def _fixture_binaries(ctx):
             unsigned.append(_unsigned_binary(ctx, image, esp_path, name))
     return unsigned
 
+def _fixture_arguments(ctx, certificate, auto_enroll_dir, pairs):
+    """Returns the ephemeral-fixture arguments that sign each (unsigned, signed) pair."""
+    args = ctx.actions.args()
+    args.add(ctx.file._tool.path)
+    args.add("ephemeral-fixture")
+    args.add("--openssl", ctx.executable._debian_tools.path)
+    args.add("--sbsign", ctx.executable._debian_tools.path)
+    args.add("--certificate", certificate.path)
+    args.add("--auto-enroll-dir", auto_enroll_dir)
+    args.add("--scratch", certificate.dirname + "/." + ctx.label.name + "-private")
+    for source, destination in pairs:
+        args.add("--sign", source.path)
+        args.add(destination.path)
+    return args
+
 def _fixture_impl(ctx):
     if not ctx.attr.images:
         fail("images must name at least one image")
@@ -311,28 +329,22 @@ def _fixture_impl(ctx):
         ctx.actions.declare_file("%s.signed/%d.efi" % (ctx.label.name, index))
         for index in range(len(unsigned))
     ]
-    scratch = certificate.dirname + "/." + ctx.label.name + "-private"
-    args = ctx.actions.args()
-    args.add(ctx.file._tool.path)
-    args.add("ephemeral-fixture")
-    args.add("--openssl", ctx.executable._debian_tools.path)
-    args.add("--sbsign", ctx.executable._debian_tools.path)
-    args.add("--certificate", certificate.path)
-    args.add("--scratch", scratch)
-    for source, destination in zip(unsigned, signed):
-        args.add("--sign", source.path)
-        args.add(destination.path)
+    auto_enroll_keys = [
+        ctx.actions.declare_file("%s.auto-enroll/%s.auth" % (ctx.label.name, name))
+        for name in ("PK", "KEK", "db")
+    ]
     _run(
         ctx,
-        args,
+        _fixture_arguments(ctx, certificate, auto_enroll_keys[0].dirname, zip(unsigned, signed)),
         unsigned,
-        [certificate] + signed,
+        [certificate] + signed + auto_enroll_keys,
         "SecureBootEphemeralFixture",
         execution_requirements = _EPHEMERAL_EXECUTION_REQUIREMENTS,
     )
     return [
-        DefaultInfo(files = depset([certificate] + signed)),
+        DefaultInfo(files = depset([certificate] + signed + auto_enroll_keys)),
         SecureBootEphemeralTestFixtureInfo(
+            auto_enroll_keys = auto_enroll_keys,
             certificate = certificate,
             execution_requirements = _EPHEMERAL_EXECUTION_REQUIREMENTS,
             signed_binaries = signed,
@@ -351,10 +363,142 @@ secure_boot_ephemeral_test_fixture = rule(
             doc = "UEFI release images whose unsigned UKIs, and esp_paths, the fixture signs.",
         ),
     }, **_TOOL_ATTRS),
-    doc = """For tests: signs the UKIs and ESP binaries of images with a throwaway key that never leaves the action, and
-outputs its certificate.
+    doc = """For tests: signs the UKIs and ESP binaries of images with a throwaway db key and outputs its certificate
+and auto-enrollment files for throwaway PK and KEK keys. No key leaves the action.
 
 Use the fixture as both the certificate of secure_boot_signing_request and the signed_binary of
 secure_boot_import_response; the import selects the fixture's binary that matches its request.""",
+    toolchains = [MKOSI_TOOLCHAIN_TYPE],
+)
+
+_MKOSI_IMAGE_FIELDS = [
+    "build_metadata",
+    "firmware",
+    "format_version",
+    "image_id",
+    "image_version",
+    "image_version_file",
+    "manifest",
+    "partition_metadata",
+    "root_hash",
+    "root_hash_image",
+    "root_image",
+    "uki",
+    "uki_metadata",
+    "verity_metadata",
+]
+
+_AUTO_ENROLL_NAMES = ["PK.auth", "KEK.auth", "db.auth", "dbx.auth"]
+
+def _auto_enroll_files(targets):
+    """Returns the .auth files of the targets or of test fixtures after checking their names."""
+    files = []
+    for target in targets:
+        if SecureBootEphemeralTestFixtureInfo in target:
+            files.extend(target[SecureBootEphemeralTestFixtureInfo].auto_enroll_keys)
+        else:
+            files.extend(target.files.to_list())
+    names = {}
+    for file in files:
+        if file.basename not in _AUTO_ENROLL_NAMES or file.basename in names:
+            fail("auto_enroll_keys must be distinct files named %s, got %s" % (
+                ", ".join(_AUTO_ENROLL_NAMES),
+                file.basename,
+            ))
+        names[file.basename] = True
+    if files and len([name for name in names if name != "dbx.auth"]) != 3:
+        fail("auto_enroll_keys needs PK.auth, KEK.auth and db.auth")
+    return files
+
+def _signed_image_arguments(ctx, image, signed, keys, outputs):
+    args = ctx.actions.args()
+    args.add(ctx.file._image_tool.path)
+    args.add("--tools", ctx.executable._debian_tools.path)
+    args.add("--image", image.raw_image.path)
+    args.add("--partition-metadata", image.partition_metadata.path)
+    for binary in signed:
+        args.add_all("--signed", [binary.signed_binary, binary.request, binary.certificate])
+    args.add_all(keys, before_each = "--auto-enroll-key")
+    args.add("--secure-boot-enroll", ctx.attr.secure_boot_enroll)
+    args.add("--scratch", outputs[0].path + ".scratch")
+    args.add("--output", outputs[0].path)
+    args.add("--metadata", outputs[1].path)
+    return args
+
+def _signed_image_impl(ctx):
+    image = ctx.attr.image[MkosiImageInfo]
+    if image.partition_metadata == None or image.firmware != "uefi":
+        fail("image must be a UEFI release image")
+    keys = _auto_enroll_files(ctx.attr.auto_enroll_keys)
+    if not keys and ctx.attr.secure_boot_enroll != "if-safe":
+        fail("secure_boot_enroll requires auto_enroll_keys")
+    signed = [target[SecureBootSignedBinaryInfo] for target in ctx.attr.signed_binaries]
+    outputs = [
+        ctx.actions.declare_file(ctx.label.name + ".raw"),
+        ctx.actions.declare_file(ctx.label.name + ".secure-boot-image.json"),
+    ]
+    inputs = [ctx.file._image_tool, image.raw_image, image.partition_metadata] + keys
+    for binary in signed:
+        inputs += [binary.signed_binary, binary.request, binary.certificate]
+    _run(
+        ctx,
+        _signed_image_arguments(ctx, image, signed, keys, outputs),
+        inputs,
+        outputs,
+        "SecureBootSignedImage",
+        execution_requirements = mkosi_execution_requirements(True, offline = True),
+        progress_message = "Writing the Secure Boot signed disk image %{label}",
+    )
+    fields = {field: getattr(image, field, None) for field in _MKOSI_IMAGE_FIELDS}
+    return [
+        DefaultInfo(files = depset(outputs)),
+        MkosiImageInfo(image = outputs[0], raw_image = outputs[0], **fields),
+    ]
+
+secure_boot_signed_image = rule(
+    implementation = _signed_image_impl,
+    attrs = dict({
+        "auto_enroll_keys": attr.label_list(
+            allow_files = [".auth"],
+            doc = """PK.auth, KEK.auth, db.auth and optionally dbx.auth, or a secure_boot_ephemeral_test_fixture.
+
+The public, pre-signed authenticated variables that systemd-boot enrolls from /loader/keys/auto/ when the firmware is in
+Setup Mode. The build fails unless db trusts the signer of every signed *.efi file and boot loader entry binary on the
+ESP, including binaries that were already signed in the image.""",
+        ),
+        "image": attr.label(
+            mandatory = True,
+            providers = [MkosiImageInfo],
+            doc = "UEFI release mkosi_image whose signing requests the signed_binaries answer.",
+        ),
+        "secure_boot_enroll": attr.string(
+            default = "if-safe",
+            values = ["manual", "if-safe", "force"],
+            doc = """systemd-boot's loader.conf secure-boot-enroll mode when auto_enroll_keys are set.
+
+if-safe enrolls automatically only in a virtual machine; force also enrolls on hardware after a 15 second countdown;
+manual only adds a boot menu entry.""",
+        ),
+        "signed_binaries": attr.label_list(
+            mandatory = True,
+            allow_empty = False,
+            providers = [SecureBootSignedBinaryInfo],
+            doc = """secure_boot_import_response targets for the image's UKI and ESP binaries.
+
+Each replaces every ESP file with the bytes of its unsigned binary. The build fails if a PE/COFF binary on the ESP stays
+unsigned.""",
+        ),
+        "_image_tool": attr.label(
+            default = "//mkosi/private:secure_boot_image.py",
+            allow_single_file = True,
+            cfg = "exec",
+        ),
+    }, **_TOOL_ATTRS),
+    doc = """Writes a copy of a UEFI release disk image whose ESP holds signed boot binaries and Secure Boot
+auto-enrollment keys.
+
+Only the files of the EFI system partition change. Returns DefaultInfo with the disk image and its JSON metadata, and
+the image's MkosiImageInfo with raw_image replaced by the signed disk image.""",
+    provides = [MkosiImageInfo],
     toolchains = [MKOSI_TOOLCHAIN_TYPE],
 )
