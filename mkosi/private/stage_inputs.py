@@ -87,15 +87,70 @@ def _check_source_overlap(canonical_sources, source):
     canonical_sources[canonical] = source
 
 
+_WRAP_HINT = (
+    "map it through trees with mkosi_config_tree(src = ...), which keeps relative links and rejects absolute ones"
+)
+# Bazel reaches a source file through at most a sandbox link, an execroot link and a repository link.
+_MAX_BAZEL_LINKS = 8
+
+
+def _bazel_link_root(link, prefix):
+    """Returns the root that a link of Bazel's execroot, sandbox or runfiles forest rebases prefix to, or None."""
+    target = os.readlink(link)
+    # A link to the same path below / is a host path that only looks like one of Bazel's links.
+    if os.path.isabs(target) and target != "/" + prefix and target.endswith("/" + prefix):
+        return pathlib.Path(target[: len(target) - len(prefix)])
+    return None
+
+
+def _walk_source_file(root, parts, package_depth, source):
+    """Returns the root to restart from after a Bazel link, or None once the declared file is reached."""
+    current = root
+    for index, part in enumerate(parts):
+        current = current / part
+        if not current.is_symlink():
+            continue
+        prefix = "/".join(parts[: index + 1])
+        rebased = _bazel_link_root(current, prefix)
+        if rebased is not None:
+            return rebased
+        if index >= package_depth:
+            raise ValueError(
+                "source file {} is a symlink or lies below one at {}; Bazel would copy what it points to, so {}".format(
+                    source, prefix, _WRAP_HINT
+                )
+            )
+    return None
+
+
+def _check_source_file(source, package):
+    """Rejects a declared source file that is, or lies below, a symlink inside its package.
+
+    Bazel's own links, whose absolute target ends with the path that they stand for, are followed.
+    """
+    if package and not source.startswith(package + "/"):
+        raise ValueError("source file {} is not below its package {}".format(source, package))
+    parts = source.split("/")
+    package_depth = len(package.split("/")) if package else 0
+    root = pathlib.Path(".")
+    for _ in range(_MAX_BAZEL_LINKS):
+        root = _walk_source_file(root, parts, package_depth, source)
+        if root is None:
+            return
+    raise ValueError("source file {} is behind too many links".format(source))
+
+
 def _mapping_entries(source, destination, owner, role):
     """Returns the staged entries of one mapping."""
     if role in _TREE_ROLES and not source.is_dir():
         raise ValueError("source-tree mapping must be a directory: {}".format(source))
-    if role == "file" and not source.is_file():
+    if role == "source-file" and source.is_dir():
+        raise ValueError("source file mapping {} is a directory; {}".format(source, _WRAP_HINT))
+    if role in ("file", "source-file") and not source.is_file():
         raise ValueError("file mapping must be a regular file: {}".format(source))
     if role in _TREE_ROLES:
         return _tree_entries(source, destination, owner, generated=role == "generated-tree")
-    if role != "file":
+    if role not in ("file", "source-file"):
         raise ValueError("unknown mapping role: {}".format(role))
     if not destination:
         raise ValueError("a file mapping requires a destination")
@@ -120,8 +175,11 @@ def _check_prefix_collisions(entries, destination, owner):
             raise ValueError("prefix staged collision between '{}' and '{}'".format(destination, prior_path))
 
 
-def _add_mapping(entries, canonical_sources, mapping, merge):
-    """Adds one mapping; merge allows shared sources and merged directories, but still rejects colliding files."""
+def _add_mapping(entries, canonical_sources, mapping, merge, shared_owners):
+    """Adds one mapping; merge allows shared sources and merged directories, but still rejects colliding files.
+
+    shared_owners collects every mapping that contributes a merged directory.
+    """
     source_string, destination_string, role = mapping
     source = pathlib.Path(source_string)
     if not source.exists():
@@ -135,25 +193,28 @@ def _add_mapping(entries, canonical_sources, mapping, merge):
         merged = merge and prior is not None and prior[1] == entry[1] == "directory"
         if prior is not None and prior[0] != owner and not merged:
             raise ValueError("exact staged collision at '{}'".format(path))
-        if not merged:
+        if merged:
+            shared_owners.setdefault(path, {prior[0]}).add(owner)
+        else:
             entries[path] = entry
     if not merge:
         _check_prefix_collisions(entries, destination, owner)
 
 
-def _check_staged_symlink(entries, path, entry):
+def _check_staged_symlink(entries, path, entry, shared_owners):
     target = pathlib.PurePosixPath(path).parent / entry[3]
     normalised = pathlib.PurePosixPath(os.path.normpath(str(target)))
     if normalised.is_absolute() or ".." in normalised.parts:
         raise ValueError("staged symlink escapes output root: {}".format(path))
-    target_entry = entries.get("/".join(normalised.parts))
+    target_path = "/".join(normalised.parts)
+    target_entry = entries.get(target_path)
     if target_entry is None:
         raise ValueError("staged symlink is dangling at '{}'".format(path))
-    if target_entry[0] != entry[0]:
+    if target_entry[0] != entry[0] and entry[0] not in shared_owners.get(target_path, ()):
         raise ValueError("staged symlink aliases another mapping at '{}'".format(path))
 
 
-def _check_layout(entries):
+def _check_layout(entries, shared_owners):
     """Rejects non-directories with staged children and symlinks that leave their own mapping."""
     paths = sorted(entries)
     for index, path in enumerate(paths):
@@ -164,16 +225,17 @@ def _check_layout(entries):
             if entry[1] != "directory":
                 raise ValueError("file/dir staged collision at '{}'".format(path))
         if entry[1] == "symlink":
-            _check_staged_symlink(entries, path, entry)
+            _check_staged_symlink(entries, path, entry, shared_owners)
 
 
 def _manifest(mappings, merge=False):
     """Build and validate the complete staged manifest without writing."""
     entries = {}
     canonical_sources = {}
+    shared_owners = {}
     for mapping in mappings:
-        _add_mapping(entries, canonical_sources, mapping, merge)
-    _check_layout(entries)
+        _add_mapping(entries, canonical_sources, mapping, merge, shared_owners)
+    _check_layout(entries, shared_owners)
     return entries
 
 
@@ -236,7 +298,7 @@ def _reset_output(output):
     output.mkdir(parents=True, exist_ok=True)
 
 
-def main():
+def _arguments():
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", required=True, type=pathlib.Path)
     parser.add_argument(
@@ -244,7 +306,15 @@ def main():
         action="append",
         nargs=3,
         metavar=("SOURCE", "DESTINATION", "ROLE"),
-        required=True,
+        default=[],
+    )
+    parser.add_argument(
+        "--source-file",
+        action="append",
+        nargs=3,
+        metavar=("SOURCE", "DESTINATION", "PACKAGE"),
+        default=[],
+        help="a file of a source package, which must neither be nor lie below a symlink inside PACKAGE",
     )
     parser.add_argument("--executable", action="append", default=[])
     parser.add_argument("--manifest", type=pathlib.Path)
@@ -254,10 +324,19 @@ def main():
         help="assemble a configuration tree: allow shared sources and merge directories of different mappings",
     )
     args = parser.parse_args()
+    if not args.mapping and not args.source_file:
+        parser.error("at least one --mapping or --source-file is required")
+    return args
 
+
+def main():
+    args = _arguments()
     if args.output.is_symlink():
         raise ValueError("staging output already exists: {}".format(args.output))
-    entries = _manifest(args.mapping, args.merge)
+    for source, _, package in args.source_file:
+        _check_source_file(source, package)
+    mappings = args.mapping + [(source, destination, "source-file") for source, destination, _ in args.source_file]
+    entries = _manifest(mappings, args.merge)
     executable_paths = _executable_paths(args.executable, entries)
     _reset_output(args.output)
     _copy_manifest(args.output, entries, executable_paths)

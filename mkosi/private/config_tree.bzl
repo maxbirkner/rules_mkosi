@@ -7,10 +7,13 @@ load(":staging.bzl", "normalise_destination")
 def _join(*parts):
     return "/".join([part for part in parts if part])
 
+def _package_directory(label):
+    return _join(label.workspace_root, label.package)
+
 def _package_relative_path(file, label, attribute):
     """Returns the path of file relative to the package of label, which lists it."""
     path = file.path[len(file.root.path) + 1:] if file.root.path else file.path
-    package = _join(label.workspace_root, label.package)
+    package = _package_directory(label)
     if package and not path.startswith(package + "/"):
         fail("{} file {} is outside the package of {}".format(attribute, file.short_path, label))
     return path[len(package) + 1:] if package else path
@@ -23,7 +26,7 @@ def _single_directory(target):
     return files[0] if len(files) == 1 and files[0].is_directory else None
 
 def _src_files(ctx):
-    """Returns (artifact, destination) for every srcs file, with strip_prefix removed."""
+    """Returns (artifact, destination, package directory) for every srcs file, with strip_prefix removed."""
     prefix = normalise_destination(ctx.attr.strip_prefix, "strip_prefix") if ctx.attr.strip_prefix else ""
     files = []
     for target in ctx.attr.srcs:
@@ -33,7 +36,7 @@ def _src_files(ctx):
             path = _package_relative_path(file, target.label, "srcs")
             if prefix and not path.startswith(prefix + "/"):
                 fail("srcs file {} is not below strip_prefix '{}'".format(path, prefix))
-            files.append((file, path[len(prefix) + 1:] if prefix else path))
+            files.append((file, path[len(prefix) + 1:] if prefix else path, _package_directory(target.label)))
     return files
 
 def _tree_mappings(ctx):
@@ -54,18 +57,19 @@ def _tree_mappings(ctx):
         for file in target.files.to_list():
             if file.is_directory:
                 fail("trees entry '{}' mixes directory {} with other files".format(destination, file.short_path))
-            files.append((file, _join(destination, _package_relative_path(file, target.label, "trees"))))
+            path = _join(destination, _package_relative_path(file, target.label, "trees"))
+            files.append((file, path, _package_directory(target.label)))
     return files, directories, executables
 
 def _check_layout(files, directories):
     """Fails on duplicate file destinations and on files at or above another destination."""
     owners = {}
     parents = {}
-    for _, destination in files + directories:
+    for destination in [file[1] for file in files] + [directory[1] for directory in directories]:
         parts = destination.split("/")
         for index in range(1, len(parts)):
             parents["/".join(parts[:index])] = destination
-    for artifact, destination in files:
+    for artifact, destination, _ in files:
         if destination in owners:
             fail("duplicate configuration tree destination '{}' from {} and {}".format(
                 destination,
@@ -87,7 +91,7 @@ def _check_executables(executables, owners, directories, has_root):
             continue
         fail("executable_paths entry '{}' is not a file of the configuration tree".format(path))
 
-def _assemble_arguments(ctx, output, mappings, executables):
+def _assemble_arguments(ctx, output, mappings, source_files, executables):
     arguments = ctx.actions.args()
     arguments.add(ctx.file._stage_script.path)
     arguments.add("--merge")
@@ -95,6 +99,11 @@ def _assemble_arguments(ctx, output, mappings, executables):
     for artifact, destination, role in mappings:
         arguments.add("--mapping")
         arguments.add_all([artifact.path, destination or ".", role])
+
+    # Source files are checked for symlinks inside their package, which Bazel would silently follow.
+    for artifact, destination, package in source_files:
+        arguments.add("--source-file")
+        arguments.add_all([artifact.path, destination, package])
     arguments.add_all(executables, before_each = "--executable")
     return arguments
 
@@ -112,12 +121,14 @@ def _assemble(ctx, src):
     output = ctx.actions.declare_directory(ctx.label.name + ".config-tree")
     mappings = ([(src, "", _role(src))] if src else []) + [
         (artifact, destination, "file")
-        for artifact, destination in files
+        for artifact, destination, _ in files
+        if not artifact.is_source
     ] + [(directory, destination, _role(directory)) for directory, destination in directories]
+    source_files = [file for file in files if file[0].is_source]
     run_python(
         ctx,
-        arguments = [_assemble_arguments(ctx, output, mappings, executables)],
-        inputs = [ctx.file._stage_script] + [mapping[0] for mapping in mappings],
+        arguments = [_assemble_arguments(ctx, output, mappings, source_files, executables)],
+        inputs = [ctx.file._stage_script] + [entry[0] for entry in mappings + source_files],
         outputs = [output],
         mnemonic = "MkosiConfigTree",
         progress_message = "Assembling mkosi configuration tree %{label}",
@@ -155,7 +166,11 @@ mkosi_config_tree = rule(
         "srcs": attr.label_list(
             allow_files = True,
             doc = """Files placed at their path relative to the package of the listed target, without strip_prefix,
-such as glob(["mkosi/**"]).""",
+such as glob(["mkosi/**"]).
+
+Bazel copies what a symlink points to, so the action rejects source files that are, or lie below, a symlink inside
+their package, such as a link that systemctl enable creates. Map such trees through trees with an mkosi_config_tree
+whose src keeps relative links and rejects absolute ones.""",
         ),
         "strip_prefix": attr.string(
             doc = "Normalized package-relative directory removed from every srcs path; srcs must all be below it.",

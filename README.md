@@ -217,6 +217,8 @@ mkosi_config_tree(
 
 One action copies the inputs into a new directory; directories merge, while duplicate files fail.
 Traversal, absolute paths, and collisions fail during analysis where the paths are known.
+Bazel copies what a symlink points to, so the action rejects `srcs` and `trees` source files that are, or lie below, a symlink in their package, such as the links of `systemctl enable`.
+Wrap a directory with symlinks in `mkosi_config_tree(src = ...)` and map it through `trees`; `src` keeps relative links and rejects absolute or escaping ones.
 
 ## Tracer and release modes
 

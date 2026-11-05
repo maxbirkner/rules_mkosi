@@ -10,8 +10,15 @@ _SHARED_EXECUTABLES = [
 ]
 
 def _mappings(argv):
-    """Returns the (source, destination, role) triples of a staging command line."""
-    return [tuple(argv[index + 1:index + 4]) for index, argument in enumerate(argv) if argument == "--mapping"]
+    """Returns the (source, destination, role) triples of a staging command line; --source-file has role source-file."""
+    return [
+        tuple(argv[index + 1:index + 4]) if argument == "--mapping" else tuple(argv[index + 1:index + 3]) + ("source-file",)
+        for index, argument in enumerate(argv)
+        if argument in ("--mapping", "--source-file")
+    ]
+
+def _source_file_packages(argv):
+    return [argv[index + 3] for index, argument in enumerate(argv) if argument == "--source-file"]
 
 def _assembled_test_impl(ctx):
     env = analysistest.begin(ctx)
@@ -29,12 +36,13 @@ def _assembled_test_impl(ctx):
 
     mappings = {destination: (source, role) for source, destination, role in _mappings(action.argv)}
     package = ctx.label.package
-    asserts.equals(env, (package + "/testdata/config-tree/mkosi.conf", "file"), mappings["mkosi.conf"])
+    asserts.equals(env, (package + "/testdata/config-tree/mkosi.conf", "source-file"), mappings["mkosi.conf"])
     asserts.equals(
         env,
-        (package + "/testdata/config-tree/mkosi.extra/etc/declared-marker", "file"),
+        (package + "/testdata/config-tree/mkosi.extra/etc/declared-marker", "source-file"),
         mappings["mkosi.extra/etc/declared-marker"],
     )
+    asserts.equals(env, [package] * 4, _source_file_packages(action.argv))
     generated = mappings["mkosi.extra/usr/share/generated-source.txt"]
     asserts.true(env, generated[0].endswith("/bin/" + package + "/generated-source.txt"), generated[0])
     asserts.equals(env, "file", generated[1])
