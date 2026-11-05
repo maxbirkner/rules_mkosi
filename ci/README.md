@@ -13,7 +13,7 @@ The bind mount is on disk because the suite's parallel image actions do not fit 
 
 | Helper | Checks | Unit tests |
 | --- | --- | --- |
-| `action_graph_validator.py` | Debian toolchain actions do not resolve host executables. | `//ci:action_graph_validator_test` |
+| `action_graph_validator.py` | Every action that builds the Debian tools archive, launcher, and namespace runner has a modeled mnemonic and runs its expected, declared in-build executable (or none), with no host paths in its arguments or environment and only inputs from managed repositories or from actions in the same graph. CI also requires it to reject `//ci:injected_host_helper`, which adds a host shell and `tar` to that graph. | `//ci:action_graph_validator_test` |
 | `image_environment_validator.py` | Every environment variable of the mkosi image actions has an expected value, so host-dependent variables cannot slip in. | `//ci:image_environment_validator_test` |
 | `verify-two-stage-cache.sh`, `verify_two_stage_cache.py` | A second stamped version of `//mkosi/tests:two_stage_release` re-executes only the finalizing `MkosiImage` action, not `MkosiBase`. | `//ci:verify_two_stage_cache_test` |
 | `verify-release-reproducibility.sh`, `verify_reproducibility_execution.py` | Two clean builds of the release images, including a compressed erofs root and its update payload, produce identical reproducibility manifests and digests, and every image action actually executed. | `//ci:verify_reproducibility_execution_test` |

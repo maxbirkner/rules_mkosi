@@ -72,3 +72,13 @@ sh_test(
     args = ["$(rootpath :check-pr-title.sh)"],
     data = [":check-pr-title.sh"],
 )
+
+# CI audits this target's action graph and requires the Debian tools graph audit to reject it: it adds an action that
+# runs the host shell and tar to the complete graph of the Debian tools launcher.
+genrule(
+    name = "injected_host_helper",
+    srcs = ["@mkosi_debian_tools//:launcher"],
+    outs = ["injected_host_helper.txt"],
+    cmd = "tar --version > $@",
+    tags = ["manual"],
+)
