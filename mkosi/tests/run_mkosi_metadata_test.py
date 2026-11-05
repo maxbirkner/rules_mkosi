@@ -706,6 +706,17 @@ class StagedConfigurationTest(_WrapperTest):
         assert self.wrapper._stage_configuration(self.preamble, ["build"]) is None
 
 
+class NetworkSandboxTest(_WrapperTest):
+    def test_network_build_retries_apt_downloads(self):
+        wrapper, root = self.wrapper, self.root
+        workspace = root / "workspace"
+        arguments = ["--workspace-directory", os.fspath(workspace)]
+        assert wrapper._prepare_release_sandbox(wrapper.command_line.Preamble(), arguments, None) is None
+        assert arguments[2:] == ["--sandbox-tree", os.fspath(workspace / "network-sandbox")]
+        configuration = workspace / "network-sandbox/etc/apt/apt.conf.d/99rules-mkosi-retries"
+        assert configuration.read_text() == 'Acquire::Retries "10";\n'
+
+
 if __name__ == "__main__":
     _WRAPPER_PATH = sys.argv.pop(1)
     # run_mkosi.py reads mkosi's option table, so mkosi must be importable like in the image action.

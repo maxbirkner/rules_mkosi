@@ -36,6 +36,7 @@ def _load_sibling(name, filename, description):
 diagnostics = _load_sibling("mkosi_diagnostics", "diagnostics.py", "diagnostic formatter")
 _package = _load_sibling("rules_mkosi_runner", "mkosi_runner/__init__.py", "run_mkosi package")
 command_line = _package.command_line
+network_sandbox = _package.network_sandbox
 release_patches = _package.release_patches
 release_sandbox = _package.release_sandbox
 release_validation = _package.release_validation
@@ -170,13 +171,15 @@ def _extract_debian_tools(preamble, arguments):
 
 
 def _prepare_release_sandbox(preamble, arguments, stage):
-    """Adds the release sandbox, and the Debian snapshot mirror that it returns if the stage installs packages."""
+    """Adds the fixed sandbox, and the Debian snapshot mirror that it returns if the build installs packages from it."""
     if preamble.debian_snapshot_repository:
         return release_sandbox.configure_release_mirror(
             preamble.debian_snapshot_repository, _workspace(arguments), arguments
         )
     if stage == "finalize":
         release_sandbox.configure_release_sandbox(_workspace(arguments), arguments)
+    elif stage is None:
+        network_sandbox.configure_network_sandbox(_workspace(arguments), arguments)
     return None
 
 

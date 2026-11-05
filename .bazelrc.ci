@@ -1,5 +1,16 @@
 # CI invokes //... directly. Configurations change execution semantics, not
 # membership in a hand-maintained test inventory.
+
+# Repository downloads from snapshot.debian.org fail while it throttles with
+# HTTP 429 or 503. Bazel retries those with exponential back-off; allow more
+# attempts, each waiting at most a minute, so a throttling burst does not fail
+# the build. Unlike the configs below, this applies to every command in both
+# modules, which import this file.
+common --http_connector_attempts=12
+common --http_connector_retry_max_timeout=60s
+# Also restart downloads that break off midway, such as on a reset connection.
+common --experimental_repository_downloader_retries=10
+
 # Force qualified actions through the host-kernel isolation boundary.
 build:qualified_runtime --spawn_strategy=linux-sandbox
 # Re-execute qualified tests so host qualification is never hidden by cache.

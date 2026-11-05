@@ -403,7 +403,8 @@ register_toolchains("//toolchains:python_3_14")
 | `cannot clear supplementary groups` | [Restart the Bazel server without supplementary groups](#run-bazel-without-supplementary-groups). |
 | `KERNEL_CAPABILITY_FAILURE` | The host does not meet the [host-kernel contract](docs/design/0004-host-kernel-contract.md). Each `FAIL` line names its remediation. Do not disable the Linux sandbox. |
 | `TOOLCHAIN_FAILURE` | A registered toolchain is missing or could not start; check the toolchain setup above. |
-| `NETWORK_FAILURE` | A tracer build could not download packages. |
+| `NETWORK_FAILURE` | A tracer build could not download packages, although apt retries failed downloads. |
+| `Failed to connect to https://snapshot.debian.org/...` while fetching a snapshot | The service throttles; Bazel retries 7 times by default. Allow more attempts in your `.bazelrc`, for example `common --http_connector_attempts=12 --http_connector_retry_max_timeout=60s`. |
 | `ASSEMBLY_FAILURE` | mkosi failed; its output is preserved in the action log. |
 | `VM_FAILURE` | A boot test failed; inspect the retained serial, firmware, and QEMU logs. |
 | `release configuration ... is not supported` or `must resolve to ...` | See [release mode](#tracer-and-release-modes). |

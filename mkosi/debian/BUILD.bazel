@@ -22,7 +22,10 @@ exports_files([
 
 py_binary(
     name = "generate_lock",
-    srcs = ["generate_lock.py"],
+    srcs = [
+        "generate_lock.py",
+        "http_download.py",
+    ],
     data = ["//mkosi/private:debian_control.py"],
     main = "generate_lock.py",
 )
@@ -31,6 +34,7 @@ py_binary(
     name = "refresh_debian_tools",
     srcs = [
         "generate_lock.py",
+        "http_download.py",
         "refresh_debian_tools.py",
     ],
     data = ["//mkosi/private:debian_control.py"],
@@ -41,6 +45,7 @@ py_test(
     name = "refresh_debian_tools_test",
     srcs = [
         "generate_lock.py",
+        "http_download.py",
         "refresh_debian_tools.py",
         "refresh_debian_tools_test.py",
     ],
@@ -56,9 +61,19 @@ py_test(
     srcs = [
         "generate_lock.py",
         "generate_lock_test.py",
+        "http_download.py",
     ],
     data = ["//mkosi/private:debian_control.py"],
     main = "generate_lock_test.py",
+)
+
+py_test(
+    name = "http_download_test",
+    srcs = [
+        "http_download.py",
+        "http_download_test.py",
+    ],
+    main = "http_download_test.py",
 )
 
 cc_library(
