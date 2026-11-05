@@ -20,6 +20,16 @@ _MS_REC = 0x4000
 _MS_PRIVATE = 1 << 18
 _NESTED_MARKER = "nested-writable\n"
 _LAUNCHER_RLOCATION = ""
+# Runfiles that the launcher itself resolves, as (repository, path). rules_cc falls back to the runfiles directory when
+# a manifest lookup misses, so their tree links point to a missing decoy: only the decoded escaped manifest finds them.
+_LAUNCHER_RUNFILES = {
+    ("mkosi_debian_python", "python"),
+    ("mkosi_debian_tools", "launcher_cli"),
+    ("mkosi_debian_tools", "flat.tar"),
+    ("mkosi_debian_tools", "launcher_config.json"),
+    ("mkosi_debian_tools", "namespace_runner"),
+    ("_main", "mkosi/debian/extract_tree.py"),
+}
 
 # The shell runs inside the namespace runner, and every check prints why it failed.
 _PROBE = r"""
@@ -70,26 +80,43 @@ def _own_runfiles():
         linked_directories = [name for name in subdirectories if os.path.islink(os.path.join(directory, name))]
         for name in files + linked_directories:
             path = os.path.join(directory, name)
+            if os.path.relpath(path, root) == "MANIFEST":
+                continue
             target = os.path.join(directory, os.readlink(path)) if os.path.islink(path) else path
             yield os.path.relpath(path, root), target
 
 
-def _write_escaped_runfiles(directory, root_link):
-    """Writes a runfiles tree and escaped manifest whose targets all pass through root_link, a link to /."""
+def _is_launcher_runfile(link):
+    repository, _, path = link.partition("/")
+    return any(
+        (repository == name or repository.endswith("+" + name)) and path == expected
+        for name, expected in _LAUNCHER_RUNFILES
+    )
+
+
+def _write_escaped_runfiles(directory, root_link, manifest):
+    """Writes a runfiles tree and an escaped manifest whose targets all pass through root_link, a link to /.
+
+    Returns the runfiles paths whose tree links are decoys.
+    """
     lines = []
+    decoys = set()
     for link, target in _own_runfiles():
         path = directory / link
         path.parent.mkdir(parents=True, exist_ok=True)
         if target:
             escaped_target = str(root_link) + target
-            path.symlink_to(escaped_target)
+            if _is_launcher_runfile(link):
+                decoys.add(link)
+                path.symlink_to(directory / "missing decoy")
+            else:
+                path.symlink_to(escaped_target)
         else:
             escaped_target = ""
             path.touch()
         lines.append(_escaped_entry(link, escaped_target))
-    manifest = directory / "MANIFEST"
     manifest.write_text("".join(lines), encoding="utf-8")
-    return manifest
+    return decoys
 
 
 def _check(result, operation):
@@ -118,9 +145,11 @@ class DebianToolsEscapedPathsTest(unittest.TestCase):
         self.base.mkdir()
         root_link = self.base / "root"
         root_link.symlink_to("/")
-        self.runfiles_dir = self.base / "runfiles"
+        # rules_python derives the runfiles root from a manifest named like Bazel's, NAME.runfiles_manifest.
+        self.runfiles_dir = self.base / "launcher.runfiles"
         self.runfiles_dir.mkdir()
-        self.manifest = _write_escaped_runfiles(self.runfiles_dir, root_link)
+        self.manifest = self.base / "launcher.runfiles_manifest"
+        self.decoys = _write_escaped_runfiles(self.runfiles_dir, root_link, self.manifest)
         self.source = self.base / "read-only source"
         (self.source / "nested").mkdir(parents=True)
         (self.source / "marker").write_text("read-only-input\n", encoding="utf-8")
@@ -129,6 +158,7 @@ class DebianToolsEscapedPathsTest(unittest.TestCase):
 
     def test_nested_writable_mount_stays_read_only_under_escaped_paths(self):
         self.assertIn("\n ", self.manifest.read_text(encoding="utf-8"), "the manifest has no escaped entries")
+        self.assertEqual(len(self.decoys), len(_LAUNCHER_RUNFILES), self.decoys)
         launcher = self.runfiles_dir / _LAUNCHER_RLOCATION
         nested = self.source / "nested"
         result = subprocess.run(
