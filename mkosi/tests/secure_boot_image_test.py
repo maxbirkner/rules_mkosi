@@ -108,9 +108,10 @@ class Fixture:
         files["loader/loader.conf"] += b"secure-boot-enroll off\n"
         self.disk, self.metadata = secure_boot_fixtures.disk_with_esp(run_tool, DEBIAN_TOOLS, WORK, files)
 
-    def sign_image(self, name, binaries, keys=None, mode="force"):
+    def sign_image(self, name, binaries, keys=None, mode="force", disk=None):
         output = WORK / (name + ".raw")
-        arguments = ["--tools", DEBIAN_TOOLS, "--image", self.disk, "--partition-metadata", self.metadata]
+        image, metadata = disk or (self.disk, self.metadata)
+        arguments = ["--tools", DEBIAN_TOOLS, "--image", image, "--partition-metadata", metadata]
         for binary in binaries:
             arguments += ["--signed", self.signed[binary], *self.requests[binary]]
         for key in sorted(keys.iterdir()) if keys else []:
@@ -182,6 +183,32 @@ class SignedImageTest(unittest.TestCase):
                 result, _ = fixture.sign_image(name, binaries, keys)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn(error, result.stderr)
+
+    def test_startable_already_signed_binaries_must_be_trusted_by_db_when_keys_are_enrolled(self):
+        fixture = self.fixture
+        boot_files = {FALLBACK: fixture.boot, BOOT_LOADER: fixture.boot, UKI: fixture.uki}
+        untrusted = WORK / "untrusted.efi"
+        extra = {"EFI/tools/extra.efi": untrusted}
+        kernel = {"vmlinuz-6": untrusted}
+        type1 = kernel | {"loader/entries/os.conf": b"title OS\nlinux /vmlinuz-6\n"}
+        for name, files, keys, untrusted_path in [
+            ("trusted-pre-signed", {"EFI/tools/extra.efi": fixture.signed[fixture.absent]}, fixture.keys, None),
+            ("untrusted-pre-signed", extra, fixture.keys, "EFI/tools/extra.efi"),
+            ("untrusted-pre-signed-without-keys", extra, None, None),
+            ("untrusted-kernel-that-nothing-starts", kernel, fixture.keys, None),
+            ("untrusted-kernel-of-a-boot-entry", type1, fixture.keys, "vmlinuz-6"),
+        ]:
+            with self.subTest(name):
+                work = WORK / (name + "-disk")
+                work.mkdir(exist_ok=True)
+                disk = secure_boot_fixtures.disk_with_esp(run_tool, DEBIAN_TOOLS, work, boot_files | files)
+                mode = "force" if keys else "if-safe"
+                result, _ = fixture.sign_image(name, [fixture.boot, fixture.uki], keys, mode, disk)
+                if untrusted_path:
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn("db.auth does not trust the certificate that signed " + untrusted_path, result.stderr)
+                else:
+                    self.assertEqual(result.returncode, 0, result.stderr)
 
 
 class AuthFileTest(unittest.TestCase):

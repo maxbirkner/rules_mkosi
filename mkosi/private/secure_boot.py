@@ -198,6 +198,21 @@ def parse_pe(data, signed):
     }
 
 
+def is_pe(data):
+    """Returns whether data has PE/COFF headers, signed or not."""
+    try:
+        _pe_optional_header(data)
+    except (ValueError, struct.error):
+        return False
+    return True
+
+
+def embedded_authenticode(data):
+    """Returns the DER PKCS#7 of the one Authenticode signature of a signed PE/COFF image; raises ValueError."""
+    layout = parse_pe(data, True)
+    return authenticode_payload(data, layout["certificate_offset"], layout["certificate_size"])
+
+
 def authenticode_payload(signed_data, certificate_offset, certificate_size):
     cursor = certificate_offset
     end = certificate_offset + certificate_size

@@ -463,7 +463,8 @@ secure_boot_signed_image = rule(
             doc = """PK.auth, KEK.auth, db.auth and optionally dbx.auth, or a secure_boot_ephemeral_test_fixture.
 
 The public, pre-signed authenticated variables that systemd-boot enrolls from /loader/keys/auto/ when the firmware is in
-Setup Mode. The build fails unless db trusts the certificate of every signed binary.""",
+Setup Mode. The build fails unless db trusts the signer of every signed *.efi file and boot loader entry binary on the
+ESP, including binaries that were already signed in the image.""",
         ),
         "image": attr.label(
             mandatory = True,

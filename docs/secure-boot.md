@@ -65,7 +65,9 @@ secure_boot_signed_image(
   The build fails if a signed binary has no unsigned copy on the ESP, or if any other unsigned PE/COFF binary stays on the ESP, because the firmware would refuse to load it.
 - `auto_enroll_keys` are public, pre-signed UEFI authenticated variables (`.auth` files) that you create outside Bazel with the PK and KEK private keys, for example with `sbvarsign` or `bootctl install --secure-boot-auto-enroll=yes`.
   They are copied to `/loader/keys/auto/`, and `loader.conf` gets `secure-boot-enroll` set to `secure_boot_enroll`.
-  The build checks their structure and fails unless db holds, or holds an issuer of, the certificate of every signed binary; it does not verify the PKCS#7 signatures, which the firmware checks during enrollment.
+  The build checks their structure and fails unless db holds, or holds an issuer of, the signer of every signed binary that the firmware or systemd-boot can start: the imported ones and binaries that were already signed, such as a distribution-signed systemd-boot or shim, whose embedded certificates may provide intermediates.
+  Startable binaries are the `*.efi` files and the `linux` and `efi` files of `loader/entries/*.conf`; other files, such as a kernel that kernel-install left on the ESP, are not checked.
+  It does not verify the PKCS#7 signatures of the `.auth` files, which the firmware checks during enrollment.
 - Only the files of the ESP change.
   The GPT, the other partitions, and the FAT volume ID, label and geometry stay as built, so the result is deterministic for the same signed inputs.
 - The rule returns DefaultInfo with the disk image and a JSON record of the changes, and the image's `MkosiImageInfo` with `raw_image` replaced, so `qemu_ovmf_boot_test` and install tooling accept it directly.

@@ -61,16 +61,36 @@ def _is_unsigned_pe(data):
     return True
 
 
+def _startable(tree, esp_paths):
+    """Returns the esp_paths that the firmware or systemd-boot can start.
+
+    Those are *.efi files, which the firmware's boot options and systemd-boot's discovery name, and the linux and efi
+    files of boot loader entries. Other files, such as a kernel that kernel-install left on the ESP, are never started.
+    """
+    referenced = set()
+    for esp_path in esp_files.tree_files(tree):
+        if esp_path.lower().startswith("loader/entries/") and esp_path.lower().endswith(".conf"):
+            for line in (tree / esp_path).read_text(encoding="utf-8", errors="replace").splitlines():
+                key, _, value = line.strip().partition(" ")
+                if key in ("linux", "efi"):
+                    referenced.add(value.strip().replace("\\", "/").lstrip("/").lower())
+    return [path for path in esp_paths if path.lower().endswith(".efi") or path.lower() in referenced]
+
+
 def _assign(tree, replacements):
-    """Records the ESP paths of each replacement; fails if one is unused or an unsigned PE binary would remain."""
+    """Records the ESP paths of each replacement and returns the startable, already signed, PE binaries.
+
+    Fails if a replacement is unused or an unsigned PE binary would remain.
+    """
     unsigned = []
+    signed = []
     for esp_path in esp_files.tree_files(tree):
         data = (tree / esp_path).read_bytes()
         replacement = replacements.get(_sha256(data))
         if replacement:
             replacement["paths"].append(esp_path)
-        elif _is_unsigned_pe(data):
-            unsigned.append(esp_path)
+        elif secure_boot.is_pe(data):
+            (unsigned if _is_unsigned_pe(data) else signed).append(esp_path)
     unused = sorted(replacement["name"] for replacement in replacements.values() if not replacement["paths"])
     if unused:
         raise ValueError("the ESP holds no unsigned copy of the signed binaries for {}".format(", ".join(unused)))
@@ -79,6 +99,7 @@ def _assign(tree, replacements):
             "the ESP would keep unsigned PE/COFF binaries that Secure Boot firmware refuses to load: {}; sign them "
             "with secure_boot_signing_request(esp_path = ...)".format(", ".join(unsigned))
         )
+    return _startable(tree, signed)
 
 
 def _enrollment_keys(paths):
@@ -98,33 +119,69 @@ def _enrollment_keys(paths):
     return keys
 
 
-def _check_db_trusts(args, scratch, db_lists, replacements):
-    """Fails unless db holds, or holds an issuer of, the certificate of every signed binary."""
+def _db_trusts(args, bundle, signer, chain=None):
+    """Returns whether the db certificates in bundle trust signer, through the intermediate certificates in chain."""
+    intermediates = ["-untrusted", chain] if chain else []
+    try:
+        launcher_tool.run_tool(
+            args.tools,
+            "/usr/bin/openssl",
+            "verify",
+            "-partial_chain",
+            "-no_check_time",
+            "-CAfile",
+            bundle,
+            *intermediates,
+            signer,
+            capture=True,
+        )
+    except subprocess.CalledProcessError:
+        return False
+    return True
+
+
+def _embedded_signer(args, scratch, tree, esp_path):
+    """Returns the files of the verified signer and of all certificates of the Authenticode signature of esp_path."""
+    try:
+        payload = secure_boot.embedded_authenticode((tree / esp_path).read_bytes())
+    except (ValueError, struct.error) as error:
+        raise ValueError("cannot read the Authenticode signature of {}: {}".format(esp_path, error)) from error
+    pkcs7, signer, chain = scratch / "embedded.p7", scratch / "embedded-signer.pem", scratch / "embedded-chain.pem"
+    pkcs7.write_bytes(payload)
+    content = scratch / "embedded-content.bin"
+    verify = ["smime", "-verify", "-inform", "DER", "-in", pkcs7, "-noverify", "-signer", signer, "-out", content]
+    certificates = ["pkcs7", "-inform", "DER", "-in", pkcs7, "-print_certs", "-out", chain]
+    try:
+        launcher_tool.run_tool(args.tools, "/usr/bin/openssl", *verify, capture=True)
+        launcher_tool.run_tool(args.tools, "/usr/bin/openssl", *certificates, capture=True)
+    except subprocess.CalledProcessError as error:
+        raise ValueError("the Authenticode signature of {} does not verify".format(esp_path)) from error
+    return signer, chain if chain.stat().st_size else None
+
+
+def _untrusted(paths):
+    return ValueError(
+        "db.auth does not trust the certificate that signed {}; enrolling it would make the device refuse to "
+        "boot".format(", ".join(paths))
+    )
+
+
+def _check_db_trusts(args, scratch, db_lists, replacements, tree, presigned):
+    """Fails unless db holds, or holds an issuer of, the signer of every signed binary on the ESP.
+
+    That covers the imported signed binaries and the already signed binaries, such as a distribution-signed boot loader.
+    """
     trusted = efi_auth.x509_certificates(db_lists)
     bundle = scratch / "db.pem"
     bundle.write_bytes(b"".join(secure_boot.certificate_pem(certificate) for certificate in trusted))
     for replacement in replacements.values():
-        if replacement["certificate"] in trusted:
-            continue
         signer = scratch / "signer.pem"
         signer.write_bytes(secure_boot.certificate_pem(replacement["certificate"]))
-        try:
-            launcher_tool.run_tool(
-                args.tools,
-                "/usr/bin/openssl",
-                "verify",
-                "-partial_chain",
-                "-no_check_time",
-                "-CAfile",
-                bundle,
-                signer,
-                capture=True,
-            )
-        except subprocess.CalledProcessError as error:
-            raise ValueError(
-                "db.auth does not trust the certificate that signed {}; enrolling it would make the device refuse "
-                "to boot".format(", ".join(replacement["paths"]))
-            ) from error
+        if replacement["certificate"] not in trusted and not _db_trusts(args, bundle, signer):
+            raise _untrusted(replacement["paths"])
+    for esp_path in presigned:
+        if not _db_trusts(args, bundle, *_embedded_signer(args, scratch, tree, esp_path)):
+            raise _untrusted([esp_path])
 
 
 def _find(tree_paths, esp_path):
@@ -140,7 +197,7 @@ def _loader_conf(tree, mode):
     return existing or _LOADER_CONF, "\n".join([*kept, "secure-boot-enroll " + mode]) + "\n"
 
 
-def _changes(args, scratch, tree, replacements):
+def _changes(args, scratch, tree, replacements, presigned):
     """Returns the new ESP files as {ESP path: source file} after validating every input."""
     changes = {}
     for replacement in replacements.values():
@@ -149,7 +206,7 @@ def _changes(args, scratch, tree, replacements):
     if not args.auto_enroll_key:
         return changes
     keys = _enrollment_keys(args.auto_enroll_key)
-    _check_db_trusts(args, scratch, keys["db"][1], replacements)
+    _check_db_trusts(args, scratch, keys["db"][1], replacements, tree, presigned)
     for name, (path, _) in sorted(keys.items()):
         changes[_KEYS + "/" + name + ".auth"] = path
     esp_path, content = _loader_conf(tree, args.secure_boot_enroll)
@@ -225,8 +282,8 @@ def sign_image(args):
         esp_files.run_script(
             args.tools, scratch, [esp_files.copy_tree_command(args.tools, esp_image, tree)], {"TZ": "UTC"}
         )
-        _assign(tree, replacements)
-        changes = _changes(args, scratch, tree, replacements)
+        presigned = _assign(tree, replacements)
+        changes = _changes(args, scratch, tree, replacements, presigned)
         _apply(args, scratch, esp_image, tree, changes)
         _verify(scratch, changes)
         Path(args.output).unlink(missing_ok=True)
