@@ -33,13 +33,13 @@ SecureBootEphemeralTestFixtureInfo = provider(
     doc = "Public outputs from one action-private ephemeral signing operation.",
     fields = {
         "certificate": "Ephemeral public certificate.",
-        "execution_requirements": "Local, no-remote, no-cache action policy.",
+        "execution_requirements": "No-remote, no-cache action policy.",
         "signed_binaries": "Authenticode-signed test binaries, one per requested UKI and ESP file.",
     },
 )
 
+# The fixture runs on the local machine, sandboxed where the strategy allows, and its outputs are never cached.
 _EPHEMERAL_EXECUTION_REQUIREMENTS = {
-    "local": "1",
     "no-cache": "1",
     "no-remote": "1",
     "no-remote-cache": "1",
@@ -61,7 +61,7 @@ def _run(ctx, args, inputs, outputs, mnemonic, **kwargs):
         outputs = outputs,
         mnemonic = mnemonic,
         tools = [ctx.attr._debian_tools[DefaultInfo].files_to_run],
-        # The ephemeral fixture runs unsandboxed; loading file_hashing.py must not write a __pycache__ into the sources.
+        # Without a sandbox, loading the helper modules must not write a __pycache__ into the sources.
         env = {"PYTHONDONTWRITEBYTECODE": "1"},
         **kwargs
     )

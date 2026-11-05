@@ -41,8 +41,9 @@ def _fixture_action_test_impl(ctx):
         sorted([fixture.certificate] + fixture.signed_binaries),
         sorted(target[DefaultInfo].files.to_list()),
     )
-    for requirement in ["local", "no-cache", "no-remote", "no-remote-cache", "no-remote-exec"]:
+    for requirement in ["no-cache", "no-remote", "no-remote-cache", "no-remote-exec"]:
         asserts.equals(env, "1", fixture.execution_requirements[requirement])
+    asserts.false(env, "local" in fixture.execution_requirements, "the fixture must run under the sandbox strategy")
     return analysistest.end(env)
 
 _fixture_action_test = analysistest.make(

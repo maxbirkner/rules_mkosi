@@ -68,4 +68,4 @@ BIOS images cannot be signed.
 
 `secure_boot_ephemeral_test_fixture` signs the UKIs and `esp_paths` of `images` with a short-lived key for tests.
 Use it as both the `certificate` of the requests and the `signed_binary` of the imports; each import selects the fixture's binary that matches its request.
-The key never leaves one local, uncached action; never use it for production.
+The key never leaves one uncached action that runs on the local machine, never remotely; never use it for production.
