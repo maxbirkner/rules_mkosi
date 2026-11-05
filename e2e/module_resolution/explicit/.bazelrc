@@ -1,0 +1,2 @@
+# Retry repository downloads, such as from snapshot.debian.org or GitHub releases, like the other CI modules.
+import %workspace%/../../../.bazelrc.ci
