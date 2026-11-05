@@ -12,8 +12,13 @@ PYTHONPATH = "external/+mkosi+mkosi_toolchains:external/rules_python++pip+pefile
 RELEASE = {"MKOSI_HOST_DISTRIBUTION": "debian", "MKOSI_HOST_RELEASE": "trixie", "SOURCE_DATE_EPOCH": "0"}
 
 
-def image_action(*options: str, release: bool = False, **environment: str | None) -> dict[str, Any]:
-    """Returns a tracer or release MkosiImage action whose environment entries are replaced, or removed when None."""
+def image_action(
+    *options: str, release: bool = False, offline: bool = False, **environment: str | None
+) -> dict[str, Any]:
+    """Returns an MkosiImage action whose environment entries are replaced, or removed when None.
+
+    The action is a release, an offline tracer that installs from a Debian snapshot, or a networked tracer.
+    """
     values: dict[str, str | None] = {
         "PATH": "",
         "PYTHONNOUSERSITE": "1",
@@ -26,9 +31,9 @@ def image_action(*options: str, release: bool = False, **environment: str | None
     variables = [
         {"key": key} | ({"value": value} if value else {}) for key, value in values.items() if value is not None
     ]
-    requirements = (
-        ["block-network", "no-remote-exec"] if release else ["no-cache", "no-remote-exec", "requires-network"]
-    )
+    requirements = ["block-network" if release or offline else "requires-network", "no-remote-exec"]
+    if not release:
+        requirements.append("no-cache")
     return {
         "mnemonic": "MkosiImage",
         "targetId": 2 if release else 1,
@@ -40,7 +45,9 @@ def image_action(*options: str, release: bool = False, **environment: str | None
 
 class EnvironmentErrorsTest(unittest.TestCase):
     def test_accepts_tracer_environment(self) -> None:
-        self.assertEqual([], environment_errors(image_action()))
+        for offline in (False, True):
+            with self.subTest(offline=offline):
+                self.assertEqual([], environment_errors(image_action(offline=offline)))
 
     def test_accepts_release_environment(self) -> None:
         self.assertEqual([], environment_errors(image_action(release=True)))
@@ -84,16 +91,24 @@ class EnvironmentErrorsTest(unittest.TestCase):
         self.assertEqual(["unexpected HOME=/home/user"], environment_errors(image_action(HOME="/home/user")))
 
     def test_rejects_release_variables_on_tracer_action(self) -> None:
-        self.assertEqual(
-            [
-                "unexpected MKOSI_HOST_DISTRIBUTION=debian",
-                "unexpected MKOSI_HOST_RELEASE=trixie",
-                "unexpected SOURCE_DATE_EPOCH=0",
-            ],
-            environment_errors(
-                image_action(MKOSI_HOST_DISTRIBUTION="debian", MKOSI_HOST_RELEASE="trixie", SOURCE_DATE_EPOCH="0")
-            ),
-        )
+        # A tracer action that installs from a Debian snapshot runs offline, but is still not a release.
+        for offline in (False, True):
+            with self.subTest(offline=offline):
+                self.assertEqual(
+                    [
+                        "unexpected MKOSI_HOST_DISTRIBUTION=debian",
+                        "unexpected MKOSI_HOST_RELEASE=trixie",
+                        "unexpected SOURCE_DATE_EPOCH=0",
+                    ],
+                    environment_errors(
+                        image_action(
+                            offline=offline,
+                            MKOSI_HOST_DISTRIBUTION="debian",
+                            MKOSI_HOST_RELEASE="trixie",
+                            SOURCE_DATE_EPOCH="0",
+                        )
+                    ),
+                )
 
     def test_requires_release_variables_on_release_action(self) -> None:
         action = image_action(release=True, MKOSI_HOST_RELEASE=None, SOURCE_DATE_EPOCH=None)

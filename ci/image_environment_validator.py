@@ -33,7 +33,7 @@ EXPECTED: dict[str, Callable[[str], bool]] = {
 }
 # Every image action sets these.
 REQUIRED = frozenset({"PATH", "PYTHONNOUSERSITE", "MKOSI_FORCE_USERNS_FALLBACK", "PYTHONPATH"})
-# Release actions pin the host distribution and the timestamp; network-backed tracer actions set none of them.
+# Release actions pin the host distribution and the timestamp; tracer actions set none of them.
 RELEASE = frozenset({"MKOSI_HOST_DISTRIBUTION", "MKOSI_HOST_RELEASE", "SOURCE_DATE_EPOCH"})
 # Short interpreter options whose value follows, attached or as the next argument.
 _VALUE_OPTIONS = frozenset("WX")
@@ -43,8 +43,8 @@ _VALUE_LONG_OPTIONS = frozenset({"--check-hash-based-pycs"})
 
 
 def is_release(action: Mapping[str, Any]) -> bool:
-    """Returns whether an action is a hermetic release build, which runs with the network blocked."""
-    return any(entry.get("key") == "block-network" for entry in action.get("executionInfo", []))
+    """Returns whether an action is a hermetic release build, the only kind of image build that may be cached."""
+    return all(entry.get("key") != "no-cache" for entry in action.get("executionInfo", []))
 
 
 def _scan_short_options(cluster: str) -> tuple[set[str], bool, bool]:

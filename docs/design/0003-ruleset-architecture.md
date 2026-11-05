@@ -31,7 +31,7 @@ Toolchain types are public because registration and advanced integrations need s
   `mkosi_image` returns `MkosiImageInfo`, whose artifact fields are each a `File` or `None`.
   Consumers select fields rather than infer roles from file names or `DefaultInfo` order, so new outputs never change existing meanings.
 - **Explicit build modes.**
-  `tracer` is networked and never cached, so it makes no hermeticity claim.
+  `tracer` is never cached, so it makes no hermeticity claim; it installs packages from the network, or offline from a `debian_snapshot`.
   `release` takes packages only from an authenticated `DebianSnapshotInfo`, blocks the network, and may be cached.
   Release mode rejects any configuration that could read undeclared host state or reintroduce a network package source, so a cache hit is always valid.
 - **Typed inputs.**

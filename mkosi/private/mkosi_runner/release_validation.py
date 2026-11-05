@@ -71,7 +71,7 @@ def release_apt_components(repositories, release_components):
     missing = [component for component in components if component not in release_components]
     if missing:
         raise SystemExit(
-            "release configuration Repositories= requests components absent from the "
+            "configuration Repositories= requests components absent from the "
             "Debian snapshot: {} (snapshot components: {})".format(", ".join(missing), ", ".join(release_components))
         )
     return components

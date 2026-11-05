@@ -130,7 +130,7 @@ toolchain(
 mkosi_image(
     name = "demo",
     config = "testdata/minimal.conf",
-    tags = ["requires-network"],
+    debian_snapshot = "@mkosi_debian_snapshot//:repository",
 )
 
 mkosi_rootfs_payload(
@@ -161,10 +161,10 @@ py_test(
 mkosi_image(
     name = "tree_demo",
     config_tree = ":config_tree",
+    debian_snapshot = "@mkosi_debian_snapshot//:repository",
     source_trees = {
         "src": ":source_tree",
     },
-    tags = ["requires-network"],
 )
 
 mkosi_image(
@@ -281,7 +281,6 @@ mkosi_source_tree(
 
 build_test(
     name = "demo_build_test",
-    tags = ["requires-network"],
     targets = [":demo"],
 )
 
@@ -319,7 +318,6 @@ qemu_ovmf_boot_test(
 
 build_test(
     name = "tree_demo_build_test",
-    tags = ["requires-network"],
     targets = [":tree_demo"],
 )
 
@@ -463,6 +461,7 @@ py_test(
         "tracer",
     ],
     data = [":demo_build_metadata"],
+    env = DEBIAN_TOOLS_PROVENANCE_ENV,
     main = "image_metadata_test.py",
 )
 
@@ -484,10 +483,7 @@ qemu_ovmf_boot_test(
     accelerator = "tcg",
     image = ":demo",
     shutdown_timeout_seconds = 60,
-    tags = [
-        "manifest",
-        "requires-network",
-    ],
+    tags = ["manifest"],
 )
 
 qemu_seabios_boot_test(
@@ -529,7 +525,6 @@ sh_test(
     srcs = ["boot_preflight_contract_test.sh"],
     args = ["$(rootpath :boot_preflight_contract_config)"],
     data = [":boot_preflight_contract_config"],
-    tags = ["requires-network"],
 )
 
 managed_python_test(
@@ -674,7 +669,6 @@ runfiles_sh_test(
         "@rules_mkosi//mkosi/tests:raw_image_corruption_test.py",
         "@rules_mkosi//mkosi/tests:raw_image_validator.py",
     ],
-    tags = ["requires-network"],
 )
 
 sh_test(
@@ -690,7 +684,6 @@ py_test(
     args = ["$(rootpath :tree_demo_raw)"],
     data = [":tree_demo_raw"],
     main = "raw_image_validator.py",
-    tags = ["requires-network"],
 )
 
 py_test(
@@ -699,7 +692,6 @@ py_test(
     args = ["$(rootpath :tree_demo_raw)"],
     data = [":tree_demo_raw"],
     main = "staged_image_semantics_test.py",
-    tags = ["requires-network"],
 )
 
 mkosi_config_tree(

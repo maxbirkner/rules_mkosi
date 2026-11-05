@@ -29,15 +29,15 @@ def main() -> None:
         "verity_metadata": immutable,
     }
     assert metadata["mode"] == sys.argv[2]
+    # Both the release and the tracer image install packages from the built-in snapshot.
+    assert metadata["debian_snapshot"] == json.loads(os.environ["DEBIAN_TOOLS_SNAPSHOT_METADATA"])
     if sys.argv[2] == "release":
         assert metadata["artifacts"]["uki"] is immutable
-        assert metadata["debian_snapshot"] == json.loads(os.environ["DEBIAN_TOOLS_SNAPSHOT_METADATA"])
         assert metadata["reproducibility"] == {
             "seed": "00000000-0000-4000-8000-000000000015",
             "source_date_epoch": 0,
         }
     else:
-        assert "debian_snapshot" not in metadata
         assert "reproducibility" not in metadata
 
 

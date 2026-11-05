@@ -27,6 +27,7 @@ load(
     "DEBIAN_TOOLS_SNAPSHOT_URL",
 )
 load("//mkosi/debian:toolchain.bzl", "DebianToolsInfo")
+load(":tracer_test.bzl", "tracer_test_suite")
 
 _qemu_ovmf_boot_config = qemu_ovmf_boot_config
 
@@ -115,7 +116,7 @@ def _provider_test_impl(ctx):
     )
     kernel_preflight = argv.index("--kernel-preflight")
     asserts.true(env, argv[kernel_preflight + 1].endswith("/kernel_preflight"))
-    asserts.equals(env, "--", argv[kernel_preflight + 2])
+    asserts.true(env, argv[kernel_preflight + 2] in ("--", "--debian-snapshot-repository"))
     include = argv.index("-I")
     asserts.true(env, argv[include + 1].endswith(ctx.attr.expected_config))
     tools = argv.index("--tools-tree")
@@ -518,7 +519,7 @@ def _release_provider_test_impl(ctx):
     asserts.equals(env, "00000000-0000-4000-8000-000000000007", argv[seed + 1])
     epoch = argv.index("--release-source-date-epoch")
     asserts.equals(env, "0", argv[epoch + 1])
-    components = argv.index("--release-components")
+    components = argv.index("--debian-snapshot-components")
     asserts.equals(env, "main", argv[components + 1])
     asserts.equals(env, "0", image_action.env["SOURCE_DATE_EPOCH"])
     asserts.equals(env, "1", image_action.env["MKOSI_FORCE_USERNS_FALLBACK"])
@@ -732,8 +733,12 @@ def mkosi_image_test_suite(name):
     mkosi_image(
         name = "debian_subject",
         config = "testdata/minimal.conf",
-        tags = ["requires-network"],
+        tags = [
+            "manual",
+            "requires-network",
+        ],
     )
+    tracer_test_suite(name = "tracer_tests")
 
     _provider_test(
         name = "debian_provider_test",
@@ -762,16 +767,16 @@ def mkosi_image_test_suite(name):
     mkosi_image(
         name = "override_subject",
         config = "testdata/redirect.conf",
-        tags = ["requires-network"],
+        debian_snapshot = "@mkosi_debian_snapshot//:repository",
     )
 
     mkosi_image(
         name = "tree_subject",
         config_tree = ":config_tree",
+        debian_snapshot = "@mkosi_debian_snapshot//:repository",
         source_trees = {
             "src": ":source_tree",
         },
-        tags = ["requires-network"],
     )
 
     mkosi_config_tree(
@@ -792,9 +797,9 @@ def mkosi_image_test_suite(name):
     mkosi_image(
         name = "rootfs_payload_subject",
         config_tree = ":config_tree",
+        debian_snapshot = "@mkosi_debian_snapshot//:repository",
         rootfs_payloads = [":rootfs_payload"],
         source_trees = {"src": ":source_tree"},
-        tags = ["requires-network"],
     )
     _rootfs_payload_test(
         name = "rootfs_payload_test",
@@ -1109,18 +1114,6 @@ def mkosi_image_test_suite(name):
         name = "release_without_snapshot_test",
         expected_error = "release mode requires debian_snapshot",
         target_under_test = ":release_without_snapshot_subject",
-    )
-
-    mkosi_image(
-        name = "tracer_with_snapshot_subject",
-        config = "testdata/minimal.conf",
-        debian_snapshot = "@mkosi_debian_snapshot//:repository",
-        tags = ["manual"],
-    )
-    _invalid_tree_mapping_test(
-        name = "tracer_with_snapshot_test",
-        expected_error = "only supported in release mode",
-        target_under_test = ":tracer_with_snapshot_subject",
     )
 
     mkosi_image(
@@ -1596,7 +1589,6 @@ def mkosi_image_test_suite(name):
             ":seabios_firmware_mismatch_test",
             ":bios_tracer_test",
             ":release_without_snapshot_test",
-            ":tracer_with_snapshot_test",
             ":invalid_mode_test",
             ":release_without_seed_test",
             ":release_without_epoch_test",
@@ -1641,5 +1633,6 @@ def mkosi_image_test_suite(name):
             ":qemu_toolchain_provider_test",
             ":debian_tools_provider_test",
             ":boot_config_test",
+            ":tracer_tests",
         ],
     )

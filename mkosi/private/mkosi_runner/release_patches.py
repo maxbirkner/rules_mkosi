@@ -44,6 +44,12 @@ def activate_release_mode(mirror, settings, allowed_paths, allowed_extra_tree):
         include_base_packages_in_manifest()
 
 
+def activate_snapshot_mirror(mirror, components):
+    """Patches mkosi so that a tracer build installs packages only from the Debian snapshot mirror."""
+    mkosi_contract.verify()
+    _serve_local_mirror(os.fspath(mirror), components)
+
+
 def include_base_packages_in_manifest():
     """Lists the packages of the base tree in the manifest of a finalized image.
 
@@ -80,9 +86,8 @@ def _serve_local_mirror(mirror, components):
 def _patch_repositories(installer, source_url, components):
     original = installer.repositories.__func__
 
+    # The APT sources of the image, for_image=True, never name the build's mirror, so they stay mkosi's defaults.
     def repositories(cls, context, for_image=False):
-        if for_image:
-            return
         for repository in original(cls, context, for_image):
             if repository.url == source_url:
                 repository = replace(

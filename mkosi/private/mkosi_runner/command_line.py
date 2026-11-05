@@ -25,7 +25,7 @@ class Preamble:
     release_codename: str | None = None
     release_snapshot: str | None = None
     release_firmware: str | None = None
-    release_components: tuple[str, ...] | None = None
+    debian_snapshot_components: tuple[str, ...] | None = None
     image_version_file: str | None = None
     slot_label_image_id: str | None = None
     release_base_tree: str | None = None
@@ -43,7 +43,6 @@ class Preamble:
             self.release_codename,
             self.release_snapshot,
             self.release_firmware,
-            self.release_components,
         )
 
 
@@ -54,10 +53,10 @@ def _source_date_epoch(value):
         raise SystemExit("release source date epoch must be an integer") from error
 
 
-def _release_components(value):
+def _snapshot_components(value):
     components = tuple(value.split(","))
     if "main" not in components or "" in components:
-        raise SystemExit("release components must be a comma-separated list including main")
+        raise SystemExit("Debian snapshot components must be a comma-separated list including main")
     return components
 
 
@@ -85,7 +84,7 @@ _PREAMBLE_OPTIONS = {
     "--release-base-tree": ("release_base_tree", os.path.abspath),
     "--release-initrd": ("release_initrd", os.path.abspath),
     "--release-base-initrd-output": ("release_base_initrd_output", os.path.abspath),
-    "--release-components": ("release_components", _release_components),
+    "--debian-snapshot-components": ("debian_snapshot_components", _snapshot_components),
 }
 
 
@@ -198,11 +197,14 @@ def with_image_version(arguments, image_version):
 
 
 def release_stage(release, debian_snapshot_repository, base_tree, initrd, base_initrd_output):
-    """Returns image, base, finalize, or None for a tracer build, and rejects inconsistent options."""
+    """Returns image, base, finalize, or None for a tracer build, and rejects inconsistent options.
+
+    A tracer build may install packages from the Debian snapshot repository, like the image stage of a release.
+    """
     stage = _requested_release_stage(debian_snapshot_repository, base_tree, initrd, base_initrd_output)
-    if (stage is not None) != release:
+    if (stage is not None) != release and stage != "image":
         raise SystemExit("incomplete release configuration")
-    return stage
+    return stage if release else None
 
 
 def _requested_release_stage(debian_snapshot_repository, base_tree, initrd, base_initrd_output):

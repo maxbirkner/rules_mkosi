@@ -233,7 +233,7 @@ class CommandLineTest(_WrapperTest):
                 "digest",
                 "--release-source-date-epoch",
                 "7",
-                "--release-components",
+                "--debian-snapshot-components",
                 "main,contrib",
                 "--",
                 "-C",
@@ -244,7 +244,7 @@ class CommandLineTest(_WrapperTest):
         assert preamble.kernel_preflight == os.path.abspath("preflight")
         assert preamble.debian_tools_sha256 == "digest"
         assert preamble.release_source_date_epoch == 7
-        assert preamble.release_components == ("main", "contrib")
+        assert preamble.debian_snapshot_components == ("main", "contrib")
         assert preamble.release_seed is None
         assert arguments == ["-C", "config"]
 
@@ -256,8 +256,8 @@ class CommandLineTest(_WrapperTest):
             (["--kernel-preflight", "preflight"], "run_mkosi.py preamble is missing --"),
             (["--release-seed", "seed", "--"], "run_mkosi.py requires --kernel-preflight"),
             (["--release-source-date-epoch", "now", "--"], "release source date epoch must be an integer"),
-            (["--release-components", "contrib", "--"], "comma-separated list including main"),
-            (["--release-components", "main,", "--"], "comma-separated list including main"),
+            (["--debian-snapshot-components", "contrib", "--"], "comma-separated list including main"),
+            (["--debian-snapshot-components", "main,", "--"], "comma-separated list including main"),
         ):
             with self.subTest(argv=argv):
                 _expect_exit(lambda argv=argv: command_line.parse_preamble(argv), message)
@@ -301,6 +301,8 @@ class CommandLineTest(_WrapperTest):
     def test_release_stage_follows_the_release_inputs(self):
         command_line = self.wrapper.command_line
         assert command_line.release_stage(False, None, None, None, None) is None
+        # A tracer build may install packages from the snapshot repository without becoming a release.
+        assert command_line.release_stage(False, "repository", None, None, None) is None
         assert command_line.release_stage(True, "repository", None, None, None) == "image"
         assert command_line.release_stage(True, "repository", None, None, "initrd") == "base"
         assert command_line.release_stage(True, None, "root.tar", "initrd", None) == "finalize"
@@ -312,12 +314,19 @@ class CommandLineTest(_WrapperTest):
             ((True, "repository", "root.tar", "initrd", None), "cannot use the Debian snapshot or produce a base"),
             ((True, None, "root.tar", "initrd", "initrd"), "cannot use the Debian snapshot or produce a base"),
             ((True, None, None, None, "initrd"), "a release base requires the Debian snapshot repository"),
-            ((False, "repository", None, None, None), "incomplete release configuration"),
             ((False, None, "root.tar", "initrd", None), "incomplete release configuration"),
             ((True, None, None, None, None), "incomplete release configuration"),
         ):
             with self.subTest(options=options):
                 _expect_exit(lambda options=options: command_line.release_stage(*options), message)
+
+    def test_snapshot_repository_requires_its_components(self):
+        preamble, _ = self.wrapper.command_line.parse_preamble(
+            ["--kernel-preflight", "preflight", "--debian-snapshot-repository", "repository", "--"]
+        )
+        _expect_exit(lambda: self.wrapper._release_stage(preamble), "incomplete Debian snapshot configuration")
+        preamble.debian_snapshot_components = ("main",)
+        assert self.wrapper._release_stage(preamble) is None
 
 
 class ReleaseConfigurationTest(_WrapperTest):

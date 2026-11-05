@@ -20,7 +20,7 @@ mkosi/tests/mkosi_base_test.bzl:_finalize_test_impl 51
 mkosi/tests/mkosi_base_test.bzl:mkosi_base_test_suite 119
 mkosi/tests/mkosi_image_test.bzl:_provider_test_impl 93
 mkosi/tests/mkosi_image_test.bzl:_release_provider_test_impl 45
-mkosi/tests/mkosi_image_test.bzl:mkosi_image_test_suite 929
+mkosi/tests/mkosi_image_test.bzl:mkosi_image_test_suite 921
 mkosi/tests/partition_metadata_test.py:ProjectionTest.write_dense_image 42
 mkosi/tests/raw_image_corruption_test.py:_corrupt_third_directory_record 44
 mkosi/tests/raw_image_validator_cases.py:fake_ext4_root 54
