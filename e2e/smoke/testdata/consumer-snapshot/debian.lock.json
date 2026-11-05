@@ -2231,5 +2231,6 @@
     "snapshot": "20250814T000000Z",
     "snapshot_url": "https://snapshot.debian.org/archive/debian/20250814T000000Z"
   },
+  "spec_sha256": "1bc41e67005cdaa97d6d9a027dd91add2a71800e200f1d8fa7fcda2bf5cf95a8",
   "version": 1
 }

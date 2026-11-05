@@ -4752,5 +4752,6 @@
     "snapshot": "20250814T000000Z",
     "snapshot_url": "https://snapshot.debian.org/archive/debian/20250814T000000Z"
   },
+  "spec_sha256": "81d60b9d49fc453e3c472001f0e72914b9825d6e05317a64d9b0a1e0d58e1829",
   "version": 1
 }

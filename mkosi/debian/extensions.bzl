@@ -21,7 +21,8 @@ _snapshot = tag_class(
 
 The repository named `name` provides `//:repository` with `DebianSnapshotInfo`
 for `mkosi_image(mode = "release", debian_snapshot = ...)`. Generate the lock
-with `bazel run @rules_mkosi//mkosi/debian:generate_lock`.
+with the `<name>.update` target of a `debian_lock` macro or with
+`bazel run @rules_mkosi//mkosi/debian:generate_lock`.
 """,
     attrs = {
         "lock": attr.label(

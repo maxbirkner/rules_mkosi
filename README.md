@@ -285,17 +285,32 @@ For other packages, components, or a different snapshot time, lock your own.
 
    `channel` is the codename followed by its components; `main` is required and `archs` must be `["amd64"]`.
 
-2. Generate the lock (paths are relative to your workspace):
+2. Declare the lock targets next to the specification in `os/BUILD.bazel`:
+
+   ```starlark
+   load("@rules_mkosi//mkosi:defs.bzl", "debian_lock")
+
+   debian_lock(
+       name = "debian_lock",
+       spec = "debian.spec.json",
+       lock = "debian.lock.json",
+   )
+   ```
+
+   Then generate or refresh the lock with one command (it needs network access; extra arguments such as `--release` reach the generator):
 
    ```console
-   bazel run @rules_mkosi//mkosi/debian:generate_lock -- \
-     --spec os/debian.spec.json --output os/debian.lock.json
+   bazel run //os:debian_lock.update
    ```
 
    The lock contains the `Pre-Depends`/`Depends` closure of the requested packages plus every `Essential` and `required` package.
    `Recommends` and `Suggests` are not followed.
    Name a provider explicitly when a virtual package is ambiguous.
-   Add `--check` in CI to fail when the lock is out of date.
+
+   The lock records `spec_sha256`, the SHA-256 of the normalized specification.
+   `//os:debian_lock_test` fails without network access when the lock does not match its specification and names the update command, so humans and bots such as Renovate refresh the lock with that single command after editing the specification.
+   Locks generated before `spec_sha256` existed stay valid for builds but fail this test until they are regenerated once.
+   Without the macro, run `bazel run @rules_mkosi//mkosi/debian:generate_lock -- --spec os/debian.spec.json --output os/debian.lock.json`; add `--check-spec` to only check it offline, or `--check` to regenerate it and compare.
 
 3. Declare it in the root `MODULE.bazel`:
 
