@@ -98,7 +98,8 @@ runtime_output="$(
                 Groups:*) namespace_groups="$status_line" ;;
             esac
         done < /proc/self/status
-        IFS= read -r overflow_gid < /proc/sys/kernel/overflowgid
+        # Shell reads of sysctl files stop after one byte, so cat reads it whole.
+        overflow_gid="$(cat /proc/sys/kernel/overflowgid)"
         for group in $namespace_groups
         do
             case "$group" in

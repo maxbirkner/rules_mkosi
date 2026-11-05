@@ -12,16 +12,18 @@ class DebianSnapshotTreeMetadataTest(unittest.TestCase):
         self.assertTrue((root / "dists/trixie/InRelease").is_file())
         self.assertTrue((root / "pool").is_dir())
         # Bazel owns the TreeArtifact wrapper directory and may retimestamp it
-        # during materialization. Bazel also reconstructs descendant directory
-        # mtimes in consumers, so the contract asserts directory modes and
-        # regular-file epoch mtimes only.
+        # during materialization. In consumers, Bazel's sandbox also recreates
+        # descendant directories with the server's umask, so the contract
+        # asserts that directories are traversable and regular files have
+        # fixed modes and epoch mtimes. debian_snapshot_unit_test covers the
+        # directory modes that the staging action itself writes.
         paths = sorted(root.rglob("*"))
         for path in paths:
             mode = stat.S_IMODE(path.lstat().st_mode)
             if path.is_symlink():
                 continue
             if path.is_dir():
-                self.assertEqual(0o755, mode, path)
+                self.assertEqual(0o555, mode & 0o555, path)
                 continue
             self.assertEqual(0o644, mode, path)
             self.assertEqual(0, path.lstat().st_mtime_ns, path)
