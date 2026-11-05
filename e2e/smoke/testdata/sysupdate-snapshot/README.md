@@ -5,7 +5,7 @@
 Debian 13 initrd installs. Regenerate `debian.lock.json` from `e2e/smoke` with:
 
 ```console
-bazel run @rules_mkosi//mkosi/debian:generate_lock -- \
-  --spec testdata/sysupdate-snapshot/debian.spec.json \
-  --output testdata/sysupdate-snapshot/debian.lock.json
+bazel run //:sysupdate_debian_lock.update
 ```
+
+`//:sysupdate_debian_lock_test` fails when the lock is stale for the specification.

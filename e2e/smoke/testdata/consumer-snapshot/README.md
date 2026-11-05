@@ -5,7 +5,7 @@ Debian essential and required set. Regenerate `debian.lock.json` from
 `e2e/smoke` with:
 
 ```console
-bazel run @rules_mkosi//mkosi/debian:generate_lock -- \
-  --spec testdata/consumer-snapshot/debian.spec.json \
-  --output testdata/consumer-snapshot/debian.lock.json
+bazel run //:consumer_debian_lock.update
 ```
+
+`//:consumer_debian_lock_test` fails when the lock is stale for the specification.

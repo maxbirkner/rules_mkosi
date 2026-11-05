@@ -7,6 +7,7 @@ load(
     _qemu_ovmf_toolchain = "qemu_ovmf_toolchain",
 )
 load("//mkosi:toolchain.bzl", _MkosiToolchainInfo = "MkosiToolchainInfo")
+load("//mkosi/debian:debian_lock.bzl", _debian_lock = "debian_lock")
 load("//mkosi/debian:toolchain.bzl", _DebianToolsInfo = "DebianToolsInfo")
 load(
     "//mkosi/private:debian_snapshot.bzl",
@@ -82,6 +83,7 @@ mkosi_image = _mkosi_image
 mkosi_base = _mkosi_base
 mkosi_reproducibility_manifest = _mkosi_reproducibility_manifest
 debian_snapshot = _debian_snapshot
+debian_lock = _debian_lock
 mkosi_config_tree = _mkosi_config_tree
 mkosi_source_tree = _mkosi_source_tree
 mkosi_rootfs_payload = _mkosi_rootfs_payload

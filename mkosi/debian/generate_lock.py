@@ -22,6 +22,10 @@ packages plus every Essential and Priority: required package. Recommends and
 Suggests are not followed. Signatures are verified by the build-time staging
 action with Debian's pinned archive keyring, so a tampered index fails the
 build even if it was accepted here.
+
+The lock records ``spec_sha256``, the digest of the normalized specification,
+so ``--check-spec`` detects a lock that is stale for its specification without
+network access.
 """
 
 import argparse
@@ -41,6 +45,7 @@ import sys
 sys.path.insert(0, str(pathlib.Path(__file__).parent))
 
 import http_download
+from python.runfiles import runfiles
 
 ARCHITECTURE = "amd64"
 INDEX_ARCHITECTURES = (ARCHITECTURE, "all")
@@ -567,6 +572,24 @@ def load_specification(data):
     )
 
 
+def spec_sha256(specification):
+    """Return the SHA-256 of the normalized specification that a lock records as ``spec_sha256``.
+
+    Formatting, key order, a trailing slash in the snapshot URL, the order of non-main components, and repeated
+    packages do not change the digest; the order of the requested packages does, because it can change the
+    resolution.
+    """
+    canonical = {
+        "archs": [ARCHITECTURE],
+        "components": list(specification.components),
+        "packages": list(specification.packages),
+        "snapshot_url": specification.snapshot_url,
+        "suite": specification.suite,
+        "version": 1,
+    }
+    return hashlib.sha256(json.dumps(canonical, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+
+
 def fetch(url):
     """Download ``url``, retrying while the snapshot service throttles or fails transiently."""
     try:
@@ -721,6 +744,7 @@ def generate(specification, fetcher=fetch, release=None):
             "snapshot": specification.snapshot,
             "snapshot_url": url,
         },
+        "spec_sha256": spec_sha256(specification),
         "version": 1,
     }
 
@@ -751,19 +775,82 @@ def _parser():
         action="store_true",
         help="fail instead of writing when the output lock is out of date",
     )
+    parser.add_argument(
+        "--check-spec",
+        action="store_true",
+        help="fail without network access when the output lock does not record the specification's digest",
+    )
+    parser.add_argument(
+        "--runfiles",
+        action="store_true",
+        help="with --check-spec, resolve --spec and --output as runfiles paths",
+    )
+    parser.add_argument("--update-target", help="Bazel target that regenerates the lock, shown when --check-spec fails")
     return parser
 
 
-def _render_lock(spec_path, release):
+def _read_specification(spec_path):
     try:
         data = json.loads(spec_path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as error:
         raise LockError("specification is not valid JSON: %s" % error) from error
-    return render(generate(load_specification(data), release=release))
+    return load_specification(data)
+
+
+def _render_lock(spec_path, release):
+    return render(generate(_read_specification(spec_path), release=release))
+
+
+def check_spec(spec_path, lock_path):
+    """Raise LockError unless the lock at ``lock_path`` was generated from the specification at ``spec_path``.
+
+    Only the ``spec_sha256`` the generator records is compared, so the check needs no network access. Locks
+    generated before the digest was recorded fail until they are regenerated once.
+    """
+    expected = spec_sha256(_read_specification(spec_path))
+    try:
+        lock = json.loads(lock_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as error:
+        raise LockError("the lock is not valid JSON: %s" % error) from error
+    recorded = lock.get("spec_sha256") if isinstance(lock, dict) else None
+    if recorded is None:
+        raise LockError("the lock does not record the digest of its specification")
+    if recorded != expected:
+        raise LockError("the lock was generated from a different specification")
+
+
+def _runfile(resolver, path):
+    location = resolver.Rlocation(path) if resolver else None
+    if not location:
+        raise LockError("runfile is missing: %s" % path)
+    return pathlib.Path(location)
+
+
+def _check_spec(args):
+    try:
+        if args.runfiles:
+            resolver = runfiles.Create()
+            check_spec(_runfile(resolver, args.spec), _runfile(resolver, args.output))
+        else:
+            check_spec(_workspace_path(args.spec), _workspace_path(args.output))
+    except (LockError, OSError) as error:
+        update = args.update_target or "@rules_mkosi//mkosi/debian:generate_lock -- --spec %s --output %s" % (
+            args.spec,
+            args.output,
+        )
+        print("%s is out of date for %s: %s" % (args.output, args.spec, error), file=sys.stderr)
+        print("Regenerate it with: bazel run %s" % update, file=sys.stderr)
+        return 1
+    return 0
 
 
 def main(argv=None):
-    args = _parser().parse_args(argv)
+    parser = _parser()
+    args = parser.parse_args(argv)
+    if args.check_spec:
+        return _check_spec(args)
+    if args.runfiles:
+        parser.error("--runfiles requires --check-spec")
     spec_path = _workspace_path(args.spec)
     output = _workspace_path(args.output)
     try:
