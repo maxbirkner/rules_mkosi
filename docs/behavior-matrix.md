@@ -34,7 +34,7 @@ Exactly one of `config` (one file) and `config_tree` is required; release mode r
 <!-- behavior:BHV-IMAGE-IMMUTABLE -->
 Unsigned UKI and hash-only dm-verity are release-only, and verity requires the UKI.
 A `Verity=hash` repart definition without `SizeMinBytes=` or `Minimize=` is rejected.
-The verity projection checks split artifacts against the GPT and recomputes the complete hash tree, rejecting truncation, mutation, and nonzero padding.
+The verity projection checks split artifacts against the GPT and recomputes the complete hash tree, rejecting truncation, mutation, and nonzero padding; a minimized root may cover only the start of its partition if the rest is zero.
 Inactive `_empty` slots are excluded.
 
 <!-- behavior:BHV-IMAGE-SOURCES -->
@@ -101,7 +101,7 @@ Production keys never enter Bazel; the ephemeral test key stays inside one local
 Import checks the exact signer, the SHA-256 signature, and byte equivalence to the request; signed responses are not reproducible.
 
 <!-- behavior:BHV-SYSUPDATE-PAYLOAD -->
-`sysupdate_payload` requires a versioned image with an unsigned UKI and dm-verity, optionally substitutes a signed UKI bound to that image, names root and verity artifacts by their root-hash UUIDs, rejects mismatching GPT UUIDs, writes `SHA256SUMS`, and exposes `SysupdatePayloadInfo`.
+`sysupdate_payload` requires a versioned image with an unsigned UKI and dm-verity, optionally substitutes a signed UKI bound to that image, names root and verity artifacts by their root-hash UUIDs, trims them to the bytes that dm-verity covers, rejects mismatching GPT UUIDs, writes `SHA256SUMS`, and exposes `SysupdatePayloadInfo`.
 
 <!-- behavior:BHV-IMAGE-PROVIDER -->
 `MkosiImageInfo` has a fixed `format_version`, exposes every artifact role as `File` or `None`, keeps `image` as an alias of `raw_image`, projects each present artifact once through `DefaultInfo`, and exposes `firmware`, `image_id`, `image_version`, and `image_version_file`.
@@ -139,10 +139,10 @@ Tracer images have no partition metadata.
 `mkosi_reproducibility_manifest` selects the raw image, build metadata, and partition metadata through `MkosiImageInfo` and embeds a normalized, content-addressed projection.
 
 <!-- behavior:BHV-CANONICAL-DIGEST -->
-The manifest's whole-image digest covers every byte except GPT disk and partition GUIDs and the checksums derived from them.
+The manifest's whole-image digest covers every byte except GPT disk and partition GUIDs and the checksums derived from them, and validates a versioned dm-verity image's A/B slot labels.
 
 <!-- behavior:BHV-REPRODUCIBILITY-INDEPENDENCE -->
-A one-stage release and a two-stage base and finalization are built twice in clean, uncached output roots, and their manifests and base digests must match.
+A one-stage release, a compressed erofs release with its update payload, and a two-stage base and finalization are built twice in clean, uncached output roots, and their manifests and digests must match.
 
 ## Actions, toolchains, and failures
 
@@ -153,7 +153,7 @@ An image target registers staging when needed, one `MkosiImage` action, and norm
 Release builds use only the authenticated snapshot, block the network, remove APT sources, reject host-dependent configuration, and record reproducibility and snapshot metadata.
 
 <!-- behavior:BHV-SYSUPDATE-LIFECYCLE -->
-A versioned UEFI image updates itself from a read-only payload into its `_empty` slots, boots the new release from its verity root, and blesses it at `boot-complete.target`.
+A versioned UEFI image updates itself from a read-only payload into its `_empty` slots, boots the new release from its compressed erofs verity root, and blesses it at `boot-complete.target`.
 A release whose health check fails falls back to the previous release.
 
 <!-- behavior:BHV-TRACER-RUNTIME -->

@@ -316,9 +316,12 @@ def _hash_with_patches(path, image_size, patches):
     return digest.hexdigest()
 
 
-def canonical_image_sha256(path):
-    """Hashes every image byte after normalizing only GPT identity and CRC fields."""
-    project_image(path)
+def canonical_image_sha256(path, slot_label=None):
+    """Hashes every image byte after normalizing only GPT identity and CRC fields.
+
+    slot_label is the expected label of a versioned A/B image's populated root slot, as for project_image.
+    """
+    project_image(path, slot_label=slot_label)
     image_size, _, primary, backup = _validated_gpt(path)
     array = bytearray(primary["array"])
     for slot in range(primary["count"]):

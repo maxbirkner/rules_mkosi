@@ -26,6 +26,7 @@ TOOLS = {
     "mkfs.ext4": "/usr/sbin/mkfs.ext4",
     "mkfs.fat": "/usr/sbin/mkfs.fat",
     "mkfs.btrfs": "/usr/sbin/mkfs.btrfs",
+    "mkfs.erofs": "/usr/bin/mkfs.erofs",
     "sfdisk": "/usr/sbin/sfdisk",
     "parted": "/usr/sbin/parted",
     "grub-install": "/usr/sbin/grub-install",

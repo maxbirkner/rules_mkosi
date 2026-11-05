@@ -34,7 +34,7 @@ for argument in ${cmdline}; do
     roothash=*) roothash="${argument#roothash=}" ;;
     esac
 done
-marker "running ${IMAGE_VERSION} with roothash ${roothash}"
+marker "running ${IMAGE_VERSION} from $(findmnt --noheadings --output FSTYPE /) with roothash ${roothash}"
 
 case "${IMAGE_VERSION}" in
 1)

@@ -119,19 +119,38 @@ _CHUNK_BYTES = 1024 * 1024
 _ZERO_CHUNK = bytes(_CHUNK_BYTES)
 
 
-def _copy(source, destination):
-    """Copies source to a new read-only file, keeping all-zero chunks sparse, and returns its SHA-256."""
+def _copy(source, destination, size=None):
+    """Copies the first size bytes, or all, of source to a new read-only file and returns its SHA-256.
+
+    All-zero chunks stay sparse.
+    """
     digest = hashlib.sha256()
+    remaining = os.path.getsize(source) if size is None else size
     with open(source, "rb") as src, open(destination, "xb") as dst:
-        while chunk := src.read(_CHUNK_BYTES):
+        while remaining and (chunk := src.read(min(_CHUNK_BYTES, remaining))):
+            remaining -= len(chunk)
             digest.update(chunk)
             if chunk == _ZERO_CHUNK[: len(chunk)]:
                 dst.seek(len(chunk), os.SEEK_CUR)
             else:
                 dst.write(chunk)
         dst.truncate()
+    if remaining:
+        raise ValueError("{} is shorter than its dm-verity geometry".format(source))
     os.chmod(destination, 0o444)
     return digest.hexdigest()
+
+
+def verity_extents(verity_metadata):
+    """Returns the bytes of the root and verity partitions that dm-verity covers, from mkosi_image's metadata.
+
+    The root partition of an A/B slot may be larger than a minimized read-only file system, and the verity partition
+    larger than its hash tree; systemd-sysupdate writes a smaller file into the slot and dm-verity reads no further.
+    """
+    return (
+        verity_metadata["data_blocks"] * verity_metadata["data_block_size"],
+        verity_metadata["tree_offset"] + verity_metadata["tree_size"],
+    )
 
 
 def _release_uki(args):
@@ -174,15 +193,16 @@ def payload(args):
     root_uuid, verity_uuid = verity_partition_uuids(root_hash)
     partitions = json.loads(Path(args.partition_metadata).read_text(encoding="utf-8"))["partitions"]
     _check_slot_uuids(partitions, "{}_{}".format(args.image_id, args.image_version), root_uuid, verity_uuid)
+    root_size, verity_size = verity_extents(json.loads(Path(args.verity_metadata).read_text(encoding="utf-8")))
     output = Path(args.output)
     output.mkdir(parents=True, exist_ok=True)
     digests = {}
-    for name, source in (
-        (root_name(args.image_id, args.image_version, root_uuid), args.root_image),
-        (verity_name(args.image_id, args.image_version, verity_uuid), args.verity_image),
-        (uki_name(args.image_id, args.image_version), uki),
+    for name, source, size in (
+        (root_name(args.image_id, args.image_version, root_uuid), args.root_image, root_size),
+        (verity_name(args.image_id, args.image_version, verity_uuid), args.verity_image, verity_size),
+        (uki_name(args.image_id, args.image_version), uki, None),
     ):
-        digests[name] = _copy(source, output / name)
+        digests[name] = _copy(source, output / name, size)
     (output / "SHA256SUMS").write_text(
         "".join("{}  {}\n".format(digests[name], name) for name in sorted(digests)),
         encoding="ascii",
@@ -214,6 +234,7 @@ def main():
     payload_parser.add_argument("--partition-metadata", required=True)
     payload_parser.add_argument("--root-image", required=True)
     payload_parser.add_argument("--verity-image", required=True)
+    payload_parser.add_argument("--verity-metadata", required=True)
     payload_parser.add_argument("--uki", required=True)
     payload_parser.add_argument("--signed-uki")
     payload_parser.add_argument("--signing-request")

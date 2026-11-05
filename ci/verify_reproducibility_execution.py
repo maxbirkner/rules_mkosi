@@ -12,6 +12,12 @@ EXPECTED = {
         "MkosiReproducibilityManifest",
         "//mkosi/tests:release_reproducibility",
     ),
+    ("MkosiImage", "//mkosi/tests:erofs_release"),
+    (
+        "MkosiReproducibilityManifest",
+        "//mkosi/tests:erofs_release_reproducibility",
+    ),
+    ("MkosiSysupdatePayload", "//mkosi/tests:erofs_release_payload"),
     ("MkosiBase", "//mkosi/tests:two_stage_base"),
     ("MkosiImage", "//mkosi/tests:two_stage_release"),
     (

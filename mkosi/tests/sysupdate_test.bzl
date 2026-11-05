@@ -164,17 +164,8 @@ _transfers_test = analysistest.make(
     },
 )
 
-def _payload_test_impl(ctx):
-    env = analysistest.begin(ctx)
-    target = analysistest.target_under_test(env)
-    info = target[SysupdatePayloadInfo]
-    asserts.equals(env, "rules-mkosi-ab", info.image_id)
-    asserts.true(env, info.directory.is_directory)
-    asserts.equals(env, [info.directory], target[DefaultInfo].files.to_list())
-    action = single_action(env, "MkosiSysupdatePayload")
+def _assert_payload_version(env, ctx, info, action):
     argv = action.argv
-    asserts.equals(env, "payload", argv[2])
-    asserts.equals(env, "rules-mkosi-ab", option_value(argv, "--image-id"))
     version_file = ctx.file.expected_version_file
     if version_file:
         asserts.equals(env, None, info.image_version)
@@ -188,12 +179,26 @@ def _payload_test_impl(ctx):
         asserts.equals(env, None, info.image_version_file)
         asserts.equals(env, "7", option_value(argv, "--image-version"))
         asserts.false(env, "--image-version-file" in argv)
+
+def _payload_test_impl(ctx):
+    env = analysistest.begin(ctx)
+    target = analysistest.target_under_test(env)
+    info = target[SysupdatePayloadInfo]
+    asserts.equals(env, "rules-mkosi-ab", info.image_id)
+    asserts.true(env, info.directory.is_directory)
+    asserts.equals(env, [info.directory], target[DefaultInfo].files.to_list())
+    action = single_action(env, "MkosiSysupdatePayload")
+    argv = action.argv
+    asserts.equals(env, "payload", argv[2])
+    asserts.equals(env, "rules-mkosi-ab", option_value(argv, "--image-id"))
+    _assert_payload_version(env, ctx, info, action)
     image = ctx.attr.image_name
     for option, basename in (
         ("--root-hash", image + ".roothash"),
         ("--partition-metadata", image + ".partitions.json"),
         ("--root-image", image + ".root.raw"),
         ("--verity-image", image + ".root-verity.raw"),
+        ("--verity-metadata", image + ".verity.json"),
         ("--uki", image + ".efi"),
     ):
         asserts.true(env, option_value(argv, option).endswith("/" + basename), option)

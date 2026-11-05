@@ -885,13 +885,13 @@ qemu_ovmf_boot_test(
         "2048M",
     ],
     progress_markers = [
-        "rules-mkosi-ab: running 1 with roothash ",
+        "rules-mkosi-ab: running 1 from erofs with roothash ",
         "rules-mkosi-ab: installed 2",
-        "rules-mkosi-ab: running 2 with roothash ",
+        "rules-mkosi-ab: running 2 from erofs with roothash ",
         "rules-mkosi-ab: 2 is blessed",
         "rules-mkosi-ab: installed 3",
         "rules-mkosi-ab: health check failed",
-        "rules-mkosi-ab: running 2 with roothash ",
+        "rules-mkosi-ab: running 2 from erofs with roothash ",
     ],
     read_only_shares = {
         ":sysupdate_v2_payload": "payload-2",

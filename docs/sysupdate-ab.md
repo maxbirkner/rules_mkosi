@@ -196,6 +196,47 @@ ReadOnly=yes
 The ESP must hold two UKIs, because the previous release stays bootable.
 At boot, the UKI's `roothash=` finds its partitions by UUID, which systemd-repart derives from the root hash, not by slot position or label.
 
+### Compressed read-only roots
+
+A compressed erofs root keeps every slot's fixed size but shrinks what a release ships.
+Change only the populated slot's definitions; the inactive `_empty` slots stay as they are:
+
+```ini
+# 10-root.conf
+[Partition]
+Type=root-x86-64
+Label=%M_%A
+Format=erofs
+Compression=zstd
+CompressionLevel=3
+CopyFiles=/:/
+ExcludeFiles=/boot/
+ExcludeFiles=/efi/
+Minimize=best
+SizeMinBytes=2G
+SizeMaxBytes=2G
+ReadOnly=yes
+Verity=data
+VerityMatchKey=root
+SplitName=root
+
+# 20-root-verity.conf
+[Partition]
+Type=root-x86-64-verity
+Label=%M_%A_verity
+Minimize=best
+SizeMinBytes=128M
+SizeMaxBytes=128M
+Verity=hash
+VerityMatchKey=root
+SplitName=root-verity
+```
+
+With `Minimize=best` on both partitions, systemd-repart builds the file system and its hash tree only as large as their contents and writes them to the start of their fixed-size slots.
+dm-verity covers only the file system, and the rest of the slot stays zero.
+Later releases may grow up to the slot size.
+Without `Minimize=best` on the hash partition, dm-verity covers the whole slot, and the payload is as large as the slot.
+
 ## mkosi configuration
 
 ```ini
@@ -264,6 +305,7 @@ sysupdate_payload(
 ```
 
 The output directory contains `<id>_<version>.root.<uuid>.raw`, `<id>_<version>.root-verity.<uuid>.raw`, `<id>_<version>.efi`, and `SHA256SUMS`.
+The root and verity files hold only the bytes that dm-verity covers, so a [compressed root](#compressed-read-only-roots) ships at its compressed size rather than its slot size.
 The build fails if the image's partition UUIDs do not match its root hash.
 `signed_uki` substitutes a UKI from [`secure_boot_import_response`](secure-boot.md) whose signing request names this image's unsigned UKI.
 `SysupdatePayloadInfo` exposes `directory`, `image_id`, and `image_version` or `image_version_file`.
@@ -277,6 +319,19 @@ systemctl reboot
 
 The transfers use `Verify=no`.
 Deliver payloads over an authenticated channel, or check `SHA256SUMS` against a trusted digest first.
+
+## Output sizes and caches
+
+Bazel's disk and remote caches store outputs densely, even when they are sparse on disk.
+
+| Output | Size |
+| --- | --- |
+| `sysupdate_payload` | The root file system, its hash tree, and the UKI. With a compressed root, this is the smallest complete release and suits caches. |
+| `MkosiImageInfo` `uki`, `root_hash`, and metadata files | Small. |
+| `MkosiImageInfo` `root_image` and `root_hash_image` | One whole slot each, zero after a minimized file system. |
+| `MkosiImageInfo` `raw_image` | The whole disk: the ESP and every slot. Only needed to install the first release on a device. |
+
+All outputs of an `mkosi_image` come from one action and are cached together.
 
 ## Boot assessment and rollback
 

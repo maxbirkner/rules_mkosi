@@ -146,6 +146,25 @@ class VerityMetadataTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "trailing"):
             self._project()
 
+    def test_accepts_minimized_root_in_larger_partition(self):
+        self.root.write_bytes(self.root.read_bytes() + bytes(8192))
+        self._write_partitions(16384, 8192)
+        projected = self._project()
+        self.assertEqual(2, projected["data_blocks"])
+        self.assertEqual(16384, projected["artifacts"]["root"]["size"])
+
+    def test_rejects_nonzero_bytes_after_minimized_root(self):
+        self.root.write_bytes(self.root.read_bytes() + b"\1" + bytes(4095))
+        self._write_partitions(12288, 8192)
+        with self.assertRaisesRegex(ValueError, "root artifact has nonzero ambiguous trailing bytes"):
+            self._project()
+
+    def test_rejects_data_geometry_beyond_root_artifact(self):
+        self.root.write_bytes(self.root.read_bytes()[:4096])
+        self._write_partitions(4096, 8192)
+        with self.assertRaisesRegex(ValueError, "exceeds the root artifact"):
+            self._project()
+
     def test_sha1_uses_power_of_two_digest_slots(self):
         self._write_sha1_fixture()
         projected = self._project()
