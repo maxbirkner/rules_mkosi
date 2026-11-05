@@ -74,7 +74,7 @@ debian_tools = use_extension("@rules_mkosi//mkosi/debian:extensions.bzl", "debia
 debian_tools.toolchain()
 
 # A consumer-owned lock generated with
-# `bazel run @rules_mkosi//mkosi/debian:generate_lock`; it adds the
+# `bazel run //:consumer_debian_lock.update`; it adds the
 # non-free-firmware component to the base package set.
 debian_tools.snapshot(
     name = "consumer_debian",

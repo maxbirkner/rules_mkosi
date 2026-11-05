@@ -1,12 +1,16 @@
 """Hermetic tests for the Debian snapshot lock generator."""
 
+import contextlib
 import hashlib
+import io
 import itertools
 import json
 import lzma
 import pathlib
 import sys
+import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
@@ -284,6 +288,85 @@ class SpecificationTest(unittest.TestCase):
             with self.assertRaisesRegex(generate_lock.LockError, message):
                 generate_lock.load_specification(self._specification(**overrides))
 
+    def _digest(self, **overrides):
+        return generate_lock.spec_sha256(generate_lock.load_specification(self._specification(**overrides)))
+
+    def test_digest_ignores_equivalent_spellings(self):
+        equivalent = {
+            "sources": [{"channel": "trixie main non-free-firmware", "url": _SNAPSHOT_URL}],
+            "packages": ["bb", "aa"],
+        }
+        self.assertEqual(self._digest(), self._digest(**equivalent))
+
+    def test_digest_changes_with_every_resolution_input(self):
+        later = _SNAPSHOT_URL.replace("20250814T000000Z", "20250815T000000Z")
+        for overrides in (
+            {"packages": ["bb", "aa", "cc"]},
+            {"packages": ["aa", "bb"]},
+            {"sources": [{"channel": "trixie main", "url": _SNAPSHOT_URL}]},
+            {"sources": [{"channel": "forky main non-free-firmware", "url": _SNAPSHOT_URL}]},
+            {"sources": [{"channel": "trixie main non-free-firmware", "url": later}]},
+        ):
+            with self.subTest(overrides=overrides):
+                self.assertNotEqual(self._digest(), self._digest(**overrides))
+
+
+class CheckSpecTest(unittest.TestCase):
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.spec = pathlib.Path(directory.name) / "debian.spec.json"
+        self.lock = pathlib.Path(directory.name) / "debian.lock.json"
+        self.data = {
+            "version": 1,
+            "sources": [{"channel": "trixie main", "url": _SNAPSHOT_URL}],
+            "archs": ["amd64"],
+            "packages": ["libc6"],
+        }
+        self.spec.write_text(json.dumps(self.data), encoding="utf-8")
+        digest = generate_lock.spec_sha256(generate_lock.load_specification(self.data))
+        self.lock.write_text(generate_lock.render({"packages": [], "spec_sha256": digest, "version": 1}), "utf-8")
+
+    def _check(self):
+        stderr = io.StringIO()
+        offline = mock.patch.object(generate_lock.http_download, "download", side_effect=AssertionError("network"))
+        with offline, contextlib.redirect_stderr(stderr):
+            arguments = ["--check-spec", "--spec", str(self.spec), "--output", str(self.lock)]
+            status = generate_lock.main([*arguments, "--update-target", "//os:debian_lock.update"])
+        return status, stderr.getvalue()
+
+    def test_lock_generated_from_the_specification_is_current(self):
+        self.assertEqual((0, ""), self._check())
+
+    def test_modified_specification_makes_the_lock_stale(self):
+        self.data["packages"].append("openssh-server")
+        self.spec.write_text(json.dumps(self.data), encoding="utf-8")
+        status, stderr = self._check()
+        self.assertEqual(1, status)
+        self.assertIn("debian.lock.json is out of date for", stderr)
+        self.assertIn("the lock was generated from a different specification", stderr)
+        self.assertIn("Regenerate it with: bazel run //os:debian_lock.update", stderr)
+
+    def test_lock_without_a_specification_digest_is_stale(self):
+        self.lock.write_text(generate_lock.render({"packages": [], "version": 1}), encoding="utf-8")
+        status, stderr = self._check()
+        self.assertEqual(1, status)
+        self.assertIn("does not record the digest of its specification", stderr)
+
+    def test_missing_lock_is_stale(self):
+        self.lock.unlink()
+        self.assertEqual(1, self._check()[0])
+
+    def test_runfiles_paths_are_resolved(self):
+        locations = {"_main/os/debian.spec.json": str(self.spec), "_main/os/debian.lock.json": str(self.lock)}
+        resolver = mock.Mock(Rlocation=locations.get)
+        arguments = ["--check-spec", "--runfiles", "--spec", "_main/os/debian.spec.json"]
+        with mock.patch.object(generate_lock.runfiles, "Create", return_value=resolver):
+            self.assertEqual(0, generate_lock.main([*arguments, "--output", "_main/os/debian.lock.json"]))
+            with contextlib.redirect_stderr(io.StringIO()) as stderr:
+                self.assertEqual(1, generate_lock.main([*arguments, "--output", "_main/os/missing.lock.json"]))
+        self.assertIn("runfile is missing: _main/os/missing.lock.json", stderr.getvalue())
+
 
 class GenerateTest(unittest.TestCase):
     def setUp(self):
@@ -342,6 +425,7 @@ class GenerateTest(unittest.TestCase):
         repository = lock["repository"]
         self.assertEqual(["main", "non-free-firmware"], repository["components"])
         self.assertEqual("13", repository["release"])
+        self.assertEqual(generate_lock.spec_sha256(self.specification), lock["spec_sha256"])
         self.assertEqual(
             [
                 "inrelease",

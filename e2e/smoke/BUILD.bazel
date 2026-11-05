@@ -1,6 +1,7 @@
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load(
     "@rules_mkosi//mkosi:defs.bzl",
+    "debian_lock",
     "managed_python_test",
     "mkosi_base",
     "mkosi_config_tree",
@@ -79,6 +80,7 @@ behavior_targets(
         ":bios_release_demo_build_test",
         ":bios_boot_test",
         ":consumer_snapshot_artifact_test",
+        ":consumer_debian_lock_test",
         ":consumer_snapshot_provider_test",
         ":debian_snapshot_public_provider_test",
         ":debian_tools_public_provider_test",
@@ -375,6 +377,18 @@ snapshot_public_api_test(
 snapshot_public_api_test(
     name = "debian_snapshot_second_consumer_test",
     target_under_test = "@mkosi_debian_snapshot//:repository",
+)
+
+debian_lock(
+    name = "consumer_debian_lock",
+    lock = "testdata/consumer-snapshot/debian.lock.json",
+    spec = "testdata/consumer-snapshot/debian.spec.json",
+)
+
+debian_lock(
+    name = "sysupdate_debian_lock",
+    lock = "testdata/sysupdate-snapshot/debian.lock.json",
+    spec = "testdata/sysupdate-snapshot/debian.spec.json",
 )
 
 snapshot_public_api_test(

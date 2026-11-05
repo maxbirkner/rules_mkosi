@@ -127,6 +127,7 @@ It rejects signed binaries without an unsigned copy, remaining unsigned PE files
 
 <!-- behavior:BHV-SNAPSHOT-CONSUMER -->
 `//mkosi/debian:generate_lock` resolves a consumer specification into a deterministic multi-component lock.
+The lock records the digest of its normalized specification, so a `debian_lock` test fails without network access when the specification changed since the last `<name>.update`.
 `debian_tools.snapshot` turns it into a repository with a computed lock digest and rejects duplicate or reserved names.
 Release images install from the components selected by `Repositories=` and reject components absent from the snapshot.
 
