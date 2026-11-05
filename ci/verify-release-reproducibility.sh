@@ -32,6 +32,8 @@ workspace_status="$results/workspace-status.sh"
 printf '#!/bin/sh\necho STABLE_RULES_MKOSI_TWO_STAGE_VERSION 1\n' >"$workspace_status"
 chmod +x "$workspace_status"
 targets=(
+  //mkosi/tests:erofs_release_payload
+  //mkosi/tests:erofs_release_reproducibility
   //mkosi/tests:release_reproducibility
   //mkosi/tests:two_stage_base
   //mkosi/tests:two_stage_reproducibility
@@ -60,11 +62,16 @@ build_once() {
   mkdir -p "$results/$name"
   local output
   while IFS= read -r output; do
-    case "$output" in
-      *.json) cp "$output" "$results/$name/" ;;
+    if [[ "$output" == *.json ]]; then
+      cp "$output" "$results/$name/"
+    elif [[ -d "$output" ]]; then
+      # Update payloads are directories; compare the digest of every file.
+      (cd "$(dirname "$output")" && find "$(basename "$output")" -type f -print0 | sort -z | xargs -0 sha256sum) \
+        >>"$results/$name/base.sha256"
+    else
       # The base archive and initrd are large; their digests suffice.
-      *) (cd "$(dirname "$output")" && sha256sum "$(basename "$output")") >>"$results/$name/base.sha256" ;;
-    esac
+      (cd "$(dirname "$output")" && sha256sum "$(basename "$output")") >>"$results/$name/base.sha256"
+    fi
   done < <(bazel \
     --output_user_root="$output_root" \
     cquery --lockfile_mode=error --output=files \

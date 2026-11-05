@@ -3,11 +3,14 @@ load("@rules_python//python:defs.bzl", "py_test")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
 load(
     "//mkosi:defs.bzl",
+    "mkosi_config_tree",
     "mkosi_image",
+    "mkosi_reproducibility_manifest",
     "mkosi_source_tree",
     "qemu_ovmf_boot_test",
     "qemu_ovmf_smoke_test",
     "qemu_seabios_boot_test",
+    "sysupdate_payload",
 )
 load("//mkosi:versions.bzl", "DEFAULT_PYTHON_VERSION")
 load("//mkosi/debian:toolchain.bzl", "debian_tools_launcher_probe", "debian_tools_preflight", "debian_tools_preflight_test")
@@ -829,3 +832,36 @@ exports_files([
     "testdata/source-tree-two",
     "testdata/release.conf",
 ])
+
+mkosi_config_tree(
+    name = "erofs_release_config_tree",
+    src = "testdata/erofs-release-config",
+)
+
+# ci/verify-release-reproducibility.sh builds the compressed erofs root, its zero-padded split artifacts and the
+# trimmed update payload twice.
+mkosi_image(
+    name = "erofs_release",
+    config_tree = ":erofs_release_config_tree",
+    debian_snapshot = "@mkosi_debian_snapshot//:repository",
+    image_id = "rules-mkosi-erofs",
+    image_version = "1",
+    mode = "release",
+    release_seed = "00000000-0000-4000-8000-000000000009",
+    release_source_date_epoch = 0,
+    tags = ["manual"],
+    unified_kernel_image = "unsigned",
+    verity = "hash",
+)
+
+mkosi_reproducibility_manifest(
+    name = "erofs_release_reproducibility",
+    image = ":erofs_release",
+    tags = ["manual"],
+)
+
+sysupdate_payload(
+    name = "erofs_release_payload",
+    image = ":erofs_release",
+    tags = ["manual"],
+)

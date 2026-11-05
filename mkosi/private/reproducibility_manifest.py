@@ -99,6 +99,14 @@ _EXCLUDED_VARIABLE_FIELDS = (
 )
 
 
+def _slot_label(metadata):
+    """Returns the A/B slot label of a versioned dm-verity image's root partitions, or None."""
+    image = metadata.get("image") or {}
+    if (metadata.get("artifacts") or {}).get("verity_metadata") and image.get("version"):
+        return "{}_{}".format(image["id"], image["version"])
+    return None
+
+
 def project(raw_image, build_metadata, partition_metadata_path, artifacts=()):
     metadata = _small_json(build_metadata)
     partition_artifact, partitions = _metadata_projection(partition_metadata_path)
@@ -109,7 +117,7 @@ def project(raw_image, build_metadata, partition_metadata_path, artifacts=()):
             "build_metadata": _artifact_projection(build_metadata),
             "partition_metadata": partition_artifact,
             "raw_image": {
-                "canonical_sha256": partition_metadata.canonical_image_sha256(raw_image),
+                "canonical_sha256": partition_metadata.canonical_image_sha256(raw_image, _slot_label(metadata)),
                 "size": raw_image.stat().st_size,
             },
         },

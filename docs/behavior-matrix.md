@@ -139,10 +139,10 @@ Tracer images have no partition metadata.
 `mkosi_reproducibility_manifest` selects the raw image, build metadata, and partition metadata through `MkosiImageInfo` and embeds a normalized, content-addressed projection.
 
 <!-- behavior:BHV-CANONICAL-DIGEST -->
-The manifest's whole-image digest covers every byte except GPT disk and partition GUIDs and the checksums derived from them.
+The manifest's whole-image digest covers every byte except GPT disk and partition GUIDs and the checksums derived from them, and validates a versioned dm-verity image's A/B slot labels.
 
 <!-- behavior:BHV-REPRODUCIBILITY-INDEPENDENCE -->
-A one-stage release and a two-stage base and finalization are built twice in clean, uncached output roots, and their manifests and base digests must match.
+A one-stage release, a compressed erofs release with its update payload, and a two-stage base and finalization are built twice in clean, uncached output roots, and their manifests and digests must match.
 
 ## Actions, toolchains, and failures
 

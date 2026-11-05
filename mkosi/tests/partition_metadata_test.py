@@ -379,6 +379,15 @@ class ProjectionTest(unittest.TestCase):
         projected = self.project_slots(self.ab_entries()[:2])
         self.assertEqual(2, len(projected["partitions"]))
 
+    def test_canonical_digest_validates_versioned_slots(self):
+        with open(self.path, "wb") as output:
+            output.write(image(entries=self.ab_entries()))
+        self.assertEqual(64, len(partition_metadata.canonical_image_sha256(self.path, slot_label="ab_1")))
+        with self.assertRaisesRegex(ValueError, "exactly one Linux x86-64 root partition"):
+            partition_metadata.canonical_image_sha256(self.path)
+        with self.assertRaisesRegex(ValueError, "populated root partition labelled 'ab_2'"):
+            partition_metadata.canonical_image_sha256(self.path, slot_label="ab_2")
+
     def run_main(self, version_content, entries=None, image_id="ab"):
         with open(self.path, "wb") as output:
             output.write(image(entries=entries or self.ab_entries()))
