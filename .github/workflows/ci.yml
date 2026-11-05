@@ -758,6 +758,41 @@ jobs:
           esac
           rm -rf "$fixture_root/.cache"
 
+  bcr-presubmit:
+    name: BCR presubmit ${{ matrix.bazel }}
+    needs: bazel-versions
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        bazel: ${{ fromJSON(needs.bazel-versions.outputs.tested) }}
+    env:
+      USE_BAZEL_VERSION: ${{ matrix.bazel }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up Bazel
+        uses: bazel-contrib/setup-bazel@c5acdfb288317d0b5c0bbd7a396a3dc868bb0f86 # v0.19.0
+        with:
+          bazelisk-cache: true
+          bazelisk-version: 1.28.0
+          cache-save: ${{ github.event_name != 'pull_request' }}
+
+      - name: Run the stock-runner smoke tests from a source archive
+        env:
+          DEFAULT_BAZEL_VERSION: ${{ needs.bazel-versions.outputs.default }}
+        run: |
+          actual="$(bazel --version)"
+          echo "$actual"
+          test "$actual" = "bazel ${{ matrix.bazel }}"
+          # Mirror .bcr/presubmit.yml: only the default version checks the committed lockfile.
+          flags=()
+          if [ "${{ matrix.bazel }}" != "$DEFAULT_BAZEL_VERSION" ]; then
+            flags+=(--lockfile_mode=off)
+          fi
+          ci/bcr-presubmit.sh "$RUNNER_TEMP/bcr-presubmit" "${flags[@]}"
+
   lint:
     name: prek
     runs-on: ubuntu-24.04
@@ -858,6 +893,7 @@ jobs:
       - test
       - namespace-contract
       - module-resolution
+      - bcr-presubmit
       - bootstrap-determinism
     runs-on: ubuntu-24.04
     steps:
@@ -865,11 +901,11 @@ jobs:
         env:
           RESULTS: ${{ join(needs.*.result, ' ') }}
         run: |-
-          # Keep this count in sync with the seven entries in `needs` above.
+          # Keep this count in sync with the eight entries in `needs` above.
           # shellcheck disable=SC2086 # Split the space-separated results into positional parameters.
           set -- $RESULTS
-          if [ "$#" -ne 7 ]; then
-            echo "expected seven required CI results, got $#" >&2
+          if [ "$#" -ne 8 ]; then
+            echo "expected eight required CI results, got $#" >&2
             exit 1
           fi
           for result; do

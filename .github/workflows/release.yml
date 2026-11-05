@@ -1,0 +1,41 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+      # Prerelease tags such as v1.2.3-rc.1 would become the latest release and a BCR version.
+      - "!v*-*"
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: Release
+    # Builds the archive with release_prep.sh, attests it, and uploads both to a draft GitHub release.
+    uses: bazel-contrib/.github/.github/workflows/release_ruleset.yaml@1d798ff015ed0696433e01e2c3ccbb2abefadad7 # v7.7.0
+    permissions:
+      attestations: write
+      contents: write
+      id-token: write
+    with:
+      # Image builds need a group-free Bazel server and user namespaces, so the release runs only the smoke tests that
+      # the BCR presubmit runs; tag commits that passed CI on main.
+      bazel_test_command: cd e2e/smoke && bazel test //:stock_runner_tests
+      draft: true
+      prerelease: false
+      release_files: rules_mkosi-*.tar.gz
+      tag_name: ${{ github.ref_name }}
+
+  publish:
+    name: Publish to BCR
+    needs: release
+    uses: ./.github/workflows/publish.yml
+    permissions:
+      attestations: write
+      contents: write
+      id-token: write
+    with:
+      tag_name: ${{ github.ref_name }}
+    secrets: inherit

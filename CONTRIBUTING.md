@@ -98,6 +98,7 @@ Adding or changing an entry in `mkosi/versions.bzl` requires reviewing those pat
 - Use [Conventional Commits](https://www.conventionalcommits.org/) for commit messages and pull request titles; the `PR title` check enforces the title, which becomes the squashed commit message.
 - Public API changes need analysis tests and consumer tests in `e2e/smoke`.
 - Releases follow Semantic Versioning, and release notes are generated from pull requests, so describe user-visible and compatibility changes in the title and description.
+  See [BCR publishing](.bcr/README.md) for cutting a release.
 - Every change to `main` goes through a pull request that passes the `CI conclusion` check.
 - Pull requests from contributors without write access need a review from someone with write access.
   Maintainers may bypass review only for their own changes, never to merge an unreviewed outside contribution.
