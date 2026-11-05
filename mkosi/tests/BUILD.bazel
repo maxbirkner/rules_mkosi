@@ -342,6 +342,7 @@ debian_tools_preflight_test(
         "mkfs.ext4",
         "mkfs.fat",
         "mkfs.btrfs",
+        "mkfs.erofs",
         "sfdisk",
         "parted",
         "grub-install",

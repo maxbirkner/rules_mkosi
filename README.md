@@ -241,6 +241,16 @@ Both require UEFI.
 Give the `Verity=hash` partition `SizeMinBytes=`, or `Minimize=` together with its data partition; the bundled `systemd-repart` reserves no default size for it, so release builds reject a hash partition without either.
 To sign the UKI outside Bazel, see [Secure Boot](docs/secure-boot.md).
 
+### Compressed read-only roots
+
+A dm-verity root is read-only, so it can be a compressed [erofs](https://erofs.docs.kernel.org/) file system instead of ext4, which shrinks the root to a fraction of its uncompressed size.
+Set `Format=erofs` and `Compression=zstd` or `lzma`, optionally with `CompressionLevel=`, on the `Verity=data` partition, and `Minimize=best` on it and on its `Verity=hash` partition, so that the file system and the hash tree only cover the root's contents.
+`lzma` gives the smallest root but decompresses slowest at run time; `zstd` reads faster for a slightly larger root.
+Higher levels mostly cost build time: for the 274 MB root of the A/B test image, zstd level 3 gives 175 MiB in 2 s, level 15 170 MiB in 42 s, and lzma level 6 167 MiB in 12 s.
+Already compressed files, such as Debian's xz-compressed kernel modules, gain nothing.
+mkosi's default initrd loads the `erofs` and `dm-verity` modules; if you set `KernelInitrdModules=`, keep `default` or list both.
+For A/B slots, update payloads and which outputs suit Bazel caches, see [compressed A/B roots](docs/sysupdate-ab.md#compressed-read-only-roots).
+
 ### Two-stage releases
 
 `mkosi_base` installs packages from the snapshot once, without an image version.

@@ -31,5 +31,4 @@ mkosi/tests/reproducibility_manifest_test.py:ProjectionTest.test_split_artifact_
 mkosi/tests/secure_boot_boundary_test.py:SecureBootBoundaryTest.setUp 49
 mkosi/tests/secure_boot_boundary_test.py:SecureBootBoundaryTest.test_certificate_bundles_duplicates_reversal_and_trailing_data_are_rejected 46
 mkosi/tests/secure_boot_boundary_test.py:SecureBootBoundaryTest.test_request_requires_openssl_validated_x509_and_accepts_der 46
-mkosi/tests/sysupdate_test.bzl:_payload_test_impl 45
 mkosi/tests/sysupdate_test.bzl:sysupdate_test_suite 340

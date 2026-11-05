@@ -16,6 +16,7 @@
     "dpkg",
     "dosfstools",
     "e2fsprogs",
+    "erofs-utils",
     "fdisk",
     "grub-efi-amd64-bin",
     "grub-pc-bin",

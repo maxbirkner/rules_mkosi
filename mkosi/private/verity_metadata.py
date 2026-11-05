@@ -246,11 +246,11 @@ def _check_superblock_padding(hash_image_path, tree_offset):
             raise ValueError("dm-verity superblock padding is not canonical zero padding")
 
 
-def _check_zero_trailer(hash_image_path, offset):
-    with open(hash_image_path, "rb") as source:
+def _check_zero_trailer(path, offset, name):
+    with open(path, "rb") as source:
         source.seek(offset)
         if not _all_zero(source):
-            raise ValueError("hash artifact has nonzero ambiguous trailing bytes")
+            raise ValueError("{} artifact has nonzero ambiguous trailing bytes".format(name))
 
 
 def _artifact(path, size):
@@ -262,12 +262,14 @@ def project(root_hash_path, partition_metadata_path, root_image_path, hash_image
     root_partition, hash_partition = _root_partitions(partition_metadata_path)
     root_size, hash_size = _artifact_sizes(root_image_path, hash_image_path, root_partition, hash_partition)
     geometry = _read_superblock(hash_image_path)
-    if geometry["data_blocks"] * geometry["data_block_size"] != root_size:
-        raise ValueError("dm-verity data geometry does not cover the root artifact exactly")
+    # A minimized read-only root covers only its file system; the rest of its partition must be zero.
+    if geometry["data_blocks"] * geometry["data_block_size"] > root_size:
+        raise ValueError("dm-verity data geometry exceeds the root artifact")
+    _check_zero_trailer(root_image_path, geometry["data_blocks"] * geometry["data_block_size"], "root")
     tree_offset = geometry["hash_block_size"]
     _check_superblock_padding(hash_image_path, tree_offset)
     levels, verified_root, tree_size = _verify_tree(root_image_path, hash_image_path, geometry, tree_offset)
-    _check_zero_trailer(hash_image_path, tree_offset + tree_size)
+    _check_zero_trailer(hash_image_path, tree_offset + tree_size, "hash")
     if root_hash != verified_root.hex():
         raise ValueError("supplied root hash does not equal the independently verified root")
     return {

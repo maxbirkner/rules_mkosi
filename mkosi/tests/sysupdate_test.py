@@ -94,8 +94,9 @@ class PayloadTest(unittest.TestCase):
         self.directory = tempfile.TemporaryDirectory()
         self.root = pathlib.Path(self.directory.name)
         self.root_image = self.root / "root.raw"
-        self.root_image.write_bytes(b"root" + bytes(3 * 1024 * 1024))
-        (self.root / "verity.raw").write_bytes(b"verity")
+        self.root_image.write_bytes(b"root".ljust(4096, b"\0") + bytes(3 * 1024 * 1024))
+        (self.root / "verity.raw").write_bytes(b"verity".ljust(8192, b"\0"))
+        self.write_verity_metadata(data_blocks=769, tree_size=4096)
         (self.root / "image.efi").write_bytes(b"uki")
         (self.root / "signed.efi").write_bytes(b"signed uki")
         (self.root / "roothash").write_text(ROOT_HASH.upper() + "\n")
@@ -116,6 +117,10 @@ class PayloadTest(unittest.TestCase):
         ]
         (self.root / "partitions.json").write_text(json.dumps({"partitions": partitions}))
 
+    def write_verity_metadata(self, data_blocks, tree_size):
+        metadata = {"data_block_size": 4096, "data_blocks": data_blocks, "tree_offset": 4096, "tree_size": tree_size}
+        (self.root / "verity.json").write_text(json.dumps(metadata))
+
     def write_signing_request(self, unsigned_uki):
         request = {"unsigned_uki_sha256": hashlib.sha256(unsigned_uki).hexdigest()}
         (self.root / "request.json").write_text(json.dumps(request))
@@ -131,6 +136,7 @@ class PayloadTest(unittest.TestCase):
             "--partition-metadata={}".format(self.root / "partitions.json"),
             "--root-image={}".format(self.root_image),
             "--verity-image={}".format(self.root / "verity.raw"),
+            "--verity-metadata={}".format(self.root / "verity.json"),
             "--uki={}".format(self.root / "image.efi"),
             "--output={}".format(output),
             *extra_args,
@@ -204,6 +210,23 @@ class PayloadTest(unittest.TestCase):
         copied = output / "os_7.root.{}.raw".format(ROOT_UUID)
         self.assertEqual(self.root_image.stat().st_size, copied.stat().st_size)
         self.assertLess(copied.stat().st_blocks * 512, os.path.getsize(copied))
+
+    def test_payload_holds_only_the_bytes_that_dm_verity_covers(self):
+        # A minimized read-only root fills only part of its slot, and its hash tree only part of the verity slot.
+        self.write_verity_metadata(data_blocks=1, tree_size=0)
+        output = self.run_payload()
+        root = (output / "os_7.root.{}.raw".format(ROOT_UUID)).read_bytes()
+        verity = (output / "os_7.root-verity.{}.raw".format(VERITY_UUID)).read_bytes()
+        self.assertEqual(self.root_image.read_bytes()[:4096], root)
+        self.assertEqual(b"verity".ljust(4096, b"\0"), verity)
+        self.assertIn(hashlib.sha256(root).hexdigest(), (output / "SHA256SUMS").read_text())
+
+    def test_root_shorter_than_its_verity_geometry_is_rejected(self):
+        self.write_verity_metadata(data_blocks=770, tree_size=4096)
+        with self.assertRaises(SystemExit) as raised:
+            self.run_payload()
+        self.assertIn("is shorter than its dm-verity geometry", str(raised.exception))
+        self.assertFalse((self.root / "payload").exists())
 
     def test_uuid_mismatch_is_rejected_without_partial_output(self):
         self.write_partitions(ROOT_UUID, "07e94c80-f82d-4648-aa81-0b38dd49832a")

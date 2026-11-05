@@ -87,7 +87,14 @@ boot_attempts = 0, a release that never reaches boot-complete.target falls back 
 
 def _payload_arguments(ctx, image, image_version_file, output):
     """Returns the arguments and inputs of the payload action."""
-    inputs = [image.root_hash, image.partition_metadata, image.root_image, image.root_hash_image, image.uki]
+    inputs = [
+        image.root_hash,
+        image.partition_metadata,
+        image.root_image,
+        image.root_hash_image,
+        image.verity_metadata,
+        image.uki,
+    ]
     arguments = ctx.actions.args()
     arguments.add(ctx.file._tool)
     arguments.add("payload")
@@ -101,6 +108,7 @@ def _payload_arguments(ctx, image, image_version_file, output):
     arguments.add("--partition-metadata", image.partition_metadata)
     arguments.add("--root-image", image.root_image)
     arguments.add("--verity-image", image.root_hash_image)
+    arguments.add("--verity-metadata", image.verity_metadata)
     arguments.add("--uki", image.uki)
     if ctx.attr.signed_uki:
         signed = ctx.attr.signed_uki[SecureBootSignedUkiInfo]
@@ -117,7 +125,7 @@ def _sysupdate_payload_impl(ctx):
     image_version_file = getattr(image, "image_version_file", None)
     if not image.image_version and not image_version_file:
         fail("image must set image_id and image_version or image_version_file")
-    if image.root_image == None or image.root_hash == None or image.root_hash_image == None or image.uki == None:
+    if None in (image.root_image, image.root_hash, image.root_hash_image, image.verity_metadata, image.uki):
         fail("image must use unified_kernel_image = 'unsigned' and verity = 'hash'")
     output = ctx.actions.declare_directory(ctx.label.name)
     arguments, inputs = _payload_arguments(ctx, image, image_version_file, output)
@@ -152,7 +160,9 @@ The build fails with SYSUPDATE_INVALID unless its signing request was created fo
 
 The directory contains '<id>_<version>.root.<uuid>.raw', '<id>_<version>.root-verity.<uuid>.raw',
 '<id>_<version>.efi' and a SHA256SUMS manifest. The partition UUIDs are those derived from the dm-verity root
-hash, which the UKI's roothash= locates at boot, and must match the image's GPT.
+hash, which the UKI's roothash= locates at boot, and must match the image's GPT. The root and verity files hold only
+the bytes that dm-verity covers, so a minimized read-only root (repart Minimize=best on both partitions) is not
+padded to its slot size.
 """,
     provides = [SysupdatePayloadInfo],
     toolchains = [MKOSI_TOOLCHAIN_TYPE],
