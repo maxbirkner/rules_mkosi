@@ -120,19 +120,25 @@ def _check_prefix_collisions(entries, destination, owner):
             raise ValueError("prefix staged collision between '{}' and '{}'".format(destination, prior_path))
 
 
-def _add_mapping(entries, canonical_sources, source_string, destination_string, role):
+def _add_mapping(entries, canonical_sources, mapping, merge):
+    """Adds one mapping; merge allows shared sources and merged directories, but still rejects colliding files."""
+    source_string, destination_string, role = mapping
     source = pathlib.Path(source_string)
     if not source.exists():
         raise ValueError("declared source does not exist: {}".format(source))
-    _check_source_overlap(canonical_sources, source)
+    if not merge:
+        _check_source_overlap(canonical_sources, source)
     destination = "" if destination_string == "." else _normalise_relative(destination_string)
     owner = "{} -> {}".format(source, destination or ".")
     for path, entry in _mapping_entries(source, destination, owner, role).items():
         prior = entries.get(path)
-        if prior is not None and prior[0] != owner:
+        merged = merge and prior is not None and prior[1] == entry[1] == "directory"
+        if prior is not None and prior[0] != owner and not merged:
             raise ValueError("exact staged collision at '{}'".format(path))
-        entries[path] = entry
-    _check_prefix_collisions(entries, destination, owner)
+        if not merged:
+            entries[path] = entry
+    if not merge:
+        _check_prefix_collisions(entries, destination, owner)
 
 
 def _check_staged_symlink(entries, path, entry):
@@ -161,12 +167,12 @@ def _check_layout(entries):
             _check_staged_symlink(entries, path, entry)
 
 
-def _manifest(mappings):
+def _manifest(mappings, merge=False):
     """Build and validate the complete staged manifest without writing."""
     entries = {}
     canonical_sources = {}
-    for source_string, destination_string, role in mappings:
-        _add_mapping(entries, canonical_sources, source_string, destination_string, role)
+    for mapping in mappings:
+        _add_mapping(entries, canonical_sources, mapping, merge)
     _check_layout(entries)
     return entries
 
@@ -242,11 +248,16 @@ def main():
     )
     parser.add_argument("--executable", action="append", default=[])
     parser.add_argument("--manifest", type=pathlib.Path)
+    parser.add_argument(
+        "--merge",
+        action="store_true",
+        help="assemble a configuration tree: allow shared sources and merge directories of different mappings",
+    )
     args = parser.parse_args()
 
     if args.output.is_symlink():
         raise ValueError("staging output already exists: {}".format(args.output))
-    entries = _manifest(args.mapping)
+    entries = _manifest(args.mapping, args.merge)
     executable_paths = _executable_paths(args.executable, entries)
     _reset_output(args.output)
     _copy_manifest(args.output, entries, executable_paths)

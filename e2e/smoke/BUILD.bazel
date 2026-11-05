@@ -28,6 +28,7 @@ load(
     ":public_api_test.bzl",
     "base_public_api_test",
     "boot_config_public_api_test",
+    "config_tree_public_api_test",
     "generated_payload_tree",
     "image_build_metadata_file",
     "image_manifest_file",
@@ -55,6 +56,7 @@ test_suite(
     name = "stock_runner_tests",
     tests = [
         ":boot_launcher_contract_test",
+        ":immutable_config_tree_public_provider_test",
         ":kernel_preflight_build_test",
         ":mkosi_config_test",
         ":mkosi_python_override_test",
@@ -82,6 +84,7 @@ behavior_targets(
         ":demo_artifact_test",
         ":uefi_boot_test",
         ":image_public_provider_test",
+        ":immutable_config_tree_public_provider_test",
         ":mkosi_python_override_test",
         ":release_demo_artifact_test",
         ":release_demo_build_metadata_test",
@@ -290,9 +293,27 @@ mkosi_config_tree(
     src = "testdata/release-config",
 )
 
+# One assembled configuration whose image and default initrd share an executable generator.
 mkosi_config_tree(
     name = "immutable_release_config_tree",
-    src = "testdata/immutable-release-config",
+    srcs = glob(["testdata/immutable-release-config/**"]),
+    strip_prefix = "testdata/immutable-release-config",
+    trees = {
+        "mkosi.extra": ":shared_tree",
+        "mkosi.initrd.conf/mkosi.extra": ":shared_tree",
+    },
+)
+
+config_tree_public_api_test(
+    name = "immutable_config_tree_public_provider_test",
+    target_under_test = ":immutable_release_config_tree",
+)
+
+mkosi_config_tree(
+    name = "shared_tree",
+    srcs = glob(["testdata/shared-tree/**"]),
+    executable_paths = ["usr/lib/systemd/system-generators/rules-mkosi-shared-tree"],
+    strip_prefix = "testdata/shared-tree",
 )
 
 mkosi_source_tree(
@@ -315,6 +336,8 @@ qemu_ovmf_boot_test(
         "-m",
         "2048M",
     ],
+    # The shared generator runs when the initrd starts, before it mounts the verity root.
+    progress_markers = ["rules-mkosi shared tree: initrd"],
     readiness_marker = "EXT4-fs (dm-0): mounted filesystem",
     stop_after_readiness = True,
 )

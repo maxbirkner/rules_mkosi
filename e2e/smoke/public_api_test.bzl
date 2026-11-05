@@ -6,6 +6,7 @@ load(
     "DebianSnapshotInfo",
     "DebianToolsInfo",
     "MkosiBaseInfo",
+    "MkosiConfigTreeInfo",
     "MkosiImageInfo",
     "MkosiRootfsPayloadInfo",
     "QemuBootConfigInfo",
@@ -99,6 +100,17 @@ def _rootfs_payload_public_api_test_impl(ctx):
     return analysistest.end(env)
 
 rootfs_payload_public_api_test = analysistest.make(_rootfs_payload_public_api_test_impl)
+
+def _config_tree_public_api_test_impl(ctx):
+    env = analysistest.begin(ctx)
+    info = analysistest.target_under_test(env)[MkosiConfigTreeInfo]
+    generator = "mkosi.extra/usr/lib/systemd/system-generators/rules-mkosi-shared-tree"
+    asserts.equals(env, [generator, "mkosi.initrd.conf/" + generator], info.executable_paths)
+    asserts.true(env, info.is_generated)
+    asserts.true(env, info.tree.is_directory)
+    return analysistest.end(env)
+
+config_tree_public_api_test = analysistest.make(_config_tree_public_api_test_impl)
 
 def _boot_config_public_api_test_impl(ctx):
     env = analysistest.begin(ctx)

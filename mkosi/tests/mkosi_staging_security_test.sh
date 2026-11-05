@@ -62,3 +62,24 @@ ln -s "$root/config" "$root/config-alias"
 expect_failure "$root/source-alias" \
     --mapping "$root/config" . tree \
     --mapping "$root/config-alias" src tree
+
+# Assembling a configuration tree shares sources and merges directories, but still rejects colliding files.
+"$python" "$stage_script" --merge --output "$root/merged" \
+    --mapping "$root/config" . tree \
+    --mapping "$root/source/file" sub/other file \
+    --mapping "$root/source" shared/one tree \
+    --mapping "$root/source" shared/two tree \
+    --executable shared/two/file
+test "$(cat "$root/merged/sub/file")" = config
+test "$(cat "$root/merged/sub/other")" = source
+test "$(cat "$root/merged/shared/one/file")" = source
+test "$(stat -c %a "$root/merged/shared/two/file")" = 755
+test "$(stat -c %a "$root/merged/shared/one/file")" = 644
+
+expect_failure "$root/merged-file" --merge \
+    --mapping "$root/config" . tree \
+    --mapping "$root/source/file" sub/file file
+
+expect_failure "$root/merged-file-directory" --merge \
+    --mapping "$root/config" . tree \
+    --mapping "$root/source/file" sub file

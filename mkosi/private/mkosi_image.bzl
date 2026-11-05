@@ -114,21 +114,6 @@ def _tree_target_impl(ctx, info):
         ),
     ]
 
-mkosi_config_tree = rule(
-    implementation = lambda ctx: _tree_target_impl(ctx, MkosiConfigTreeInfo),
-    attrs = {
-        "executable_paths": attr.string_list(
-            doc = "Relative configuration-tree paths that must be executable.",
-        ),
-        "src": attr.label(
-            mandatory = True,
-            allow_files = True,
-            doc = "A configuration directory that contains mkosi.conf.",
-        ),
-    },
-    doc = "Marks a directory as an mkosi configuration tree.",
-)
-
 mkosi_source_tree = rule(
     implementation = lambda ctx: _tree_target_impl(ctx, MkosiSourceTreeInfo),
     attrs = {

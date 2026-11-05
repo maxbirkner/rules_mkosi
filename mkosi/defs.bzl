@@ -8,6 +8,7 @@ load(
 )
 load("//mkosi:toolchain.bzl", _MkosiToolchainInfo = "MkosiToolchainInfo")
 load("//mkosi/debian:toolchain.bzl", _DebianToolsInfo = "DebianToolsInfo")
+load("//mkosi/private:config_tree.bzl", _mkosi_config_tree = "mkosi_config_tree")
 load(
     "//mkosi/private:debian_snapshot.bzl",
     _DebianSnapshotInfo = "DebianSnapshotInfo",
@@ -26,7 +27,6 @@ load(
     _MkosiRootfsPayloadInfo = "MkosiRootfsPayloadInfo",
     _MkosiSourceTreeInfo = "MkosiSourceTreeInfo",
     _mkosi_base = "mkosi_base",
-    _mkosi_config_tree = "mkosi_config_tree",
     _mkosi_image = "mkosi_image",
     _mkosi_reproducibility_manifest = "mkosi_reproducibility_manifest",
     _mkosi_rootfs_payload = "mkosi_rootfs_payload",

@@ -15,6 +15,7 @@ load(
 load("//mkosi:versions.bzl", "DEFAULT_PYTHON_VERSION")
 load("//mkosi/debian:toolchain.bzl", "debian_tools_launcher_probe", "debian_tools_preflight", "debian_tools_preflight_test")
 load(":behavior_targets.bzl", "behavior_targets")
+load(":config_tree_test.bzl", "config_tree_test_suite")
 load(":consumer_isolation_test.bzl", "consumer_isolation_test_suite")
 load(":debian_snapshot_test.bzl", "debian_snapshot_provider_test")
 load(":debian_tools_provenance.bzl", "DEBIAN_TOOLS_PROVENANCE_ENV")
@@ -192,6 +193,8 @@ behavior_targets(
         ":boot_config_test",
         ":boot_lifecycle_test",
         ":seabios_boot_config_test",
+        ":config_tree_analysis_tests",
+        ":config_tree_artifact_test",
         ":conflicting_root_test",
         ":consumer_isolation_tests",
         ":debian_snapshot_artifact_test",
@@ -481,6 +484,16 @@ secure_boot_test_suite(
 )
 
 mkosi_base_test_suite(name = "mkosi_base_analysis_tests")
+
+config_tree_test_suite(name = "config_tree_analysis_tests")
+
+py_test(
+    name = "config_tree_artifact_test",
+    srcs = ["config_tree_artifact_test.py"],
+    args = ["$(rootpath :assembled_config_tree)"],
+    data = [":assembled_config_tree"],
+    main = "config_tree_artifact_test.py",
+)
 
 py_test(
     name = "sysupdate_test",

@@ -62,6 +62,11 @@ Its `MkosiImageInfo` matches a one-stage release, and a second version reuses th
 <!-- behavior:BHV-TREE-EXECUTABLES -->
 Both tree rules accept normalized `executable_paths`, which staging preserves; escaping paths are rejected.
 
+<!-- behavior:BHV-TREE-ASSEMBLY -->
+`mkosi_config_tree` assembles `src`, `srcs` at their package-relative paths minus `strip_prefix`, and `trees` keyed by destination into one directory with one action; `src` alone is used as is.
+A tree may be shared by several destinations, such as `mkosi.extra` and `mkosi.initrd.conf/mkosi.extra`, and an `mkosi_config_tree` tree adds its `executable_paths`.
+Directories merge; traversal, absolute paths, files outside `strip_prefix` or the listing package, duplicate files, files colliding with directories, and unknown executables fail during analysis where paths are known, and otherwise before anything is staged.
+
 <!-- behavior:BHV-BOOT-IMAGE -->
 Both boot adapters require `MkosiImageInfo.raw_image`; the SeaBIOS adapter also requires `firmware = "bios"`.
 
