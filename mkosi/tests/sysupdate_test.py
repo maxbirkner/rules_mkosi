@@ -122,7 +122,7 @@ class PayloadTest(unittest.TestCase):
         (self.root / "verity.json").write_text(json.dumps(metadata))
 
     def write_signing_request(self, unsigned_uki):
-        request = {"unsigned_uki_sha256": hashlib.sha256(unsigned_uki).hexdigest()}
+        request = {"unsigned_sha256": hashlib.sha256(unsigned_uki).hexdigest()}
         (self.root / "request.json").write_text(json.dumps(request))
 
     def run_payload(self, *extra_args, version_args=("--image-version=7",)):

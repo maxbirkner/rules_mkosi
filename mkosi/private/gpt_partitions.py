@@ -9,3 +9,4 @@ ROOT_X86_64_VERITY_SIG = "41092b05-9fc8-4523-994f-2def0408b176"
 BIOS_BOOT = "21686148-6449-6e6f-744e-656564454649"
 # systemd-sysupdate labels inactive A/B slots "_empty"; they carry no verity data.
 EMPTY_SLOT_LABEL = "_empty"
+ESP = "c12a7328-f81f-11d2-ba4b-00a0c93ec93b"

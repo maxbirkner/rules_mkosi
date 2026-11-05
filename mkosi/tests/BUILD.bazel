@@ -37,6 +37,7 @@ load(
     "seabios_boot_config_test",
 )
 load(":runfiles_sh_test.bzl", "runfiles_sh_test")
+load(":secure_boot_test.bzl", "secure_boot_test_suite")
 load(":sysupdate_test.bzl", "sysupdate_test_suite")
 
 py_test(
@@ -48,7 +49,10 @@ py_test(
         "$(rootpath @mkosi_debian_tools//:launcher)",
     ],
     data = [
+        "//mkosi/private:esp_files.py",
         "//mkosi/private:file_hashing.py",
+        "//mkosi/private:gpt_partitions.py",
+        "//mkosi/private:launcher_tool.py",
         "//mkosi/private:secure_boot.py",
         "//mkosi/private:sibling_loader.py",
         "@mkosi_debian_tools//:launcher",
@@ -189,8 +193,8 @@ behavior_targets(
         ":root_dependency_test",
         ":run_mkosi_metadata_test",
         ":run_mkosi_option_spelling_test",
+        ":secure_boot_analysis_tests",
         ":secure_boot_boundary_test",
-        ":secure_boot_fixture_action_test",
         ":snapshot_declaration_test",
         ":sysupdate_analysis_tests",
         ":sysupdate_test",
@@ -438,6 +442,11 @@ snapshot_declaration_test(name = "snapshot_declaration_test")
 mkosi_image_test_suite(name = "analysis_tests")
 
 sysupdate_test_suite(name = "sysupdate_analysis_tests")
+
+secure_boot_test_suite(
+    name = "secure_boot_analysis_tests",
+    image = ":immutable_release_subject",
+)
 
 mkosi_base_test_suite(name = "mkosi_base_analysis_tests")
 

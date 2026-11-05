@@ -96,8 +96,8 @@ The macro's `timeout` accepts `short`, `moderate`, and `long`, propagates to the
 
 <!-- behavior:BHV-SECURE-BOOT-OFFLINE -->
 Secure Boot uses no key by default.
-Typed providers separate the unsigned UKI, a digest- and certificate-bound signing request, the externally signed UKI, and its verified import.
-Production keys never enter Bazel; the ephemeral test key stays inside one local, uncached action.
+Typed providers separate the unsigned binary (the UKI or a PE file read from the release image's ESP, such as systemd-boot), a digest-, path- and certificate-bound signing request, the externally signed binary, and its verified import.
+Production keys never enter Bazel; the ephemeral test key stays inside one uncached action that never runs remotely.
 Import checks the exact signer, the SHA-256 signature, and byte equivalence to the request; signed responses are not reproducible.
 
 <!-- behavior:BHV-SYSUPDATE-PAYLOAD -->

@@ -307,7 +307,7 @@ sysupdate_payload(
 The output directory contains `<id>_<version>.root.<uuid>.raw`, `<id>_<version>.root-verity.<uuid>.raw`, `<id>_<version>.efi`, and `SHA256SUMS`.
 The root and verity files hold only the bytes that dm-verity covers, so a [compressed root](#compressed-read-only-roots) ships at its compressed size rather than its slot size.
 The build fails if the image's partition UUIDs do not match its root hash.
-`signed_uki` substitutes a UKI from [`secure_boot_import_response`](secure-boot.md) whose signing request names this image's unsigned UKI.
+`signed_uki` substitutes a UKI from [`secure_boot_import_response`](secure-boot.md) whose signing request names this image's unsigned UKI; signed ESP files such as systemd-boot are rejected.
 `SysupdatePayloadInfo` exposes `directory`, `image_id`, and `image_version` or `image_version_file`.
 
 Apply the payload on the device:
