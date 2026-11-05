@@ -159,7 +159,7 @@ def _release_uki(args):
         raise ValueError("--signed-uki and --signing-request must be given together")
     if args.signed_uki is None:
         return args.uki
-    requested = json.loads(Path(args.signing_request).read_text(encoding="utf-8"))["unsigned_uki_sha256"]
+    requested = json.loads(Path(args.signing_request).read_text(encoding="utf-8"))["unsigned_sha256"]
     actual = file_hashing.sha256_file(args.uki)
     if requested != actual:
         raise ValueError(

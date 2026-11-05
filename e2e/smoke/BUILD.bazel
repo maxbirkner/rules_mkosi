@@ -12,6 +12,9 @@ load(
     "qemu_ovmf_boot_test",
     "qemu_ovmf_smoke_test",
     "qemu_seabios_boot_test",
+    "secure_boot_ephemeral_test_fixture",
+    "secure_boot_import_response",
+    "secure_boot_signing_request",
     "sysupdate_payload",
     "sysupdate_transfers",
 )
@@ -87,6 +90,7 @@ behavior_targets(
         ":release_demo_partition_metadata_test",
         ":release_demo_reproducibility_test",
         ":release_demo_rootfs_payload_test",
+        ":secure_boot_signed_binaries_test",
         ":sysupdate_base_public_provider_test",
         ":sysupdate_lifecycle_test",
         ":sysupdate_payload_public_provider_test",
@@ -807,6 +811,65 @@ mkosi_base(
     )
     for version in ("2", "3")
 ]
+
+# One throwaway key signs the UKIs of releases 1 and 2 and the systemd-boot binary of release 1, as an external
+# signer would answer their signing requests.
+secure_boot_ephemeral_test_fixture(
+    name = "secure_boot_test_signer",
+    esp_paths = ["EFI/systemd/systemd-bootx64.efi"],
+    images = [
+        ":sysupdate_v1",
+        ":sysupdate_v2",
+    ],
+)
+
+[
+    secure_boot_signing_request(
+        name = "sysupdate_v{}_{}_signing_request".format(version, binary),
+        certificate = ":secure_boot_test_signer",
+        esp_path = esp_path,
+        image = ":sysupdate_v" + version,
+    )
+    for version, binary, esp_path in (
+        ("1", "uki", ""),
+        ("1", "systemd_boot", "EFI/systemd/systemd-bootx64.efi"),
+        ("2", "uki", ""),
+    )
+]
+
+[
+    secure_boot_import_response(
+        name = "sysupdate_v{}_signed_{}".format(version, binary),
+        request = ":sysupdate_v{}_{}_signing_request".format(version, binary),
+        signed_binary = ":secure_boot_test_signer",
+    )
+    for version, binary in (
+        ("1", "uki"),
+        ("1", "systemd_boot"),
+        ("2", "uki"),
+    )
+]
+
+py_test(
+    name = "secure_boot_signed_binaries_test",
+    srcs = ["secure_boot_signed_binaries_test.py"],
+    args = [
+        "$(rootpaths :sysupdate_v1_uki_signing_request)",
+        "--",
+        "$(rootpaths :sysupdate_v1_signed_uki)",
+        "--",
+        "$(rootpaths :sysupdate_v1_systemd_boot_signing_request)",
+        "--",
+        "$(rootpaths :sysupdate_v1_signed_systemd_boot)",
+    ],
+    data = [
+        ":sysupdate_v1_signed_systemd_boot",
+        ":sysupdate_v1_signed_uki",
+        ":sysupdate_v1_systemd_boot_signing_request",
+        ":sysupdate_v1_uki_signing_request",
+    ],
+    main = "secure_boot_signed_binaries_test.py",
+)
 
 base_public_api_test(
     name = "sysupdate_base_public_provider_test",

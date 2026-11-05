@@ -139,7 +139,7 @@ Files under `//mkosi/private` are not API.
 | `mkosi_reproducibility_manifest` | Normalized JSON projection of a release image for reproducibility comparisons. |
 | `qemu_ovmf_boot_test`, `qemu_seabios_boot_test` | Boot an image under QEMU with UEFI or BIOS firmware. |
 | `sysupdate_transfers`, `sysupdate_payload` | A/B updates; see [A/B updates](docs/sysupdate-ab.md). |
-| `secure_boot_signing_request`, `secure_boot_import_response` | Offline UKI signing; see [Secure Boot](docs/secure-boot.md). |
+| `secure_boot_signing_request`, `secure_boot_import_response` | Offline signing of UKIs and ESP boot binaries such as systemd-boot; see [Secure Boot](docs/secure-boot.md). |
 | `managed_python_test` | Runs a Python test on rules_mkosi's managed interpreter with an empty `PATH`. |
 | `MkosiToolchainInfo`, `MkosiQemuToolchainInfo`, `DebianToolsInfo`, `DebianSnapshotInfo` | Toolchain and snapshot providers for advanced integrations. |
 
@@ -397,7 +397,7 @@ Select artifacts by field, never by file name or `DefaultInfo` order.
 | `MkosiQemuToolchainInfo` | QEMU, `qemu-img`, OVMF, and SeaBIOS files with provenance. |
 | `QemuBootConfigInfo` | Validated `test_timeout`, deadlines, and `cleanup_margin_seconds` of a `*_boot_config` target. `QemuOvmfBootConfigInfo` is a deprecated alias. |
 | `SysupdatePayloadInfo` | See [A/B updates](docs/sysupdate-ab.md#update-payloads). |
-| `SecureBootSigningRequestInfo`, `SecureBootSignedUkiInfo` | See [Secure Boot](docs/secure-boot.md). |
+| `SecureBootSigningRequestInfo`, `SecureBootSignedBinaryInfo` | See [Secure Boot](docs/secure-boot.md). |
 
 ## Python
 

@@ -3,7 +3,7 @@
 load("//mkosi/private:image_identity.bzl", "validate_image_id")
 load("//mkosi/private:mkosi_image.bzl", "MkosiImageInfo", "MkosiRootfsPayloadInfo")
 load("//mkosi/private:python_action.bzl", "MKOSI_TOOLCHAIN_TYPE", "run_python")
-load("//mkosi/private:secure_boot.bzl", "SecureBootSignedUkiInfo")
+load("//mkosi/private:secure_boot.bzl", "SecureBootSignedBinaryInfo")
 
 SysupdatePayloadInfo = provider(
     doc = "A directory of versioned update artifacts accepted by sysupdate_transfers definitions.",
@@ -111,9 +111,11 @@ def _payload_arguments(ctx, image, image_version_file, output):
     arguments.add("--verity-metadata", image.verity_metadata)
     arguments.add("--uki", image.uki)
     if ctx.attr.signed_uki:
-        signed = ctx.attr.signed_uki[SecureBootSignedUkiInfo]
-        inputs += [signed.signed_uki, signed.request]
-        arguments.add("--signed-uki", signed.signed_uki)
+        signed = ctx.attr.signed_uki[SecureBootSignedBinaryInfo]
+        if signed.esp_path:
+            fail("signed_uki must import a signed UKI, not the ESP file %s" % signed.esp_path)
+        inputs += [signed.signed_binary, signed.request]
+        arguments.add("--signed-uki", signed.signed_binary)
         arguments.add("--signing-request", signed.request)
     arguments.add("--output", output.path)
     return arguments, inputs
@@ -149,8 +151,8 @@ sysupdate_payload = rule(
             doc = "Versioned UEFI release image with an unsigned UKI and dm-verity.",
         ),
         "signed_uki": attr.label(
-            providers = [SecureBootSignedUkiInfo],
-            doc = """Externally signed replacement for the image's unsigned UKI.
+            providers = [SecureBootSignedBinaryInfo],
+            doc = """Externally signed replacement for the image's unsigned UKI, from secure_boot_import_response.
 
 The build fails with SYSUPDATE_INVALID unless its signing request was created for this image's unsigned UKI.""",
         ),

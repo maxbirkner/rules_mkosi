@@ -30,6 +30,8 @@ exports_files([
     "run_mkosi.py",
     "secure_boot.bzl",
     "secure_boot.py",
+    "esp_files.py",
+    "launcher_tool.py",
     "sibling_loader.py",
     "image_identity.bzl",
     "image_version.py",

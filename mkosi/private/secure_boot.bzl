@@ -1,5 +1,6 @@
 """Offline Authenticode Secure Boot rules."""
 
+load("//mkosi/private:mkosi_action.bzl", "mkosi_execution_requirements")
 load("//mkosi/private:mkosi_image.bzl", "MkosiImageInfo")
 load("//mkosi/private:python_action.bzl", "MKOSI_TOOLCHAIN_TYPE", "run_python")
 
@@ -7,20 +8,23 @@ SecureBootSigningRequestInfo = provider(
     doc = "Typed immutable request for an external Secure Boot signer.",
     fields = {
         "certificate": "Expected public signer certificate.",
-        "format_version": "Request schema, mkosi-secure-boot-signing-request-v2.",
+        "esp_path": "ESP path of the requested binary, or the empty string for the image's UKI.",
+        "format_version": "Request schema, mkosi-secure-boot-signing-request-v3.",
         "request": "Canonical JSON request.",
         "request_digest": "Canonical request SHA-256.",
         "signature_algorithm": "Required embedded Authenticode algorithm.",
-        "unsigned_uki": "Exact unsigned UKI bound by the request.",
+        "unsigned_binary": "Exact unsigned PE/COFF binary bound by the request.",
     },
 )
 
-SecureBootSignedUkiInfo = provider(
-    doc = "Authenticode-verified, firmware-consumable UKI.",
+SecureBootSignedBinaryInfo = provider(
+    doc = "Authenticode-verified, firmware-consumable PE/COFF binary: a UKI or a boot binary from an image's ESP.",
     fields = {
-        "format_version": "Provider schema, mkosi-secure-boot-signed-uki-v2.",
+        "certificate": "DER certificate that signed the binary.",
+        "esp_path": "ESP path of the binary, or the empty string for a UKI.",
+        "format_version": "Provider schema, mkosi-secure-boot-signed-binary-v3.",
         "request": "Verified request.",
-        "signed_uki": "Verified signed PE/COFF UKI.",
+        "signed_binary": "Verified signed PE/COFF binary.",
         "verification_metadata": "Verification and equivalence metadata.",
     },
 )
@@ -30,7 +34,7 @@ SecureBootEphemeralTestFixtureInfo = provider(
     fields = {
         "certificate": "Ephemeral public certificate.",
         "execution_requirements": "Local, no-remote, no-cache action policy.",
-        "signed_uki": "Authenticode-signed test UKI.",
+        "signed_binaries": "Authenticode-signed test binaries, one per requested UKI and ESP file.",
     },
 )
 
@@ -46,28 +50,95 @@ def _run(ctx, args, inputs, outputs, mnemonic, **kwargs):
     run_python(
         ctx,
         arguments = [args],
-        inputs = [ctx.file._tool, ctx.file._file_hashing, ctx.file._sibling_loader, ctx.executable._debian_tools] + inputs,
+        inputs = [
+            ctx.file._tool,
+            ctx.file._esp_files,
+            ctx.file._file_hashing,
+            ctx.file._gpt_partitions,
+            ctx.file._launcher_tool,
+            ctx.file._sibling_loader,
+        ] + inputs,
         outputs = outputs,
         mnemonic = mnemonic,
+        tools = [ctx.attr._debian_tools[DefaultInfo].files_to_run],
         # The ephemeral fixture runs unsandboxed; loading file_hashing.py must not write a __pycache__ into the sources.
         env = {"PYTHONDONTWRITEBYTECODE": "1"},
         **kwargs
     )
 
-def _single_file(target, attribute):
-    """Returns the file of the attribute, or the field of the same name of a test fixture."""
+def _extract_esp_file(ctx, image, esp_path, output):
+    """Registers the action that copies esp_path from the ESP of image to output.
+
+    Args:
+      ctx: Rule context with _TOOL_ATTRS.
+      image: MkosiImageInfo of a UEFI release image.
+      esp_path: Validated relative path of a PE/COFF file on the ESP.
+      output: Declared output File.
+    """
+    if image.partition_metadata == None:
+        fail("image must be a release image with partition metadata to read files from its ESP")
+    args = ctx.actions.args()
+    args.add(ctx.file._tool.path)
+    args.add("extract")
+    args.add("--mtools", ctx.executable._debian_tools.path)
+    args.add("--image", image.raw_image.path)
+    args.add("--partition-metadata", image.partition_metadata.path)
+    args.add("--esp-path", esp_path)
+    args.add("--scratch", output.path + ".scratch")
+    args.add("--output", output.path)
+    _run(
+        ctx,
+        args,
+        [image.raw_image, image.partition_metadata],
+        [output],
+        "SecureBootExtractEspFile",
+        execution_requirements = mkosi_execution_requirements(True, offline = True),
+        progress_message = "Extracting %s from the ESP of %%{label}" % esp_path,
+    )
+
+_ESP_PATH_CHARACTERS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._+-"
+
+def _validate_esp_path(esp_path):
+    for component in esp_path.split("/"):
+        if not component or not component[0].isalnum() or component.strip(_ESP_PATH_CHARACTERS):
+            fail(
+                ("esp_path %r must be a relative path whose components start with a letter or digit and contain " +
+                 "only letters, digits, '.', '_', '+' and '-'") % esp_path,
+            )
+
+def _unsigned_binary(ctx, image, esp_path, name):
+    """Returns the image's UKI for an empty esp_path, or a new action's copy of the ESP file."""
+    if not esp_path:
+        if image.uki == None:
+            fail("image must provide an unsigned UKI")
+        return image.uki
+    _validate_esp_path(esp_path)
+    output = ctx.actions.declare_file(name)
+    _extract_esp_file(ctx, image, esp_path, output)
+    return output
+
+def _certificate_file(target):
+    """Returns the certificate file of the attribute, or the certificate of a test fixture."""
     if SecureBootEphemeralTestFixtureInfo in target:
-        return getattr(target[SecureBootEphemeralTestFixtureInfo], attribute)
+        return target[SecureBootEphemeralTestFixtureInfo].certificate
     files = target.files.to_list()
     if len(files) != 1:
-        fail("{} must provide one File or SecureBootEphemeralTestFixtureInfo".format(attribute))
+        fail("certificate must provide one File or SecureBootEphemeralTestFixtureInfo")
     return files[0]
+
+def _signed_candidates(target):
+    """Returns the signed binary of the attribute, or every binary that a test fixture signed."""
+    if SecureBootEphemeralTestFixtureInfo in target:
+        return target[SecureBootEphemeralTestFixtureInfo].signed_binaries
+    files = target.files.to_list()
+    if len(files) != 1:
+        fail("signed_binary must provide one File or SecureBootEphemeralTestFixtureInfo")
+    return files
 
 def _request_impl(ctx):
     image = ctx.attr.image[MkosiImageInfo]
-    if image.uki == None:
-        fail("image must provide an unsigned UKI")
-    certificate = _single_file(ctx.attr.certificate, "certificate")
+    unsigned = _unsigned_binary(ctx, image, ctx.attr.esp_path, ctx.label.name + ".unsigned.efi")
+    certificate = _certificate_file(ctx.attr.certificate)
     normalized_certificate = ctx.actions.declare_file(ctx.label.name + ".certificate.der")
     request = ctx.actions.declare_file(ctx.label.name + ".secure-boot-request.json")
     request_digest = ctx.actions.declare_file(ctx.label.name + ".secure-boot-request.sha256")
@@ -75,29 +146,42 @@ def _request_impl(ctx):
     args.add(ctx.file._tool.path)
     args.add("request")
     args.add("--openssl", ctx.executable._debian_tools.path)
-    args.add("--unsigned-uki", image.uki.path)
+    args.add("--unsigned", unsigned.path)
+    args.add("--esp-path", ctx.attr.esp_path)
     args.add("--certificate", certificate.path)
     args.add("--certificate-output", normalized_certificate.path)
     args.add("--algorithm", ctx.attr.signature_algorithm)
     args.add("--output", request.path)
     args.add("--digest-output", request_digest.path)
-    _run(ctx, args, [image.uki, certificate], [request, request_digest, normalized_certificate], "SecureBootSigningRequest")
+    _run(ctx, args, [unsigned, certificate], [request, request_digest, normalized_certificate], "SecureBootSigningRequest")
     return [
-        DefaultInfo(files = depset([request, request_digest, image.uki, normalized_certificate])),
+        DefaultInfo(files = depset([request, request_digest, unsigned, normalized_certificate])),
         SecureBootSigningRequestInfo(
             certificate = normalized_certificate,
-            format_version = "mkosi-secure-boot-signing-request-v2",
+            esp_path = ctx.attr.esp_path,
+            format_version = "mkosi-secure-boot-signing-request-v3",
             request = request,
             request_digest = request_digest,
             signature_algorithm = ctx.attr.signature_algorithm,
-            unsigned_uki = image.uki,
+            unsigned_binary = unsigned,
         ),
     ]
 
 # Private attributes of every rule that runs secure_boot.py.
 _TOOL_ATTRS = {
     "_debian_tools": attr.label(default = "@mkosi_debian_tools//:launcher", executable = True, cfg = "exec"),
+    "_esp_files": attr.label(default = "//mkosi/private:esp_files.py", allow_single_file = True, cfg = "exec"),
     "_file_hashing": attr.label(default = "//mkosi/private:file_hashing.py", allow_single_file = True, cfg = "exec"),
+    "_gpt_partitions": attr.label(
+        default = "//mkosi/private:gpt_partitions.py",
+        allow_single_file = True,
+        cfg = "exec",
+    ),
+    "_launcher_tool": attr.label(
+        default = "//mkosi/private:launcher_tool.py",
+        allow_single_file = True,
+        cfg = "exec",
+    ),
     "_sibling_loader": attr.label(
         default = "//mkosi/private:sibling_loader.py",
         allow_single_file = True,
@@ -114,10 +198,16 @@ secure_boot_signing_request = rule(
             allow_files = True,
             doc = "Expected signer certificate: a single file or a secure_boot_ephemeral_test_fixture.",
         ),
+        "esp_path": attr.string(
+            doc = """Path of the PE/COFF binary to sign on the image's ESP, such as EFI/systemd/systemd-bootx64.efi.
+
+Empty, the default, requests the image's unsigned UKI. Any other value requires a release image, whose ESP the request
+reads the binary from.""",
+        ),
         "image": attr.label(
             mandatory = True,
             providers = [MkosiImageInfo],
-            doc = "mkosi_image with an unsigned UKI.",
+            doc = "UEFI release mkosi_image with an unsigned UKI.",
         ),
         "signature_algorithm": attr.string(
             default = "authenticode-sha256",
@@ -125,47 +215,57 @@ secure_boot_signing_request = rule(
             doc = "Required embedded signature algorithm.",
         ),
     }, **_TOOL_ATTRS),
-    doc = "Creates a request for an external signer to sign an image's unsigned UKI with the expected certificate.",
+    doc = """Creates a request for an external signer to sign one PE/COFF binary of an image with the expected
+certificate: the image's unsigned UKI, or a boot binary on its ESP such as systemd-boot.""",
     toolchains = [MKOSI_TOOLCHAIN_TYPE],
 )
 
-def _import_impl(ctx):
-    request = ctx.attr.request[SecureBootSigningRequestInfo]
-    signed_input = _single_file(ctx.attr.signed_uki, "signed_uki")
-    output = ctx.actions.declare_file(ctx.label.name + ".signed.efi")
-    metadata = ctx.actions.declare_file(ctx.label.name + ".secure-boot-verification.json")
-    pkcs7 = ctx.actions.declare_file(ctx.label.name + ".authenticode.der")
-    content = ctx.actions.declare_file(ctx.label.name + ".authenticode-content")
-    verified_signer = ctx.actions.declare_file(ctx.label.name + ".verified-signer.pem")
-    expected_pem = ctx.actions.declare_file(ctx.label.name + ".expected-certificate.pem")
+def _verify_arguments(ctx, request, candidates, outputs):
+    """Returns the arguments of secure_boot.py verify, which writes outputs keyed by their option."""
     args = ctx.actions.args()
     args.add(ctx.file._tool.path)
     args.add("verify")
     args.add("--openssl", ctx.executable._debian_tools.path)
     args.add("--request", request.request.path)
     args.add("--request-digest", request.request_digest.path)
-    args.add("--unsigned-uki", request.unsigned_uki.path)
-    args.add("--signed-uki", signed_input.path)
+    args.add("--unsigned", request.unsigned_binary.path)
+    args.add_all(candidates, before_each = "--signed")
     args.add("--certificate", request.certificate.path)
-    args.add("--expected-pem", expected_pem.path)
-    args.add("--pkcs7", pkcs7.path)
-    args.add("--content", content.path)
-    args.add("--verified-signer", verified_signer.path)
-    args.add("--output", output.path)
-    args.add("--metadata", metadata.path)
+    for option, file in outputs.items():
+        args.add(option, file.path)
+    return args
+
+def _import_impl(ctx):
+    request = ctx.attr.request[SecureBootSigningRequestInfo]
+    candidates = _signed_candidates(ctx.attr.signed_binary)
+    outputs = {
+        option: ctx.actions.declare_file(ctx.label.name + suffix)
+        for option, suffix in (
+            ("--output", ".signed.efi"),
+            ("--metadata", ".secure-boot-verification.json"),
+            ("--pkcs7", ".authenticode.der"),
+            ("--content", ".authenticode-content"),
+            ("--verified-signer", ".verified-signer.pem"),
+            ("--expected-pem", ".expected-certificate.pem"),
+        )
+    }
+    output = outputs["--output"]
+    metadata = outputs["--metadata"]
     _run(
         ctx,
-        args,
-        [request.request, request.request_digest, request.unsigned_uki, request.certificate, signed_input],
-        [output, metadata, pkcs7, content, verified_signer, expected_pem],
+        _verify_arguments(ctx, request, candidates, outputs),
+        [request.request, request.request_digest, request.unsigned_binary, request.certificate] + candidates,
+        outputs.values(),
         "SecureBootImportAuthenticode",
     )
     return [
         DefaultInfo(files = depset([output, metadata])),
-        SecureBootSignedUkiInfo(
-            format_version = "mkosi-secure-boot-signed-uki-v2",
+        SecureBootSignedBinaryInfo(
+            certificate = request.certificate,
+            esp_path = request.esp_path,
+            format_version = "mkosi-secure-boot-signed-binary-v3",
             request = request.request,
-            signed_uki = output,
+            signed_binary = output,
             verification_metadata = metadata,
         ),
     ]
@@ -178,55 +278,83 @@ secure_boot_import_response = rule(
             providers = [SecureBootSigningRequestInfo],
             doc = "The secure_boot_signing_request that the signer answered.",
         ),
-        "signed_uki": attr.label(
+        "signed_binary": attr.label(
             mandatory = True,
             allow_files = True,
-            doc = "The signed UKI: a single file or a secure_boot_ephemeral_test_fixture.",
+            doc = "The signed binary: a single file or a secure_boot_ephemeral_test_fixture.",
         ),
     }, **_TOOL_ATTRS),
-    doc = """Imports an externally signed UKI.
+    doc = """Imports an externally signed UKI or ESP boot binary.
 
-The import fails unless the UKI embeds an Authenticode signature by the requested certificate and is otherwise
-equivalent to the requested unsigned UKI.""",
+The import fails unless the binary embeds an Authenticode signature by the requested certificate and is otherwise
+equivalent to the requested unsigned binary.""",
     toolchains = [MKOSI_TOOLCHAIN_TYPE],
 )
 
+def _fixture_binaries(ctx):
+    """Returns the unsigned UKIs and ESP files of the fixture's images, extracting the ESP files."""
+    unsigned = []
+    for index, target in enumerate(ctx.attr.images):
+        image = target[MkosiImageInfo]
+        unsigned.append(_unsigned_binary(ctx, image, "", None))
+        for path_index, esp_path in enumerate(ctx.attr.esp_paths):
+            name = "%s.unsigned/%d/%d.efi" % (ctx.label.name, index, path_index)
+            unsigned.append(_unsigned_binary(ctx, image, esp_path, name))
+    return unsigned
+
 def _fixture_impl(ctx):
-    unsigned = ctx.file.unsigned_uki
+    if not ctx.attr.images:
+        fail("images must name at least one image")
+    unsigned = _fixture_binaries(ctx)
     certificate = ctx.actions.declare_file(ctx.label.name + ".certificate.pem")
-    signed = ctx.actions.declare_file(ctx.label.name + ".signed.efi")
-    scratch = signed.dirname + "/." + ctx.label.name + "-private"
+    signed = [
+        ctx.actions.declare_file("%s.signed/%d.efi" % (ctx.label.name, index))
+        for index in range(len(unsigned))
+    ]
+    scratch = certificate.dirname + "/." + ctx.label.name + "-private"
     args = ctx.actions.args()
     args.add(ctx.file._tool.path)
     args.add("ephemeral-fixture")
     args.add("--openssl", ctx.executable._debian_tools.path)
     args.add("--sbsign", ctx.executable._debian_tools.path)
-    args.add("--unsigned-uki", unsigned.path)
     args.add("--certificate", certificate.path)
-    args.add("--signed-uki", signed.path)
     args.add("--scratch", scratch)
+    for source, destination in zip(unsigned, signed):
+        args.add("--sign", source.path)
+        args.add(destination.path)
     _run(
         ctx,
         args,
-        [unsigned],
-        [certificate, signed],
+        unsigned,
+        [certificate] + signed,
         "SecureBootEphemeralFixture",
         execution_requirements = _EPHEMERAL_EXECUTION_REQUIREMENTS,
     )
     return [
-        DefaultInfo(files = depset([certificate, signed])),
+        DefaultInfo(files = depset([certificate] + signed)),
         SecureBootEphemeralTestFixtureInfo(
             certificate = certificate,
             execution_requirements = _EPHEMERAL_EXECUTION_REQUIREMENTS,
-            signed_uki = signed,
+            signed_binaries = signed,
         ),
     ]
 
 secure_boot_ephemeral_test_fixture = rule(
     implementation = _fixture_impl,
     attrs = dict({
-        "unsigned_uki": attr.label(mandatory = True, allow_single_file = True, doc = "The UKI to sign."),
+        "esp_paths": attr.string_list(
+            doc = "ESP binaries of every image to sign as well, such as EFI/systemd/systemd-bootx64.efi.",
+        ),
+        "images": attr.label_list(
+            mandatory = True,
+            providers = [MkosiImageInfo],
+            doc = "UEFI release images whose unsigned UKIs, and esp_paths, the fixture signs.",
+        ),
     }, **_TOOL_ATTRS),
-    doc = "For tests: signs a UKI with a throwaway key that never leaves the action, and outputs its certificate.",
+    doc = """For tests: signs the UKIs and ESP binaries of images with a throwaway key that never leaves the action, and
+outputs its certificate.
+
+Use the fixture as both the certificate of secure_boot_signing_request and the signed_binary of
+secure_boot_import_response; the import selects the fixture's binary that matches its request.""",
     toolchains = [MKOSI_TOOLCHAIN_TYPE],
 )

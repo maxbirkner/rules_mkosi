@@ -7,7 +7,6 @@ load(
     "MkosiImageInfo",
     "MkosiQemuToolchainInfo",
     "QemuBootConfigInfo",
-    "SecureBootEphemeralTestFixtureInfo",
     "mkosi_config_tree",
     "mkosi_image",
     "mkosi_reproducibility_manifest",
@@ -16,7 +15,6 @@ load(
     "qemu_ovmf_boot_config",
     "qemu_ovmf_boot_test",
     "qemu_seabios_boot_config",
-    "secure_boot_ephemeral_test_fixture",
 )
 load(
     "//mkosi/debian:provenance.bzl",
@@ -344,27 +342,6 @@ def _manifest_test_impl(ctx):
     return analysistest.end(env)
 
 _manifest_test = analysistest.make(_manifest_test_impl)
-
-def _secure_boot_fixture_action_test_impl(ctx):
-    env = analysistest.begin(ctx)
-    target = analysistest.target_under_test(env)
-    actions = analysistest.target_actions(env)
-    asserts.equals(env, 1, len(actions))
-    action = actions[0]
-    asserts.equals(env, "SecureBootEphemeralFixture", action.mnemonic)
-    paths = [file.path for file in action.inputs.to_list()] + [file.path for file in action.outputs.to_list()] + action.argv
-    asserts.false(env, any([".key" in path or "private.pem" in path for path in paths]))
-    asserts.equals(
-        env,
-        ["secure_boot_ephemeral_fixture.certificate.pem", "secure_boot_ephemeral_fixture.signed.efi"],
-        sorted([file.basename for file in target[DefaultInfo].files.to_list()]),
-    )
-    fixture = target[SecureBootEphemeralTestFixtureInfo]
-    for requirement in ["local", "no-cache", "no-remote", "no-remote-cache", "no-remote-exec"]:
-        asserts.equals(env, "1", fixture.execution_requirements[requirement])
-    return analysistest.end(env)
-
-_secure_boot_fixture_action_test = analysistest.make(_secure_boot_fixture_action_test_impl)
 
 def _rootfs_payload_test_impl(ctx):
     env = analysistest.begin(ctx)
@@ -721,15 +698,6 @@ def mkosi_image_test_suite(name):
     Args:
       name: Name of the generated test suite.
     """
-    secure_boot_ephemeral_test_fixture(
-        name = "secure_boot_ephemeral_fixture",
-        unsigned_uki = "testdata/minimal.conf",
-        tags = ["manual"],
-    )
-    _secure_boot_fixture_action_test(
-        name = "secure_boot_fixture_action_test",
-        target_under_test = ":secure_boot_ephemeral_fixture",
-    )
     mkosi_image(
         name = "debian_subject",
         config = "testdata/minimal.conf",
