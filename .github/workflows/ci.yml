@@ -380,8 +380,8 @@ jobs:
               ;;
           esac
           case "$image_graph" in
-            *"ExecutionInfo: {no-cache: 1, no-remote-exec: 1, requires-network: 1}"*) ;;
-            *) echo "mkosi image execution requirements are incomplete" >&2; exit 1 ;;
+            *"ExecutionInfo: {block-network: 1, no-cache: 1, no-remote-exec: 1}"*) ;;
+            *) echo "offline tracer image execution requirements are incomplete" >&2; exit 1 ;;
           esac
           release_image_graph="$(group-free bazel aquery --lockfile_mode="${mode}" --config=qualified --output=text \
             'mnemonic("MkosiImage", //mkosi/tests:release_subject)')"

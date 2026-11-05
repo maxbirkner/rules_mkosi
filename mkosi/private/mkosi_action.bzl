@@ -46,18 +46,21 @@ def pefile_root(mkosi):
     """Returns the directory that contains the pefile module of the mkosi toolchain."""
     return mkosi.pefile.path[:-len("/pefile.py")]
 
-def mkosi_execution_requirements(release_mode):
-    """Returns the execution requirements of hermetic release actions or network-backed tracer actions."""
-    if release_mode:
-        return {
-            "block-network": "1",
-            "no-remote-exec": "1",
-        }
-    return {
-        "no-cache": "1",
-        "no-remote-exec": "1",
-        "requires-network": "1",
-    }
+def mkosi_execution_requirements(release_mode, offline):
+    """Returns the execution requirements of an mkosi action.
+
+    Args:
+      release_mode: Whether the action is a hermetic release build, whose outputs may be cached.
+      offline: Whether the action installs packages only from declared inputs, so that it runs without network.
+
+    Returns:
+      Execution requirements dict.
+    """
+    requirements = {"no-remote-exec": "1"}
+    requirements["block-network" if offline else "requires-network"] = "1"
+    if not release_mode:
+        requirements["no-cache"] = "1"
+    return requirements
 
 def mkosi_arguments(ctx):
     """Returns new arguments that start the mkosi runner with the resolved toolchains.
@@ -83,19 +86,29 @@ def mkosi_arguments(ctx):
     arguments.add(ctx.executable._kernel_preflight.path)
     return arguments
 
-def add_release_arguments(arguments, release, firmware, snapshot_repository):
+def add_snapshot_arguments(arguments, snapshot, repository):
+    """Adds the runner options that describe the Debian snapshot of a build.
+
+    Args:
+      arguments: Args of the mkosi runner.
+      snapshot: DebianSnapshotInfo of the build.
+      repository: Whether the build installs packages from the snapshot repository instead of the network.
+    """
+    if repository:
+        arguments.add("--debian-snapshot-repository")
+        arguments.add(snapshot.repository.path)
+    arguments.add("--debian-snapshot-components")
+    arguments.add(",".join(snapshot.components))
+
+def add_release_arguments(arguments, release, firmware):
     """Adds the runner options that pin a release build to its Debian snapshot and reproducibility settings.
 
     Args:
       arguments: Args of the mkosi runner.
       release: Struct with the DebianSnapshotInfo `snapshot`, `seed` and `source_date_epoch`.
       firmware: Firmware tier of the release.
-      snapshot_repository: Whether the build reads packages from the snapshot repository.
     """
     snapshot = release.snapshot
-    if snapshot_repository:
-        arguments.add("--debian-snapshot-repository")
-        arguments.add(snapshot.repository.path)
     arguments.add("--release-seed")
     arguments.add(release.seed)
     arguments.add("--release-source-date-epoch")
@@ -106,8 +119,6 @@ def add_release_arguments(arguments, release, firmware, snapshot_repository):
     arguments.add(snapshot.codename)
     arguments.add("--release-snapshot")
     arguments.add(snapshot.snapshot)
-    arguments.add("--release-components")
-    arguments.add(",".join(snapshot.components))
     arguments.add("--release-firmware")
     arguments.add(firmware)
 
@@ -206,7 +217,7 @@ def _mkosi_environment(mkosi, release):
         })
     return environment
 
-def run_mkosi(ctx, arguments, inputs, outputs, release, mnemonic, progress_message):
+def run_mkosi(ctx, arguments, inputs, outputs, release, offline, mnemonic, progress_message):
     """Registers an mkosi build action.
 
     Args:
@@ -214,7 +225,8 @@ def run_mkosi(ctx, arguments, inputs, outputs, release, mnemonic, progress_messa
       arguments: Args of the mkosi runner.
       inputs: Files read by the build, including mkosi_tool_inputs.
       outputs: Files written by the build.
-      release: Release struct of add_release_arguments, or None for a network-backed tracer build.
+      release: Release struct of add_release_arguments, or None for a tracer build.
+      offline: Whether the build installs packages only from a Debian snapshot or a base, without network.
       mnemonic: Action mnemonic.
       progress_message: Action progress message.
     """
@@ -227,7 +239,7 @@ def run_mkosi(ctx, arguments, inputs, outputs, release, mnemonic, progress_messa
         tools = [ctx.attr._kernel_preflight[DefaultInfo].files_to_run],
         outputs = outputs,
         env = _mkosi_environment(mkosi, release),
-        execution_requirements = mkosi_execution_requirements(release != None),
+        execution_requirements = mkosi_execution_requirements(release != None, offline),
         mnemonic = mnemonic,
         progress_message = progress_message,
     )

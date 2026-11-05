@@ -4,7 +4,7 @@ Bazel rules for building bootable Linux OS images with [mkosi](https://github.co
 
 - Pinned, checksum-verified toolchains: mkosi v27.1, a Debian 13 build-time userspace, QEMU, OVMF, and SeaBIOS.
   Image actions use no host executables.
-- A networked `tracer` mode for iteration and an offline, cacheable `release` mode built from an authenticated Debian snapshot.
+- An uncached `tracer` mode for iteration and an offline, cacheable `release` mode built from an authenticated Debian snapshot.
 - Unsigned UKIs, dm-verity, offline Secure Boot signing, and A/B updates with `systemd-sysupdate`.
 - Boot tests that start an image under QEMU with UEFI or legacy BIOS firmware.
 
@@ -193,11 +193,14 @@ The rule always produces an uncompressed raw disk image; configuration cannot ch
 
 | | `mode = "tracer"` (default) | `mode = "release"` |
 | --- | --- | --- |
-| Packages | Downloaded over the network | Only from `debian_snapshot`; network blocked |
+| Packages | Downloaded over the network, or only from `debian_snapshot` if set; network blocked | Only from `debian_snapshot`; network blocked |
 | Caching | Never cached (`no-cache`) | Local, disk, and remote caches |
 | Configuration | `config` or `config_tree` | `config_tree` only |
-| Required attributes | — | `debian_snapshot`, `release_seed`, `release_source_date_epoch` |
+| Required attributes | — (`debian_snapshot` optional) | `debian_snapshot`, `release_seed`, `release_source_date_epoch` |
 | `firmware = "bios"`, UKI, dm-verity | Not supported | Supported |
+
+Set `debian_snapshot` on a tracer image to build it without network access, for example in CI.
+It then installs packages only from the snapshot's `main` component.
 
 ```starlark
 mkosi_image(

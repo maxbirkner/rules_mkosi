@@ -554,8 +554,8 @@ runfiles_sh_test(
 mkosi_image(
     name = "real_image",
     config_tree = ":config_tree",
+    debian_snapshot = "@mkosi_debian_snapshot//:repository",
     source_trees = {"src": ":source_tree"},
-    tags = ["requires-network"],
 )
 
 raw_image_file(
@@ -577,7 +577,6 @@ py_test(
         ":real_image_raw",
     ],
     main = "raw_image_artifact_test.py",
-    tags = ["requires-network"],
     deps = ["@rules_python//python/runfiles"],
 )
 
@@ -587,7 +586,6 @@ py_test(
     args = ["$(rootpath :real_image_raw)"],
     data = [":real_image_raw"],
     main = "staged_image_semantics_test.py",
-    tags = ["requires-network"],
 )
 
 py_test(
@@ -599,7 +597,6 @@ py_test(
         ":override_subject_raw",
     ],
     main = "raw_image_artifact_test.py",
-    tags = ["requires-network"],
     deps = ["@rules_python//python/runfiles"],
 )
 
@@ -625,7 +622,6 @@ py_test(
         ":real_image_raw",
     ],
     main = "raw_image_corruption_runner.py",
-    tags = ["requires-network"],
     deps = ["@rules_python//python/runfiles"],
 )
 

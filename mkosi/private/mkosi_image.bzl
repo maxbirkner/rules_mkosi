@@ -18,6 +18,7 @@ load(
     "add_build_arguments",
     "add_output_arguments",
     "add_release_arguments",
+    "add_snapshot_arguments",
     "add_staging_arguments",
     "mkosi_arguments",
     "mkosi_tool_inputs",
@@ -311,8 +312,6 @@ def _validate_base(ctx, modes):
 def _validate_release_attrs(ctx, release_mode, base):
     if release_mode and not base and not ctx.attr.debian_snapshot:
         fail("release mode requires debian_snapshot")
-    if not release_mode and ctx.attr.debian_snapshot:
-        fail("debian_snapshot is only supported in release mode")
     if release_mode and not base and not ctx.attr.release_seed:
         fail("release mode requires release_seed")
     if release_mode and not base and ctx.attr.release_source_date_epoch < 0:
@@ -367,6 +366,12 @@ def _config(ctx, release_mode):
     config_info = ctx.attr.config_tree[MkosiConfigTreeInfo]
     return config_info.tree, config_info
 
+def _snapshot(ctx, release):
+    """Returns the DebianSnapshotInfo that the image is built from, or None for a tracer that uses the network."""
+    if release:
+        return release.snapshot
+    return ctx.attr.debian_snapshot[DebianSnapshotInfo] if ctx.attr.debian_snapshot else None
+
 def _image_settings(ctx):
     """Validates the mkosi_image attributes and returns the resolved build settings."""
     modes = _output_modes(ctx)
@@ -383,6 +388,7 @@ def _image_settings(ctx):
         verity = modes.verity,
         base = base,
         release = release,
+        snapshot = _snapshot(ctx, release),
         image_id = identity.image_id,
         image_version = identity.image_version,
         image_version_file = identity.image_version_file,
@@ -424,8 +430,10 @@ def _bios_partition_definition(ctx):
 def _image_runner_arguments(ctx, settings, staging):
     arguments = mkosi_arguments(ctx)
     base = settings.base
+    if settings.snapshot:
+        add_snapshot_arguments(arguments, settings.snapshot, repository = not base)
     if settings.release:
-        add_release_arguments(arguments, settings.release, settings.firmware, snapshot_repository = not base)
+        add_release_arguments(arguments, settings.release, settings.firmware)
     if base:
         arguments.add("--release-base-tree")
         arguments.add(base.root_tree.path)
@@ -513,7 +521,7 @@ def _image_build_inputs(ctx, settings, staging, bios_partition_definition):
         ([image_version_file, ctx.file._image_version] if image_version_file else []) +
         ([bios_partition_definition] if bios_partition_definition else []) +
         ([base.root_tree, base.initrd] if base else []) +
-        ([settings.release.snapshot.repository] if settings.release and not base else []) +
+        ([settings.snapshot.repository] if settings.snapshot and not base else []) +
         ([staging.tree, staging.manifest] if staging else [])
     )
 
@@ -526,6 +534,7 @@ def _build_image(ctx, settings, staging, outputs):
         inputs = _image_build_inputs(ctx, settings, staging, bios_partition_definition),
         outputs = [output for output in built if output != None],
         release = settings.release,
+        offline = settings.snapshot != None,
         mnemonic = "MkosiImage",
         progress_message = "Building mkosi image %{label}",
     )
@@ -598,7 +607,8 @@ kernel command line.
         ),
         "debian_snapshot": attr.label(
             providers = [DebianSnapshotInfo],
-            doc = "Authenticated Debian snapshot; required in release mode unless base is set.",
+            doc = """Authenticated Debian snapshot to install packages from with the network blocked. Required in release
+mode unless base is set; optional in tracer mode.""",
         ),
         "firmware": attr.string(
             default = "uefi",
@@ -638,8 +648,9 @@ file enforce them. MkosiImageInfo then sets image_version_file instead of image_
         ),
         "mode": attr.string(
             default = "tracer",
-            doc = """"tracer" (default) installs packages from the network and is never cached; "release" installs packages
-only from debian_snapshot or base with the network blocked and may be cached. Both run locally only.""",
+            doc = """"tracer" (default) is never cached and installs packages from the network, or from debian_snapshot with
+the network blocked; "release" installs packages only from debian_snapshot or base with the network blocked and may
+be cached. Both run locally only.""",
         ),
         "release_seed": attr.string(
             doc = "Fixed UUID matching the configuration's resolved Seed=; required in release mode unless base is set.",
@@ -677,10 +688,10 @@ unified_kernel_image = "unsigned".""",
     } | MKOSI_BUILD_ATTRS | IMAGE_METADATA_ATTRS,
     doc = """Builds a raw disk image with the pinned mkosi and Debian toolchains.
 
-Tracer mode installs packages from the network and is never cached. Release mode installs packages only from an
-authenticated debian_snapshot with the network blocked, so its outputs may be cached; with base, it finalizes a
-cached mkosi_base for one version instead. Builds run locally and need the Linux namespace and mount capabilities
-of the host-kernel contract.
+Tracer mode is never cached and installs packages from the network, or from debian_snapshot with the network
+blocked. Release mode installs packages only from an authenticated debian_snapshot with the network blocked, so its
+outputs may be cached; with base, it finalizes a cached mkosi_base for one version instead. Builds run locally and
+need the Linux namespace and mount capabilities of the host-kernel contract.
 
 Select outputs through MkosiImageInfo; DefaultInfo contains every produced artifact.
 """,
@@ -693,7 +704,8 @@ def _base_arguments(ctx, release, config_info, rootfs_payloads, staging, root_tr
     output_directory = root_tree.dirname
     workspace = output_directory + ".workspace"
     arguments = mkosi_arguments(ctx)
-    add_release_arguments(arguments, release, "uefi", snapshot_repository = True)
+    add_snapshot_arguments(arguments, release.snapshot, repository = True)
+    add_release_arguments(arguments, release, "uefi")
     add_staging_arguments(arguments, executable_paths(config_info, {}, rootfs_payloads), staging)
     arguments.add("--release-base-initrd-output")
     arguments.add(initrd.path)
@@ -728,6 +740,7 @@ def _mkosi_base_impl(ctx):
         inputs = [config_info.tree, release.snapshot.repository, staging.tree, staging.manifest] + mkosi_tool_inputs(ctx),
         outputs = [root_tree, initrd],
         release = release,
+        offline = True,
         mnemonic = "MkosiBase",
         progress_message = "Building mkosi base %{label}",
     )

@@ -1,4 +1,4 @@
-"""Prepares the fixed sandbox files and the local Debian mirror of a release build."""
+"""Prepares the fixed sandbox files and the local Debian mirror of a build that runs without network."""
 
 import os
 
@@ -36,7 +36,7 @@ _SANDBOX_FILES = (
 
 
 def configure_release_sandbox(workspace, arguments):
-    """Supplies fixed sandbox files instead of host /etc state to a release build."""
+    """Supplies fixed sandbox files instead of host /etc state to a build that runs without network."""
     sandbox_tree = workspace / "release-sandbox"
     for path, content in _SANDBOX_FILES:
         tree.write_file(sandbox_tree / path, content)

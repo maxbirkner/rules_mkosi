@@ -86,9 +86,10 @@ def _forward_output(completed):
 
 
 def _run_release_parent(argv):
-    """Runs a release build in a child process that patches mkosi, and publishes the child's outputs.
+    """Runs a release build, or a build from the Debian snapshot, in a child process that patches mkosi.
 
-    The child runs mkosi in-process, so the parent classifies its failures like those of any other mkosi run.
+    The child runs mkosi in-process, so the parent classifies its failures like those of any other mkosi run, and the
+    parent publishes the child's outputs.
     """
     preamble_arguments = argv[1:]
     # Reject an invalid version before the release child starts, so that the failure is not reported as an mkosi
@@ -141,6 +142,8 @@ def _release_stage(preamble):
     release = [option is not None for option in preamble.release_options()]
     if any(release) and not all(release):
         raise SystemExit("incomplete release configuration")
+    if (any(release) or preamble.debian_snapshot_repository) and preamble.debian_snapshot_components is None:
+        raise SystemExit("incomplete Debian snapshot configuration")
     return command_line.release_stage(
         any(release),
         preamble.debian_snapshot_repository,
@@ -170,7 +173,7 @@ def _extract_debian_tools(preamble, arguments):
 
 
 def _prepare_release_sandbox(preamble, arguments, stage):
-    """Adds the release sandbox, and the Debian snapshot mirror that it returns if the stage installs packages."""
+    """Adds the fixed sandbox, and the Debian snapshot mirror that it returns if the build installs packages from it."""
     if preamble.debian_snapshot_repository:
         return release_sandbox.configure_release_mirror(
             preamble.debian_snapshot_repository, _workspace(arguments), arguments
@@ -218,7 +221,7 @@ def _release_settings(preamble, stage):
         codename=preamble.release_codename,
         snapshot=preamble.release_snapshot,
         firmware=preamble.release_firmware,
-        components=preamble.release_components,
+        components=preamble.debian_snapshot_components,
         stage=stage,
         base_tree=preamble.release_base_tree,
         base_initrd=preamble.release_initrd,
@@ -279,6 +282,8 @@ def main():
     staged = _stage_configuration(preamble, arguments)
     if stage is not None:
         _activate_release_mode(preamble, arguments, stage, mirror, staged)
+    elif mirror is not None:
+        release_patches.activate_snapshot_mirror(mirror, preamble.debian_snapshot_components)
     if release_child:
         _run_mkosi_in_process(script, arguments)
     else:

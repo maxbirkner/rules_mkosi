@@ -13,7 +13,7 @@ Each maintained public behavior has a stable ID below.
 ## Rules and attributes
 
 <!-- behavior:BHV-IMAGE-MODE -->
-`mkosi_image.mode` defaults to networked, uncached `tracer`, accepts offline, cacheable `release`, and rejects other values.
+`mkosi_image.mode` defaults to uncached `tracer`, accepts offline, cacheable `release`, and rejects other values.
 
 <!-- behavior:BHV-IMAGE-FIRMWARE -->
 `mkosi_image.firmware` defaults to `uefi`.
@@ -23,7 +23,7 @@ Each maintained public behavior has a stable ID below.
 Exactly one of `config` (one file) and `config_tree` is required; release mode requires `config_tree`.
 
 <!-- behavior:BHV-IMAGE-SNAPSHOT -->
-`debian_snapshot` is required in release mode and rejected in tracer mode.
+`debian_snapshot` is required in release mode and optional in tracer mode, where it replaces the network as the package source.
 
 <!-- behavior:BHV-IMAGE-SEED -->
 `release_seed` is required only in release mode and must match the resolved `Seed=`.
@@ -157,7 +157,8 @@ A versioned UEFI image updates itself from a read-only payload into its `_empty`
 A release whose health check fails falls back to the previous release.
 
 <!-- behavior:BHV-TRACER-RUNTIME -->
-Tracer builds use the pinned mkosi and Debian tools with network access, local execution, and no caching, and produce a valid raw image.
+Tracer builds use the pinned mkosi and Debian tools with local execution and no caching, and produce a valid raw image.
+They need network access, unless `debian_snapshot` is set: then they install packages only from the snapshot with the network blocked.
 
 <!-- behavior:BHV-TOOLCHAIN-PATHS -->
 mkosi, Python, Debian tools, QEMU, and firmware come from registered toolchains, never from host executables.

@@ -54,7 +54,7 @@ Module-resolution fixtures have no lockfiles.
 | --- | --- |
 | `kernel_preflight` | Runs only the host-kernel preflight (`requires_kernel_contract`); CI runs it before every suite. |
 | `qualified` | Linux sandbox, no cached test results, preflight excluded. CI's Bazel 8 lane. |
-| `portable` | Like `qualified`, but skips `requires-network` (tracer) images. CI's Bazel 9 lane. |
+| `portable` | Like `qualified`, but skips `requires-network` targets. CI's Bazel 9 lane. |
 | `manifest` | Runs only `manifest`-tagged tests with `--enable_runfiles=no`. |
 | `deterministic` | Offline bootstrap build without cache reuse. |
 | `kvm_unavailable` | Hides `/dev/kvm` from tests, so boot tests must fall back to TCG. CI runs `//mkosi/tests:qemu_ovmf_smoke_test` with it. |
@@ -62,6 +62,9 @@ Module-resolution fixtures have no lockfiles.
 
 Executable tests use only the semantic tags `requires-network`, `requires_kernel_contract`, and `manifest`.
 `manual` is reserved for analysis-test subjects that must not run on their own.
+
+Images that tests build set `debian_snapshot`, so builds never download packages and do not depend on `snapshot.debian.org` being available.
+Only the manual `//mkosi/tests:debian_subject` is a networked tracer image; build it explicitly to try the network path.
 
 ### C and C++ helpers
 

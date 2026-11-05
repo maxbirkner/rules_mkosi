@@ -78,7 +78,7 @@ def project_partition_metadata(ctx, settings, outputs):
         arguments = [arguments],
         inputs = [ctx.file._partition_metadata, ctx.file._gpt_partitions, ctx.file._sibling_loader, outputs.raw_image] + slot_version_inputs,
         outputs = [outputs.partition_metadata],
-        execution_requirements = mkosi_execution_requirements(True),
+        execution_requirements = mkosi_execution_requirements(True, offline = True),
         mnemonic = "MkosiPartitionMetadata",
         progress_message = "Projecting GPT metadata for %{label}",
     )
@@ -189,8 +189,9 @@ def _build_metadata(ctx, settings):
     }
     if settings.image_id:
         metadata["image"] = {"id": settings.image_id, "version": settings.image_version}
+    if settings.snapshot:
+        metadata["debian_snapshot"] = _snapshot_metadata(settings.snapshot)
     if settings.release:
-        metadata["debian_snapshot"] = _snapshot_metadata(settings.release.snapshot)
         metadata["reproducibility"] = {
             "seed": settings.release.seed,
             "source_date_epoch": settings.release.source_date_epoch,
