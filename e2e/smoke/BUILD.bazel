@@ -45,6 +45,21 @@ consumer_python(
     runtime = "@python_3_14//:files",
 )
 
+# BCR presubmit runners may lack user namespaces and access to snapshot.debian.org, so this suite selects the tests
+# that need neither. ci/bcr-presubmit.sh checks that they still pass under those limits.
+test_suite(
+    name = "stock_runner_tests",
+    tests = [
+        ":boot_launcher_contract_test",
+        ":kernel_preflight_build_test",
+        ":mkosi_config_test",
+        ":mkosi_python_override_test",
+        ":mkosi_version_test",
+        ":rootfs_payload_public_api_test",
+        ":sysupdate_transfers_public_provider_test",
+    ],
+)
+
 behavior_targets(
     name = "behavior_consumer_targets",
     testonly = True,

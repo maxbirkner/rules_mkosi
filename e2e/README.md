@@ -15,6 +15,7 @@ Its `MODULE.bazel` is a working example of the [consumer setup](../README.md#set
 | `uefi_boot_test`, `bios_boot_test` | Boot tests; `uefi_boot_test` always uses TCG. |
 | `mkosi_python_override_test` | A consumer-registered Python 3.14 toolchain replaces the default. |
 | `*_public_provider_test`, `*_metadata_test`, `*_artifact_test` | Provider fields and generated artifacts, selected only through public providers. |
+| `stock_runner_tests` | The tests that need neither user namespaces nor snapshot.debian.org; the BCR presubmit runs only these (see [BCR publishing](../.bcr/README.md#presubmit)). |
 
 Run it from its directory:
 
