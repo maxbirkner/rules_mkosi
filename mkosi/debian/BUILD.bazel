@@ -28,6 +28,7 @@ py_binary(
     ],
     data = ["//mkosi/private:debian_control.py"],
     main = "generate_lock.py",
+    deps = ["@rules_python//python/runfiles"],
 )
 
 py_binary(
@@ -39,6 +40,7 @@ py_binary(
     ],
     data = ["//mkosi/private:debian_control.py"],
     main = "refresh_debian_tools.py",
+    deps = ["@rules_python//python/runfiles"],
 )
 
 py_test(
@@ -54,6 +56,7 @@ py_test(
         "//mkosi/private:debian_control.py",
     ],
     main = "refresh_debian_tools_test.py",
+    deps = ["@rules_python//python/runfiles"],
 )
 
 py_test(
@@ -65,6 +68,7 @@ py_test(
     ],
     data = ["//mkosi/private:debian_control.py"],
     main = "generate_lock_test.py",
+    deps = ["@rules_python//python/runfiles"],
 )
 
 py_test(
