@@ -200,7 +200,7 @@ The rule always produces an uncompressed raw disk image; configuration cannot ch
 | `firmware = "bios"`, UKI, dm-verity | Not supported | Supported |
 
 Set `debian_snapshot` on a tracer image to build it without network access, for example in CI.
-It then installs packages only from the snapshot's `main` component.
+It then installs packages only from the snapshot, so `Repositories=` may name only components that the snapshot contains.
 
 ```starlark
 mkosi_image(
