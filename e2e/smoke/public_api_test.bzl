@@ -129,6 +129,7 @@ def _sysupdate_public_api_test_impl(ctx):
         asserts.equals(env, expected_version, image.image_version)
         asserts.equals(env, expected_version_file, info.image_version_file)
         asserts.equals(env, expected_version_file, image.image_version_file)
+        asserts.equals(env, ctx.attr.expect_signature, info.signature != None)
     else:
         info = target[MkosiRootfsPayloadInfo]
         asserts.equals(env, "/usr/lib/sysupdate.d", info.destination)
@@ -138,6 +139,7 @@ def _sysupdate_public_api_test_impl(ctx):
 sysupdate_public_api_test = analysistest.make(
     _sysupdate_public_api_test_impl,
     attrs = {
+        "expect_signature": attr.bool(),
         "expected_version": attr.string(),
         "expected_version_file": attr.label(allow_single_file = True),
         "image": attr.label(providers = [MkosiImageInfo]),

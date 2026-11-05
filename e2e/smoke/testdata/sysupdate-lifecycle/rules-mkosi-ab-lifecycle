@@ -7,12 +7,22 @@ marker() {
     echo "rules-mkosi-ab: $*"
 }
 
+# The test signs the payloads' SHA256SUMS with a throwaway key, which the image
+# cannot contain, and shares its certificate. A production image ships its
+# signer's certificate as /etc/systemd/import-pubring.gpg instead.
+trust_test_signer() {
+    mkdir -p /run/test-keyring
+    mount -t 9p -o trans=virtio,version=9p2000.L,ro keyring /run/test-keyring
+    mount --bind /run/test-keyring/import-pubring.gpg /usr/lib/systemd/import-pubring.gpg
+}
+
+# The transfers download release N+1 from http://10.0.2.100/after-N over HTTP
+# and verify the signature of its SHA256SUMS.
 install_release() {
-    mkdir -p /run/payload
-    mount -t 9p -o trans=virtio,version=9p2000.L,ro "payload-$1" /run/payload
+    trust_test_signer
+    /usr/lib/systemd/systemd-networkd-wait-online --timeout=60
     # Log to the serial console rather than only to the journal.
-    SYSTEMD_LOG_TARGET=console /usr/lib/systemd/systemd-sysupdate --transfer-source=/run/payload update
-    umount /run/payload
+    SYSTEMD_LOG_TARGET=console /usr/lib/systemd/systemd-sysupdate update
     # A new UKI starts with boot counting enabled.
     for uki in "${esp}/EFI/Linux/${IMAGE_ID}_$1+"*.efi; do
         [ -e "${uki}" ] || {

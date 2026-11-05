@@ -244,7 +244,8 @@ _lifecycle_boot_config_test = analysistest.make(
     },
 )
 
-def _boot_config(name, **kwargs):
+def boot_config_subject(name, **kwargs):
+    """Declares a manual qemu_ovmf_boot_config subject with test defaults for the attributes that kwargs omit."""
     attrs = {
         "boot_timeout_seconds": 180,
         "diagnostic_bytes": 4096,
@@ -584,7 +585,7 @@ def sysupdate_test_suite(name):
         )
         tests.append(":invalid_%s_payload_test" % subject)
 
-    _boot_config(
+    boot_config_subject(
         name = "lifecycle_boot_subject",
         allow_reboot = True,
         progress_markers = ["FIRST", "SECOND", "FIRST"],
@@ -622,7 +623,7 @@ def sysupdate_test_suite(name):
             "is used more than once",
         ),
     ]:
-        _boot_config(name = "invalid_%s_boot_subject" % subject, **kwargs)
+        boot_config_subject(name = "invalid_%s_boot_subject" % subject, **kwargs)
         expected_failure_test(
             name = "invalid_%s_boot_test" % subject,
             expected_error = expected_error,

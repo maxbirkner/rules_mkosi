@@ -38,6 +38,7 @@ load(
 )
 load(":runfiles_sh_test.bzl", "runfiles_sh_test")
 load(":secure_boot_test.bzl", "secure_boot_test_suite")
+load(":sysupdate_http_test.bzl", "sysupdate_http_test_suite")
 load(":sysupdate_test.bzl", "sysupdate_test_suite")
 
 py_test(
@@ -62,6 +63,27 @@ py_test(
         "@mkosi_debian_tools//:launcher",
     ],
     main = "secure_boot_boundary_test.py",
+)
+
+py_test(
+    name = "sysupdate_signing_test",
+    timeout = "long",
+    srcs = [
+        "sysupdate_signing_test.py",
+        "//mkosi/private:openpgp.py",
+    ],
+    args = [
+        "$(rootpath //mkosi/private:sysupdate_signing.py)",
+        "$(rootpath @mkosi_debian_tools//:launcher)",
+    ],
+    data = [
+        "//mkosi/private:launcher_tool.py",
+        "//mkosi/private:openpgp.py",
+        "//mkosi/private:sibling_loader.py",
+        "//mkosi/private:sysupdate_signing.py",
+        "@mkosi_debian_tools//:launcher",
+    ],
+    main = "sysupdate_signing_test.py",
 )
 
 py_test(
@@ -229,6 +251,8 @@ behavior_targets(
         ":secure_boot_image_test",
         ":snapshot_declaration_test",
         ":sysupdate_analysis_tests",
+        ":sysupdate_http_analysis_tests",
+        ":sysupdate_signing_test",
         ":sysupdate_test",
         ":unsupported_version_test",
         ":verity_metadata_test",
@@ -475,6 +499,14 @@ mkosi_image_test_suite(name = "analysis_tests")
 
 sysupdate_test_suite(name = "sysupdate_analysis_tests")
 
+sysupdate_http_test_suite(
+    name = "sysupdate_http_analysis_tests",
+    payloads = [
+        ":versioned_payload_subject",
+        ":xz_payload_subject",
+    ],
+)
+
 secure_boot_test_suite(
     name = "secure_boot_analysis_tests",
     image = ":immutable_release_subject",
@@ -553,6 +585,7 @@ py_test(
     data = [
         "//mkosi/private:boot_test.py",
         "//mkosi/private:diagnostics.py",
+        "//mkosi/private:http_share.py",
         "//mkosi/private:sibling_loader.py",
     ],
     main = "boot_test_unit.py",

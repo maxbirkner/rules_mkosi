@@ -9,6 +9,7 @@ import contextlib
 import dataclasses
 import pathlib
 import runpy
+import shlex
 import shutil
 import socket
 import subprocess
@@ -109,6 +110,10 @@ def _export_boot_logs(serial_log, firmware_log, qemu_log, diagnostic_bytes, mark
             ("boot-evidence.log", _actual_boot_evidence(firmware, serial, limit, markers, accelerator)),
         ):
             (destination / name).write_bytes(_bounded_content(content, limit))
+        # http_share.py logs the requests of http_shares next to the serial log.
+        http_log = pathlib.Path(serial_log).with_name(HTTP_LOG)
+        if http_log.exists():
+            (destination / HTTP_LOG).write_bytes(_bounded_content(_read_log(http_log), limit))
     except OSError as error:
         print("unable to export bounded boot logs: {}".format(error), file=sys.stderr)
 
@@ -276,6 +281,38 @@ def _virtfs_arguments(shares, scratch):
     return arguments
 
 
+# QEMU's user network forwards guest connections to this address to http_share.py, and nothing else to the host.
+HTTP_ADDRESS = "10.0.2.100"
+HTTP_LOG = "http-share.log"
+
+
+def _http_arguments(shares, scratch):
+    """Returns QEMU arguments serving each (URL path, sources) pair at http://HTTP_ADDRESS/<path>/.
+
+    A source is a directory, whose files appear at the top of its path, a manifest mapping of one, or a file.
+    """
+    if not shares:
+        return []
+    root = scratch / "http"
+    shutil.rmtree(root, ignore_errors=True)
+    root.mkdir(parents=True)
+    for path, sources in shares:
+        for source in sources:
+            if isinstance(source, dict) or os.path.isdir(source):
+                _materialize_share(source, root / path)
+            else:
+                _link_or_copy(os.path.realpath(source), root / path / os.path.basename(source))
+    # QEMU runs the command in its own working directory, and __file__ may be relative.
+    server = pathlib.Path(os.path.abspath(__file__)).with_name("http_share.py")
+    command = shlex.join([sys.executable, "-I", str(server), str(root), str(scratch / HTTP_LOG)])
+    return [
+        "-netdev",
+        "user,id=http,restrict=on,guestfwd=tcp:{}:80-cmd:{}".format(HTTP_ADDRESS, command.replace(",", ",,")),
+        "-device",
+        "virtio-net-pci,netdev=http,romfile=",
+    ]
+
+
 def _guest_started(serial):
     return b"Linux version" in serial or b"systemd[" in serial
 
@@ -402,6 +439,7 @@ class _BootOptions:
     stop_after_readiness: bool = False
     allow_reboot: bool = False
     read_only_shares: tuple = ()
+    http_shares: tuple = ()
     shutdown_markers: tuple = ()
     boot_timeout_seconds: float = 180
     qmp_initialization_timeout_seconds: float = 15
@@ -460,9 +498,11 @@ def _qemu_command(files, image, qemu, system_data, options, share_arguments):
     )
 
 
-def _share_arguments(files, read_only_shares):
+def _share_arguments(files, options):
     try:
-        return _virtfs_arguments(read_only_shares, files.scratch)
+        return _virtfs_arguments(options.read_only_shares, files.scratch) + _http_arguments(
+            options.http_shares, files.scratch
+        )
     except OSError as error:
         files.fail("SHARE_FAILURE", "cannot prepare read-only share: {}".format(error), include_firmware_log=False)
 
@@ -662,7 +702,7 @@ def _boot(image, qemu, system_data, options, host=_HOST):
             os.path.abspath(qemu),
             os.path.abspath(system_data),
             options,
-            _share_arguments(files, options.read_only_shares),
+            _share_arguments(files, options),
         )
         with open(files.qemu_log, "wb") as output:
             process = _start_qemu(files, host.process_factory, command, output)
@@ -719,6 +759,10 @@ def main():
             read_only_shares=[
                 (_resolve_runfile_directory(share["directory"]), share["mount_tag"])
                 for share in config.get("read_only_shares", ())
+            ],
+            http_shares=[
+                (share["path"], [_resolve_runfile_directory(path) for path in share["files"]])
+                for share in config.get("http_shares", ())
             ],
             shutdown_markers=config["shutdown_markers"],
             boot_timeout_seconds=config["boot_timeout_seconds"],

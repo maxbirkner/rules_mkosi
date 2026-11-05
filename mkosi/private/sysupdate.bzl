@@ -13,6 +13,8 @@ SysupdatePayloadInfo = provider(
         "image_version": "os-release IMAGE_VERSION string of the payload when known during analysis, or None.",
         "image_version_file": """File holding the payload's os-release IMAGE_VERSION when the image selected it through
 mkosi_image.image_version_file, or None. Exactly one of image_version and image_version_file is set.""",
+        "signature": """Verified detached OpenPGP signature of the directory's SHA256SUMS, to publish as SHA256SUMS.gpg next to
+it, from sysupdate_import_signature; None for an unsigned payload.""",
     },
 )
 
@@ -35,12 +37,20 @@ def _run_sysupdate(ctx, arguments, inputs, output, mnemonic):
         mnemonic = mnemonic,
     )
 
+_URL_FORBIDDEN_CHARACTERS = [" ", "\t", "\r", "\n", "\"", "'"]
+
+def _validate_url(url):
+    """Fails unless url is empty or an HTTP(S) URL that fits on one line of a transfer file."""
+    if url and (not url.startswith(("http://", "https://")) or any([c in url for c in _URL_FORBIDDEN_CHARACTERS])):
+        fail("url must be an http:// or https:// URL without whitespace or quotes, not %r" % url)
+
 def _sysupdate_transfers_impl(ctx):
     validate_image_id(ctx.attr.image_id)
     if ctx.attr.boot_attempts < 0:
         fail("boot_attempts must be non-negative")
     if ctx.attr.instances < 2:
         fail("instances must be at least 2 for A/B updates")
+    _validate_url(ctx.attr.url)
     output = ctx.actions.declare_directory(ctx.label.name)
     arguments = ctx.actions.args()
     arguments.add(ctx.file._tool)
@@ -48,6 +58,8 @@ def _sysupdate_transfers_impl(ctx):
     arguments.add("--image-id", ctx.attr.image_id)
     arguments.add("--boot-attempts", str(ctx.attr.boot_attempts))
     arguments.add("--instances", str(ctx.attr.instances))
+    if ctx.attr.url:
+        arguments.add("--url", ctx.attr.url)
     arguments.add("--output", output.path)
     _run_sysupdate(ctx, arguments, [], output, "MkosiSysupdateTransfers")
     return [
@@ -74,12 +86,21 @@ sysupdate_transfers = rule(
         ),
         "image_id": attr.string(mandatory = True, doc = "IMAGE_ID shared by every release of the image."),
         "instances": attr.int(default = 2, doc = "Number of A/B slots (InstancesMax=)."),
+        "url": attr.string(
+            doc = """HTTP(S) directory that holds the published payloads, such as 'https://updates.example.com/my-os'.
+
+Empty, the default, installs from a directory given at run time. With a URL, the transfers download SHA256SUMS,
+SHA256SUMS.gpg and the files, and verify the signature against the device's /etc/systemd/import-pubring.gpg, or
+/usr/lib/systemd/import-pubring.gpg without it (Verify=yes). systemd expands specifiers such as %A (the running
+IMAGE_VERSION) in the URL; write %% for a literal %.""",
+        ),
     } | _SCRIPT_ATTRS,
     doc = """Generates systemd-sysupdate transfer definitions for A/B root, verity and UKI updates.
 
 Add the target to mkosi_image(rootfs_payloads = [...]) and apply updates with
-`systemd-sysupdate --transfer-source=<payload directory> update`. The running version is protected, and unless
-boot_attempts = 0, a release that never reaches boot-complete.target falls back to the previous one.
+`systemd-sysupdate --transfer-source=<payload directory> update`, or `systemd-sysupdate update` with url. The running
+version is protected, and unless boot_attempts = 0, a release that never reaches boot-complete.target falls back to
+the previous one.
 """,
     provides = [MkosiRootfsPayloadInfo],
     toolchains = [MKOSI_TOOLCHAIN_TYPE],
@@ -140,6 +161,7 @@ def _sysupdate_payload_impl(ctx):
             image_id = image.image_id,
             image_version = image.image_version if not image_version_file else None,
             image_version_file = image_version_file,
+            signature = None,
         ),
     ]
 

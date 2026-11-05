@@ -63,6 +63,14 @@ load(
     _sysupdate_payload = "sysupdate_payload",
     _sysupdate_transfers = "sysupdate_transfers",
 )
+load(
+    "//mkosi/private:sysupdate_signing.bzl",
+    _SysupdateEphemeralTestFixtureInfo = "SysupdateEphemeralTestFixtureInfo",
+    _SysupdateSigningRequestInfo = "SysupdateSigningRequestInfo",
+    _sysupdate_ephemeral_test_fixture = "sysupdate_ephemeral_test_fixture",
+    _sysupdate_import_signature = "sysupdate_import_signature",
+    _sysupdate_signing_request = "sysupdate_signing_request",
+)
 
 MkosiImageInfo = _MkosiImageInfo
 MkosiBaseInfo = _MkosiBaseInfo
@@ -103,3 +111,8 @@ secure_boot_signed_image = _secure_boot_signed_image
 SysupdatePayloadInfo = _SysupdatePayloadInfo
 sysupdate_payload = _sysupdate_payload
 sysupdate_transfers = _sysupdate_transfers
+SysupdateSigningRequestInfo = _SysupdateSigningRequestInfo
+SysupdateEphemeralTestFixtureInfo = _SysupdateEphemeralTestFixtureInfo
+sysupdate_signing_request = _sysupdate_signing_request
+sysupdate_import_signature = _sysupdate_import_signature
+sysupdate_ephemeral_test_fixture = _sysupdate_ephemeral_test_fixture

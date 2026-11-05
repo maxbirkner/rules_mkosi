@@ -54,7 +54,7 @@ A version requires `image_id` and uses letters, digits, and `.` only.
 Its `MkosiImageInfo` matches a one-stage release, and a second version reuses the cached base.
 
 <!-- behavior:BHV-SYSUPDATE-TRANSFERS -->
-`sysupdate_transfers` validates the image id, a non-negative `boot_attempts` (zero installs UKIs without a boot counter), and at least two `instances`, and installs root, verity, and UKI transfers that use `PathRelativeTo=explicit`, root-hash UUIDs, accept plain or xz-compressed partition files, and protect the running version.
+`sysupdate_transfers` validates the image id, a non-negative `boot_attempts` (zero installs UKIs without a boot counter), and at least two `instances`, and installs root, verity, and UKI transfers that use `PathRelativeTo=explicit` or, with an `http://` or `https://` `url`, `url-file` sources with `Verify=yes`, root-hash UUIDs, accept plain or xz-compressed partition files, and protect the running version.
 
 <!-- behavior:BHV-TREE-SRC -->
 `mkosi_config_tree.src` and `mkosi_source_tree.src` each resolve to exactly one file or directory and produce their typed provider.
@@ -88,6 +88,7 @@ The macro's `timeout` accepts `short`, `moderate`, and `long`, propagates to the
 `progress_markers` are nonempty, must appear in order before readiness, and cannot be combined with `expected_failure_marker`.
 `allow_reboot` keeps one QEMU process, its image snapshot, and firmware variables across reboots.
 `read_only_shares` exposes directories as read-only virtio-9p shares with unique 1 to 31 character tags.
+`http_shares` serves the files of targets at unique URL paths of `http://10.0.2.100/` on an otherwise isolated QEMU user network.
 
 <!-- behavior:BHV-BOOT-SECURE-BOOT -->
 `qemu_ovmf_boot_test(secure_boot = True)` boots Debian's Secure Boot capable OVMF with SMM and secure flash and an empty variable store, so the firmware starts in Setup Mode; the default keeps the toolchain's OVMF, and only Secure Boot tests download the firmware.
@@ -110,6 +111,10 @@ It rejects signed binaries without an unsigned copy, remaining unsigned PE files
 
 <!-- behavior:BHV-SYSUPDATE-PAYLOAD -->
 `sysupdate_payload` requires a versioned image with an unsigned UKI and dm-verity, optionally substitutes a signed UKI bound to that image, names root and verity artifacts by their root-hash UUIDs, trims them to the bytes that dm-verity covers, optionally compresses them deterministically with xz, rejects mismatching GPT UUIDs, writes `SHA256SUMS` of the shipped files, and exposes `SysupdatePayloadInfo`.
+
+<!-- behavior:BHV-SYSUPDATE-SIGNING -->
+`sysupdate_signing_request` binds the SHA-256 of an unsigned payload's `SHA256SUMS`, its files, and the fingerprint of exactly one public OpenPGP certificate, and rejects secret keys.
+`sysupdate_import_signature` accepts only a detached signature that sqv verifies over that `SHA256SUMS` with that certificate, and returns the payload's `SysupdatePayloadInfo` with `signature`; `sysupdate_ephemeral_test_fixture` signs in one uncached, local action and outputs only public data.
 
 <!-- behavior:BHV-IMAGE-PROVIDER -->
 `MkosiImageInfo` has a fixed `format_version`, exposes every artifact role as `File` or `None`, keeps `image` as an alias of `raw_image`, projects each present artifact once through `DefaultInfo`, and exposes `firmware`, `image_id`, `image_version`, and `image_version_file`.
