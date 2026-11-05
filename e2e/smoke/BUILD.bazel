@@ -91,6 +91,7 @@ behavior_targets(
         ":release_demo_partition_metadata_test",
         ":release_demo_reproducibility_test",
         ":release_demo_rootfs_payload_test",
+        ":secure_boot_lifecycle_test",
         ":secure_boot_signed_binaries_test",
         ":secure_boot_signed_image_test",
         ":sysupdate_base_public_provider_test",
@@ -904,6 +905,52 @@ py_test(
         ":sysupdate_v1_signed_uki",
     ],
     main = "secure_boot_signed_image_test.py",
+)
+
+# Release 2 as an update whose UKI is signed by the db key that release 1 enrolls.
+sysupdate_payload(
+    name = "sysupdate_v2_signed_payload",
+    image = ":sysupdate_v2",
+    signed_uki = ":sysupdate_v2_signed_uki",
+)
+
+# Boots the signed release 1 disk image with Secure Boot capable OVMF in Setup
+# Mode: systemd-boot enrolls the test PK, KEK and db and resets, and release 1
+# then runs with Secure Boot enabled. It updates to release 2, whose signed UKI
+# boots and is blessed, and then to release 3, whose unsigned UKI the firmware
+# must refuse to load.
+qemu_ovmf_boot_test(
+    name = "secure_boot_lifecycle_test",
+    timeout = "long",
+    allow_reboot = True,
+    boot_timeout_seconds = 780,
+    image = ":sysupdate_v1_secure_boot",
+    machine_args = [
+        "-machine",
+        "q35",
+        "-m",
+        "2048M",
+    ],
+    progress_markers = [
+        "Custom Secure Boot keys successfully enrolled, rebooting the system now!",
+        "EFI stub: UEFI Secure Boot is enabled.",
+        "rules-mkosi-ab: running 1 from erofs with roothash ",
+        "rules-mkosi-ab: SecureBoot=1 SetupMode=0",
+        "rules-mkosi-ab: installed 2",
+        "EFI stub: UEFI Secure Boot is enabled.",
+        "rules-mkosi-ab: running 2 from erofs with roothash ",
+        "rules-mkosi-ab: SecureBoot=1 SetupMode=0",
+        "rules-mkosi-ab: 2 is blessed",
+        "rules-mkosi-ab: installed 3",
+    ],
+    read_only_shares = {
+        ":sysupdate_v2_signed_payload": "payload-2",
+        ":sysupdate_v3_payload": "payload-3",
+    },
+    # systemd-boot decrements the boot counter before LoadImage, which the firmware denies.
+    readiness_marker = "Error loading \\EFI\\Linux\\rules-mkosi-ab_3+0-1.efi: Access denied",
+    secure_boot = True,
+    stop_after_readiness = True,
 )
 
 base_public_api_test(

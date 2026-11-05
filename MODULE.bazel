@@ -72,6 +72,11 @@ register_toolchains(
     "@mkosi_toolchains//:all",
 )
 
+# Fetched only for qemu_ovmf_boot_test(secure_boot = True).
+ovmf_secure_boot_repo = use_repo_rule("//mkosi/private:ovmf_secure_boot_repo.bzl", "ovmf_secure_boot_repo")
+
+ovmf_secure_boot_repo(name = "mkosi_ovmf_secure_boot")
+
 debian_tools = use_extension("//mkosi/debian:extensions.bzl", "debian_tools")
 debian_tools.toolchain()
 use_repo(

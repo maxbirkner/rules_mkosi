@@ -45,6 +45,7 @@ exports_files([
     "qemu_ovmf_validate.sh",
     "qemu_ovmf_smoke_test.bzl",
     "toolchains_repo.bzl",
+    "ovmf_secure_boot_repo.bzl",
     "debian_tools_repo.bzl",
     "debian_snapshot.bzl",
     "debian_snapshot_repo.bzl",

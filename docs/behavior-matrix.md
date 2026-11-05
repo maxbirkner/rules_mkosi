@@ -89,6 +89,10 @@ The macro's `timeout` accepts `short`, `moderate`, and `long`, propagates to the
 `allow_reboot` keeps one QEMU process, its image snapshot, and firmware variables across reboots.
 `read_only_shares` exposes directories as read-only virtio-9p shares with unique 1 to 31 character tags.
 
+<!-- behavior:BHV-BOOT-SECURE-BOOT -->
+`qemu_ovmf_boot_test(secure_boot = True)` boots Debian's Secure Boot capable OVMF with SMM and secure flash and an empty variable store, so the firmware starts in Setup Mode; the default keeps the toolchain's OVMF, and only Secure Boot tests download the firmware.
+The configuration rule rejects Secure Boot firmware code without its variable store.
+
 <!-- behavior:BHV-MANAGED-PYTHON -->
 `managed_python_test` requires one Python `src`, accepts optional `data`, and runs on the managed interpreter with isolated user-site state and an empty child `PATH`.
 

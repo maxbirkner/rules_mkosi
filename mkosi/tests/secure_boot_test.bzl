@@ -7,6 +7,8 @@ load(
     "SecureBootEphemeralTestFixtureInfo",
     "SecureBootSignedBinaryInfo",
     "SecureBootSigningRequestInfo",
+    "qemu_ovmf_boot_config",
+    "qemu_ovmf_boot_test",
     "secure_boot_ephemeral_test_fixture",
     "secure_boot_import_response",
     "secure_boot_signed_image",
@@ -152,6 +154,58 @@ def _signed_image_tests(image):
     )
     return [":secure_boot_enroll_without_keys_test", ":secure_boot_signed_image_test"]
 
+def _secure_boot_firmware_test_impl(ctx):
+    env = analysistest.begin(ctx)
+    target = analysistest.target_under_test(env)
+    writes = [action for action in analysistest.target_actions(env) if action.mnemonic == "FileWrite"]
+    asserts.equals(env, 1, len(writes))
+    config = json.decode(writes[0].content)
+    asserts.true(env, config["firmware_code"].endswith("/OVMF_CODE_4M.secboot.fd"), config["firmware_code"])
+    asserts.true(env, config["firmware_vars"].endswith("/OVMF_VARS_4M.fd"), config["firmware_vars"])
+    asserts.equals(
+        env,
+        ["-machine", "q35", "-m", "512M", "-machine", "smm=on", "-global", "driver=cfi.pflash01,property=secure,value=on"],
+        config["qemu_args"][:8],
+    )
+    runfiles = [file.basename for file in target[DefaultInfo].default_runfiles.files.to_list()]
+    asserts.true(env, "OVMF_CODE_4M.secboot.fd" in runfiles and "OVMF_VARS_4M.fd" in runfiles)
+    asserts.false(env, "code.fd" in runfiles, "the toolchain's OVMF cannot enforce Secure Boot")
+    return analysistest.end(env)
+
+_secure_boot_firmware_test = analysistest.make(_secure_boot_firmware_test_impl)
+
+def _secure_boot_firmware_tests():
+    """Declares tests of qemu_ovmf_boot_test(secure_boot = True) and returns their labels."""
+    qemu_ovmf_boot_test(
+        name = "secure_boot_firmware_boot",
+        image = ":secure_boot_signed_image_subject",
+        secure_boot = True,
+        tags = ["manual"],
+    )
+    _secure_boot_firmware_test(
+        name = "secure_boot_firmware_boot_config_test",
+        target_under_test = ":secure_boot_firmware_boot_config",
+    )
+    qemu_ovmf_boot_config(
+        name = "secure_boot_code_without_vars_subject",
+        boot_timeout_seconds = 15,
+        diagnostic_bytes = 4096,
+        image = ":secure_boot_signed_image_subject",
+        machine_args = ["-machine", "q35"],
+        qmp_initialization_timeout_seconds = 15,
+        readiness_marker = "READY",
+        secure_boot_code = "@mkosi_ovmf_secure_boot//:OVMF_CODE_4M.secboot.fd",
+        shutdown_markers = ["SHUTDOWN"],
+        shutdown_timeout_seconds = 15,
+        tags = ["manual"],
+    )
+    expected_failure_test(
+        name = "secure_boot_code_without_vars_test",
+        expected_error = "secure_boot_code and secure_boot_vars must be set together",
+        target_under_test = ":secure_boot_code_without_vars_subject",
+    )
+    return [":secure_boot_code_without_vars_test", ":secure_boot_firmware_boot_config_test"]
+
 def _request_tests(image):
     """Declares request tests for the UKI and systemd-boot of image and an import test; returns their labels."""
     for subject, esp_path in (("uki", ""), ("esp_file", _SYSTEMD_BOOT)):
@@ -227,6 +281,6 @@ def secure_boot_test_suite(name, image):
         name = name,
         tests = (
             [":secure_boot_fixture_action_test"] + _request_tests(image) + _invalid_esp_path_tests(image) +
-            _signed_image_tests(image)
+            _signed_image_tests(image) + _secure_boot_firmware_tests()
         ),
     )

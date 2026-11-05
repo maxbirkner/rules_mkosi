@@ -94,6 +94,28 @@ Before using `force` on hardware:
 systemd-sysupdate never replaces systemd-boot: [update payloads](sysupdate-ab.md#update-payloads) carry only roots and UKIs, so the signed systemd-boot written at installation stays until you reinstall it.
 Sign the UKIs of later releases with the same db key and ship them with `sysupdate_payload(signed_uki = ...)`.
 
+### Testing enrollment in QEMU
+
+The toolchain's OVMF is built without Secure Boot, so it neither enrolls keys nor refuses unsigned binaries.
+`qemu_ovmf_boot_test(secure_boot = True)` boots Debian's Secure Boot capable OVMF (`OVMF_CODE_4M.secboot.fd` with SMM and secure flash, from the pinned Debian 13 `ovmf` package) instead.
+Its variable store starts empty, in Setup Mode, so systemd-boot enrolls the image's keys on the first boot; `machine_args` must select the `q35` machine.
+Only tests that set `secure_boot` download this firmware.
+
+```starlark
+qemu_ovmf_boot_test(
+    name = "os_secure_boot_test",
+    allow_reboot = True,  # Enrollment resets the machine.
+    image = ":os_installer",
+    progress_markers = [
+        "Custom Secure Boot keys successfully enrolled, rebooting the system now!",
+        "EFI stub: UEFI Secure Boot is enabled.",
+    ],
+    secure_boot = True,
+)
+```
+
+[`e2e/smoke`](../e2e/smoke/BUILD.bazel) `secure_boot_lifecycle_test` enrolls the keys of `secure_boot_ephemeral_test_fixture`, checks the `SecureBoot` and `SetupMode` EFI variables from release 1, updates to release 2 with a signed UKI, and expects the firmware to refuse the unsigned UKI of release 3.
+
 ## Trust boundary
 
 | Protected against | Not protected against |
@@ -116,6 +138,6 @@ Secure Boot applies only to UEFI release images: their UKIs and the PE/COFF bina
 The dm-verity root hash is embedded in the unsigned UKI before the request is created.
 BIOS images cannot be signed.
 
-`secure_boot_ephemeral_test_fixture` signs the UKIs and `esp_paths` of `images` with a short-lived key for tests.
-Use it as both the `certificate` of the requests and the `signed_binary` of the imports; each import selects the fixture's binary that matches its request.
-The key never leaves one uncached action that runs on the local machine, never remotely; never use it for production.
+`secure_boot_ephemeral_test_fixture` signs the UKIs and `esp_paths` of `images` with a short-lived db key for tests, and writes `PK.auth`, `KEK.auth` and `db.auth` for short-lived PK and KEK keys.
+Use it as the `certificate` of the requests, the `signed_binary` of the imports and the `auto_enroll_keys` of `secure_boot_signed_image`; each import selects the fixture's binary that matches its request.
+The keys never leave one uncached action that runs on the local machine, never remotely; never use them for production.
