@@ -198,17 +198,20 @@ static int wait_for_exit_status(pid_t child, const char *failure) {
 }
 
 /*
- * Supplementary groups must be gone before the user namespace exists: once
- * setgroups is denied they could no longer be dropped and would keep granting
- * host group access inside the namespace.
+ * Drops supplementary groups while the caller may still do so, for example as
+ * real root. An unprivileged caller cannot: Bazel's sandbox has already denied
+ * setgroups, and no descendant user namespace may allow it again. The groups
+ * then stay as unmapped IDs. They cannot own or receive files, and with the
+ * host root detached they only apply to the explicitly mounted action paths,
+ * which the Bazel server has already read with the same groups.
  */
-static void clear_supplementary_groups(void) {
+static void drop_supplementary_groups_if_permitted(void) {
   int group_count = getgroups(0, NULL);
   if (group_count < 0) {
     fail_errno("cannot inspect supplementary groups");
   }
-  if (group_count != 0 && (setgroups(0, NULL) < 0 || getgroups(0, NULL) != 0)) {
-    fail_errno("cannot clear supplementary groups before user namespace setup");
+  if (group_count != 0 && setgroups(0, NULL) < 0 && errno != EPERM) {
+    fail_errno("cannot drop supplementary groups");
   }
 }
 
@@ -224,11 +227,9 @@ NORETURN static void map_child_identity_and_exit(pid_t child, int ready[2],
   close(acknowledgement[0]);
   read_byte(ready[0], 'U');
   write_child_mapping(child, "uid", (unsigned long)uid);
-  write_byte(acknowledgement[1], 'U');
-  read_byte(ready[0], 'G');
   deny_child_setgroups(child);
   write_child_mapping(child, "gid", (unsigned long)gid);
-  write_byte(acknowledgement[1], 'G');
+  write_byte(acknowledgement[1], 'U');
   close(ready[0]);
   close(acknowledgement[1]);
   _exit(
@@ -243,11 +244,6 @@ static void enter_mapped_user_namespace(int ready[2], int acknowledgement[2]) {
   }
   write_byte(ready[1], 'U');
   read_byte(acknowledgement[0], 'U');
-  if (getgroups(0, NULL) != 0) {
-    fail("supplementary groups were inherited into the user namespace");
-  }
-  write_byte(ready[1], 'G');
-  read_byte(acknowledgement[0], 'G');
   if (setresgid(0, 0, 0) < 0 || setresuid(0, 0, 0) < 0) {
     fail_errno("cannot become namespace root");
   }
@@ -256,7 +252,7 @@ static void enter_mapped_user_namespace(int ready[2], int acknowledgement[2]) {
 }
 
 static void map_current_identity(uid_t uid, gid_t gid) {
-  clear_supplementary_groups();
+  drop_supplementary_groups_if_permitted();
   int ready[2];
   int acknowledgement[2];
   if (pipe(ready) < 0 || pipe(acknowledgement) < 0) {

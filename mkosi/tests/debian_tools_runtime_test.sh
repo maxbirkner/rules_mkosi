@@ -99,11 +99,13 @@ runtime_output="$(
                 Groups:*) namespace_groups="$status_line" ;;
             esac
         done < /proc/self/status
+        # Shell reads of sysctl files stop after one byte, so cat reads it whole.
+        overflow_gid="$(cat /proc/sys/kernel/overflowgid)"
         for group in $namespace_groups
         do
             case "$group" in
-                Groups:) ;;
-                *) echo "supplementary group leaked: $group" >&2; exit 1 ;;
+                Groups:|0|"$overflow_gid") ;;
+                *) echo "supplementary group mapped: $group" >&2; exit 1 ;;
             esac
         done
         printf "groups=%s\n" "$namespace_groups"

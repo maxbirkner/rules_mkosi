@@ -14,7 +14,7 @@ Bazel rules for building bootable Linux OS images with [mkosi](https://github.co
 | --- | --- |
 | Bazel | 8 and 9 (the current and previous LTS majors). The minimum is 8.8.2. |
 | Execution platform | Linux x86-64, kernel 5.12 or newer, unprivileged user and mount namespaces under Bazel's Linux sandbox (see [host-kernel contract](docs/design/0004-host-kernel-contract.md)). |
-| Bazel server | Started without supplementary groups (see [below](#run-bazel-without-supplementary-groups)). |
+| Bazel server | Any unprivileged user; neither sudo nor a server without supplementary groups is needed (see [supplementary groups](#supplementary-groups)). |
 | Images | Debian 13 (trixie), amd64. |
 | KVM | Optional; boot tests fall back to TCG. |
 
@@ -76,16 +76,14 @@ rules_mkosi registers its own mkosi, QEMU, and Debian tools toolchains.
 The musl registration does not change the platform of your other targets.
 Unsupported or conflicting mkosi versions fail during module resolution, and only the root module may set the toolchain `name`.
 
-### Run Bazel without supplementary groups
+### Supplementary groups
 
-Image builds refuse to run with supplementary groups, and an unprivileged process cannot drop them.
-Start the Bazel server from a group-free identity; shut down a running server first because it keeps its groups:
-
-```console
-bazel shutdown
-sudo -n setpriv --reuid="$(id -u)" --regid="$(id -g)" --clear-groups \
-  env HOME="$HOME" PATH="$PATH" USER="$USER" bazel build //...
-```
+Image builds run from a normally started Bazel server, including one whose user has supplementary groups such as `docker` or `adm`.
+Bazel's Linux sandbox denies `setgroups`, so no action can drop these groups, and rules_mkosi's user namespaces keep them as unmapped IDs (the overflow GID, usually `nogroup`).
+Unmapped groups cannot own files or be assigned to them, so they do not change image contents, and release builds stay offline and reproducible.
+The Debian tools namespace detaches the host root, so there the groups only apply to the action's mounted inputs and outputs, which the Bazel server reads with the same groups.
+Like any other Bazel action, the image action itself can read host files that the groups make readable.
+For stricter isolation, start the server without supplementary groups, for example through `sudo setpriv --reuid="$(id -u)" --regid="$(id -g)" --clear-groups`.
 
 ## Quick start
 
@@ -359,7 +357,8 @@ The test boots a read-only snapshot of `MkosiImageInfo.raw_image`, waits for the
 - `read_only_shares` maps directory targets to virtio-9p mount tags (1 to 31 characters) that the guest mounts with `mount -t 9p -o trans=virtio,ro <tag> <path>`.
 
 Firmware, serial, QEMU, and boot-evidence logs are written to the test's undeclared outputs.
-With `--clear-groups`, grant KVM access with a user ACL (`sudo setfacl -m "u:$USER:rw" /dev/kvm`) rather than `kvm` group membership.
+Membership in the `kvm` group grants KVM access.
+A Bazel server started without supplementary groups needs a user ACL instead, such as `sudo setfacl -m "u:$USER:rw" /dev/kvm`.
 
 ## Providers
 
@@ -414,7 +413,6 @@ register_toolchains("//toolchains:python_3_14")
 
 | Symptom | Fix |
 | --- | --- |
-| `cannot clear supplementary groups` | [Restart the Bazel server without supplementary groups](#run-bazel-without-supplementary-groups). |
 | `KERNEL_CAPABILITY_FAILURE` | The host does not meet the [host-kernel contract](docs/design/0004-host-kernel-contract.md). Each `FAIL` line names its remediation. Do not disable the Linux sandbox. |
 | `TOOLCHAIN_FAILURE` | A registered toolchain is missing or could not start; check the toolchain setup above. |
 | `NETWORK_FAILURE` | A tracer build could not download packages, although apt retries failed downloads. |
