@@ -2,8 +2,9 @@
 
 Small, unit-tested validators for repository-specific CI checks.
 
-`bin/group-free COMMAND...` runs a command without supplementary groups, as image builds require, and fails if any group remains.
-CI puts `bin` on `PATH` and runs every Bazel command through it.
+`bin/group-free COMMAND...` runs a command without supplementary groups and fails if any group remains.
+`bin/server-identity COMMAND...` runs a command through `group-free` when `SERVER_GROUPS=cleared`, or with the runner's supplementary groups when `SERVER_GROUPS=kept`, and fails if there are none to keep.
+CI puts `bin` on `PATH` and runs every Bazel command through one of them, so image builds are covered from Bazel servers with and without supplementary groups.
 
 | Helper | Checks | Unit tests |
 | --- | --- | --- |
