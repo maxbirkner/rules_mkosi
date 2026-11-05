@@ -96,6 +96,16 @@ Before using `force` on hardware:
 systemd-sysupdate never replaces systemd-boot: [update payloads](sysupdate-ab.md#update-payloads) carry only roots and UKIs, so the signed systemd-boot written at installation stays until you reinstall it.
 Sign the UKIs of later releases with the same db key and ship them with `sysupdate_payload(signed_uki = ...)`.
 
+### Releases that the firmware refuses
+
+Once the keys are enrolled, ship every payload with `sysupdate_payload(signed_uki = ...)`, signed by a key that db trusts.
+systemd-boot (systemd 257) bumps an entry's boot counter before `LoadImage`; when the firmware refuses the UKI, it logs `Error loading …: Access denied` and returns to the firmware instead of falling back to another entry.
+Recovering then needs a reset: a hardware watchdog, firmware that falls through to another boot option, or a power cycle.
+
+- With `boot_attempts = 1`, one reset suffices, because the refused release has no tries left and sorts last.
+- With the default of 3 attempts, it takes three resets.
+- A pinned default entry (`bootctl set-default`, or `default` in `loader.conf`) keeps being chosen; recovering needs console access to the boot menu.
+
 ### Testing enrollment in QEMU
 
 The toolchain's OVMF is built without Secure Boot, so it neither enrolls keys nor refuses unsigned binaries.
