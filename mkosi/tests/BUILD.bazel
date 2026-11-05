@@ -456,6 +456,14 @@ runfiles_sh_test(
     tags = ["manifest"],
 )
 
+py_test(
+    name = "debian_tools_escaped_paths_test",
+    srcs = ["debian_tools_escaped_paths_test.py"],
+    args = ["$(rlocationpath @mkosi_debian_tools//:launcher)"],
+    data = ["@mkosi_debian_tools//:launcher"],
+    tags = ["manifest"],
+)
+
 runfiles_sh_test(
     name = "debian_tools_fd_swap_test",
     src = "debian_tools_fd_swap_test.sh",
