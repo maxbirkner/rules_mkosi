@@ -36,12 +36,11 @@ Release builds fail if mkosi differs from the version rules_mkosi was verified w
 
 ## Setup
 
-rules_mkosi is not yet published to the Bazel Central Registry; use an override.
-Add to the root `MODULE.bazel`:
+rules_mkosi is published to the [Bazel Central Registry](https://registry.bazel.build/modules/rules_mkosi).
+Add to the root `MODULE.bazel`, using the latest version from the [releases](https://github.com/maxbirkner/rules_mkosi/releases):
 
 ```starlark
-bazel_dep(name = "rules_mkosi", version = "0.0.0")
-local_path_override(module_name = "rules_mkosi", path = "/path/to/rules_mkosi")
+bazel_dep(name = "rules_mkosi", version = "0.1.0")
 
 # Static C/C++ toolchain for rules_mkosi's bootstrap executables. Its extension
 # reads only the root module's tags, so the root module must opt in.
@@ -75,6 +74,16 @@ use_repo(debian_tools, "mkosi_debian_snapshot")
 rules_mkosi registers its own mkosi, QEMU, and Debian tools toolchains.
 The musl registration does not change the platform of your other targets.
 Unsupported or conflicting mkosi versions fail during module resolution, and only the root module may set the toolchain `name`.
+
+To use an unreleased commit, keep the `bazel_dep` and add an override:
+
+```starlark
+git_override(
+    module_name = "rules_mkosi",
+    commit = "<commit>",
+    remote = "https://github.com/maxbirkner/rules_mkosi.git",
+)
+```
 
 ### Run Bazel without supplementary groups
 
