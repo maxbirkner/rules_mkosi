@@ -460,6 +460,8 @@ static void close_non_stdio_fds(void) {
 /*
  * A user namespace locks the flags of mounts it inherits, and a bind remount
  * that omits one fails with EPERM, so TARGET's current flags are repeated.
+ * Atime flags are deliberately not passed: the kernel preserves them only when
+ * none is given, and statvfs cannot report strictatime to repeat it.
  */
 static unsigned long locked_mount_flags(const char *target,
                                         const char *failure) {
@@ -470,9 +472,6 @@ static unsigned long locked_mount_flags(const char *target,
       {.status = ST_NOSUID, .mount = MS_NOSUID},
       {.status = ST_NODEV, .mount = MS_NODEV},
       {.status = ST_NOEXEC, .mount = MS_NOEXEC},
-      {.status = ST_NOATIME, .mount = MS_NOATIME},
-      {.status = ST_NODIRATIME, .mount = MS_NODIRATIME},
-      {.status = ST_RELATIME, .mount = MS_RELATIME},
   };
   struct statvfs status;
   if (statvfs(target, &status) < 0) {

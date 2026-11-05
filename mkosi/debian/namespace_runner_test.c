@@ -164,8 +164,8 @@ static void test_pin_checks_validated_identity(void) {
 
 static void expect_mount_flags(const char *path, unsigned long expected,
                                const char *message) {
-  static const unsigned long checked =
-      ST_RDONLY | ST_NOSUID | ST_NODEV | ST_NOEXEC;
+  static const unsigned long checked = ST_RDONLY | ST_NOSUID | ST_NODEV |
+                                       ST_NOEXEC | ST_NODIRATIME | ST_RELATIME;
   struct statvfs status;
   must(statvfs(path, &status) == 0 && (status.f_flag & checked) == expected,
        message);
@@ -173,17 +173,20 @@ static void expect_mount_flags(const char *path, unsigned long expected,
 
 /*
  * A nested user namespace locks the flags of the restricted tmpfs it inherits,
- * as on a sandbox base such as a nosuid,nodev /dev/shm.
+ * as on a sandbox base such as a nosuid,nodev /dev/shm. Its strictatime cannot
+ * be read back with statvfs, so remounts must leave the atime flags alone.
  */
 static void remount_keeps_locked_flags(const void *data) {
   const char *path = data;
   make_private_mount_namespace();
-  must(mount("tmpfs", path, "tmpfs", MS_NOSUID | MS_NODEV | MS_NOEXEC,
+  must(mount("tmpfs", path, "tmpfs",
+             MS_NOSUID | MS_NODEV | MS_NOEXEC | MS_STRICTATIME | MS_NODIRATIME,
              "mode=700") == 0,
        "mount restricted tmpfs");
   map_current_identity(getuid(), getgid());
   must(unshare(CLONE_NEWNS) == 0, "unshare locking mount namespace");
-  static const unsigned long restricted = ST_NOSUID | ST_NODEV | ST_NOEXEC;
+  static const unsigned long restricted =
+      ST_NOSUID | ST_NODEV | ST_NOEXEC | ST_NODIRATIME;
   remount_bind(path, true, "cannot make locked mount read-only");
   expect_mount_flags(path, restricted | ST_RDONLY,
                      "a read-only remount keeps the locked flags");
