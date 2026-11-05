@@ -9,8 +9,8 @@ if [[ $# -ne 1 ]]; then
 fi
 
 tag="$1"
-if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
-  echo "release tags look like v1.2.3 or v1.2.3-rc.1, not $tag" >&2
+if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  echo "release tags look like v1.2.3; prereleases are not supported, not $tag" >&2
   exit 1
 fi
 version="${tag#v}"

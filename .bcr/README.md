@@ -1,11 +1,12 @@
 # Bazel Central Registry publishing
 
 The files in this directory are templates for [`bazel-contrib/publish-to-bcr`](https://github.com/bazel-contrib/publish-to-bcr).
-Pushing a `v*.*.*` tag runs [`release.yml`](../.github/workflows/release.yml), which:
+Pushing a `vMAJOR.MINOR.PATCH` tag runs [`release.yml`](../.github/workflows/release.yml), which:
 
 1. Builds `rules_mkosi-<tag>.tar.gz` with [`release_prep.sh`](../.github/workflows/release_prep.sh), attests it, and uploads it to a draft GitHub release.
-2. Runs [`publish.yml`](../.github/workflows/publish.yml), which generates the registry entry from these templates, attests it, pushes it to the registry fork, and opens a draft pull request against [`bazelbuild/bazel-central-registry`](https://github.com/bazelbuild/bazel-central-registry).
-3. Publishes the draft GitHub release.
+2. Runs [`publish.yml`](../.github/workflows/publish.yml), which generates the registry entry from these templates, attests it, pushes it to the registry fork, opens a draft pull request against [`bazelbuild/bazel-central-registry`](https://github.com/bazelbuild/bazel-central-registry), and publishes the draft GitHub release.
+
+Prerelease tags such as `v1.2.3-rc.1` are not supported: they do not trigger the workflow, and `release_prep.sh` rejects them.
 
 ## One-time setup
 
@@ -20,7 +21,8 @@ Pushing a `v*.*.*` tag runs [`release.yml`](../.github/workflows/release.yml), w
 2. Tag and push it, for example `git tag v0.1.0 <commit> && git push origin v0.1.0`.
 3. Wait for the BCR presubmit on the draft pull request, then mark it ready for review; as a listed maintainer, that approves the entry.
 
-If publishing fails after the archive was uploaded, fix the cause and run `publish.yml` manually with the tag and the ID of the failed `Release` run.
+If publishing fails after the archive was uploaded, fix the cause and use **Re-run failed jobs** on the `Release` run.
+If that run can no longer be re-run, run `publish.yml` manually with the tag and the `Release` run ID; it also publishes the draft release.
 Never replace an uploaded archive, because the registry entry pins its integrity.
 
 ## Presubmit

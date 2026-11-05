@@ -104,7 +104,7 @@ A release requires:
 5. A test module in the extracted source archive.
 6. A pull request to [`bazelbuild/bazel-central-registry`](https://github.com/bazelbuild/bazel-central-registry).
 
-A `v*.*.*` tag runs `.github/workflows/release.yml`: [`bazel-contrib/.github` `release_ruleset`](https://github.com/bazel-contrib/.github) builds and attests the archive with `release_prep.sh`, `publish-to-bcr` opens the registry pull request, and the draft GitHub release is published afterwards.
+A `vMAJOR.MINOR.PATCH` tag runs `.github/workflows/release.yml`: [`bazel-contrib/.github` `release_ruleset`](https://github.com/bazel-contrib/.github) builds and attests the archive with `release_prep.sh`, `publish-to-bcr` opens the registry pull request, and the draft GitHub release is published afterwards.
 Release notes are generated from pull request titles.
 The [`.bcr` README](../../.bcr/README.md) lists the maintainer setup and release steps.
 
