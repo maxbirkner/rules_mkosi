@@ -67,6 +67,7 @@ secure_boot_signed_image(
   They are copied to `/loader/keys/auto/`, and `loader.conf` gets `secure-boot-enroll` set to `secure_boot_enroll`.
   The build checks their structure and fails unless db holds, or holds an issuer of, the signer of every signed binary that the firmware or systemd-boot can start: the imported ones and binaries that were already signed, such as a distribution-signed systemd-boot or shim, whose embedded certificates may provide intermediates.
   Startable binaries are the `*.efi` files and the `linux` and `efi` files of `loader/entries/*.conf`; other files, such as a kernel that kernel-install left on the ESP, are not checked.
+  For a shim chain, db must therefore also hold the vendor CA that signed the second stage, not only the CA that signed shim.
   It does not verify the PKCS#7 signatures of the `.auth` files, which the firmware checks during enrollment.
 - Only the files of the ESP change.
   The GPT, the other partitions, and the FAT volume ID, label and geometry stay as built, so the result is deterministic for the same signed inputs.
@@ -104,7 +105,8 @@ Recovering then needs a reset: a hardware watchdog, firmware that falls through 
 
 - With `boot_attempts = 1`, one reset suffices, because the refused release has no tries left and sorts last.
 - With the default of 3 attempts, it takes three resets.
-- A pinned default entry (`bootctl set-default`, or `default` in `loader.conf`) keeps being chosen; recovering needs console access to the boot menu.
+- A default that names the refused entry's exact ID (with `bootctl set-default` or `default` in `loader.conf`), or `default @saved`, keeps selecting it, so recovering needs console access to the boot menu.
+  Glob defaults such as the default `*` recover, because entries without tries left sort last.
 
 ### Testing enrollment in QEMU
 

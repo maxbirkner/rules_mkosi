@@ -191,12 +191,16 @@ class SignedImageTest(unittest.TestCase):
         extra = {"EFI/tools/extra.efi": untrusted}
         kernel = {"vmlinuz-6": untrusted}
         type1 = kernel | {"loader/entries/os.conf": b"title OS\nlinux /vmlinuz-6\n"}
+        type1_tab = kernel | {"loader/entries/os.conf": b"title OS\nlinux\t/vmlinuz-6\n"}
+        type1_quoted = kernel | {"loader/entries/os.conf": b'title OS\nlinux "/vmlinuz-6"\n'}
         for name, files, keys, untrusted_path in [
             ("trusted-pre-signed", {"EFI/tools/extra.efi": fixture.signed[fixture.absent]}, fixture.keys, None),
             ("untrusted-pre-signed", extra, fixture.keys, "EFI/tools/extra.efi"),
             ("untrusted-pre-signed-without-keys", extra, None, None),
             ("untrusted-kernel-that-nothing-starts", kernel, fixture.keys, None),
             ("untrusted-kernel-of-a-boot-entry", type1, fixture.keys, "vmlinuz-6"),
+            ("untrusted-kernel-of-a-tab-separated-boot-entry", type1_tab, fixture.keys, "vmlinuz-6"),
+            ("untrusted-kernel-of-a-quoted-boot-entry", type1_quoted, fixture.keys, "vmlinuz-6"),
         ]:
             with self.subTest(name):
                 work = WORK / (name + "-disk")

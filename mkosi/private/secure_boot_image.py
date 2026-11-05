@@ -61,6 +61,22 @@ def _is_unsigned_pe(data):
     return True
 
 
+def _entry_binaries(text):
+    """Returns the lowercase ESP paths of the linux and efi keys of a boot loader entry.
+
+    Like systemd-boot, splits each line at the first space or tab and strips one pair of surrounding double quotes.
+    """
+    paths = []
+    for line in text.splitlines():
+        fields = line.split(None, 1)
+        if len(fields) == 2 and fields[0] in ("linux", "efi"):
+            value = fields[1].strip()
+            if len(value) >= 2 and value[0] == value[-1] == '"':
+                value = value[1:-1]
+            paths.append(value.replace("\\", "/").lstrip("/").lower())
+    return paths
+
+
 def _startable(tree, esp_paths):
     """Returns the esp_paths that the firmware or systemd-boot can start.
 
@@ -70,10 +86,7 @@ def _startable(tree, esp_paths):
     referenced = set()
     for esp_path in esp_files.tree_files(tree):
         if esp_path.lower().startswith("loader/entries/") and esp_path.lower().endswith(".conf"):
-            for line in (tree / esp_path).read_text(encoding="utf-8", errors="replace").splitlines():
-                key, _, value = line.strip().partition(" ")
-                if key in ("linux", "efi"):
-                    referenced.add(value.strip().replace("\\", "/").lstrip("/").lower())
+            referenced.update(_entry_binaries((tree / esp_path).read_text(encoding="utf-8", errors="replace")))
     return [path for path in esp_paths if path.lower().endswith(".efi") or path.lower() in referenced]
 
 
