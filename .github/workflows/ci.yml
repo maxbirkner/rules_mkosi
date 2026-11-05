@@ -50,6 +50,8 @@ jobs:
         # module-local .cache/bazel-disk, so only the consumer saves a disk cache.
         # The root and audit suites keep the runner's supplementary groups, as a
         # normally started Bazel server does; the consumer suite clears them.
+        # The consumer suite also sandboxes actions on the nosuid,nodev
+        # /dev/shm, whose locked mount flags the namespace runner must keep.
         include:
           - suite: root
             label: root suite
@@ -63,6 +65,7 @@ jobs:
             label: consumer suite
             module: e2e/smoke
             server-groups: cleared
+            sandbox-base: /dev/shm
             cache-save: true
             disk-cache: consumer
             external-cache: consumer
@@ -156,6 +159,13 @@ jobs:
           else
             bazel_configs=(--config=qualified)
             manifest_configs=(--config=manifest)
+          fi
+          sandbox_base="${{ matrix.sandbox-base }}"
+          if [ -n "$sandbox_base" ]; then
+            findmnt --noheadings --output OPTIONS --target "$sandbox_base" |
+              grep -E '(^|,)nosuid(,|$)' | grep -E '(^|,)nodev(,|$)'
+            bazel_configs+=(--sandbox_base="$sandbox_base")
+            manifest_configs+=(--sandbox_base="$sandbox_base")
           fi
           # The preflight server ran from the repository root, and every module
           # in this job shares the output base configured by setup-bazel.
