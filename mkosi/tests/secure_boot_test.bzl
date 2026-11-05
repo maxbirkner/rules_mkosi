@@ -9,6 +9,7 @@ load(
     "SecureBootSigningRequestInfo",
     "secure_boot_ephemeral_test_fixture",
     "secure_boot_import_response",
+    "secure_boot_signed_image",
     "secure_boot_signing_request",
 )
 load(":analysis_test_helpers.bzl", "expected_failure_test", "option_value", "single_action")
@@ -36,9 +37,10 @@ def _fixture_action_test_impl(ctx):
     asserts.equals(env, [image.uki.path, extract.outputs.to_list()[0].path], unsigned)
     fixture = target[SecureBootEphemeralTestFixtureInfo]
     asserts.equals(env, 2, len(fixture.signed_binaries))
+    asserts.equals(env, ["PK.auth", "KEK.auth", "db.auth"], [file.basename for file in fixture.auto_enroll_keys])
     asserts.equals(
         env,
-        sorted([fixture.certificate] + fixture.signed_binaries),
+        sorted([fixture.certificate] + fixture.signed_binaries + fixture.auto_enroll_keys),
         sorted(target[DefaultInfo].files.to_list()),
     )
     for requirement in ["no-cache", "no-remote", "no-remote-cache", "no-remote-exec"]:
@@ -97,6 +99,59 @@ _import_test = analysistest.make(
     attrs = {"fixture": attr.label(mandatory = True, providers = [SecureBootEphemeralTestFixtureInfo])},
 )
 
+def _signed_image_test_impl(ctx):
+    env = analysistest.begin(ctx)
+    target = analysistest.target_under_test(env)
+    image = ctx.attr.image[MkosiImageInfo]
+    signed = target[MkosiImageInfo]
+    action = single_action(env, "SecureBootSignedImage")
+    asserts.equals(env, "force", option_value(action.argv, "--secure-boot-enroll"))
+    keys = [action.argv[index + 1] for index, value in enumerate(action.argv) if value == "--auto-enroll-key"]
+    asserts.equals(env, ["PK.auth", "KEK.auth", "db.auth"], [key.split("/")[-1] for key in keys])
+    asserts.equals(env, 2, len([value for value in action.argv if value == "--signed"]))
+    asserts.true(env, image.raw_image in action.inputs.to_list())
+    outputs = target[DefaultInfo].files.to_list()
+    asserts.equals(env, [signed.raw_image] + [file for file in outputs if file.extension == "json"], outputs)
+    asserts.equals(env, "secure_boot_signed_image_subject.raw", signed.raw_image.basename)
+    asserts.equals(env, signed.raw_image, signed.image)
+    for field in ("uki", "partition_metadata", "root_hash", "image_id", "firmware"):
+        asserts.equals(env, getattr(image, field), getattr(signed, field), field)
+    return analysistest.end(env)
+
+_signed_image_test = analysistest.make(
+    _signed_image_test_impl,
+    attrs = {"image": attr.label(mandatory = True, providers = [MkosiImageInfo])},
+)
+
+def _signed_image_tests(image):
+    """Declares tests of secure_boot_signed_image and returns their labels."""
+    secure_boot_signed_image(
+        name = "secure_boot_signed_image_subject",
+        auto_enroll_keys = [":secure_boot_ephemeral_fixture"],
+        image = image,
+        secure_boot_enroll = "force",
+        signed_binaries = [":secure_boot_uki_import_subject", ":secure_boot_esp_file_import_subject"],
+        tags = ["manual"],
+    )
+    _signed_image_test(
+        name = "secure_boot_signed_image_test",
+        image = image,
+        target_under_test = ":secure_boot_signed_image_subject",
+    )
+    secure_boot_signed_image(
+        name = "secure_boot_enroll_without_keys_subject",
+        image = image,
+        secure_boot_enroll = "force",
+        signed_binaries = [":secure_boot_uki_import_subject"],
+        tags = ["manual"],
+    )
+    expected_failure_test(
+        name = "secure_boot_enroll_without_keys_test",
+        expected_error = "secure_boot_enroll requires auto_enroll_keys",
+        target_under_test = ":secure_boot_enroll_without_keys_subject",
+    )
+    return [":secure_boot_enroll_without_keys_test", ":secure_boot_signed_image_test"]
+
 def _request_tests(image):
     """Declares request tests for the UKI and systemd-boot of image and an import test; returns their labels."""
     for subject, esp_path in (("uki", ""), ("esp_file", _SYSTEMD_BOOT)):
@@ -113,12 +168,13 @@ def _request_tests(image):
             image = image,
             target_under_test = ":secure_boot_%s_request_subject" % subject,
         )
-    secure_boot_import_response(
-        name = "secure_boot_esp_file_import_subject",
-        request = ":secure_boot_esp_file_request_subject",
-        signed_binary = ":secure_boot_ephemeral_fixture",
-        tags = ["manual"],
-    )
+    for subject in ("uki", "esp_file"):
+        secure_boot_import_response(
+            name = "secure_boot_%s_import_subject" % subject,
+            request = ":secure_boot_%s_request_subject" % subject,
+            signed_binary = ":secure_boot_ephemeral_fixture",
+            tags = ["manual"],
+        )
     _import_test(
         name = "secure_boot_esp_file_import_test",
         fixture = ":secure_boot_ephemeral_fixture",
@@ -169,5 +225,8 @@ def secure_boot_test_suite(name, image):
     )
     native.test_suite(
         name = name,
-        tests = [":secure_boot_fixture_action_test"] + _request_tests(image) + _invalid_esp_path_tests(image),
+        tests = (
+            [":secure_boot_fixture_action_test"] + _request_tests(image) + _invalid_esp_path_tests(image) +
+            _signed_image_tests(image)
+        ),
     )

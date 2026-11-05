@@ -12,9 +12,11 @@ import runpy
 import shutil
 import struct
 import subprocess
+import uuid
 from pathlib import Path
 
 _load_sibling = runpy.run_path(str(Path(__file__).with_name("sibling_loader.py")))["load_sibling"]
+efi_auth = _load_sibling(__file__, "efi_auth")
 esp_files = _load_sibling(__file__, "esp_files")
 file_hashing = _load_sibling(__file__, "file_hashing")
 launcher_tool = _load_sibling(__file__, "launcher_tool")
@@ -568,20 +570,12 @@ def _sbsign(args, key, unsigned, signed):
     )
 
 
-def _create_ephemeral_signer(args, key):
+def _create_key_pair(openssl, key, certificate, common_name):
     run_tool(
-        args.openssl,
-        "/usr/bin/openssl",
-        "genpkey",
-        "-algorithm",
-        "RSA",
-        "-pkeyopt",
-        "rsa_keygen_bits:2048",
-        "-out",
-        key,
+        openssl, "/usr/bin/openssl", "genpkey", "-algorithm", "RSA", "-pkeyopt", "rsa_keygen_bits:2048", "-out", key
     )
     run_tool(
-        args.openssl,
+        openssl,
         "/usr/bin/openssl",
         "req",
         "-new",
@@ -589,31 +583,88 @@ def _create_ephemeral_signer(args, key):
         "-key",
         key,
         "-out",
-        Path(args.certificate),
+        Path(certificate),
         "-days",
         "1",
         "-subj",
-        "/CN=rules_mkosi ephemeral test signer/",
+        "/CN=rules_mkosi ephemeral test {}/".format(common_name),
     )
 
 
+def _detached_signed_data(openssl, scratch, signer, payload):
+    """Returns the DER PKCS#7 SignedData, without its ContentInfo, of a detached signature over payload."""
+    source = scratch / "payload.bin"
+    signature = scratch / "signature.der"
+    source.write_bytes(payload)
+    key, certificate = signer
+    run_tool(
+        openssl,
+        "/usr/bin/openssl",
+        "smime",
+        "-sign",
+        "-binary",
+        "-noattr",
+        "-md",
+        "sha256",
+        "-outform",
+        "DER",
+        "-signer",
+        certificate,
+        "-inkey",
+        key,
+        "-in",
+        source,
+        "-out",
+        signature,
+    )
+    content_info, _ = der_read(signature.read_bytes())
+    children = content_info.children()
+    if len(children) != 2 or der_oid(children[0]) != OID_SIGNED_DATA:
+        raise ValueError("OpenSSL did not produce PKCS#7 SignedData")
+    return children[1].value
+
+
+def _write_auto_enroll_keys(args, scratch, signers):
+    """Writes PK.auth (self-signed), KEK.auth (signed by PK) and db.auth (signed by KEK) to args.auto_enroll_dir."""
+    owner = uuid.UUID("00000000-0000-4000-8000-000000000157")
+    timestamp = efi_auth.efi_time(2026)
+    output = Path(args.auto_enroll_dir)
+    output.mkdir(parents=True, exist_ok=True)
+    for name, signer in (("PK", "PK"), ("KEK", "PK"), ("db", "KEK")):
+        data = efi_auth.signature_list(certificate_der(signers[name][1]), owner)
+        payload = efi_auth.signed_payload(name, timestamp, data)
+        signed_data = _detached_signed_data(args.openssl, scratch, signers[signer], payload)
+        (output / (name + ".auth")).write_bytes(efi_auth.auth_file(timestamp, signed_data, data))
+
+
 def ephemeral_fixture(args):
+    """Signs binaries with a new db key; with --auto-enroll-dir, also writes auto-enrollment files for new PK and KEK.
+
+    Every private key stays in the scratch directory, which is overwritten and removed before returning.
+    """
     scratch = Path(args.scratch)
     if scratch.exists():
         shutil.rmtree(scratch)
     scratch.mkdir(mode=0o700)
-    key = scratch / "ephemeral-private-key.pem"
+    signers = {"db": (scratch / "db-private-key.pem", Path(args.certificate))}
+    if args.auto_enroll_dir:
+        signers["PK"] = (scratch / "pk-private-key.pem", scratch / "pk.pem")
+        signers["KEK"] = (scratch / "kek-private-key.pem", scratch / "kek.pem")
     try:
-        _create_ephemeral_signer(args, key)
+        for name, (key, certificate) in signers.items():
+            _create_key_pair(args.openssl, key, certificate, name)
         for index, (unsigned, signed) in enumerate(args.sign):
             # Sandboxed inputs are symlinks that the tools namespace cannot follow.
             copy = scratch / "unsigned-{}.efi".format(index)
             shutil.copyfile(unsigned, copy)
-            _sbsign(args, key, copy, signed)
+            _sbsign(args, signers["db"][0], copy, signed)
             copy.unlink()
+        if args.auto_enroll_dir:
+            _write_auto_enroll_keys(args, scratch, signers)
     finally:
-        if key.exists():
-            key.write_bytes(b"\0" * key.stat().st_size)
+        for key, _ in signers.values():
+            if key.exists():
+                key.write_bytes(b"\0" * key.stat().st_size)
         shutil.rmtree(scratch, ignore_errors=True)
 
 
@@ -649,20 +700,26 @@ def _parser():
     fixture = commands.add_parser("ephemeral-fixture")
     for name in ("openssl", "sbsign", "certificate", "scratch"):
         fixture.add_argument("--" + name, required=True)
+    fixture.add_argument("--auto-enroll-dir")
     fixture.add_argument("--sign", nargs=2, action="append", required=True, metavar=("UNSIGNED", "SIGNED"))
     fixture.set_defaults(function=ephemeral_fixture)
     return parser
 
 
-def main():
-    args = _parser().parse_args()
+def report_errors(function, args):
+    """Calls function(args) and turns an invalid input or a failed tool into a SECURE_BOOT_INVALID exit."""
     try:
-        args.function(args)
+        function(args)
     except (OSError, ValueError, KeyError, subprocess.CalledProcessError, json.JSONDecodeError) as error:
         detail = getattr(error, "stderr", None)
         if isinstance(detail, bytes):
             detail = detail.decode(errors="replace")
         raise SystemExit("SECURE_BOOT_INVALID: {}".format(detail or error)) from error
+
+
+def main():
+    args = _parser().parse_args()
+    report_errors(args.function, args)
 
 
 if __name__ == "__main__":

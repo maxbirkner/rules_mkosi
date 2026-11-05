@@ -14,6 +14,7 @@ load(
     "qemu_seabios_boot_test",
     "secure_boot_ephemeral_test_fixture",
     "secure_boot_import_response",
+    "secure_boot_signed_image",
     "secure_boot_signing_request",
     "sysupdate_payload",
     "sysupdate_transfers",
@@ -91,6 +92,7 @@ behavior_targets(
         ":release_demo_reproducibility_test",
         ":release_demo_rootfs_payload_test",
         ":secure_boot_signed_binaries_test",
+        ":secure_boot_signed_image_test",
         ":sysupdate_base_public_provider_test",
         ":sysupdate_lifecycle_test",
         ":sysupdate_payload_public_provider_test",
@@ -869,6 +871,39 @@ py_test(
         ":sysupdate_v1_uki_signing_request",
     ],
     main = "secure_boot_signed_binaries_test.py",
+)
+
+# The installable disk image of release 1: signed systemd-boot and UKI, and keys that systemd-boot enrolls in Setup Mode.
+secure_boot_signed_image(
+    name = "sysupdate_v1_secure_boot",
+    auto_enroll_keys = [":secure_boot_test_signer"],
+    image = ":sysupdate_v1",
+    secure_boot_enroll = "force",
+    signed_binaries = [
+        ":sysupdate_v1_signed_systemd_boot",
+        ":sysupdate_v1_signed_uki",
+    ],
+)
+
+py_test(
+    name = "secure_boot_signed_image_test",
+    srcs = ["secure_boot_signed_image_test.py"],
+    args = [
+        "$(rootpaths :sysupdate_v1_secure_boot)",
+        "--",
+        "$(rootpaths :sysupdate_v1_signed_systemd_boot)",
+        "--",
+        "$(rootpaths :sysupdate_v1_signed_uki)",
+        "--",
+        "$(rootpaths :secure_boot_test_signer)",
+    ],
+    data = [
+        ":secure_boot_test_signer",
+        ":sysupdate_v1_secure_boot",
+        ":sysupdate_v1_signed_systemd_boot",
+        ":sysupdate_v1_signed_uki",
+    ],
+    main = "secure_boot_signed_image_test.py",
 )
 
 base_public_api_test(

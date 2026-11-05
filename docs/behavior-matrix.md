@@ -100,6 +100,10 @@ Typed providers separate the unsigned binary (the UKI or a PE file read from the
 Production keys never enter Bazel; the ephemeral test key stays inside one uncached action that never runs remotely.
 Import checks the exact signer, the SHA-256 signature, and byte equivalence to the request; signed responses are not reproducible.
 
+<!-- behavior:BHV-SECURE-BOOT-IMAGE -->
+`secure_boot_signed_image` rewrites only the ESP of a copy of a UEFI release image: it replaces every copy of each requested unsigned binary with its verified signed binary, adds validated `.auth` files to `/loader/keys/auto/` and sets `secure-boot-enroll` in `loader.conf`.
+It rejects signed binaries without an unsigned copy, remaining unsigned PE files, missing PK, KEK or db files, malformed authenticated variables, and a db that does not trust every signer; the output is deterministic for the same inputs.
+
 <!-- behavior:BHV-SYSUPDATE-PAYLOAD -->
 `sysupdate_payload` requires a versioned image with an unsigned UKI and dm-verity, optionally substitutes a signed UKI bound to that image, names root and verity artifacts by their root-hash UUIDs, trims them to the bytes that dm-verity covers, rejects mismatching GPT UUIDs, writes `SHA256SUMS`, and exposes `SysupdatePayloadInfo`.
 

@@ -13,6 +13,9 @@ import unittest
 from types import SimpleNamespace
 from unittest import mock
 
+sys.path.insert(0, str(pathlib.Path(__file__).parent))
+import secure_boot_fixtures
+
 TOOL, DEBIAN_TOOLS = sys.argv[1:3]
 SPEC = importlib.util.spec_from_file_location("secure_boot", TOOL)
 assert SPEC is not None and SPEC.loader is not None
@@ -20,38 +23,16 @@ SECURE_BOOT = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(SECURE_BOOT)
 
 
-def minimal_pe(marker=b"requested UKI"):
-    data = bytearray(0x400)
-    data[:2] = b"MZ"
-    struct.pack_into("<I", data, 0x3C, 0x80)
-    data[0x80:0x84] = b"PE\0\0"
-    struct.pack_into("<HHIIIHH", data, 0x84, 0x8664, 1, 0, 0, 0, 0xF0, 0x22)
-    optional = 0x98
-    struct.pack_into("<H", data, optional, 0x20B)
-    struct.pack_into("<I", data, optional + 16, 0x1000)
-    struct.pack_into("<Q", data, optional + 24, 0x400000)
-    struct.pack_into("<II", data, optional + 32, 0x1000, 0x200)
-    struct.pack_into("<I", data, optional + 56, 0x2000)
-    struct.pack_into("<I", data, optional + 60, 0x200)
-    struct.pack_into("<H", data, optional + 68, 10)
-    struct.pack_into("<I", data, optional + 108, 16)
-    section = optional + 0xF0
-    data[section : section + 8] = b".linux\0\0"
-    struct.pack_into("<IIII", data, section + 8, 0x200, 0x1000, 0x200, 0x200)
-    data[0x200 : 0x200 + len(marker)] = marker
-    return bytes(data)
-
-
 class SecureBootBoundaryTest(unittest.TestCase):
     def setUp(self):
         self.work = pathlib.Path("secure-boot-boundary-work") / self._testMethodName
         self.work.mkdir(parents=True, exist_ok=True)
         self.unsigned = self.work / "unsigned.efi"
-        self.unsigned.write_bytes(minimal_pe())
+        self.unsigned.write_bytes(secure_boot_fixtures.minimal_pe())
         self.cert = self.work / "certificate.pem"
         self.signed = self.work / "signed.efi"
         self.other_unsigned = self.work / "same-layout-other.efi"
-        self.other_unsigned.write_bytes(minimal_pe(b"other payload"))
+        self.other_unsigned.write_bytes(secure_boot_fixtures.minimal_pe(b"other payload"))
         self.other_signed = self.work / "same-layout-other-signed.efi"
         self.sign(self.cert, "private-scratch", (self.unsigned, self.signed), (self.other_unsigned, self.other_signed))
         self.request = self.work / "request.json"
@@ -173,8 +154,9 @@ class SecureBootBoundaryTest(unittest.TestCase):
             self.assertNotEqual(self.verify(request=path, request_digest=digest).returncode, 0, name)
 
     def test_extract_copies_an_unsigned_pe_from_the_esp(self):
-        disk, metadata = self.disk_with_esp(
-            {"EFI/systemd/systemd-bootx64.efi": self.unsigned, "EFI/signed.efi": self.signed}
+        files = {"EFI/systemd/systemd-bootx64.efi": self.unsigned, "EFI/signed.efi": self.signed}
+        disk, metadata = secure_boot_fixtures.disk_with_esp(
+            SECURE_BOOT.launcher_tool.run_tool, DEBIAN_TOOLS, self.work, files
         )
         extracted = self.work / "extracted.efi"
         result = self.extract(disk, metadata, "EFI/systemd/systemd-bootx64.efi", extracted)
@@ -184,27 +166,6 @@ class SecureBootBoundaryTest(unittest.TestCase):
         self.assertNotEqual(self.extract(disk, metadata, "EFI/missing.efi", self.work / "m.efi").returncode, 0)
         metadata.write_text(json.dumps({"partitions": []}))
         self.assertIn("exactly one EFI system partition", self.extract(disk, metadata, "EFI/x.efi", extracted).stderr)
-
-    def disk_with_esp(self, files):
-        """Returns a disk with a FAT ESP at 1 MiB holding files, keyed by ESP path, and its partition metadata."""
-        tree = self.work / "esp-tree"
-        for esp_path, source in files.items():
-            (tree / esp_path).parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(source, tree / esp_path)
-        esp = self.work / "esp.img"
-        launcher_tool = SECURE_BOOT.launcher_tool
-        launcher_tool.run_tool(DEBIAN_TOOLS, "/usr/sbin/mkfs.fat", "-C", esp, "8192")
-        launcher_tool.run_tool(DEBIAN_TOOLS, "/usr/bin/mcopy", "-s", "-i", esp, tree / "EFI", "::/")
-        disk = self.work / "disk.raw"
-        disk.write_bytes(bytes(1 << 20) + esp.read_bytes() + bytes(1 << 20))
-        metadata = self.work / "partitions.json"
-        partition = {
-            "start_bytes": 1 << 20,
-            "size_bytes": esp.stat().st_size,
-            "type_guid": SECURE_BOOT.esp_files.gpt.ESP,
-        }
-        metadata.write_text(json.dumps({"partitions": [partition]}))
-        return disk, metadata
 
     def extract(self, disk, metadata, esp_path, output):
         return self.run_tool(
@@ -316,7 +277,7 @@ class SecureBootBoundaryTest(unittest.TestCase):
             "truncated-optional": lambda data: struct.pack_into("<H", data, 0x80 + 20, 112),
             "bad-headers": lambda data: struct.pack_into("<I", data, 0x98 + 60, 0x180),
         }.items():
-            candidate = bytearray(minimal_pe())
+            candidate = bytearray(secure_boot_fixtures.minimal_pe())
             mutate(candidate)
             path = self.work / (name + ".efi")
             path.write_bytes(candidate)
@@ -342,7 +303,7 @@ class SecureBootBoundaryTest(unittest.TestCase):
 
     def test_wrong_certificate_algorithm_request_and_different_uki_are_rejected(self):
         other_unsigned = self.work / "other.efi"
-        other_unsigned.write_bytes(minimal_pe(b"different valid UKI"))
+        other_unsigned.write_bytes(secure_boot_fixtures.minimal_pe(b"different valid UKI"))
         other_cert = self.work / "other.pem"
         other_signed = self.work / "other-signed.efi"
         self.sign(other_cert, "other-private", (other_unsigned, other_signed))
