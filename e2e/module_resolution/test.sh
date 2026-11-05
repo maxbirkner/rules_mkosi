@@ -8,6 +8,11 @@ lockfile_mode="${LOCKFILE_MODE:-off}"
 
 cd "$root"
 
+if ! grep -Fqx 'import %workspace%/../../../.bazelrc.ci' .bazelrc; then
+    echo "$fixture/.bazelrc must import .bazelrc.ci, which retries repository downloads" >&2
+    exit 1
+fi
+
 link_graph() {
     "$bazel_command" --nosystem_rc --nohome_rc aquery --lockfile_mode="$lockfile_mode" \
         --output=text "$@"
