@@ -55,6 +55,7 @@ filegroup(
         "mkosi_runner/command_line.py",
         "mkosi_runner/mkosi_contract.py",
         "mkosi_runner/mkosi_options.py",
+        "mkosi_runner/network_sandbox.py",
         "mkosi_runner/release_patches.py",
         "mkosi_runner/release_sandbox.py",
         "mkosi_runner/release_validation.py",

@@ -20,12 +20,12 @@ import re
 import subprocess
 import sys
 import urllib.parse
-import urllib.request
 
 # The runfiles path, not the source tree that it links to, so that bytecode caches stay out of the source tree.
 sys.path.insert(0, str(pathlib.Path(__file__).parent))
 
 import generate_lock
+import http_download
 
 PROVENANCE = "mkosi/debian/provenance.bzl"
 SPEC = "mkosi/debian/debian13.spec.json"
@@ -79,8 +79,8 @@ def python_pin(release, version, sums):
 
 
 def _download_python_pin(release, version):
-    with urllib.request.urlopen(_PYTHON_RELEASES.format(release) + "SHA256SUMS", timeout=60) as response:
-        return python_pin(release, version, response.read().decode("utf-8"))
+    sums = http_download.download(_PYTHON_RELEASES.format(release) + "SHA256SUMS", "rules_mkosi-refresh", timeout=60)
+    return python_pin(release, version, sums.decode("utf-8"))
 
 
 def _update(path, transform):

@@ -36,9 +36,11 @@ import pathlib
 import re
 import runpy
 import sys
-import time
-import urllib.error
-import urllib.request
+
+# Bazel runs the binary with safe paths, so the helper next to it must be put on sys.path explicitly.
+sys.path.insert(0, str(pathlib.Path(__file__).parent))
+
+import http_download
 
 ARCHITECTURE = "amd64"
 INDEX_ARCHITECTURES = (ARCHITECTURE, "all")
@@ -565,21 +567,12 @@ def load_specification(data):
     )
 
 
-def fetch(url, attempts=4):
-    """Download ``url`` with bounded retries for transient snapshot failures."""
-    request = urllib.request.Request(url, headers={"User-Agent": "rules_mkosi-generate-lock"})
-    for attempt in range(attempts):
-        try:
-            with urllib.request.urlopen(request, timeout=300) as response:
-                return response.read()
-        except (urllib.error.URLError, TimeoutError, ConnectionError) as error:
-            status = getattr(error, "code", None)
-            if status is not None and status < 500 and status != 429:
-                raise LockError("cannot download %s: %s" % (url, error)) from error
-            if attempt + 1 == attempts:
-                raise LockError("cannot download %s: %s" % (url, error)) from error
-            time.sleep(2**attempt)
-    raise AssertionError("unreachable")
+def fetch(url):
+    """Download ``url``, retrying while the snapshot service throttles or fails transiently."""
+    try:
+        return http_download.download(url, "rules_mkosi-generate-lock", timeout=300)
+    except http_download.DownloadError as error:
+        raise LockError(str(error)) from error
 
 
 def _metadata_entry(name, path, data, snapshot_url, **extra):

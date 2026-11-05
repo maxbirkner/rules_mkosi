@@ -48,7 +48,7 @@ Module-resolution fixtures have no lockfiles.
 
 ### Configs and tags
 
-`.bazelrc.ci` defines execution-policy configs; plain `bazel test //...` runs the complete suite on a capable host.
+`.bazelrc.ci` defines execution-policy configs and retries for repository downloads; plain `bazel test //...` runs the complete suite on a capable host.
 
 | Config | Use |
 | --- | --- |
