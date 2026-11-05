@@ -17,6 +17,7 @@
 #include <sys/mount.h>
 #include <sys/prctl.h>
 #include <sys/stat.h>
+#include <sys/statvfs.h>
 #include <sys/syscall.h>
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -456,9 +457,39 @@ static void close_non_stdio_fds(void) {
   }
 }
 
+/*
+ * A user namespace locks the flags of mounts it inherits, and a bind remount
+ * that omits one fails with EPERM, so TARGET's current flags are repeated.
+ * Atime flags are deliberately not passed: the kernel preserves them only when
+ * none is given, and statvfs cannot report strictatime to repeat it.
+ */
+static unsigned long locked_mount_flags(const char *target,
+                                        const char *failure) {
+  static const struct {
+    unsigned long status;
+    unsigned long mount;
+  } flag_pairs[] = {
+      {.status = ST_NOSUID, .mount = MS_NOSUID},
+      {.status = ST_NODEV, .mount = MS_NODEV},
+      {.status = ST_NOEXEC, .mount = MS_NOEXEC},
+  };
+  struct statvfs status;
+  if (statvfs(target, &status) < 0) {
+    fail_errno(failure);
+  }
+  unsigned long flags = 0;
+  for (size_t index = 0; index < ARRAY_SIZE(flag_pairs); ++index) {
+    if ((status.f_flag & flag_pairs[index].status) != 0) {
+      flags |= flag_pairs[index].mount;
+    }
+  }
+  return flags;
+}
+
 static void remount_bind(const char *target, bool readonly,
                          const char *failure) {
-  unsigned long flags = MS_BIND | MS_REMOUNT;
+  unsigned long flags =
+      MS_BIND | MS_REMOUNT | locked_mount_flags(target, failure);
   if (readonly) {
     flags |= MS_RDONLY;
   }

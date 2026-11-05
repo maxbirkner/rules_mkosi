@@ -6,6 +6,11 @@ Small, unit-tested validators for repository-specific CI checks.
 `bin/server-identity COMMAND...` runs a command through `group-free` when `SERVER_GROUPS=cleared`, or with the runner's supplementary groups when `SERVER_GROUPS=kept`, and fails if there are none to keep.
 CI puts `bin` on `PATH` and runs every Bazel command through one of them, so image builds are covered from Bazel servers with and without supplementary groups.
 
+The consumer suite passes `--sandbox_base` with a bind mount that it remounts `nosuid,nodev`, because self-hosted runners often use `--sandbox_base=/dev/shm`, which is mounted with these flags.
+A user namespace locks the flags of the mounts it inherits, so the Debian tools' namespace runner must keep them when it remounts the sandboxed root read-only.
+The bind mount is on disk because the suite's parallel image actions do not fit into the hosted runners' RAM-backed `/dev/shm`.
+`//mkosi/debian:namespace_runner_test` covers the same contract on a restricted tmpfs in the root suite.
+
 | Helper | Checks | Unit tests |
 | --- | --- | --- |
 | `action_graph_validator.py` | Debian toolchain actions do not resolve host executables. | `//ci:action_graph_validator_test` |
