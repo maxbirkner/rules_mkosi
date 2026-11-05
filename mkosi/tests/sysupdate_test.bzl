@@ -203,6 +203,7 @@ def _payload_test_impl(ctx):
             asserts.true(env, basename in [file.basename for file in action.inputs.to_list()], basename)
         else:
             asserts.false(env, option in argv, option)
+    asserts.equals(env, ctx.attr.expected_compression, option_value(argv, "--compression"))
     asserts.equals(env, info.directory.path, option_value(argv, "--output"))
     return analysistest.end(env)
 
@@ -210,6 +211,7 @@ _payload_test = analysistest.make(
     _payload_test_impl,
     attrs = {
         "expect_signed_uki": attr.bool(),
+        "expected_compression": attr.string(default = "none"),
         "expected_version_file": attr.label(allow_single_file = True),
         "image_name": attr.string(default = "versioned_release_subject"),
     },
@@ -276,6 +278,21 @@ def _signed_esp_file_payload_test():
         target_under_test = ":invalid_signed_esp_file_payload_subject",
     )
     return ":invalid_signed_esp_file_payload_test"
+
+def _payload_variant_tests():
+    """Declares tests of compressed payloads and of a signed ESP file as UKI and returns their labels."""
+    sysupdate_payload(
+        name = "xz_payload_subject",
+        compression = "xz",
+        image = ":versioned_release_subject",
+        tags = ["manual"],
+    )
+    _payload_test(
+        name = "xz_payload_test",
+        expected_compression = "xz",
+        target_under_test = ":xz_payload_subject",
+    )
+    return [":xz_payload_test", _signed_esp_file_payload_test()]
 
 def sysupdate_test_suite(name):
     """Defines analysis tests for image identity, sysupdate rules and multi-boot lifecycle configuration.
@@ -550,7 +567,7 @@ def sysupdate_test_suite(name):
         image_name = "version_file_release_subject",
         target_under_test = ":version_file_payload_subject",
     )
-    tests += [":signed_payload_test", ":version_file_payload_test", ":versioned_payload_test", _signed_esp_file_payload_test()]
+    tests += [":signed_payload_test", ":version_file_payload_test", ":versioned_payload_test"] + _payload_variant_tests()
     for subject, image, expected_error in [
         ("unversioned", ":immutable_release_subject", "image must set image_id and image_version or image_version_file"),
         ("without_verity", ":versioned_plain_release_subject", "unified_kernel_image = 'unsigned' and verity = 'hash'"),

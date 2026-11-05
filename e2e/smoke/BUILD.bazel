@@ -807,12 +807,17 @@ mkosi_base(
     )
 ]
 
+# Release 3 ships xz-compressed partitions, which systemd-sysupdate decompresses while writing the slots.
 [
     sysupdate_payload(
         name = "sysupdate_v{}_payload".format(version),
+        compression = compression,
         image = ":sysupdate_v" + version,
     )
-    for version in ("2", "3")
+    for version, compression in (
+        ("2", "none"),
+        ("3", "xz"),
+    )
 ]
 
 # One throwaway key signs the UKIs of releases 1 and 2 and the systemd-boot binary of release 1, as an external
@@ -1015,8 +1020,8 @@ py_test(
 
 # Boots release 1, applies release 2 with systemd-sysupdate from a read-only
 # share, reboots into it and waits for boot counting to bless it, then applies
-# release 3 whose health check fails and verifies that systemd-boot falls back
-# to release 2 after its single boot attempt.
+# release 3 from compressed files; its health check fails, and systemd-boot
+# must fall back to release 2 after its single boot attempt.
 qemu_ovmf_boot_test(
     name = "sysupdate_lifecycle_test",
     timeout = "long",

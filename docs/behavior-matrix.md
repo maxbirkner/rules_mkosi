@@ -54,7 +54,7 @@ A version requires `image_id` and uses letters, digits, and `.` only.
 Its `MkosiImageInfo` matches a one-stage release, and a second version reuses the cached base.
 
 <!-- behavior:BHV-SYSUPDATE-TRANSFERS -->
-`sysupdate_transfers` validates the image id, a non-negative `boot_attempts` (zero installs UKIs without a boot counter), and at least two `instances`, and installs root, verity, and UKI transfers that use `PathRelativeTo=explicit`, root-hash UUIDs, and protect the running version.
+`sysupdate_transfers` validates the image id, a non-negative `boot_attempts` (zero installs UKIs without a boot counter), and at least two `instances`, and installs root, verity, and UKI transfers that use `PathRelativeTo=explicit`, root-hash UUIDs, accept plain or xz-compressed partition files, and protect the running version.
 
 <!-- behavior:BHV-TREE-SRC -->
 `mkosi_config_tree.src` and `mkosi_source_tree.src` each resolve to exactly one file or directory and produce their typed provider.
@@ -109,7 +109,7 @@ Import checks the exact signer, the SHA-256 signature, and byte equivalence to t
 It rejects signed binaries without an unsigned copy, remaining unsigned PE files, missing PK, KEK or db files, malformed authenticated variables, and a db that does not trust the signer of every imported or already signed `*.efi` or boot entry binary on the ESP; the output is deterministic for the same inputs.
 
 <!-- behavior:BHV-SYSUPDATE-PAYLOAD -->
-`sysupdate_payload` requires a versioned image with an unsigned UKI and dm-verity, optionally substitutes a signed UKI bound to that image, names root and verity artifacts by their root-hash UUIDs, trims them to the bytes that dm-verity covers, rejects mismatching GPT UUIDs, writes `SHA256SUMS`, and exposes `SysupdatePayloadInfo`.
+`sysupdate_payload` requires a versioned image with an unsigned UKI and dm-verity, optionally substitutes a signed UKI bound to that image, names root and verity artifacts by their root-hash UUIDs, trims them to the bytes that dm-verity covers, optionally compresses them deterministically with xz, rejects mismatching GPT UUIDs, writes `SHA256SUMS` of the shipped files, and exposes `SysupdatePayloadInfo`.
 
 <!-- behavior:BHV-IMAGE-PROVIDER -->
 `MkosiImageInfo` has a fixed `format_version`, exposes every artifact role as `File` or `None`, keeps `image` as an alias of `raw_image`, projects each present artifact once through `DefaultInfo`, and exposes `firmware`, `image_id`, `image_version`, and `image_version_file`.

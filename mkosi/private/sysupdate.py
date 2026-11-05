@@ -4,6 +4,7 @@
 import argparse
 import hashlib
 import json
+import lzma
 import os
 import runpy
 import shutil
@@ -71,10 +72,16 @@ def _uki_target(image_id, boot_attempts, instances):
     return target
 
 
+def _compressed_or_plain(pattern):
+    """Returns source patterns that match a partition file with or without compression."""
+    return " ".join(pattern + suffix for suffix in sorted(COMPRESSION_SUFFIXES.values(), reverse=True))
+
+
 def transfers(image_id, boot_attempts, instances):
     """Returns transfer file names and contents for the root, verity and UKI resources.
 
-    File names sort so that both partitions are written before the UKI that references them.
+    File names sort so that both partitions are written before the UKI that references them, and partition sources
+    match every payload compression.
     systemd-sysupdate names a new UKI after the first target MatchPattern and gives it TriesLeft=3 unless
     configured otherwise, so boot counting is disabled by listing the counter-free pattern first.
     """
@@ -84,7 +91,7 @@ def transfers(image_id, boot_attempts, instances):
     )
     result = {
         name: _TRANSFER.format(
-            source=source_name(image_id, "@v", "@u"),
+            source=_compressed_or_plain(source_name(image_id, "@v", "@u")),
             target=_PARTITION_TARGET.format(
                 label=image_id + "_@v" + label_suffix,
                 partition_type=partition_type,
@@ -118,25 +125,57 @@ def _populated(partitions, type_guid, label):
 _CHUNK_BYTES = 1024 * 1024
 _ZERO_CHUNK = bytes(_CHUNK_BYTES)
 
+# File name suffixes of the compressions that systemd-import and systemd-pull of systemd 257 decompress; zstd needs
+# systemd 258.
+COMPRESSION_SUFFIXES = {"none": "", "xz": ".xz"}
 
-def _copy(source, destination, size=None):
-    """Copies the first size bytes, or all, of source to a new read-only file and returns its SHA-256.
 
-    All-zero chunks stay sparse.
-    """
-    digest = hashlib.sha256()
+def _chunks(source, size):
+    """Yields the first size bytes, or all, of source."""
     remaining = os.path.getsize(source) if size is None else size
-    with open(source, "rb") as src, open(destination, "xb") as dst:
+    with open(source, "rb") as src:
         while remaining and (chunk := src.read(min(_CHUNK_BYTES, remaining))):
             remaining -= len(chunk)
-            digest.update(chunk)
-            if chunk == _ZERO_CHUNK[: len(chunk)]:
-                dst.seek(len(chunk), os.SEEK_CUR)
-            else:
-                dst.write(chunk)
-        dst.truncate()
+            yield chunk
     if remaining:
         raise ValueError("{} is shorter than its dm-verity geometry".format(source))
+
+
+def _write_sparse(chunks, destination):
+    """Writes chunks and yields them, keeping all-zero chunks sparse."""
+    for chunk in chunks:
+        if chunk == _ZERO_CHUNK[: len(chunk)]:
+            destination.seek(len(chunk), os.SEEK_CUR)
+        else:
+            destination.write(chunk)
+        yield chunk
+    destination.truncate()
+
+
+def _write_xz(chunks, destination):
+    """Writes chunks as one xz stream and yields its bytes.
+
+    A single-threaded compressor with fixed settings makes the output a function of the input and the liblzma version.
+    """
+    compressor = lzma.LZMACompressor(format=lzma.FORMAT_XZ, check=lzma.CHECK_CRC64, preset=6)
+    for chunk in chunks:
+        compressed = compressor.compress(chunk)
+        destination.write(compressed)
+        yield compressed
+    compressed = compressor.flush()
+    destination.write(compressed)
+    yield compressed
+
+
+_WRITERS = {"none": _write_sparse, "xz": _write_xz}
+
+
+def _copy(source, destination, size=None, compression="none"):
+    """Copies the first size bytes, or all, of source to a new read-only file and returns the file's SHA-256."""
+    digest = hashlib.sha256()
+    with open(destination, "xb") as dst:
+        for written in _WRITERS[compression](_chunks(source, size), dst):
+            digest.update(written)
     os.chmod(destination, 0o444)
     return digest.hexdigest()
 
@@ -196,13 +235,13 @@ def payload(args):
     root_size, verity_size = verity_extents(json.loads(Path(args.verity_metadata).read_text(encoding="utf-8")))
     output = Path(args.output)
     output.mkdir(parents=True, exist_ok=True)
-    digests = {}
-    for name, source, size in (
-        (root_name(args.image_id, args.image_version, root_uuid), args.root_image, root_size),
-        (verity_name(args.image_id, args.image_version, verity_uuid), args.verity_image, verity_size),
-        (uki_name(args.image_id, args.image_version), uki, None),
-    ):
-        digests[name] = _copy(source, output / name, size)
+    version, suffix, compression = args.image_version, COMPRESSION_SUFFIXES[args.compression], args.compression
+    files = (
+        (root_name(args.image_id, version, root_uuid) + suffix, args.root_image, root_size, compression),
+        (verity_name(args.image_id, version, verity_uuid) + suffix, args.verity_image, verity_size, compression),
+        (uki_name(args.image_id, version), uki, None, "none"),
+    )
+    digests = {name: _copy(source, output / name, size, method) for name, source, size, method in files}
     (output / "SHA256SUMS").write_text(
         "".join("{}  {}\n".format(digests[name], name) for name in sorted(digests)),
         encoding="ascii",
@@ -238,6 +277,7 @@ def main():
     payload_parser.add_argument("--uki", required=True)
     payload_parser.add_argument("--signed-uki")
     payload_parser.add_argument("--signing-request")
+    payload_parser.add_argument("--compression", choices=sorted(COMPRESSION_SUFFIXES), default="none")
     payload_parser.add_argument("--output", required=True)
     payload_parser.set_defaults(handler=payload)
     args = parser.parse_args()

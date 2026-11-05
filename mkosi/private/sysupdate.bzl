@@ -110,6 +110,7 @@ def _payload_arguments(ctx, image, image_version_file, output):
     arguments.add("--verity-image", image.root_hash_image)
     arguments.add("--verity-metadata", image.verity_metadata)
     arguments.add("--uki", image.uki)
+    arguments.add("--compression", ctx.attr.compression)
     if ctx.attr.signed_uki:
         signed = ctx.attr.signed_uki[SecureBootSignedBinaryInfo]
         if signed.esp_path:
@@ -145,6 +146,14 @@ def _sysupdate_payload_impl(ctx):
 sysupdate_payload = rule(
     implementation = _sysupdate_payload_impl,
     attrs = {
+        "compression": attr.string(
+            default = "none",
+            values = ["none", "xz"],
+            doc = """Compression of the root and verity files: 'xz' appends '.xz' to their names.
+
+systemd-sysupdate decompresses them while writing the slots; sysupdate_transfers accepts both forms. The UKI stays
+uncompressed.""",
+        ),
         "image": attr.label(
             mandatory = True,
             providers = [MkosiImageInfo],
@@ -161,7 +170,8 @@ The build fails with SYSUPDATE_INVALID unless its signing request was created fo
     doc = """Projects a versioned mkosi_image into an update directory for sysupdate_transfers.
 
 The directory contains '<id>_<version>.root.<uuid>.raw', '<id>_<version>.root-verity.<uuid>.raw',
-'<id>_<version>.efi' and a SHA256SUMS manifest. The partition UUIDs are those derived from the dm-verity root
+'<id>_<version>.efi' and a SHA256SUMS manifest of the files as shipped. With compression = 'xz', the root and verity
+file names end in '.xz'. The partition UUIDs are those derived from the dm-verity root
 hash, which the UKI's roothash= locates at boot, and must match the image's GPT. The root and verity files hold only
 the bytes that dm-verity covers, so a minimized read-only root (repart Minimize=best on both partitions) is not
 padded to its slot size.
