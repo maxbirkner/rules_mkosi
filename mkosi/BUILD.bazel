@@ -18,6 +18,13 @@ alias(
     visibility = ["//visibility:public"],
 )
 
+# Reference external signer for secure_boot_signing_manifest; see docs/secure-boot.md.
+alias(
+    name = "secure_boot_signer",
+    actual = "//mkosi/private:secure_boot_signer",
+    visibility = ["//visibility:public"],
+)
+
 # Every Starlark file that the public API loads, for Stardoc and for consumers that document their own macros.
 bzl_library(
     name = "bzl",

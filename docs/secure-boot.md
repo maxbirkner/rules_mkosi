@@ -44,6 +44,140 @@ secure_boot_import_response(
 
 Pass a signed UKI as `sysupdate_payload(signed_uki = ...)` to ship it in an [A/B update](sysupdate-ab.md#update-payloads).
 
+## Signing request schema
+
+The request JSON (`<name>.secure-boot-request.json`) is an object with exactly these fields; a signer must reject any other field or value.
+
+| Field | Value |
+| --- | --- |
+| `format_version` | `mkosi-secure-boot-signing-request-v3`. |
+| `context` | `uefi-secure-boot-uki` when `esp_path` is empty, otherwise `uefi-secure-boot-esp-file`. |
+| `esp_path` | Path of the binary on the ESP, such as `EFI/systemd/systemd-bootx64.efi`, or the empty string for the image's UKI. |
+| `signature_algorithm` | `authenticode-sha256`: one embedded RSA PKCS #1 v1.5 Authenticode signature with SHA-256 digests. |
+| `unsigned_sha256` | Lowercase hex SHA-256 of the unsigned binary file. |
+| `certificate_sha256` | Lowercase hex SHA-256 of the signer certificate's DER encoding, as re-encoded by OpenSSL. |
+
+`certificate_sha256` is the SHA-256 fingerprint of the certificate, the same as `openssl x509 -in db.crt -noout -fingerprint -sha256` without colons, in lower case; the request's `<name>.certificate.der` holds exactly the hashed bytes.
+`<name>.secure-boot-request.sha256` holds the lowercase hex SHA-256 of the request serialized as compact JSON with sorted keys (`json.dumps(request, sort_keys=True, separators=(",", ":"))`) and a trailing newline.
+
+## Signing in CI
+
+`secure_boot_signing_manifest` lists requests for a signer that knows nothing about Bazel providers, and `@rules_mkosi//mkosi:secure_boot_signer` is a reference signer for it.
+
+```starlark
+load("@rules_mkosi//mkosi:defs.bzl", "secure_boot_signing_manifest")
+
+secure_boot_signing_manifest(
+    name = "signing_manifest",
+    requests = {
+        ":os_signing_request": "os.efi",
+        ":systemd_boot_signing_request": "systemd-bootx64.efi",
+    },
+)
+```
+
+`bazel build //:signing_manifest` writes `bazel-bin/signing_manifest.secure-boot-signing-manifest.json` and every file it names (`mkosi-secure-boot-signing-manifest-v1`):
+
+```json
+{
+  "format_version": "mkosi-secure-boot-signing-manifest-v1",
+  "requests": [
+    {
+      "certificate": "bazel-out/k8-fastbuild/bin/os_signing_request.certificate.der",
+      "context": "uefi-secure-boot-uki",
+      "esp_path": "",
+      "label": "@@//:os_signing_request",
+      "request": "bazel-out/k8-fastbuild/bin/os_signing_request.secure-boot-request.json",
+      "request_digest": "bazel-out/k8-fastbuild/bin/os_signing_request.secure-boot-request.sha256",
+      "signed_name": "os.efi",
+      "unsigned_binary": "bazel-out/k8-fastbuild/bin/os.efi"
+    }
+  ]
+}
+```
+
+- Entries are sorted by `signed_name`, the file name under which the signer returns the signed binary.
+- Paths are relative to the execution root (`bazel info execution_root`); from the workspace they also resolve through the `bazel-out` convenience symlink.
+- The manifest names the request files, not their contents: a signer reads and validates each request itself.
+
+The reference signer runs outside Bazel actions, through `bazel run`, so the private key never enters Bazel:
+
+```console
+bazel build //:signing_manifest
+bazel run @rules_mkosi//mkosi:secure_boot_signer -- \
+  --manifest bazel-bin/signing_manifest.secure-boot-signing-manifest.json \
+  --certificate keys/db.crt \
+  --key "$XDG_RUNTIME_DIR/db.key" \
+  --output-dir signed
+```
+
+`bazel run --script_path=sign.sh @rules_mkosi//mkosi:secure_boot_signer` writes a script that runs the signer later without Bazel, for example in a separate CI step.
+Relative paths are relative to the directory that `bazel run` was started in.
+The execution root is the parent of `bazel-out` in the manifest's real path; pass `--execroot` if the manifest was copied elsewhere.
+
+Before signing anything, the signer checks for every entry:
+
+- the manifest and request schemas, the request digest, and that the request's `esp_path` and `context` match the manifest;
+- that the unsigned binary is an unsigned PE/COFF file with the requested `unsigned_sha256`, so a substituted binary is rejected;
+- that `--certificate` (PEM or DER) and the request's certificate both have the requested `certificate_sha256`;
+- that a certificate in the `--key` file, if there is one, is `--certificate`.
+
+It then signs each binary and, before writing anything to `--output-dir`, checks that the signed binary is the unsigned one plus one Authenticode signature by `--certificate` that verifies with its public key, which also detects a key that does not belong to the certificate.
+`--validate-only` runs the checks without a key and signs nothing.
+
+The private key is read in place by the signing tool; the signer never copies or prints it.
+Keep it on a tmpfs such as `$XDG_RUNTIME_DIR` with mode `0600`, and remove it after signing.
+The signer warns if other users can access the key file.
+
+The signer uses the pinned `systemd-sbsign` of rules_mkosi's Debian tools by default, which runs in unprivileged user namespaces.
+Where those are blocked outside Bazel's sandbox, for example by AppArmor on Ubuntu 24.04 (`kernel.apparmor_restrict_unprivileged_userns=1`), pass a host signing tool with `--sbsign sbsign` (sbsigntools) or `--sbsign /usr/lib/systemd/systemd-sbsign`; the import verifies the result the same way.
+Temporary files, which are public, go to a directory under `--scratch` or `TMPDIR`.
+
+### Feeding signed binaries back
+
+Keep the signer's output directory out of version control and select it with a flag, so default builds never depend on files that only CI produces:
+
+```starlark
+load("@bazel_skylib//rules:common_settings.bzl", "bool_flag")
+
+bool_flag(
+    name = "signed",
+    build_setting_default = False,
+)
+
+config_setting(
+    name = "use_signed_binaries",
+    flag_values = {":signed": "True"},
+)
+
+secure_boot_ephemeral_test_fixture(
+    name = "test_signer",
+    esp_paths = ["EFI/systemd/systemd-bootx64.efi"],
+    images = [":os"],
+)
+
+secure_boot_signing_request(
+    name = "os_signing_request",
+    certificate = select({
+        ":use_signed_binaries": "db.crt",
+        "//conditions:default": ":test_signer",
+    }),
+    image = ":os",
+)
+
+secure_boot_import_response(
+    name = "os_signed_uki",
+    request = ":os_signing_request",
+    signed_binary = select({
+        ":use_signed_binaries": "signed/os.efi",  # signed/ is in .gitignore.
+        "//conditions:default": ":test_signer",
+    }),
+)
+```
+
+CI then runs `bazel build --//:signed //:signing_manifest`, the signer with `--output-dir signed`, and `bazel build --//:signed //:os_installer`.
+Without the flag, the throwaway test signer answers the requests, so default builds and tests work without the production certificate or signed files.
+
 ## Signed disk images and key auto-enrollment
 
 `secure_boot_signed_image` turns an unsigned UEFI release image into the disk image that you write to a device once.
