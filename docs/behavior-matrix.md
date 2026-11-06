@@ -101,7 +101,7 @@ The macro's `timeout` accepts `short`, `moderate`, and `long`, propagates to the
 The configuration rule rejects Secure Boot firmware code without its variable store.
 
 <!-- behavior:BHV-BOOT-CREDENTIALS -->
-`credentials` passes each systemd credential to the OVMF guest as an SMBIOS Type 11 `io.systemd.credential:<name>=<value>` string after the firmware arguments, sorted by name and with commas escaped for QEMU; names that systemd or the SMBIOS string cannot carry, such as empty names or names with `/`, `:`, `=`, or spaces, fail during analysis.
+`credentials` passes each systemd credential to the OVMF guest as an SMBIOS Type 11 `io.systemd.credential:<name>=<value>` string after the firmware arguments, sorted by name and with commas escaped for QEMU; names outside letters, digits and `._-@~+\`, such as empty names or names with `/`, `:`, `=`, `,` or spaces, fail during analysis, including some that systemd would accept.
 
 <!-- behavior:BHV-BOOT-COMMON-ATTRIBUTES -->
 Both boot macros apply `visibility`, `target_compatible_with`, and `exec_compatible_with` to the test and its `<name>_config` target, and `testonly` to the test.
