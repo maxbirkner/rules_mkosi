@@ -59,11 +59,6 @@ CONTRACTS = {
     "27.1": Contract(
         patched=(
             Patched(
-                "mkosi.distribution.debian:Installer.repositories",
-                "_patch_repositories",
-                "ec554a20b6b024b2c9c759ba7fd7e901a80bb9612a091072fb5be48e11959998",
-            ),
-            Patched(
                 "mkosi.installer:PackageManager.mounts",
                 "_patch_mounts",
                 "6b90b94985733b28e30f66cd839fe92e0e6f28b87ed29bb152e65cc5ce5bf7bd",
@@ -80,7 +75,7 @@ CONTRACTS = {
             ),
             Patched(
                 "mkosi.config:parse_config",
-                "_ConfigurationValidator.parse_config",
+                "_FirstConfiguration.parse_config",
                 "8f949208698e7047d38a27eb1b07e6560994d7483743522f93411f97c90e0171",
                 callers=("mkosi.__main__:main",),
             ),
@@ -140,13 +135,13 @@ CONTRACTS = {
         fields={
             "mkosi.config:Config": (
                 "image",
+                "release",
                 "repositories",
                 "sandbox_trees",
                 "proxy_peer_certificate",
                 "proxy_client_certificate",
                 "proxy_client_key",
             ),
-            "mkosi.installer.apt:AptRepository": ("url", "components"),
             "mkosi.manifest:Manifest": ("_init_timestamp",),
         },
     ),

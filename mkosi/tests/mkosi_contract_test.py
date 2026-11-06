@@ -210,16 +210,32 @@ class MkosiContractTest(unittest.TestCase):
             self.release_patches.activate_release_mode(None, settings, [], None)
         self.assertIs(original, self.mkosi_config.parse_config)
 
-    def test_local_mirror_repository_is_the_one_that_release_mode_rewrites(self):
-        from mkosi.distribution.debian import Installer
+    def test_apt_keeps_the_mirror_sources_of_the_sandbox_tree(self):
+        from mkosi.installer.apt import Apt, AptRepository
 
-        config = types.SimpleNamespace(
-            repositories=["contrib"], mirror=None, snapshot=None, local_mirror="file:///mirror", release="trixie"
-        )
-        repositories = list(Installer.repositories(types.SimpleNamespace(config=config)))
-        self.assertEqual(["file:///mirror"], [repository.url for repository in repositories])
-        # mkosi registers only main for a local mirror, which is why release mode lists the snapshot components.
-        self.assertEqual(("main",), repositories[0].components)
+        with tempfile.TemporaryDirectory() as directory:
+            sandbox_tree = pathlib.Path(directory)
+            sources = sandbox_tree / "etc/apt/sources.list.d/mkosi.sources"
+            sources.parent.mkdir(parents=True)
+            sources.write_text("URIs: file:///repository\n")
+            network = AptRepository(("deb",), "http://deb.debian.org/debian", "trixie", ("main",), None)
+            Apt.setup(types.SimpleNamespace(sandbox_tree=sandbox_tree), [network])
+            # mkosi documents that it writes mkosi.sources only if the sandbox tree does not provide it.
+            self.assertEqual("URIs: file:///repository\n", sources.read_text())
+
+    def test_first_parsed_configuration_selects_the_mirror_components(self):
+        written = []
+        mirror = types.SimpleNamespace(write_sources=lambda *arguments: written.append(arguments))
+        configuration = self.release_patches._MirrorConfiguration(mirror, ("main", "contrib", "non-free-firmware"))
+        image = types.SimpleNamespace(release="trixie", repositories=["contrib"])
+        configuration._original_parse_config = lambda *args, **kwargs: (None, None, [image])
+        configuration.parse_config([])
+        configuration.parse_config([])
+        self.assertEqual([("trixie", ("main", "contrib"))], written)
+        configuration = self.release_patches._MirrorConfiguration(mirror, ("main",))
+        configuration._original_parse_config = lambda *args, **kwargs: (None, None, [image])
+        with self.assertRaisesRegex(SystemExit, "absent from the Debian snapshot: contrib"):
+            configuration.parse_config([])
 
     def test_context_creates_the_repository_directory_that_release_mode_replaces(self):
         from mkosi.context import Context
