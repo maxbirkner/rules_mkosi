@@ -8,10 +8,11 @@ Its `MODULE.bazel` is a working example of the [consumer setup](../README.md#set
 
 | Targets | Covers |
 | --- | --- |
+| `//example:all` | The [release example](smoke/example/README.md): a release image from the consumer-owned `@example_debian` lock with UKI, dm-verity, an erofs root, A/B partitions, and transfers, its update payload, and its boot test. |
 | `demo`, `tree_demo` | Tracer images from a single file and from typed configuration and source trees, built offline from the built-in snapshot. |
 | `release_demo`, `immutable_demo`, `bios_release_demo` | Release images from the built-in snapshot: plain, with UKI and dm-verity, and legacy BIOS. `immutable_demo` uses an assembled `mkosi_config_tree` that shares an executable generator with the default initrd. |
 | `consumer_snapshot_demo` | A release image from the consumer-owned `@consumer_debian` lock, which adds `amd64-microcode` from `non-free-firmware`. |
-| `sysupdate_base`, `sysupdate_v1` to `sysupdate_v3`, `sysupdate_lifecycle_test` | Three A/B releases finalized from one `mkosi_base`; the test applies an update and a failing update and checks the rollback (see [A/B updates](../docs/sysupdate-ab.md)). |
+| `sysupdate_base`, `sysupdate_v1` to `sysupdate_v3`, `sysupdate_lifecycle_test` | Three A/B releases finalized from one `mkosi_base` with the example's snapshot and partitions; the test applies an update and a failing update and checks the rollback (see [A/B updates](../docs/sysupdate-ab.md)). |
 | `uefi_boot_test`, `bios_boot_test` | Boot tests; `uefi_boot_test` always uses TCG. |
 | `mkosi_python_override_test` | A consumer-registered Python 3.14 toolchain replaces the default. |
 | `*_public_provider_test`, `*_metadata_test`, `*_artifact_test` | Provider fields and generated artifacts, selected only through public providers. |

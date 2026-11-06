@@ -176,6 +176,9 @@ Release builds use only the authenticated snapshot, block the network, remove AP
 A versioned UEFI image updates itself from a read-only payload into its `_empty` slots, boots the new release from its compressed erofs verity root, and blesses it at `boot-complete.target`.
 A release whose health check fails falls back to the previous release.
 
+<!-- behavior:BHV-RELEASE-EXAMPLE -->
+The [release example](../e2e/smoke/example/README.md) builds a release image with UKI, dm-verity, an erofs root, A/B partitions, and transfers from a consumer-owned locked snapshot, together with its update payload, and boots it.
+
 <!-- behavior:BHV-TRACER-RUNTIME -->
 Tracer builds use the pinned mkosi and Debian tools with local execution and no caching, and produce a valid raw image.
 They need network access, unless `debian_snapshot` is set: then they install packages only from the snapshot with the network blocked.

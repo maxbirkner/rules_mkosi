@@ -1,0 +1,13 @@
+#!/bin/sh
+# Reports the running release on the serial console, which the boot test waits for, and powers off.
+set -eu
+
+# shellcheck source=/dev/null # os-release only exists inside the image.
+. /usr/lib/os-release
+verity=without
+read -r cmdline </proc/cmdline
+case " ${cmdline} " in
+*" roothash="*) verity=with ;;
+esac
+echo "example-os: running ${IMAGE_ID} ${IMAGE_VERSION} from $(findmnt --noheadings --output FSTYPE /) ${verity} dm-verity"
+systemctl poweroff --no-block

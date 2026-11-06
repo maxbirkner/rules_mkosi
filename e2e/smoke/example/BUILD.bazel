@@ -1,0 +1,106 @@
+load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load(
+    "@rules_mkosi//mkosi:defs.bzl",
+    "debian_lock",
+    "mkosi_config_tree",
+    "mkosi_image",
+    "mkosi_rootfs_payload",
+    "qemu_ovmf_boot_test",
+    "sysupdate_payload",
+    "sysupdate_transfers",
+)
+
+# The behavior matrix and the A/B update fixtures of this consumer module use these targets.
+package(default_visibility = ["//:__pkg__"])
+
+# `bazel run //example:debian_lock.update` regenerates debian.lock.json from debian.spec.json, and
+# `//example:debian_lock_test` fails while it is stale. MODULE.bazel declares the lock as @example_debian.
+debian_lock(
+    name = "debian_lock",
+    lock = "debian.lock.json",
+    spec = "debian.spec.json",
+)
+
+# The A/B partition layout: an ESP, a populated slot with an erofs root and its dm-verity hash partition, and an
+# empty second slot. The A/B update fixtures of this module reuse it.
+mkosi_config_tree(
+    name = "partitions",
+    srcs = glob(["mkosi.repart/*.conf"]),
+    strip_prefix = "mkosi.repart",
+)
+
+mkosi_config_tree(
+    name = "config",
+    srcs = ["mkosi.conf"],
+    trees = {"mkosi.repart": ":partitions"},
+)
+
+mkosi_rootfs_payload(
+    name = "ready_script",
+    src = "rootfs/example-os-ready",
+    destination = "/usr/libexec/example-os-ready",
+    executable_paths = [""],
+)
+
+mkosi_rootfs_payload(
+    name = "ready_service",
+    src = "rootfs/example-os-ready.service",
+    destination = "/usr/lib/systemd/system/example-os-ready.service",
+)
+
+mkosi_rootfs_payload(
+    name = "ready_preset",
+    src = "rootfs/10-example-os.preset",
+    destination = "/usr/lib/systemd/system-preset/10-example-os.preset",
+)
+
+# Transfer definitions that install later releases into the inactive slot. Publish each release's payload, with
+# SHA256SUMS signed by sysupdate_signing_request and sysupdate_import_signature, under this URL, and ship the
+# signer's certificate as /etc/systemd/import-pubring.gpg.
+sysupdate_transfers(
+    name = "transfers",
+    image_id = "example-os",
+    url = "https://updates.example.com/example-os",
+)
+
+mkosi_image(
+    name = "example_os",
+    config_tree = ":config",
+    debian_snapshot = "@example_debian//:repository",
+    image_id = "example-os",
+    image_version = "1",
+    mode = "release",
+    release_seed = "00000000-0000-4000-8000-000000000024",
+    release_source_date_epoch = 1755129600,
+    rootfs_payloads = [
+        ":ready_preset",
+        ":ready_script",
+        ":ready_service",
+        ":transfers",
+    ],
+    unified_kernel_image = "unsigned",
+    verity = "hash",
+)
+
+# The update payload of this release for devices running an earlier one.
+sysupdate_payload(
+    name = "example_os_payload",
+    image = ":example_os",
+)
+
+build_test(
+    name = "example_os_payload_build_test",
+    targets = [":example_os_payload"],
+)
+
+qemu_ovmf_boot_test(
+    name = "example_os_boot_test",
+    image = ":example_os",
+    machine_args = [
+        "-machine",
+        "q35",
+        "-m",
+        "1024M",
+    ],
+    readiness_marker = "example-os: running example-os 1 from erofs with dm-verity",
+)
