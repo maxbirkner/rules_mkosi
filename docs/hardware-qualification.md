@@ -17,21 +17,28 @@ This process does not cover purchasing hardware, a remote lab, or power interrup
 ## Hardware classes
 
 Generations are approximate and only guide the choice of a representative machine.
+TPM2 `Present` means a firmware or discrete TPM 2.0; a TPM 1.2 counts as absent.
+
+<!-- BEGIN GENERATED classes: python3 ci/hardware_qualification_schemas.py --write -->
 
 | Class | Representative machine | Generation | Boot disk | Network | Console | Secure Boot states | TPM2 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `uefi-modern-desktop` | Desktop, small form factor, or mini PC with a plug-in GPU or NIC | 2019 or newer | NVMe | Wired | Graphical | `disabled`, `setup-mode`, `custom-keys` | Present |
-| `uefi-mobile-apu` | Laptop or handheld with an AMD APU or Intel mobile SoC | 2020 or newer | NVMe | Wi-Fi with firmware | Graphical (internal display) | `disabled`, `setup-mode` | Present |
-| `uefi-embedded-headless` | Fanless industrial box without display | 2016 or newer | eMMC or SATA | Wired, several ports | Serial | `setup-mode`, `custom-keys` | Any |
-| `uefi-older-generation` | Office desktop of an early UEFI generation | 2012 to 2018 | SATA | Wired | Graphical | `disabled`, `microsoft-factory-keys` | Absent or TPM 1.2 |
+| `uefi-mobile-apu` | Laptop or handheld with an AMD APU or Intel mobile SoC | 2020 or newer | NVMe | Wi-Fi (with firmware) | Graphical (internal display) | `disabled`, `setup-mode` | Present |
+| `uefi-embedded-headless` | Fanless industrial box without display | 2016 or newer | eMMC or SATA | Wired (several ports) | Serial | `setup-mode`, `custom-keys` | Any |
+| `uefi-older-generation` | Office desktop of an early UEFI generation | 2012 to 2018 | SATA | Wired | Graphical | `disabled`, `microsoft-factory-keys` | Absent |
 | `uefi-removable-usb` | Any UEFI machine starting from the removable-media path | Any | USB | Wired | Graphical | `disabled` | Any |
-| `bios-legacy-only` | Desktop without UEFI | 2006 to 2012 | SATA | Wired | Graphical (VGA text), serial if present | `not-applicable` | Absent |
+| `bios-legacy-only` | Desktop without UEFI | 2006 to 2012 | SATA | Wired | Graphical (VGA text, serial if present) | `not-applicable` | Absent |
 | `bios-csm` | UEFI machine booting through its Compatibility Support Module | 2012 to 2020 | SATA | Wired | Graphical | `not-applicable` | Any |
+
+<!-- END GENERATED classes -->
 
 A class is qualified when, for each of its Secure Boot states, at least one result record passes every [required check](#checks).
 One result record covers one machine in one firmware configuration, so each Secure Boot state needs its own run.
 
 ### Secure Boot states
+
+<!-- BEGIN GENERATED secure-boot-states: python3 ci/hardware_qualification_schemas.py --write -->
 
 | State | Firmware before the first boot | Image | Expected result |
 | --- | --- | --- | --- |
@@ -41,6 +48,8 @@ One result record covers one machine in one firmware configuration, so each Secu
 | `microsoft-factory-keys` | Vendor default keys | `secure_boot_signed_image` without `auto_enroll_keys` | The firmware refuses the custom-signed systemd-boot, which proves enforcement and the need for enrollment. |
 | `not-applicable` | BIOS or CSM boot, Secure Boot off | BIOS release image | Secure Boot does not apply. |
 
+<!-- END GENERATED secure-boot-states -->
+
 Record in `db_includes_microsoft_uefi_ca` whether db holds the Microsoft UEFI CA certificates; `uefi-modern-desktop` needs them for the option ROM of its plug-in card.
 
 ## Checks
@@ -49,6 +58,8 @@ Required checks follow from the tier and the dimensions of a class.
 Run the on-device commands as root on the booted image and attach their output.
 A `microsoft-factory-keys` run requires only `artifact-digest`, `identity`, and `secure-boot-enforcement`, because nothing else boots; take its identity from the firmware setup screen or from a `disabled` run with the same firmware version.
 The [result schema](#evidence) enforces these requirements for a `passed` outcome.
+
+<!-- BEGIN GENERATED checks: python3 ci/hardware_qualification_schemas.py --write -->
 
 | Check | Required when | Passes when |
 | --- | --- | --- |
@@ -63,13 +74,15 @@ The [result schema](#evidence) enforces these requirements for a `passed` outcom
 | `verity-root` | `uefi` | `findmnt -no SOURCE,OPTIONS /` shows a read-only `/dev/mapper/` device, and `/proc/cmdline` contains `roothash=`. |
 | `ab-update` | `uefi` | Release N+1 installs with `systemd-sysupdate` and is blessed, and release N+2, whose health check fails, rolls back to N+1, as in [boot assessment](sysupdate-ab.md#boot-assessment-and-rollback). |
 | `network-wired` | Wired network | The interface is `routable` in `networkctl status`; for `uefi`, the `ab-update` releases download [over HTTP](sysupdate-ab.md#updates-over-http) through it. |
-| `network-wifi` | Wi-Fi | `journalctl -k` shows the firmware loaded without errors, and the interface is `routable` on a test access point. |
+| `network-wifi` | Wi-Fi network | `journalctl -k` shows the firmware loaded without errors, and the interface is `routable` on a test access point. |
 | `console-serial` | Serial console | The serial capture shows boot loader, kernel, and login prompt. |
 | `console-graphical` | Graphical console | The display shows the boot menu, kernel output, and login prompt; attach a photo or recording. |
 | `secure-boot-state` | `uefi` | `bootctl status` reports the state that the run expects. |
 | `secure-boot-enrollment` | `setup-mode` | The console shows `Custom Secure Boot keys successfully enrolled`, and the next boot reports Secure Boot `enabled (user)`. |
 | `secure-boot-enforcement` | `setup-mode`, `custom-keys`, `microsoft-factory-keys` | `setup-mode`, `custom-keys`: release N+3 with an unsigned UKI is refused, systemd-boot logs `Error loading …: Access denied`, and N+1 boots after one reset, as in [refused releases](secure-boot.md#releases-that-the-firmware-refuses). `microsoft-factory-keys`: the firmware refuses the custom-signed systemd-boot itself and shows its Secure Boot violation screen; attach a photo. |
 | `option-rom` | `uefi-modern-desktop` in `setup-mode` or `custom-keys` | Display and network of the plug-in card work with Secure Boot enforced. |
+
+<!-- END GENERATED checks -->
 
 ## Automated VM gates
 
@@ -117,6 +130,8 @@ Remove serial numbers, MAC addresses, and network credentials from logs before h
 It is `invalid` if a failed check is attributed to `procedure` or `hardware`; repeat such a run.
 Otherwise, it is `failed` if at least one check failed.
 The schema also ties each class to its tier, boot mode, Secure Boot states, boot disk transport, and TPM2 presence, and requires the signed binaries and, for `setup-mode`, the `.auth` files of Secure Boot runs.
+Validate records with any JSON Schema draft 2020-12 validator.
+[`ci/hardware_qualification_schemas.py`](../ci/hardware_qualification_schemas.py) generates both schemas and the class, Secure Boot state, and check tables of this document from one set of tables; change them there and run it with `--write`.
 
 ```json
 {

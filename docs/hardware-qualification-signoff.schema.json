@@ -65,12 +65,15 @@
       ],
       "type": "object"
     },
+    "nonempty_string": {
+      "minLength": 1,
+      "type": "string"
+    },
     "result": {
       "additionalProperties": false,
       "properties": {
         "asset": {
-          "minLength": 1,
-          "type": "string"
+          "$ref": "#/$defs/nonempty_string"
         },
         "secure_boot": {
           "enum": [
@@ -527,8 +530,7 @@
       "type": "string"
     },
     "signed_off_by": {
-      "minLength": 1,
-      "type": "string"
+      "$ref": "#/$defs/nonempty_string"
     },
     "vm_gates": {
       "additionalProperties": false,

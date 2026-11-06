@@ -740,11 +740,15 @@
               },
               "identity": {
                 "$ref": "#/$defs/passed_check"
+              },
+              "secure-boot-enforcement": {
+                "$ref": "#/$defs/passed_check"
               }
             },
             "required": [
               "artifact-digest",
-              "identity"
+              "identity",
+              "secure-boot-enforcement"
             ]
           }
         }
@@ -861,6 +865,57 @@
               "firmware": {
                 "properties": {
                   "secure_boot": {
+                    "enum": [
+                      "setup-mode",
+                      "custom-keys"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "then": {
+        "properties": {
+          "subject": {
+            "properties": {
+              "update_payloads": {
+                "allOf": [
+                  {
+                    "contains": {
+                      "properties": {
+                        "expected": {
+                          "const": "refused"
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            "required": [
+              "update_payloads"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "allOf": [
+          {
+            "properties": {
+              "outcome": {
+                "const": "passed"
+              }
+            }
+          },
+          {
+            "properties": {
+              "firmware": {
+                "properties": {
+                  "secure_boot": {
                     "const": "setup-mode"
                   }
                 }
@@ -901,8 +956,7 @@
                   "secure_boot": {
                     "enum": [
                       "setup-mode",
-                      "custom-keys",
-                      "microsoft-factory-keys"
+                      "custom-keys"
                     ]
                   }
                 }
@@ -949,29 +1003,26 @@
                 }
               }
             }
+          },
+          {
+            "properties": {
+              "class": {
+                "const": "uefi-modern-desktop"
+              }
+            }
           }
         ]
       },
       "then": {
         "properties": {
-          "subject": {
+          "checks": {
             "properties": {
-              "update_payloads": {
-                "allOf": [
-                  {
-                    "contains": {
-                      "properties": {
-                        "expected": {
-                          "const": "refused"
-                        }
-                      }
-                    }
-                  }
-                ]
+              "option-rom": {
+                "$ref": "#/$defs/passed_check"
               }
             },
             "required": [
-              "update_payloads"
+              "option-rom"
             ]
           }
         }
@@ -1336,54 +1387,6 @@
     },
     {
       "if": {
-        "allOf": [
-          {
-            "properties": {
-              "outcome": {
-                "const": "passed"
-              }
-            }
-          },
-          {
-            "properties": {
-              "firmware": {
-                "properties": {
-                  "secure_boot": {
-                    "enum": [
-                      "setup-mode",
-                      "custom-keys"
-                    ]
-                  }
-                }
-              }
-            }
-          },
-          {
-            "properties": {
-              "class": {
-                "const": "uefi-modern-desktop"
-              }
-            }
-          }
-        ]
-      },
-      "then": {
-        "properties": {
-          "checks": {
-            "properties": {
-              "option-rom": {
-                "$ref": "#/$defs/passed_check"
-              }
-            },
-            "required": [
-              "option-rom"
-            ]
-          }
-        }
-      }
-    },
-    {
-      "if": {
         "properties": {
           "outcome": {
             "const": "failed"
@@ -1550,8 +1553,8 @@
               "enum": [
                 "nvme",
                 "sata",
-                "usb",
-                "mmc"
+                "mmc",
+                "usb"
               ]
             }
           },
