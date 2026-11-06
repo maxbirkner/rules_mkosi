@@ -259,7 +259,7 @@ Packages=
 `UnifiedKernelImageFormat=%i_%v` names the UKI `<image_id>_<image_version>.efi`, as the transfers expect.
 On Debian 13, `systemd-container` provides `systemd-sysupdate`, `systemd-boot` provides `bootctl` and `systemd-bless-boot`, and `systemd-repart` is needed for runtime partitioning.
 The built-in snapshot lacks `systemd-container`, so use a [consumer-owned snapshot](../README.md#debian-snapshots) that also locks the packages of mkosi's default initrd (on Debian 13 including `systemd-cryptsetup` and `libtss2-*`).
-[`e2e/smoke/testdata/sysupdate-snapshot/debian.spec.json`](../e2e/smoke/testdata/sysupdate-snapshot/debian.spec.json) is a working minimal set.
+[`e2e/smoke/example/debian.spec.json`](../e2e/smoke/example/debian.spec.json) is a working minimal set.
 
 ## Transfer definitions
 

@@ -1,0 +1,11 @@
+[Unit]
+Description=Report the running release
+After=multi-user.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/example-os-ready
+StandardOutput=journal+console
+
+[Install]
+WantedBy=multi-user.target

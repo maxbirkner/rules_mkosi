@@ -124,6 +124,7 @@ qemu_ovmf_boot_test(
 ```
 
 `bazel test :demo_boot_test` builds the image over the network (tracer mode), boots it with OVMF, waits for the hostname line on the serial console, and expects the guest to power off by itself.
+For a complete release configuration, with a locked Debian snapshot, UKI, dm-verity, A/B updates, and a boot test, see the [release example](e2e/smoke/example/README.md).
 
 ## Public API
 
@@ -476,6 +477,7 @@ The flag affects only the bootstrap executables.
 
 ## Further reading
 
+- [Release example](e2e/smoke/example/README.md)
 - [A/B updates and two-stage releases](docs/sysupdate-ab.md)
 - [Secure Boot and offline signing](docs/secure-boot.md)
 - [Behavior catalog](docs/behavior-matrix.md)

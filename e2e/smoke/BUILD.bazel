@@ -80,6 +80,9 @@ behavior_targets(
         ":boot_launcher_contract_test",
         ":boot_preflight_contract_test",
         ":uefi_boot_config_public_provider_test",
+        "//example:debian_lock_test",
+        "//example:example_os_boot_test",
+        "//example:example_os_payload_build_test",
         ":bios_release_demo_build_test",
         ":bios_boot_test",
         ":consumer_snapshot_artifact_test",
@@ -420,12 +423,6 @@ debian_lock(
     name = "consumer_debian_lock",
     lock = "testdata/consumer-snapshot/debian.lock.json",
     spec = "testdata/consumer-snapshot/debian.spec.json",
-)
-
-debian_lock(
-    name = "sysupdate_debian_lock",
-    lock = "testdata/sysupdate-snapshot/debian.lock.json",
-    spec = "testdata/sysupdate-snapshot/debian.spec.json",
 )
 
 snapshot_public_api_test(
@@ -778,7 +775,9 @@ mkosi_config_tree(
 
 mkosi_config_tree(
     name = "sysupdate_config_tree",
-    src = "testdata/sysupdate-config",
+    srcs = glob(["testdata/sysupdate-config/**"]),
+    strip_prefix = "testdata/sysupdate-config",
+    trees = {"mkosi.repart": "//example:partitions"},
 )
 
 # Each release downloads the next one from the directory named after its own
@@ -834,7 +833,7 @@ genrule(
 mkosi_base(
     name = "sysupdate_base",
     config_tree = ":sysupdate_base_config_tree",
-    debian_snapshot = "@sysupdate_debian//:repository",
+    debian_snapshot = "@example_debian//:repository",
     release_seed = "00000000-0000-4000-8000-000000000017",
     release_source_date_epoch = 1755129600,
     rootfs_payloads = [
@@ -1070,7 +1069,7 @@ qemu_ovmf_boot_test(
 
 base_public_api_test(
     name = "sysupdate_base_public_provider_test",
-    debian_snapshot = "@sysupdate_debian//:repository",
+    debian_snapshot = "@example_debian//:repository",
     target_under_test = ":sysupdate_base",
 )
 
