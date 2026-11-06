@@ -60,7 +60,9 @@ def qemu_seabios_boot_test(name, image, timeout = "moderate", tags = [], **kwarg
       image: mkosi_image with `firmware = "bios"` to boot.
       timeout: Bazel timeout category of the test, passed to the configuration as test_timeout.
       tags: Tags of the test.
-      **kwargs: Further attributes of qemu_seabios_boot_config, such as readiness_marker.
+      **kwargs: Further attributes of qemu_seabios_boot_config, such as readiness_marker. `testonly` applies to the
+        test; `visibility`, `target_compatible_with`, and `exec_compatible_with` apply to the test and its
+        configuration. The configuration is always testonly, so the image may be testonly.
     """
     boot_test(
         name = name,

@@ -100,6 +100,13 @@ The macro's `timeout` accepts `short`, `moderate`, and `long`, propagates to the
 `qemu_ovmf_boot_test(secure_boot = True)` boots Debian's Secure Boot capable OVMF with SMM and secure flash and an empty variable store, so the firmware starts in Setup Mode; the default keeps the toolchain's OVMF, and only Secure Boot tests download the firmware.
 The configuration rule rejects Secure Boot firmware code without its variable store.
 
+<!-- behavior:BHV-BOOT-CREDENTIALS -->
+`credentials` passes each systemd credential to the OVMF guest as an SMBIOS Type 11 `io.systemd.credential:<name>=<value>` string after the firmware arguments, sorted by name and with commas escaped for QEMU; names that systemd or the SMBIOS string cannot carry, such as empty names or names with `/`, `:`, `=`, or spaces, fail during analysis.
+
+<!-- behavior:BHV-BOOT-COMMON-ATTRIBUTES -->
+Both boot macros apply `visibility`, `target_compatible_with`, and `exec_compatible_with` to the test and its `<name>_config` target, and `testonly` to the test.
+The configuration is always testonly, so testonly images boot without testonly on the macro; a test with `testonly = False` fails analysis.
+
 <!-- behavior:BHV-MANAGED-PYTHON -->
 `managed_python_test` requires one Python `src`, accepts optional `data`, and runs on the managed interpreter with isolated user-site state and an empty child `PATH`.
 

@@ -70,7 +70,7 @@ def _src_arg(src):
         "$(rootpath %s)" % src,
     ]
 
-def managed_python_test(name, src, args = [], data = [], timeout = "moderate", tags = []):
+def managed_python_test(name, src, args = [], data = [], timeout = "moderate", tags = [], **kwargs):
     """Tests the Python script src with rules_mkosi's managed interpreter, independent of the consumer's Python.
 
     Args:
@@ -80,6 +80,7 @@ def managed_python_test(name, src, args = [], data = [], timeout = "moderate", t
       data: Files available to the test at run time.
       timeout: Bazel test timeout category.
       tags: Test tags.
+      **kwargs: Common attributes of the test, such as testonly or visibility.
     """
     _managed_python_test(
         name = name,
@@ -88,4 +89,5 @@ def managed_python_test(name, src, args = [], data = [], timeout = "moderate", t
         data = data + ["@rules_mkosi//mkosi/private:managed_python_bootstrap.py"],
         timeout = timeout,
         tags = tags,
+        **kwargs
     )

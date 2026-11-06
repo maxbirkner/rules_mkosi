@@ -42,6 +42,25 @@ def _read_only_shares(shares):
 
 _HTTP_PATH_CHARACTERS = _MOUNT_TAG_CHARACTERS
 
+# systemd accepts credential names that are valid file names without ':'; '=' would end the name in the SMBIOS string.
+_CREDENTIAL_NAME_CHARACTERS = _MOUNT_TAG_CHARACTERS + "@~+\\"
+_MAX_CREDENTIAL_NAME_LENGTH = 255
+
+def _credential_args(credentials):
+    """Validates credentials and returns the QEMU arguments that pass them as SMBIOS Type 11 strings, sorted by name."""
+    args = []
+    for name, value in sorted(credentials.items()):
+        if (not name or name in (".", "..") or len(name) > _MAX_CREDENTIAL_NAME_LENGTH or
+            name.strip(_CREDENTIAL_NAME_CHARACTERS)):
+            fail(
+                ("credentials name %r must be 1 to %d letters, digits, or '.', '_', '-', '@', '~', '+', '\\' " +
+                 "characters, and not '.' or '..'") % (name, _MAX_CREDENTIAL_NAME_LENGTH),
+            )
+
+        # QEMU reads ',,' as a literal comma within an option value.
+        args += ["-smbios", "type=11,value=io.systemd.credential:%s=%s" % (name, value.replace(",", ",,"))]
+    return args
+
 def _http_shares(shares):
     """Validates http_shares and returns (URL path, files) pairs sorted by path."""
     validated = {}
@@ -104,7 +123,7 @@ def _qemu_ovmf_boot_config_impl(ctx):
         "if=pflash,format=raw,readonly=on,file={firmware_code}",
         "-drive",
         "if=pflash,format=raw,file={firmware_vars}",
-    ]) | share_config | {
+    ] + _credential_args(ctx.attr.credentials)) | share_config | {
         "allow_reboot": ctx.attr.allow_reboot,
         "expected_failure_marker": ctx.attr.expected_failure_marker,
         "firmware_code": firmware_code.short_path,
@@ -136,6 +155,14 @@ Use it directly only to inspect the validated deadlines through QemuBootConfigIn
 
 The image snapshot and the copied OVMF variables persist across reboots for the lifetime of the test.
 """,
+        ),
+        "credentials": attr.string_dict(
+            doc = """systemd system credentials for the guest, keyed by credential name.
+
+Each becomes the SMBIOS Type 11 string `io.systemd.credential:<name>=<value>`, which systemd imports at boot, also
+with Secure Boot enabled. For example, `{"systemd.unit-dropin.multi-user.target": "[Unit]\\nWants=ready.service\\n"}`
+starts a readiness unit that the image does not enable; see docs/secure-boot.md. Names are letters, digits, and
+`._-@~+\\`.""",
         ),
         "expected_failure_marker": attr.string(
             doc = "Exact serial marker that makes an intentionally failing boot pass before readiness.",
@@ -192,7 +219,10 @@ def qemu_ovmf_boot_test(name, image, secure_boot = False, timeout = "moderate", 
         docs/secure-boot.md.
       timeout: Bazel timeout category of the test, passed to the configuration as test_timeout.
       tags: Tags of the test.
-      **kwargs: Further attributes of qemu_ovmf_boot_config, such as readiness_marker.
+      **kwargs: Further attributes of qemu_ovmf_boot_config, such as readiness_marker or credentials. `testonly`
+        applies to the test; `visibility`, `target_compatible_with`, and `exec_compatible_with` apply to the test
+        and its configuration. The configuration is always testonly, so the image may be testonly, for example when
+        it is signed by a secure_boot_ephemeral_test_fixture.
     """
     boot_test(
         name = name,
