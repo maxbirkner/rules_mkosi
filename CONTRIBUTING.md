@@ -97,9 +97,9 @@ Tests read the expected values from `provenance.bzl`.
 
 ### mkosi versions
 
-Release mode patches mkosi internals in `mkosi/private/mkosi_runner/release_patches.py`.
+Release mode patches mkosi internals in `mkosi/private/mkosi_runner/release_patches.py`; [mkosi internals](docs/mkosi-internals.md) explains why each patch is needed.
 Adding or changing an entry in `mkosi/versions.bzl` requires reviewing those patches against the new mkosi and recording its contract in `mkosi/private/mkosi_runner/mkosi_contract.py`.
-`//mkosi/tests:mkosi_contract_test` lists every changed internal until then.
+Once the new version is the default, `//mkosi/tests:mkosi_contract_test` lists every internal that changed since the newest contract and what to re-verify; follow the [upgrade procedure](docs/mkosi-internals.md#upgrading-mkosi).
 
 ## Pull requests
 
