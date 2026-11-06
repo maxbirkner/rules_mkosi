@@ -116,6 +116,10 @@ Import checks the exact signer, the SHA-256 signature, and byte equivalence to t
 Its `raw_image` output group holds only the disk image.
 It rejects signed binaries without an unsigned copy, remaining unsigned PE files, missing PK, KEK or db files, malformed authenticated variables, and a db that does not trust the signer of every imported or already signed `*.efi` or boot entry binary on the ESP; the output is deterministic for the same inputs.
 
+<!-- behavior:BHV-SECURE-BOOT-SIGNER -->
+`secure_boot_signing_manifest` lists the execution-root-relative request, digest, unsigned binary and certificate paths of each request with a distinct signed file name, and rejects invalid or duplicate names.
+`@rules_mkosi//mkosi:secure_boot_signer` runs outside Bazel actions; it rejects malformed manifests and requests, substituted binaries, another certificate, and a key file holding another certificate before signing anything, and writes no signed binary whose signature does not verify with the requested certificate.
+
 <!-- behavior:BHV-SYSUPDATE-PAYLOAD -->
 `sysupdate_payload` requires a versioned image with an unsigned UKI and dm-verity, optionally substitutes a signed UKI bound to that image, names root and verity artifacts by their root-hash UUIDs, trims them to the bytes that dm-verity covers, optionally compresses them deterministically with xz, rejects mismatching GPT UUIDs, writes `SHA256SUMS` of the shipped files, and exposes `SysupdatePayloadInfo`.
 

@@ -67,6 +67,31 @@ py_test(
 )
 
 py_test(
+    name = "secure_boot_signer_test",
+    timeout = "long",
+    srcs = [
+        "secure_boot_fixtures.py",
+        "secure_boot_signer_test.py",
+    ],
+    args = [
+        "$(rootpath //mkosi/private:secure_boot_signer.py)",
+        "$(rootpath @mkosi_debian_tools//:launcher)",
+    ],
+    data = [
+        "//mkosi/private:efi_auth.py",
+        "//mkosi/private:esp_files.py",
+        "//mkosi/private:file_hashing.py",
+        "//mkosi/private:gpt_partitions.py",
+        "//mkosi/private:launcher_tool.py",
+        "//mkosi/private:secure_boot.py",
+        "//mkosi/private:secure_boot_signer.py",
+        "//mkosi/private:sibling_loader.py",
+        "@mkosi_debian_tools//:launcher",
+    ],
+    main = "secure_boot_signer_test.py",
+)
+
+py_test(
     name = "sysupdate_signing_test",
     timeout = "long",
     srcs = [
@@ -252,6 +277,7 @@ behavior_targets(
         ":secure_boot_analysis_tests",
         ":secure_boot_boundary_test",
         ":secure_boot_image_test",
+        ":secure_boot_signer_test",
         ":snapshot_declaration_test",
         ":sysupdate_analysis_tests",
         ":sysupdate_http_analysis_tests",
