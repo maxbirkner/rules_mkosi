@@ -220,6 +220,7 @@ Traversal, absolute paths, and collisions fail during analysis where the paths a
 Bazel copies what a symlink points to, so the action rejects `srcs` and `trees` source files that are, or lie below, a symlink in their package, such as the links of `systemctl enable`.
 Wrap a directory with symlinks in `mkosi_config_tree(src = ...)` and map it through `trees`; `src` keeps relative links and rejects absolute or escaping ones.
 The check sees symlinks only when the action runs locally or sandboxed: under remote execution, or on a remote-cache hit for an action first run there, Bazel may deliver a symlinked source as the content that it points to.
+Inside a fetched archive repository, a committed link that mimics Bazel's own layout may still be followed, as the archive can ship arbitrary content anyway.
 
 ## Tracer and release modes
 

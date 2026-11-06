@@ -172,7 +172,8 @@ Bazel copies what a symlink points to, so the action rejects source files that a
 their package, such as a link that systemctl enable creates. Map such trees through trees with an mkosi_config_tree
 whose src keeps relative links and rejects absolute ones. The check only sees symlinks in local or sandboxed
 execution; remote execution, or a remote-cache hit for an action that ran remotely, may deliver a symlinked source
-as the content that it points to.""",
+as the content that it points to. Inside a fetched archive repository, a committed link that mimics Bazel's own
+layout may still be followed, as the archive can ship arbitrary content anyway.""",
         ),
         "strip_prefix": attr.string(
             doc = "Normalized package-relative directory removed from every srcs path; srcs must all be below it.",
