@@ -95,8 +95,15 @@ Install tooling can check, before it writes an image, that the image enrolls key
 The same facts are available in two places:
 
 - `<name>.secure-boot-image.json`, the record in the `secure_boot_metadata` output group, with format `mkosi-secure-boot-signed-image-v2`.
-- `/loader/rules_mkosi-secure-boot.json` on the ESP of the disk image, with format `mkosi-secure-boot-esp-manifest-v1`, so tools can read it from a written device or an image file with any FAT reader, such as `mtype -i os_installer.raw@@<ESP offset> ::/loader/rules_mkosi-secure-boot.json`.
+- `/loader/rules_mkosi-secure-boot.json` on the ESP of the disk image, with format `mkosi-secure-boot-esp-manifest-v1`, so tools can read it from an image file, or from a freshly written device before its first boot, with any FAT reader, such as `mtype -i os_installer.raw@@<ESP offset> ::/loader/rules_mkosi-secure-boot.json`.
   Every signed image has it; an image without keys has empty `auto_enroll_keys`.
+
+Both documents describe the image as built, and nothing updates the ESP manifest after the image is written:
+
+- Once the device boots, systemd-boot renames boot-counted UKIs, for example `os_1+3.efi` to `os_1+2-1.efi`, and systemd-sysupdate installs newer UKIs and removes old ones, so `replaced` no longer matches the ESP.
+  Match UKIs by `signed_sha256` rather than by `esp_path`.
+- `auto_enroll_keys` are the keys that the image offers, not the keys that the firmware enrolled: systemd-boot enrolls them only in Setup Mode, depending on `secure_boot_enroll`.
+  Read the `PK`, `KEK`, `db` and `dbx` EFI variables to learn what a device trusts.
 
 | Field | Record | ESP manifest | Meaning |
 | --- | --- | --- | --- |

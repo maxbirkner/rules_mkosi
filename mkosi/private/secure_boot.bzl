@@ -500,8 +500,9 @@ unsigned.""",
 auto-enrollment keys.
 
 Only the files of the EFI system partition change. The ESP also gets /loader/rules_mkosi-secure-boot.json, a manifest
-of the signed binaries, the auto-enrollment keys and their certificate fingerprints, so install tooling can inspect a
-written image.
+of the signed binaries, the auto-enrollment keys and their certificate fingerprints, so install tooling can inspect an
+image before it writes it. The manifest describes the image as built: boot counting and systemd-sysupdate rename and
+replace UKIs without updating it, and its keys are those offered for enrollment, not those that the firmware enrolled.
 
 Returns DefaultInfo with the disk image and its JSON metadata, the image's MkosiImageInfo with raw_image replaced by the
 signed disk image, and the output groups raw_image, with only the disk image, and secure_boot_metadata, with only the
