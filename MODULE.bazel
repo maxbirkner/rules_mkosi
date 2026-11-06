@@ -20,6 +20,10 @@ bazel_dep(name = "rules_shell", version = "0.8.0")
 bazel_dep(name = "rules_qemu", version = "0.3.0")
 bazel_dep(name = "hermetic_cc_toolchain", version = "4.3.0")
 
+# API reference generation and its drift check.
+bazel_dep(name = "bazel_lib", version = "3.2.2", dev_dependency = True)
+bazel_dep(name = "stardoc", version = "0.8.1", dev_dependency = True)
+
 hermetic_cc = use_extension(
     "@hermetic_cc_toolchain//toolchain:ext.bzl",
     "toolchains",

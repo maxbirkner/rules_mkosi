@@ -1,4 +1,37 @@
+load("@bazel_lib//lib:write_source_files.bzl", "write_source_files")
+load("@stardoc//stardoc:stardoc.bzl", "stardoc")
+
 exports_files([
     "behavior-matrix.md",
     "secure-boot.md",
 ])
+
+# Generated API reference. `bazel run //docs:update` regenerates the committed files, and
+# `bazel test //docs:all` fails while they differ from the generated ones.
+_API_DOCS = {
+    "debian_tools_extension": (
+        "//mkosi/debian:extensions.bzl",
+        ["debian_tools"],
+    ),
+    "defs": ("//mkosi:defs.bzl", []),
+    "mkosi_extension": (
+        "//mkosi:extensions.bzl",
+        ["mkosi"],
+    ),
+}
+
+[
+    stardoc(
+        name = name + "_docs",
+        out = name + "_docs.md",
+        input = src,
+        symbol_names = symbols,
+        deps = ["//mkosi:bzl"],
+    )
+    for name, (src, symbols) in _API_DOCS.items()
+]
+
+write_source_files(
+    name = "update",
+    files = {"api/{}.md".format(name): ":{}_docs".format(name) for name in _API_DOCS},
+)

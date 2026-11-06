@@ -27,6 +27,15 @@ if ! grep -Fqx "_VERSION_PRIVATE = \"$tag\"" <<<"$stamped"; then
   exit 1
 fi
 
+# The BCR source.json's docs_url points at this asset: Stardoc's extracted API documentation, which the registry
+# renders. Bazel prints everything but the queried labels and the info path to stderr, keeping stdout for the notes.
+docs_archive="rules_mkosi-$tag.docs.tar.gz"
+mapfile -t doc_targets < <(bazel query --output=label 'kind("starlark_doc_extract rule", //docs:all)')
+bazel build "${doc_targets[@]}"
+bazel_bin="$(bazel info bazel-bin)"
+(cd "$bazel_bin" && find docs -name '*.binaryproto' -print0 | LC_ALL=C sort -z |
+  tar --create --null --files-from=- --owner=0 --group=0 --numeric-owner --mtime=@0) | gzip -n >"$docs_archive"
+
 cat <<EOF
 ## Using rules_mkosi
 

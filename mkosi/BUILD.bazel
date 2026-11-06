@@ -1,3 +1,5 @@
+load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
+
 exports_files([
     "defs.bzl",
     "debian_tools.bzl",
@@ -13,5 +15,15 @@ exports_files([
 alias(
     name = "kernel_preflight",
     actual = "//mkosi/private:kernel_preflight",
+    visibility = ["//visibility:public"],
+)
+
+# Every Starlark file that the public API loads, for Stardoc and for consumers that document their own macros.
+bzl_library(
+    name = "bzl",
+    srcs = glob(["*.bzl"]) + [
+        "//mkosi/debian:bzl_srcs",
+        "//mkosi/private:bzl_srcs",
+    ],
     visibility = ["//visibility:public"],
 )
