@@ -114,7 +114,7 @@ It rejects signed binaries without an unsigned copy, remaining unsigned PE files
 
 <!-- behavior:BHV-SYSUPDATE-SIGNING -->
 `sysupdate_signing_request` binds the SHA-256 of an unsigned payload's `SHA256SUMS`, its files, and the fingerprint of exactly one public OpenPGP certificate, and rejects secret keys.
-`sysupdate_import_signature` accepts only a detached signature that sqv verifies over that `SHA256SUMS` with that certificate, and returns the payload's `SysupdatePayloadInfo` with `signature`; `sysupdate_ephemeral_test_fixture` signs in one uncached, local action and outputs only public data.
+`sysupdate_import_signature` accepts only exactly one detached signature that sqv verifies over that `SHA256SUMS` with that certificate, and returns the payload's `SysupdatePayloadInfo` with `signature`; `sysupdate_ephemeral_test_fixture` signs in one uncached, local action and outputs only public data.
 
 <!-- behavior:BHV-IMAGE-PROVIDER -->
 `MkosiImageInfo` has a fixed `format_version`, exposes every artifact role as `File` or `None`, keeps `image` as an alias of `raw_image`, projects each present artifact once through `DefaultInfo`, and exposes `firmware`, `image_id`, `image_version`, and `image_version_file`.

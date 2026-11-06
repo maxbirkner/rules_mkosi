@@ -70,6 +70,8 @@ class OpenPgpTest(unittest.TestCase):
     def test_detached_signature_rejects_signed_messages(self):
         with self.assertRaisesRegex(ValueError, "detached OpenPGP signature"):
             openpgp.detached_signature(openpgp.packet(openpgp.TAG_SIGNATURE, b"") + openpgp.packet(11, b""))
+        with self.assertRaisesRegex(ValueError, "exactly one OpenPGP signature, found 2"):
+            openpgp.detached_signature(openpgp.packet(openpgp.TAG_SIGNATURE, b"") * 2)
 
 
 def _run_tool(command, *arguments, check=True):
@@ -196,6 +198,15 @@ class SigningTest(unittest.TestCase):
         result = self.verify(request, self.signatures[1], check=False)
         self.assertNotEqual(0, result.returncode)
         self.assertIn("SYSUPDATE_SIGNING_INVALID: no signature verifies SHA256SUMS", result.stderr)
+        self.assertFalse((self.work / "SHA256SUMS.gpg").exists())
+
+    def test_import_rejects_a_valid_signature_next_to_one_by_another_key(self):
+        # sqv accepts this, but gpg on the device fails for the signature whose key it does not have.
+        request = self.request(self.payloads[0], self.public_key)
+        combined = self.work / "combined.gpg"
+        combined.write_bytes(self.signatures[0].read_bytes() + self.other_signatures[0].read_bytes())
+        result = self.verify(request, combined, check=False)
+        self.assertIn("expected exactly one OpenPGP signature, found 2", result.stderr)
         self.assertFalse((self.work / "SHA256SUMS.gpg").exists())
 
     def test_import_rejects_a_signature_by_another_key(self):

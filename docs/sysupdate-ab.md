@@ -372,7 +372,8 @@ sysupdate_import_signature(
    A secret key, several certificates, or a payload that is already signed fail the build.
    It returns `SysupdateSigningRequestInfo`.
 2. The external signer checks the request and makes a detached OpenPGP signature of exactly that `SHA256SUMS`, for example with `gpg --local-user <fingerprint> --output SHA256SUMS.gpg --detach-sign SHA256SUMS`.
-3. `sysupdate_import_signature` accepts the signature only if `sqv` from the Debian tools verifies it over the requested `SHA256SUMS` with the requested certificate, and stores it in binary form.
+3. `sysupdate_import_signature` accepts the signature only if it is exactly one detached signature and `sqv` from the Debian tools verifies it over the requested `SHA256SUMS` with the requested certificate, and stores it in binary form.
+   Several signatures are rejected, because `gpg` on the device fails if it lacks the key of any of them.
    It returns the payload's `SysupdatePayloadInfo` with `signature` set, and the payload directory and `SHA256SUMS.gpg` as its files.
 
 Publish both side by side, for example:

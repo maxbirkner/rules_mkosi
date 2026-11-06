@@ -139,14 +139,20 @@ def certificate(data):
 
 
 def detached_signature(data):
-    """Returns the binary form of a detached signature, which holds only signature packets.
+    """Returns the binary form of a detached signature that holds exactly one signature packet.
+
+    systemd-pull (systemd 257) passes the signature to `gpg --verify` and rejects the download unless gpg succeeds,
+    which it does not if any signature is by a key outside the device keyring, even when another one is valid.
 
     Raises:
-        ValueError: for other OpenPGP data, such as a signed message.
+        ValueError: for other OpenPGP data, such as a signed message, or several signatures.
     """
     binary = dearmor(data, "SIGNATURE")
-    if any(tag != TAG_SIGNATURE for tag, _ in packets(binary)):
+    tags = [tag for tag, _ in packets(binary)]
+    if any(tag != TAG_SIGNATURE for tag in tags):
         raise ValueError("expected a detached OpenPGP signature")
+    if len(tags) != 1:
+        raise ValueError("expected exactly one OpenPGP signature, found {}".format(len(tags)))
     return binary
 
 
