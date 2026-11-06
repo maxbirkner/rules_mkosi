@@ -126,7 +126,8 @@ blocked. Release mode installs packages only from an authenticated debian_snapsh
 outputs may be cached; with base, it finalizes a cached mkosi_base for one version instead. Builds run locally and
 need the Linux namespace and mount capabilities of the host-kernel contract.
 
-Select outputs through MkosiImageInfo; DefaultInfo contains every produced artifact.
+Select outputs through MkosiImageInfo; DefaultInfo contains every produced artifact. The raw_image output group
+contains only the raw disk image, for `bazel build --output_groups=raw_image` or `filegroup(output_group = "raw_image")`.
 
 **ATTRIBUTES**
 
@@ -449,8 +450,13 @@ secure_boot_signed_image(<a href="#secure_boot_signed_image-name">name</a>, <a h
 Writes a copy of a UEFI release disk image whose ESP holds signed boot binaries and Secure Boot
 auto-enrollment keys.
 
-Only the files of the EFI system partition change. Returns DefaultInfo with the disk image and its JSON metadata, and
-the image's MkosiImageInfo with raw_image replaced by the signed disk image.
+Only the files of the EFI system partition change. The ESP also gets /loader/rules_mkosi-secure-boot.json, a manifest
+of the signed binaries, the auto-enrollment keys and their certificate fingerprints, so install tooling can inspect a
+written image.
+
+Returns DefaultInfo with the disk image and its JSON metadata, the image's MkosiImageInfo with raw_image replaced by the
+signed disk image, and the output groups raw_image, with only the disk image, and secure_boot_metadata, with only the
+JSON metadata.
 
 **ATTRIBUTES**
 

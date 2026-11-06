@@ -955,6 +955,18 @@ secure_boot_signed_image(
     ],
 )
 
+# What install tooling uploads: only the signed disk image.
+filegroup(
+    name = "sysupdate_v1_secure_boot_raw",
+    srcs = [":sysupdate_v1_secure_boot"],
+    output_group = "raw_image",
+)
+
+image_partition_metadata_file(
+    name = "sysupdate_v1_secure_boot_partition_metadata",
+    image = ":sysupdate_v1_secure_boot",
+)
+
 py_test(
     name = "secure_boot_signed_image_test",
     srcs = ["secure_boot_signed_image_test.py"],
@@ -966,12 +978,20 @@ py_test(
         "$(rootpaths :sysupdate_v1_signed_uki)",
         "--",
         "$(rootpaths :secure_boot_test_signer)",
+        "--",
+        "$(rootpaths :sysupdate_v1_secure_boot_raw)",
+        "--",
+        "$(rootpath :sysupdate_v1_secure_boot_partition_metadata)",
+        "$(rootpath @mkosi_debian_tools//:launcher)",
     ],
     data = [
         ":secure_boot_test_signer",
         ":sysupdate_v1_secure_boot",
+        ":sysupdate_v1_secure_boot_partition_metadata",
+        ":sysupdate_v1_secure_boot_raw",
         ":sysupdate_v1_signed_systemd_boot",
         ":sysupdate_v1_signed_uki",
+        "@mkosi_debian_tools//:launcher",
     ],
     main = "secure_boot_signed_image_test.py",
 )

@@ -454,6 +454,7 @@ def _signed_image_impl(ctx):
     return [
         DefaultInfo(files = depset(outputs)),
         MkosiImageInfo(image = outputs[0], raw_image = outputs[0], **fields),
+        OutputGroupInfo(raw_image = depset([outputs[0]]), secure_boot_metadata = depset([outputs[1]])),
     ]
 
 secure_boot_signed_image = rule(
@@ -498,8 +499,13 @@ unsigned.""",
     doc = """Writes a copy of a UEFI release disk image whose ESP holds signed boot binaries and Secure Boot
 auto-enrollment keys.
 
-Only the files of the EFI system partition change. Returns DefaultInfo with the disk image and its JSON metadata, and
-the image's MkosiImageInfo with raw_image replaced by the signed disk image.""",
+Only the files of the EFI system partition change. The ESP also gets /loader/rules_mkosi-secure-boot.json, a manifest
+of the signed binaries, the auto-enrollment keys and their certificate fingerprints, so install tooling can inspect a
+written image.
+
+Returns DefaultInfo with the disk image and its JSON metadata, the image's MkosiImageInfo with raw_image replaced by the
+signed disk image, and the output groups raw_image, with only the disk image, and secure_boot_metadata, with only the
+JSON metadata.""",
     provides = [MkosiImageInfo],
     toolchains = [MKOSI_TOOLCHAIN_TYPE],
 )

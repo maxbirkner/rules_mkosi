@@ -73,6 +73,7 @@ def _image_public_api_test_impl(ctx):
     asserts.equals(env, "mkosi-image-v3", info.format_version)
     asserts.equals(env, "demo.raw", info.raw_image.basename)
     asserts.equals(env, info.raw_image, info.image)
+    asserts.equals(env, [info.raw_image], target[OutputGroupInfo].raw_image.to_list())
     asserts.equals(env, None, info.manifest)
     asserts.false(env, hasattr(info, "root_hash_signature"), "root_hash_signature is not part of the API")
     asserts.equals(env, None, info.partition_metadata)

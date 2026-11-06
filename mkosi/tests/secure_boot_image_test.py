@@ -31,6 +31,11 @@ WORK = Path("secure-boot-image-work")
 BOOT_LOADER = "EFI/systemd/systemd-bootx64.efi"
 FALLBACK = "EFI/BOOT/BOOTX64.EFI"
 UKI = "EFI/Linux/os_1+3.efi"
+ESP_MANIFEST = "loader/rules_mkosi-secure-boot.json"
+
+
+def _sha256(data):
+    return hashlib.sha256(data).hexdigest()
 
 
 def _python(*arguments, check=True):
@@ -98,7 +103,8 @@ class Fixture:
         self.absent = WORK / "absent.efi"
         self.absent.write_bytes(secure_boot_fixtures.minimal_pe(b"not on the ESP"))
         self.signed = {path: WORK / ("signed-" + path.name) for path in (self.boot, self.uki, self.absent)}
-        certificate, self.keys = _sign("trusted", self.signed.items())
+        self.certificate, self.keys = _sign("trusted", self.signed.items())
+        certificate = self.certificate
         _, self.untrusted_keys = _sign("untrusted", [(self.boot, WORK / "untrusted.efi")])
         self.requests = {
             path: _request(path.stem, path, certificate, BOOT_LOADER if path == self.boot else "")
@@ -107,6 +113,12 @@ class Fixture:
         files = {FALLBACK: self.boot, BOOT_LOADER: self.boot, UKI: self.uki, "loader/loader.conf": b"timeout 3\n"}
         files["loader/loader.conf"] += b"secure-boot-enroll off\n"
         self.disk, self.metadata = secure_boot_fixtures.disk_with_esp(run_tool, DEBIAN_TOOLS, WORK, files)
+
+    def signed_image(self):
+        """Returns the result and output of signing both binaries with the trusted keys, signing only once."""
+        if not hasattr(self, "_signed_image"):
+            self._signed_image = self.sign_image("signed", [self.boot, self.uki], self.keys)
+        return self._signed_image
 
     def sign_image(self, name, binaries, keys=None, mode="force", disk=None):
         output = WORK / (name + ".raw")
@@ -127,7 +139,7 @@ class SignedImageTest(unittest.TestCase):
         cls.fixture = Fixture()
 
     def test_esp_holds_signed_binaries_keys_and_enroll_mode_and_nothing_else_changes(self):
-        result, output = self.fixture.sign_image("signed", [self.fixture.boot, self.fixture.uki], self.fixture.keys)
+        result, output = self.fixture.signed_image()
         self.assertEqual(result.returncode, 0, result.stderr)
         files = _esp_tree(output, WORK / "signed-tree")
         signed_boot = self.fixture.signed[self.fixture.boot].read_bytes()
@@ -151,12 +163,42 @@ class SignedImageTest(unittest.TestCase):
         _, again = self.fixture.sign_image("again", [self.fixture.uki, self.fixture.boot], self.fixture.keys)
         self.assertEqual(hashlib.sha256(again.read_bytes()).digest(), hashlib.sha256(data).digest())
 
-    def test_without_keys_only_binaries_change(self):
+    def test_esp_manifest_records_keys_certificates_and_signers(self):
+        fixture = self.fixture
+        result, output = fixture.signed_image()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        manifest = json.loads(_esp_tree(output, WORK / "manifest-tree")[ESP_MANIFEST.lower()])
+        self.assertEqual(manifest["format_version"], "mkosi-secure-boot-esp-manifest-v1")
+        self.assertEqual(manifest["secure_boot_enroll"], "force")
+        keys = manifest["auto_enroll_keys"]
+        self.assertEqual([key["variable"] for key in keys], ["PK", "KEK", "db"])
+        for key in keys:
+            data = (fixture.keys / (key["variable"] + ".auth")).read_bytes()
+            self.assertEqual(key["esp_path"], "loader/keys/auto/{}.auth".format(key["variable"]))
+            self.assertEqual((key["sha256"], key["size"]), (_sha256(data), len(data)))
+            self.assertEqual((len(key["x509_sha256"]), key["signature_count"]), (1, 1))
+        signer = _sha256(SECURE_BOOT.certificate_der(fixture.certificate))
+        self.assertEqual(keys[2]["x509_sha256"], [signer])
+        self.assertNotIn(signer, keys[0]["x509_sha256"] + keys[1]["x509_sha256"])
+        self.assertEqual([entry["esp_path"] for entry in manifest["replaced"]], sorted([FALLBACK, BOOT_LOADER, UKI]))
+        for entry in manifest["replaced"]:
+            self.assertEqual(entry["signer_sha256"], signer)
+        metadata = json.loads((WORK / "signed.json").read_text())
+        self.assertEqual(metadata["format_version"], "mkosi-secure-boot-signed-image-v2")
+        self.assertEqual(metadata["esp_manifest"], ESP_MANIFEST)
+        self.assertIn(ESP_MANIFEST, metadata["changed_esp_paths"])
+        for field in ("auto_enroll_keys", "replaced", "secure_boot_enroll"):
+            self.assertEqual(metadata[field], manifest[field], field)
+
+    def test_without_keys_only_binaries_and_the_manifest_change(self):
         result, output = self.fixture.sign_image("binaries-only", [self.fixture.boot, self.fixture.uki], mode="if-safe")
         self.assertEqual(result.returncode, 0, result.stderr)
         files = _esp_tree(output, WORK / "binaries-only-tree")
         self.assertEqual(files["loader/loader.conf"], b"timeout 3\nsecure-boot-enroll off\n")
         self.assertFalse(any(path.startswith("loader/keys") for path in files))
+        manifest = json.loads(files[ESP_MANIFEST.lower()])
+        self.assertEqual((manifest["auto_enroll_keys"], manifest["secure_boot_enroll"]), ([], None))
+        self.assertEqual(len(manifest["replaced"]), 3)
 
     def test_inputs_that_would_not_boot_are_rejected(self):
         fixture = self.fixture

@@ -116,6 +116,12 @@ def _signed_image_test_impl(ctx):
     asserts.equals(env, [signed.raw_image] + [file for file in outputs if file.extension == "json"], outputs)
     asserts.equals(env, "secure_boot_signed_image_subject.raw", signed.raw_image.basename)
     asserts.equals(env, signed.raw_image, signed.image)
+    groups = target[OutputGroupInfo]
+    asserts.equals(env, [signed.raw_image], groups.raw_image.to_list())
+    asserts.equals(env, ["secure_boot_signed_image_subject.secure-boot-image.json"], [
+        file.basename
+        for file in groups.secure_boot_metadata.to_list()
+    ])
     for field in ("uki", "partition_metadata", "root_hash", "image_id", "firmware"):
         asserts.equals(env, getattr(image, field), getattr(signed, field), field)
     return analysistest.end(env)
