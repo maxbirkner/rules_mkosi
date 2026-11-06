@@ -12,12 +12,13 @@ import dis
 import hashlib
 import importlib
 import inspect
+import re
 from dataclasses import dataclass
 
 _REVIEW = (
-    "Follow docs/mkosi-internals.md#upgrading-mkosi: review each listed patch in "
-    "mkosi/private/mkosi_runner/release_patches.py against the upstream diff of its internal, then record the reviewed "
-    "fingerprints in a contract for this mkosi version in mkosi/private/mkosi_runner/mkosi_contract.py."
+    "Follow docs/mkosi-internals.md#upgrading-mkosi: review each changed internal listed above against its upstream "
+    "diff and adapt its patch in mkosi/private/mkosi_runner/release_patches.py, then record the reviewed fingerprints "
+    "in the contract of this mkosi version in mkosi/private/mkosi_runner/mkosi_contract.py."
 )
 
 
@@ -72,7 +73,10 @@ CONTRACTS = {
                 "mkosi.context:Context.__init__",
                 "_patch_context_repository",
                 "3a8b4a2472bb5c930e7ab43590effa2b206a6e970fb9e77bc1ec3d80e4c95512",
-                "it still creates the workspace repository directory and reads no Context.repository itself",
+                (
+                    "it reads Context.repository only to create the workspace repository directory, and caches no "
+                    "path derived from it, because the patch switches the property to the mirror only after it returns"
+                ),
             ),
             Patched(
                 "mkosi.context:Context.repository",
@@ -171,15 +175,22 @@ def mkosi_version():
 def violations(version=None, contract=None):
     """Returns descriptions of the differences between the importable mkosi and the contract of its version."""
     version = mkosi_version() if version is None else version
-    if contract is None:
-        if version not in CONTRACTS:
-            return [
-                "mkosi {} is not supported by release mode; supported mkosi versions: {}".format(
-                    version, ", ".join(sorted(CONTRACTS))
-                )
-            ]
-        contract = CONTRACTS[version]
     found = []
+    if contract is None:
+        if version in CONTRACTS:
+            contract = CONTRACTS[version]
+        else:
+            found.append(
+                "mkosi {} is not supported by release mode; supported mkosi versions: {}".format(
+                    version, ", ".join(sorted(CONTRACTS, key=_version_key))
+                )
+            )
+            if not CONTRACTS:
+                return found
+            # Comparing with the newest reviewed contract lists what changed, which is where an upgrade starts.
+            newest = max(CONTRACTS, key=_version_key)
+            found.append("compared with the mkosi {} contract:".format(newest))
+            contract = CONTRACTS[newest]
     for patched in contract.patched:
         found.extend(_patched_violations(patched))
     for owner, attribute in contract.inherited:
@@ -189,6 +200,10 @@ def violations(version=None, contract=None):
     for owner, names in contract.fields.items():
         found.extend(_field_violations(owner, names))
     return found
+
+
+def _version_key(version):
+    return tuple(int(number) for number in re.findall(r"\d+", version))
 
 
 def verify():

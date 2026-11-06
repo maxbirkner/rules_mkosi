@@ -74,6 +74,9 @@ def _load_runner():
 
 
 class MkosiContractTest(unittest.TestCase):
+    # Show every changed internal, which is the starting point of an mkosi upgrade.
+    maxDiff = None
+
     @classmethod
     def setUpClass(cls):
         package = _load_runner()
@@ -107,8 +110,31 @@ class MkosiContractTest(unittest.TestCase):
 
     def test_unsupported_mkosi_version_is_rejected(self):
         self.assertEqual(
-            ["mkosi 0 is not supported by release mode; supported mkosi versions: 27.1"],
+            [
+                "mkosi 0 is not supported by release mode; supported mkosi versions: 27.1",
+                "compared with the mkosi 27.1 contract:",
+            ],
             self.contract.violations(version="0"),
+        )
+
+    def test_unsupported_mkosi_version_lists_what_changed_since_the_newest_contract(self):
+        def parse_ini(path, only_sections=()):
+            yield from ()
+
+        older = dataclasses.replace(self._pinned(), patched=())
+        self._replace(self.contract, "CONTRACTS", {"9.1": older, **self.contract.CONTRACTS, "10": older})
+        self._replace(self.mkosi_config, "parse_ini", parse_ini)
+        self.assertEqual(
+            [
+                "mkosi 28 is not supported by release mode; supported mkosi versions: 9.1, 10, 27.1",
+                "compared with the mkosi 27.1 contract:",
+                "mkosi.config:parse_ini changed (source sha256 {}); _ConfigurationValidator.parse_ini replaces or "
+                "wraps it. Re-verify that {}".format(
+                    self.contract.source_sha256(parse_ini),
+                    next(p.recheck for p in self._pinned().patched if p.name == "mkosi.config:parse_ini"),
+                ),
+            ],
+            self.contract.violations(version="28"),
         )
 
     def test_changed_internal_fails_loudly_with_the_patch_to_review(self):

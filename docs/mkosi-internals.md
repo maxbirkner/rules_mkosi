@@ -31,11 +31,13 @@ mkosi [does not overwrite](https://github.com/systemd/mkosi/blob/v27.1/mkosi/res
 
 ## Upgrading mkosi
 
-1. Add the new version to `mkosi/versions.bzl`.
+1. Add the new version to `MKOSI_VERSIONS` in `mkosi/versions.bzl` and make it `DEFAULT_MKOSI_VERSION`, so that the tests run the new mkosi.
 2. Run `bazel test //mkosi/tests:mkosi_contract_test`.
+   A version without a contract is compared with the newest contract.
    For each internal that changed, the test prints its new source fingerprint, the patch that replaces or wraps it, and what to re-verify.
-3. Read the upstream diff of each listed internal, for example `git diff v27.1 v28 -- mkosi/config.py`.
-   Adapt the patch, then add a contract for the new version with the reviewed fingerprints.
-4. Check the release notes for an option that makes a patch unnecessary.
+3. Read the upstream diff of each listed internal, for example `git diff v27.1 v28 -- mkosi/config.py`, and adapt its patch.
+4. Copy the newest entry of `CONTRACTS` in `mkosi_contract.py` under the new version, and update the fingerprints, parameters and fields that you reviewed.
+   The test passes once the contract matches.
+5. Check the release notes for an option that makes a patch unnecessary.
    Remove the patch only if release images stay byte-identical.
-5. Run `ci/verify-release-reproducibility.sh`, `ci/verify-two-stage-cache.sh`, and the complete test suite.
+6. Run `ci/verify-release-reproducibility.sh`, `ci/verify-two-stage-cache.sh`, and the complete test suite.
