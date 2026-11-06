@@ -42,33 +42,27 @@
               }
             }
           }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "not-applicable"
+              }
+            }
+          },
+          "then": {
+            "not": {
+              "required": [
+                "failure"
+              ]
+            }
+          }
         }
       ],
       "properties": {
         "failure": {
           "$ref": "#/$defs/failure"
-        },
-        "id": {
-          "enum": [
-            "artifact-digest",
-            "identity",
-            "firmware-boot",
-            "boot-chain",
-            "boot-to-userspace",
-            "storage",
-            "reboot-poweroff",
-            "tpm2",
-            "verity-root",
-            "ab-update",
-            "network-wired",
-            "network-wifi",
-            "console-serial",
-            "console-graphical",
-            "secure-boot-state",
-            "secure-boot-enrollment",
-            "secure-boot-enforcement",
-            "option-rom"
-          ]
         },
         "logs": {
           "items": {
@@ -88,14 +82,27 @@
         }
       },
       "required": [
-        "id",
         "status",
         "logs"
       ],
       "type": "object"
     },
+    "failed_check": {
+      "properties": {
+        "status": {
+          "const": "failed"
+        }
+      }
+    },
     "failure": {
       "additionalProperties": false,
+      "if": {
+        "properties": {
+          "category": {
+            "const": "hardware-fault"
+          }
+        }
+      },
       "properties": {
         "attribution": {
           "enum": [
@@ -128,8 +135,7 @@
           "type": "string"
         },
         "summary": {
-          "minLength": 1,
-          "type": "string"
+          "$ref": "#/$defs/nonempty_string"
         }
       },
       "required": [
@@ -137,7 +143,31 @@
         "attribution",
         "summary"
       ],
+      "then": {
+        "properties": {
+          "attribution": {
+            "const": "hardware"
+          }
+        }
+      },
       "type": "object"
+    },
+    "invalidating_check": {
+      "properties": {
+        "failure": {
+          "properties": {
+            "attribution": {
+              "enum": [
+                "procedure",
+                "hardware"
+              ]
+            }
+          }
+        },
+        "status": {
+          "const": "failed"
+        }
+      }
     },
     "log": {
       "additionalProperties": false,
@@ -160,6 +190,13 @@
       "minLength": 1,
       "type": "string"
     },
+    "passed_check": {
+      "properties": {
+        "status": {
+          "const": "passed"
+        }
+      }
+    },
     "sha256": {
       "pattern": "^[0-9a-f]{64}$",
       "type": "string"
@@ -168,25 +205,1288 @@
   "$id": "https://github.com/maxbirkner/rules_mkosi/blob/main/docs/hardware-qualification-result.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
-  "description": "One physical qualification run of one machine in one firmware configuration; see docs/hardware-qualification.md.",
-  "if": {
-    "properties": {
-      "outcome": {
-        "const": "passed"
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "class": {
+            "const": "uefi-modern-desktop"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "firmware": {
+            "properties": {
+              "boot_mode": {
+                "const": "uefi"
+              },
+              "secure_boot": {
+                "enum": [
+                  "disabled",
+                  "setup-mode",
+                  "custom-keys"
+                ]
+              },
+              "tier": {
+                "const": "uefi"
+              }
+            }
+          },
+          "machine": {
+            "properties": {
+              "boot_disk": {
+                "properties": {
+                  "transport": {
+                    "const": "nvme"
+                  }
+                }
+              },
+              "tpm2": {
+                "enum": [
+                  "firmware",
+                  "discrete"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "class": {
+            "const": "uefi-mobile-apu"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "firmware": {
+            "properties": {
+              "boot_mode": {
+                "const": "uefi"
+              },
+              "secure_boot": {
+                "enum": [
+                  "disabled",
+                  "setup-mode"
+                ]
+              },
+              "tier": {
+                "const": "uefi"
+              }
+            }
+          },
+          "machine": {
+            "properties": {
+              "boot_disk": {
+                "properties": {
+                  "transport": {
+                    "const": "nvme"
+                  }
+                }
+              },
+              "tpm2": {
+                "enum": [
+                  "firmware",
+                  "discrete"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "class": {
+            "const": "uefi-embedded-headless"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "firmware": {
+            "properties": {
+              "boot_mode": {
+                "const": "uefi"
+              },
+              "secure_boot": {
+                "enum": [
+                  "setup-mode",
+                  "custom-keys"
+                ]
+              },
+              "tier": {
+                "const": "uefi"
+              }
+            }
+          },
+          "machine": {
+            "properties": {
+              "boot_disk": {
+                "properties": {
+                  "transport": {
+                    "enum": [
+                      "mmc",
+                      "sata"
+                    ]
+                  }
+                }
+              },
+              "tpm2": {
+                "enum": [
+                  "firmware",
+                  "discrete",
+                  "absent"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "class": {
+            "const": "uefi-older-generation"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "firmware": {
+            "properties": {
+              "boot_mode": {
+                "const": "uefi"
+              },
+              "secure_boot": {
+                "enum": [
+                  "disabled",
+                  "microsoft-factory-keys"
+                ]
+              },
+              "tier": {
+                "const": "uefi"
+              }
+            }
+          },
+          "machine": {
+            "properties": {
+              "boot_disk": {
+                "properties": {
+                  "transport": {
+                    "const": "sata"
+                  }
+                }
+              },
+              "tpm2": {
+                "const": "absent"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "class": {
+            "const": "uefi-removable-usb"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "firmware": {
+            "properties": {
+              "boot_mode": {
+                "const": "uefi"
+              },
+              "secure_boot": {
+                "const": "disabled"
+              },
+              "tier": {
+                "const": "uefi"
+              }
+            }
+          },
+          "machine": {
+            "properties": {
+              "boot_disk": {
+                "properties": {
+                  "transport": {
+                    "const": "usb"
+                  }
+                }
+              },
+              "tpm2": {
+                "enum": [
+                  "firmware",
+                  "discrete",
+                  "absent"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "class": {
+            "const": "bios-legacy-only"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "firmware": {
+            "properties": {
+              "boot_mode": {
+                "const": "bios"
+              },
+              "secure_boot": {
+                "const": "not-applicable"
+              },
+              "tier": {
+                "const": "bios"
+              }
+            }
+          },
+          "machine": {
+            "properties": {
+              "boot_disk": {
+                "properties": {
+                  "transport": {
+                    "const": "sata"
+                  }
+                }
+              },
+              "tpm2": {
+                "const": "absent"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "class": {
+            "const": "bios-csm"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "firmware": {
+            "properties": {
+              "boot_mode": {
+                "const": "csm"
+              },
+              "secure_boot": {
+                "const": "not-applicable"
+              },
+              "tier": {
+                "const": "bios"
+              }
+            }
+          },
+          "machine": {
+            "properties": {
+              "boot_disk": {
+                "properties": {
+                  "transport": {
+                    "const": "sata"
+                  }
+                }
+              },
+              "tpm2": {
+                "enum": [
+                  "firmware",
+                  "discrete",
+                  "absent"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "firmware": {
+            "properties": {
+              "secure_boot": {
+                "enum": [
+                  "setup-mode",
+                  "custom-keys",
+                  "microsoft-factory-keys"
+                ]
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "subject": {
+            "properties": {
+              "image": {
+                "properties": {
+                  "signed_binaries": {
+                    "minItems": 1
+                  }
+                },
+                "required": [
+                  "signed_binaries",
+                  "signed_image_record_sha256"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "firmware": {
+            "properties": {
+              "secure_boot": {
+                "const": "setup-mode"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "subject": {
+            "properties": {
+              "image": {
+                "properties": {
+                  "auto_enroll_keys": {
+                    "allOf": [
+                      {
+                        "contains": {
+                          "properties": {
+                            "name": {
+                              "const": "PK.auth"
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "contains": {
+                          "properties": {
+                            "name": {
+                              "const": "KEK.auth"
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "contains": {
+                          "properties": {
+                            "name": {
+                              "const": "db.auth"
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "auto_enroll_keys"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "outcome": {
+            "const": "passed"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "checks": {
+            "additionalProperties": {
+              "properties": {
+                "status": {
+                  "enum": [
+                    "passed",
+                    "not-applicable"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "allOf": [
+          {
+            "properties": {
+              "outcome": {
+                "const": "passed"
+              }
+            }
+          },
+          {
+            "properties": {
+              "firmware": {
+                "properties": {
+                  "secure_boot": {
+                    "not": {
+                      "const": "microsoft-factory-keys"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "then": {
+        "properties": {
+          "checks": {
+            "properties": {
+              "artifact-digest": {
+                "$ref": "#/$defs/passed_check"
+              },
+              "boot-chain": {
+                "$ref": "#/$defs/passed_check"
+              },
+              "boot-to-userspace": {
+                "$ref": "#/$defs/passed_check"
+              },
+              "firmware-boot": {
+                "$ref": "#/$defs/passed_check"
+              },
+              "identity": {
+                "$ref": "#/$defs/passed_check"
+              },
+              "reboot-poweroff": {
+                "$ref": "#/$defs/passed_check"
+              },
+              "storage": {
+                "$ref": "#/$defs/passed_check"
+              },
+              "tpm2": {
+                "$ref": "#/$defs/passed_check"
+              }
+            },
+            "required": [
+              "artifact-digest",
+              "identity",
+              "firmware-boot",
+              "boot-chain",
+              "boot-to-userspace",
+              "storage",
+              "reboot-poweroff",
+              "tpm2"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "allOf": [
+          {
+            "properties": {
+              "outcome": {
+                "const": "passed"
+              }
+            }
+          },
+          {
+            "properties": {
+              "firmware": {
+                "properties": {
+                  "secure_boot": {
+                    "const": "microsoft-factory-keys"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "then": {
+        "properties": {
+          "checks": {
+            "properties": {
+              "artifact-digest": {
+                "$ref": "#/$defs/passed_check"
+              },
+              "identity": {
+                "$ref": "#/$defs/passed_check"
+              }
+            },
+            "required": [
+              "artifact-digest",
+              "identity"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "allOf": [
+          {
+            "properties": {
+              "outcome": {
+                "const": "passed"
+              }
+            }
+          },
+          {
+            "properties": {
+              "firmware": {
+                "properties": {
+                  "tier": {
+                    "const": "uefi"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "properties": {
+              "firmware": {
+                "properties": {
+                  "secure_boot": {
+                    "not": {
+                      "const": "microsoft-factory-keys"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "then": {
+        "allOf": [
+          {
+            "properties": {
+              "checks": {
+                "properties": {
+                  "ab-update": {
+                    "$ref": "#/$defs/passed_check"
+                  },
+                  "secure-boot-state": {
+                    "$ref": "#/$defs/passed_check"
+                  },
+                  "verity-root": {
+                    "$ref": "#/$defs/passed_check"
+                  }
+                },
+                "required": [
+                  "verity-root",
+                  "ab-update",
+                  "secure-boot-state"
+                ]
+              }
+            }
+          },
+          {
+            "properties": {
+              "subject": {
+                "properties": {
+                  "update_payloads": {
+                    "allOf": [
+                      {
+                        "contains": {
+                          "properties": {
+                            "expected": {
+                              "const": "blessed"
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "contains": {
+                          "properties": {
+                            "expected": {
+                              "const": "rolled-back"
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "update_payloads"
+                ]
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "if": {
+        "allOf": [
+          {
+            "properties": {
+              "outcome": {
+                "const": "passed"
+              }
+            }
+          },
+          {
+            "properties": {
+              "firmware": {
+                "properties": {
+                  "secure_boot": {
+                    "const": "setup-mode"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "then": {
+        "properties": {
+          "checks": {
+            "properties": {
+              "secure-boot-enrollment": {
+                "$ref": "#/$defs/passed_check"
+              }
+            },
+            "required": [
+              "secure-boot-enrollment"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "allOf": [
+          {
+            "properties": {
+              "outcome": {
+                "const": "passed"
+              }
+            }
+          },
+          {
+            "properties": {
+              "firmware": {
+                "properties": {
+                  "secure_boot": {
+                    "enum": [
+                      "setup-mode",
+                      "custom-keys",
+                      "microsoft-factory-keys"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "then": {
+        "properties": {
+          "checks": {
+            "properties": {
+              "secure-boot-enforcement": {
+                "$ref": "#/$defs/passed_check"
+              }
+            },
+            "required": [
+              "secure-boot-enforcement"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "allOf": [
+          {
+            "properties": {
+              "outcome": {
+                "const": "passed"
+              }
+            }
+          },
+          {
+            "properties": {
+              "firmware": {
+                "properties": {
+                  "secure_boot": {
+                    "enum": [
+                      "setup-mode",
+                      "custom-keys"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "then": {
+        "properties": {
+          "subject": {
+            "properties": {
+              "update_payloads": {
+                "allOf": [
+                  {
+                    "contains": {
+                      "properties": {
+                        "expected": {
+                          "const": "refused"
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            "required": [
+              "update_payloads"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "allOf": [
+          {
+            "properties": {
+              "outcome": {
+                "const": "passed"
+              }
+            }
+          },
+          {
+            "properties": {
+              "firmware": {
+                "properties": {
+                  "secure_boot": {
+                    "not": {
+                      "const": "microsoft-factory-keys"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "properties": {
+              "class": {
+                "const": "uefi-modern-desktop"
+              }
+            }
+          }
+        ]
+      },
+      "then": {
+        "properties": {
+          "checks": {
+            "properties": {
+              "console-graphical": {
+                "$ref": "#/$defs/passed_check"
+              },
+              "network-wired": {
+                "$ref": "#/$defs/passed_check"
+              }
+            },
+            "required": [
+              "network-wired",
+              "console-graphical"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "allOf": [
+          {
+            "properties": {
+              "outcome": {
+                "const": "passed"
+              }
+            }
+          },
+          {
+            "properties": {
+              "firmware": {
+                "properties": {
+                  "secure_boot": {
+                    "not": {
+                      "const": "microsoft-factory-keys"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "properties": {
+              "class": {
+                "const": "uefi-mobile-apu"
+              }
+            }
+          }
+        ]
+      },
+      "then": {
+        "properties": {
+          "checks": {
+            "properties": {
+              "console-graphical": {
+                "$ref": "#/$defs/passed_check"
+              },
+              "network-wifi": {
+                "$ref": "#/$defs/passed_check"
+              }
+            },
+            "required": [
+              "network-wifi",
+              "console-graphical"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "allOf": [
+          {
+            "properties": {
+              "outcome": {
+                "const": "passed"
+              }
+            }
+          },
+          {
+            "properties": {
+              "firmware": {
+                "properties": {
+                  "secure_boot": {
+                    "not": {
+                      "const": "microsoft-factory-keys"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "properties": {
+              "class": {
+                "const": "uefi-embedded-headless"
+              }
+            }
+          }
+        ]
+      },
+      "then": {
+        "properties": {
+          "checks": {
+            "properties": {
+              "console-serial": {
+                "$ref": "#/$defs/passed_check"
+              },
+              "network-wired": {
+                "$ref": "#/$defs/passed_check"
+              }
+            },
+            "required": [
+              "network-wired",
+              "console-serial"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "allOf": [
+          {
+            "properties": {
+              "outcome": {
+                "const": "passed"
+              }
+            }
+          },
+          {
+            "properties": {
+              "firmware": {
+                "properties": {
+                  "secure_boot": {
+                    "not": {
+                      "const": "microsoft-factory-keys"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "properties": {
+              "class": {
+                "const": "uefi-older-generation"
+              }
+            }
+          }
+        ]
+      },
+      "then": {
+        "properties": {
+          "checks": {
+            "properties": {
+              "console-graphical": {
+                "$ref": "#/$defs/passed_check"
+              },
+              "network-wired": {
+                "$ref": "#/$defs/passed_check"
+              }
+            },
+            "required": [
+              "network-wired",
+              "console-graphical"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "allOf": [
+          {
+            "properties": {
+              "outcome": {
+                "const": "passed"
+              }
+            }
+          },
+          {
+            "properties": {
+              "firmware": {
+                "properties": {
+                  "secure_boot": {
+                    "not": {
+                      "const": "microsoft-factory-keys"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "properties": {
+              "class": {
+                "const": "uefi-removable-usb"
+              }
+            }
+          }
+        ]
+      },
+      "then": {
+        "properties": {
+          "checks": {
+            "properties": {
+              "console-graphical": {
+                "$ref": "#/$defs/passed_check"
+              },
+              "network-wired": {
+                "$ref": "#/$defs/passed_check"
+              }
+            },
+            "required": [
+              "network-wired",
+              "console-graphical"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "allOf": [
+          {
+            "properties": {
+              "outcome": {
+                "const": "passed"
+              }
+            }
+          },
+          {
+            "properties": {
+              "firmware": {
+                "properties": {
+                  "secure_boot": {
+                    "not": {
+                      "const": "microsoft-factory-keys"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "properties": {
+              "class": {
+                "const": "bios-legacy-only"
+              }
+            }
+          }
+        ]
+      },
+      "then": {
+        "properties": {
+          "checks": {
+            "properties": {
+              "console-graphical": {
+                "$ref": "#/$defs/passed_check"
+              },
+              "network-wired": {
+                "$ref": "#/$defs/passed_check"
+              }
+            },
+            "required": [
+              "network-wired",
+              "console-graphical"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "allOf": [
+          {
+            "properties": {
+              "outcome": {
+                "const": "passed"
+              }
+            }
+          },
+          {
+            "properties": {
+              "firmware": {
+                "properties": {
+                  "secure_boot": {
+                    "not": {
+                      "const": "microsoft-factory-keys"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "properties": {
+              "class": {
+                "const": "bios-csm"
+              }
+            }
+          }
+        ]
+      },
+      "then": {
+        "properties": {
+          "checks": {
+            "properties": {
+              "console-graphical": {
+                "$ref": "#/$defs/passed_check"
+              },
+              "network-wired": {
+                "$ref": "#/$defs/passed_check"
+              }
+            },
+            "required": [
+              "network-wired",
+              "console-graphical"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "allOf": [
+          {
+            "properties": {
+              "outcome": {
+                "const": "passed"
+              }
+            }
+          },
+          {
+            "properties": {
+              "firmware": {
+                "properties": {
+                  "secure_boot": {
+                    "enum": [
+                      "setup-mode",
+                      "custom-keys"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          {
+            "properties": {
+              "class": {
+                "const": "uefi-modern-desktop"
+              }
+            }
+          }
+        ]
+      },
+      "then": {
+        "properties": {
+          "checks": {
+            "properties": {
+              "option-rom": {
+                "$ref": "#/$defs/passed_check"
+              }
+            },
+            "required": [
+              "option-rom"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "outcome": {
+            "const": "failed"
+          }
+        }
+      },
+      "then": {
+        "allOf": [
+          {
+            "properties": {
+              "checks": {
+                "not": {
+                  "additionalProperties": {
+                    "not": {
+                      "$ref": "#/$defs/failed_check"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "not": {
+              "properties": {
+                "checks": {
+                  "not": {
+                    "additionalProperties": {
+                      "not": {
+                        "$ref": "#/$defs/invalidating_check"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "outcome": {
+            "const": "invalid"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "checks": {
+            "not": {
+              "additionalProperties": {
+                "not": {
+                  "$ref": "#/$defs/invalidating_check"
+                }
+              }
+            }
+          }
+        }
       }
     }
-  },
+  ],
+  "description": "One physical qualification run of one machine in one firmware configuration; see docs/hardware-qualification.md.",
   "properties": {
     "checks": {
-      "items": {
+      "additionalProperties": {
         "$ref": "#/$defs/check"
       },
-      "minItems": 1,
-      "type": "array"
+      "minProperties": 1,
+      "propertyNames": {
+        "enum": [
+          "artifact-digest",
+          "identity",
+          "firmware-boot",
+          "boot-chain",
+          "boot-to-userspace",
+          "storage",
+          "reboot-poweroff",
+          "tpm2",
+          "verity-root",
+          "ab-update",
+          "network-wired",
+          "network-wifi",
+          "console-serial",
+          "console-graphical",
+          "secure-boot-state",
+          "secure-boot-enrollment",
+          "secure-boot-enforcement",
+          "option-rom"
+        ]
+      },
+      "type": "object"
     },
     "class": {
-      "pattern": "^(uefi|bios)-[a-z0-9]+(-[a-z0-9]+)*$",
-      "type": "string"
+      "enum": [
+        "uefi-modern-desktop",
+        "uefi-mobile-apu",
+        "uefi-embedded-headless",
+        "uefi-older-generation",
+        "uefi-removable-usb",
+        "bios-legacy-only",
+        "bios-csm"
+      ]
     },
     "finished_at": {
       "format": "date-time",
@@ -510,22 +1810,6 @@
     "checks",
     "outcome"
   ],
-  "then": {
-    "properties": {
-      "checks": {
-        "items": {
-          "properties": {
-            "status": {
-              "enum": [
-                "passed",
-                "not-applicable"
-              ]
-            }
-          }
-        }
-      }
-    }
-  },
   "title": "rules_mkosi hardware qualification result",
   "type": "object"
 }
