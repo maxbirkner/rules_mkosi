@@ -1079,12 +1079,19 @@ filegroup(
 # Mode: systemd-boot enrolls the test PK, KEK and db and resets, and release 1
 # then runs with Secure Boot enabled. It updates to release 2, whose signed UKI
 # boots and is blessed, and then to release 3, whose unsigned UKI the firmware
-# must refuse to load.
+# must refuse to load. With Secure Boot enabled, systemd-stub still appends the
+# SMBIOS kernel-cmdline-extra string, and systemd still imports SMBIOS
+# credentials, here a drop-in that prints a marker; see docs/secure-boot.md.
 qemu_ovmf_boot_test(
     name = "secure_boot_lifecycle_test",
     timeout = "long",
     allow_reboot = True,
     boot_timeout_seconds = 780,
+    credentials = {
+        "systemd.unit-dropin.rules-mkosi-ab-lifecycle.service": (
+            "[Service]\nExecStartPre=/bin/echo rules-mkosi-ab: credential drop-in applied\n"
+        ),
+    },
     http_shares = {
         ":sysupdate_v2_signed_payload_published": "after-1",
         ":sysupdate_v3_payload_published": "after-2",
@@ -1095,10 +1102,14 @@ qemu_ovmf_boot_test(
         "q35",
         "-m",
         "2048M",
+        "-smbios",
+        "type=11,value=io.systemd.stub.kernel-cmdline-extra=rules_mkosi.cmdline_extra=1",
     ],
     progress_markers = [
         "Custom Secure Boot keys successfully enrolled, rebooting the system now!",
         "EFI stub: UEFI Secure Boot is enabled.",
+        "rules_mkosi.cmdline_extra=1",
+        "rules-mkosi-ab: credential drop-in applied",
         "rules-mkosi-ab: running 1 from erofs with roothash ",
         "rules-mkosi-ab: SecureBoot=1 SetupMode=0",
         "rules-mkosi-ab: installed 2",

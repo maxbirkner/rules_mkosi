@@ -248,11 +248,11 @@ Wraps a QEMU system emulator binary and its runtime data as an executable target
 <pre>
 load("@rules_mkosi//mkosi:defs.bzl", "qemu_ovmf_boot_config")
 
-qemu_ovmf_boot_config(<a href="#qemu_ovmf_boot_config-name">name</a>, <a href="#qemu_ovmf_boot_config-accelerator">accelerator</a>, <a href="#qemu_ovmf_boot_config-allow_reboot">allow_reboot</a>, <a href="#qemu_ovmf_boot_config-boot_timeout_seconds">boot_timeout_seconds</a>, <a href="#qemu_ovmf_boot_config-diagnostic_bytes">diagnostic_bytes</a>,
-                      <a href="#qemu_ovmf_boot_config-expected_failure_marker">expected_failure_marker</a>, <a href="#qemu_ovmf_boot_config-http_shares">http_shares</a>, <a href="#qemu_ovmf_boot_config-image">image</a>, <a href="#qemu_ovmf_boot_config-machine_args">machine_args</a>, <a href="#qemu_ovmf_boot_config-progress_markers">progress_markers</a>,
-                      <a href="#qemu_ovmf_boot_config-qmp_initialization_timeout_seconds">qmp_initialization_timeout_seconds</a>, <a href="#qemu_ovmf_boot_config-read_only_shares">read_only_shares</a>, <a href="#qemu_ovmf_boot_config-readiness_marker">readiness_marker</a>,
-                      <a href="#qemu_ovmf_boot_config-secure_boot_code">secure_boot_code</a>, <a href="#qemu_ovmf_boot_config-secure_boot_vars">secure_boot_vars</a>, <a href="#qemu_ovmf_boot_config-shutdown_markers">shutdown_markers</a>, <a href="#qemu_ovmf_boot_config-shutdown_timeout_seconds">shutdown_timeout_seconds</a>,
-                      <a href="#qemu_ovmf_boot_config-stop_after_readiness">stop_after_readiness</a>, <a href="#qemu_ovmf_boot_config-test_timeout">test_timeout</a>)
+qemu_ovmf_boot_config(<a href="#qemu_ovmf_boot_config-name">name</a>, <a href="#qemu_ovmf_boot_config-accelerator">accelerator</a>, <a href="#qemu_ovmf_boot_config-allow_reboot">allow_reboot</a>, <a href="#qemu_ovmf_boot_config-boot_timeout_seconds">boot_timeout_seconds</a>, <a href="#qemu_ovmf_boot_config-credentials">credentials</a>,
+                      <a href="#qemu_ovmf_boot_config-diagnostic_bytes">diagnostic_bytes</a>, <a href="#qemu_ovmf_boot_config-expected_failure_marker">expected_failure_marker</a>, <a href="#qemu_ovmf_boot_config-http_shares">http_shares</a>, <a href="#qemu_ovmf_boot_config-image">image</a>, <a href="#qemu_ovmf_boot_config-machine_args">machine_args</a>,
+                      <a href="#qemu_ovmf_boot_config-progress_markers">progress_markers</a>, <a href="#qemu_ovmf_boot_config-qmp_initialization_timeout_seconds">qmp_initialization_timeout_seconds</a>, <a href="#qemu_ovmf_boot_config-read_only_shares">read_only_shares</a>,
+                      <a href="#qemu_ovmf_boot_config-readiness_marker">readiness_marker</a>, <a href="#qemu_ovmf_boot_config-secure_boot_code">secure_boot_code</a>, <a href="#qemu_ovmf_boot_config-secure_boot_vars">secure_boot_vars</a>, <a href="#qemu_ovmf_boot_config-shutdown_markers">shutdown_markers</a>,
+                      <a href="#qemu_ovmf_boot_config-shutdown_timeout_seconds">shutdown_timeout_seconds</a>, <a href="#qemu_ovmf_boot_config-stop_after_readiness">stop_after_readiness</a>, <a href="#qemu_ovmf_boot_config-test_timeout">test_timeout</a>)
 </pre>
 
 Writes the configuration of a qemu_ovmf_boot_test, which declares it as `<name>_config`.
@@ -268,6 +268,7 @@ Use it directly only to inspect the validated deadlines through QemuBootConfigIn
 | <a id="qemu_ovmf_boot_config-accelerator"></a>accelerator |  QEMU accelerator: `auto` (default) or `tcg`.<br><br>`auto` uses KVM when the test can open `/dev/kvm` for reading and writing, and TCG software emulation otherwise. `tcg` always uses TCG. Both use the same guest CPU model. The test log records the accelerator QEMU used.   | String | optional |  `"auto"`  |
 | <a id="qemu_ovmf_boot_config-allow_reboot"></a>allow_reboot |  Keep QEMU running across guest reboots instead of treating a reboot as an exit.<br><br>The image snapshot and the copied OVMF variables persist across reboots for the lifetime of the test.   | Boolean | optional |  `False`  |
 | <a id="qemu_ovmf_boot_config-boot_timeout_seconds"></a>boot_timeout_seconds |  Seconds that QEMU may take after QMP is ready until readiness_marker appears on the serial console.   | Integer | optional |  `180`  |
+| <a id="qemu_ovmf_boot_config-credentials"></a>credentials |  systemd system credentials for the guest, keyed by credential name.<br><br>Each becomes the SMBIOS Type 11 string `io.systemd.credential:<name>=<value>`, which systemd imports at boot, also with Secure Boot enabled. For example, `{"systemd.unit-dropin.multi-user.target": "[Unit]\nWants=ready.service\n"}` starts a readiness unit that the image does not enable; see docs/secure-boot.md. Names are letters, digits, and `._-@~+\`.   | <a href="https://bazel.build/rules/lib/core/dict">Dictionary: String -> String</a> | optional |  `{}`  |
 | <a id="qemu_ovmf_boot_config-diagnostic_bytes"></a>diagnostic_bytes |  Bytes of the end of each log printed on failure; the retained test outputs are capped at 256 KiB.   | Integer | optional |  `65536`  |
 | <a id="qemu_ovmf_boot_config-expected_failure_marker"></a>expected_failure_marker |  Exact serial marker that makes an intentionally failing boot pass before readiness.   | String | optional |  `""`  |
 | <a id="qemu_ovmf_boot_config-http_shares"></a>http_shares |  Targets whose files the guest can download from http://10.0.2.100/<path>/, keyed to their path.<br><br>The files of a directory appear at the top of its path. The guest gets a virtio network interface on QEMU's user network, which reaches only this server; configure it with the static address 10.0.2.15/24 or DHCP.   | <a href="https://bazel.build/rules/lib/core/dict">Dictionary: Label -> String</a> | optional |  `{}`  |
@@ -1202,7 +1203,7 @@ the SHA-256 of the normalized `spec`, so any change to the snapshot, components,
 <pre>
 load("@rules_mkosi//mkosi:defs.bzl", "managed_python_test")
 
-managed_python_test(<a href="#managed_python_test-name">name</a>, <a href="#managed_python_test-src">src</a>, <a href="#managed_python_test-args">args</a>, <a href="#managed_python_test-data">data</a>, <a href="#managed_python_test-timeout">timeout</a>, <a href="#managed_python_test-tags">tags</a>)
+managed_python_test(<a href="#managed_python_test-name">name</a>, <a href="#managed_python_test-src">src</a>, <a href="#managed_python_test-args">args</a>, <a href="#managed_python_test-data">data</a>, <a href="#managed_python_test-timeout">timeout</a>, <a href="#managed_python_test-tags">tags</a>, <a href="#managed_python_test-kwargs">**kwargs</a>)
 </pre>
 
 Tests the Python script src with rules_mkosi's managed interpreter, independent of the consumer's Python.
@@ -1218,6 +1219,7 @@ Tests the Python script src with rules_mkosi's managed interpreter, independent 
 | <a id="managed_python_test-data"></a>data |  Files available to the test at run time.   |  `[]` |
 | <a id="managed_python_test-timeout"></a>timeout |  Bazel test timeout category.   |  `"moderate"` |
 | <a id="managed_python_test-tags"></a>tags |  Test tags.   |  `[]` |
+| <a id="managed_python_test-kwargs"></a>kwargs |  Common attributes of the test, such as testonly or visibility.   |  none |
 
 
 <a id="qemu_ovmf_boot_test"></a>
@@ -1249,7 +1251,7 @@ Firmware, serial, QEMU, and boot-evidence logs are written to the test's undecla
 | <a id="qemu_ovmf_boot_test-secure_boot"></a>secure_boot |  Boot Debian's Secure Boot capable OVMF in Setup Mode instead of the toolchain's OVMF; see docs/secure-boot.md.   |  `False` |
 | <a id="qemu_ovmf_boot_test-timeout"></a>timeout |  Bazel timeout category of the test, passed to the configuration as test_timeout.   |  `"moderate"` |
 | <a id="qemu_ovmf_boot_test-tags"></a>tags |  Tags of the test.   |  `[]` |
-| <a id="qemu_ovmf_boot_test-kwargs"></a>kwargs |  Further attributes of qemu_ovmf_boot_config, such as readiness_marker.   |  none |
+| <a id="qemu_ovmf_boot_test-kwargs"></a>kwargs |  Further attributes of qemu_ovmf_boot_config, such as readiness_marker or credentials. `testonly` applies to the test; `visibility`, `target_compatible_with`, and `exec_compatible_with` apply to the test and its configuration. The configuration is always testonly, so the image may be testonly, for example when it is signed by a secure_boot_ephemeral_test_fixture.   |  none |
 
 
 <a id="qemu_seabios_boot_test"></a>
@@ -1276,6 +1278,6 @@ The test waits for readiness_marker on the serial console and then for the guest
 | <a id="qemu_seabios_boot_test-image"></a>image |  mkosi_image with `firmware = "bios"` to boot.   |  none |
 | <a id="qemu_seabios_boot_test-timeout"></a>timeout |  Bazel timeout category of the test, passed to the configuration as test_timeout.   |  `"moderate"` |
 | <a id="qemu_seabios_boot_test-tags"></a>tags |  Tags of the test.   |  `[]` |
-| <a id="qemu_seabios_boot_test-kwargs"></a>kwargs |  Further attributes of qemu_seabios_boot_config, such as readiness_marker.   |  none |
+| <a id="qemu_seabios_boot_test-kwargs"></a>kwargs |  Further attributes of qemu_seabios_boot_config, such as readiness_marker. `testonly` applies to the test; `visibility`, `target_compatible_with`, and `exec_compatible_with` apply to the test and its configuration. The configuration is always testonly, so the image may be testonly.   |  none |
 
 
