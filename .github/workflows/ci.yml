@@ -426,191 +426,19 @@ jobs:
           esac
           server-identity bazel aquery --lockfile_mode="${mode}" --output=jsonproto \
             'deps(@mkosi_debian_tools//:launcher)' > debian-tools-aquery.json
-          python3 - debian-tools-aquery.json <<'PY'
-          import json
-          import sys
-          from ci.action_graph_validator import (
-              action_identity,
-              validate_action_environment,
-          )
-
-          graph = json.load(open(sys.argv[1], encoding="utf-8"))
-          archive = []
-          compilation = []
-          fragments = {
-              fragment["id"]: fragment for fragment in graph["pathFragments"]
-          }
-          artifacts = {
-              artifact["id"]: artifact for artifact in graph["artifacts"]
-          }
-          dep_sets = {
-              dep_set["id"]: dep_set for dep_set in graph["depSetOfFiles"]
-          }
-
-          def path(fragment_id):
-              parts = []
-              while fragment_id:
-                  fragment = fragments[fragment_id]
-                  parts.append(fragment["label"])
-                  fragment_id = fragment.get("parentId")
-              return "/".join(reversed(parts))
-
-          artifact_paths = {
-              artifact_id: path(artifact["pathFragmentId"])
-              for artifact_id, artifact in artifacts.items()
-          }
-
-          def input_paths(action):
-              paths = set()
-              for artifact_id in input_artifact_ids(action):
-                  paths.add(artifact_paths[artifact_id])
-              return paths
-
-          def input_artifact_ids(action):
-              artifacts = set()
-              seen = set()
-
-              def collect(dep_set_id):
-                  if dep_set_id in seen:
-                      return
-                  seen.add(dep_set_id)
-                  dep_set = dep_sets[dep_set_id]
-                  artifacts.update(dep_set.get("directArtifactIds", []))
-                  for child in dep_set.get("transitiveDepSetIds", []):
-                      collect(child)
-
-              for dep_set_id in action.get("inputDepSetIds", []):
-                  collect(dep_set_id)
-              return artifacts
-
-          def allowed_input(path):
-              if path.startswith(("bazel-out/", "mkosi/")):
-                  return True
-              if not path.startswith("external/"):
-                  return False
-              repository = path.split("/", 2)[1]
-              return repository.startswith(
-                  (
-                      "bazel_tools",
-                      "hermetic_cc_toolchain",
-                      "rules_cc~",
-                      "rules_cc+",
-                      "rules_python~",
-                      "rules_python+",
-                      "_main~debian_tools~",
-                      "+debian_tools+",
-                  )
-              )
-          compiler_tokens = (
-              "/bin/bash",
-              "/usr/bin/gcc",
-              "/usr/bin/clang",
-              "/usr/bin/ar",
-              "/usr/bin/ld",
-              "/usr/bin/strip",
-              "local_config_cc",
-          )
-          action_count = 0
-          strip_actions = 0
-          producers = {
-              artifact_id: action
-              for action in graph["actions"]
-              for artifact_id in action.get("outputIds", [])
-          }
-          visiting = set()
-          validated = set()
-
-          def validate_action(action):
-              try:
-                  action_id = action_identity(action)
-              except ValueError as error:
-                  raise SystemExit(str(error)) from error
-              if action_id in validated:
-                  return
-              if action_id in visiting:
-                  raise SystemExit("cycle in producing action graph")
-              visiting.add(action_id)
-              arguments = action.get("arguments", [])
-              inputs = input_paths(action)
-              if action["mnemonic"] == "CcStrip":
-                  if not arguments or arguments[0] != "/usr/bin/false":
-                      raise SystemExit("unexpected strip executable")
-              for token in arguments:
-                  if (
-                      token == "/usr/bin/false"
-                      and action["mnemonic"] == "CcStrip"
-                  ):
-                      continue
-                  if token.startswith("/") or any(
-                      bad in token for bad in compiler_tokens
-                  ):
-                      raise SystemExit(
-                          "host compiler or shell in structured action graph"
-                      )
-              try:
-                  validate_action_environment(action, inputs)
-              except ValueError as error:
-                  raise SystemExit(
-                      "host environment path in structured action graph: "
-                      + str(error)
-                  ) from error
-              for artifact_id in input_artifact_ids(action):
-                  path = artifact_paths[artifact_id]
-                  if path.startswith("bazel-out/"):
-                      if path.endswith(
-                          ("volatile-status.txt", "stable-status.txt")
-                      ):
-                          continue
-                      producer = producers.get(artifact_id)
-                      if producer is None:
-                          raise SystemExit(
-                              "unproduced bazel-out input: " + path
-                          )
-                      validate_action(producer)
-                  elif not allowed_input(path):
-                      raise SystemExit(
-                          "unexpected transitive tool/input roots: " + path
-                      )
-                  if any(bad in path for bad in compiler_tokens):
-                      raise SystemExit(
-                          "host compiler or shell in transitive input set"
-                      )
-              visiting.remove(action_id)
-              validated.add(action_id)
-
-          for action in graph["actions"]:
-              action_count += 1
-              arguments = action.get("arguments", [])
-              inputs = input_paths(action)
-              if action["mnemonic"] == "CcStrip":
-                  strip_actions += 1
-                  if not arguments or arguments[0] != "/usr/bin/false":
-                      raise SystemExit("unexpected strip executable")
-              if action["mnemonic"] == "BuildDebianToolsArchive":
-                  archive.append((arguments, inputs))
-              if action["mnemonic"] in ("CppCompile", "CppLink"):
-                  compilation.append((action["mnemonic"], arguments, inputs))
-              validate_action(action)
-          print("structured actions audited:", action_count)
-          print("CcStrip actions audited:", strip_actions,
-                "(toolchain no-op placeholder, execution checked separately)")
-          print("structured archive actions:", len(archive), [args[0][0] for args in archive if args[0]])
-          if len(archive) < 1 or any(
-              not args
-              or "mkosi_debian_python" not in args[0][0]
-              or not args[0][0].endswith("/python")
-              for args in archive
-          ):
-              raise SystemExit("archive action lacks complete static Python inputs")
-          if not any(
-              mnemonic in ("CppCompile", "CppLink") and args
-              for mnemonic, args, _ in compilation
-          ):
-              raise SystemExit("standard C++ toolchain actions are missing")
-          print("structured C++ toolchain actions:", len(compilation))
-          print("structured action graph: archive=static-python standard-cc=resolved")
-          PY
-          rm debian-tools-aquery.json
+          python3 ci/action_graph_validator.py debian-tools-aquery.json
+          # The same graph with an injected host shell and tar must fail the audit.
+          server-identity bazel aquery --lockfile_mode="${mode}" --output=jsonproto \
+            'deps(//ci:injected_host_helper)' > injected-aquery.json
+          if rejection="$(python3 ci/action_graph_validator.py injected-aquery.json 2>&1)"; then
+            echo "Debian tools graph audit accepted an injected host helper" >&2
+            exit 1
+          fi
+          case "$rejection" in
+            *"unmodeled action mnemonic: Genrule"*) echo "$rejection" ;;
+            *) echo "Debian tools graph audit failed for another reason: $rejection" >&2; exit 1 ;;
+          esac
+          rm debian-tools-aquery.json injected-aquery.json
           for target in launcher namespace_runner
           do
             definition="$(server-identity bazel cquery --lockfile_mode="${mode}" \
@@ -847,56 +675,7 @@ jobs:
           repository-cache: true
 
       - name: Verify deterministic bootstrap binaries
-        run: |
-          output_a="$GITHUB_WORKSPACE/.ci-output-a"
-          output_b="$GITHUB_WORKSPACE/.ci-output-b"
-          execution_log="$GITHUB_WORKSPACE/.ci-execution-log.json"
-          rm -rf "$output_a" "$output_b"
-          rm -f "$execution_log"
-          group-free bazel --output_base="$output_a" build \
-            --config=deterministic \
-            --execution_log_json_file="$execution_log" \
-            //...
-          first_launcher="$(group-free bazel --output_base="$output_a" cquery \
-            --output=files @mkosi_debian_tools//:launcher | tail -n 1)"
-          first_runner="$(group-free bazel --output_base="$output_a" cquery \
-            --output=files @mkosi_debian_tools//:namespace_runner | tail -n 1)"
-          first_launcher_sha="$(sha256sum "$first_launcher" | cut -d' ' -f1)"
-          first_runner_sha="$(sha256sum "$first_runner" | cut -d' ' -f1)"
-          python3 - "$execution_log" <<'PY'
-          import json
-          import sys
-
-          decoder = json.JSONDecoder()
-          text = open(sys.argv[1], encoding="utf-8").read()
-          offset = 0
-          records = 0
-          while offset < len(text):
-              while offset < len(text) and text[offset].isspace():
-                  offset += 1
-              if offset == len(text):
-                  break
-              record, offset = decoder.raw_decode(text, offset)
-              records += 1
-              if "/usr/bin/false" in record.get("commandArgs", []):
-                  raise SystemExit("CcStrip placeholder was executed")
-          if records == 0:
-              raise SystemExit("uncached bootstrap execution log is empty")
-          print("uncached bootstrap execution records:", records)
-          print("CcStrip /usr/bin/false execution records: 0")
-          PY
-          group-free bazel --output_base="$output_b" build \
-            --config=deterministic \
-            //...
-          second_launcher="$(group-free bazel --output_base="$output_b" cquery \
-            --output=files @mkosi_debian_tools//:launcher | tail -n 1)"
-          second_runner="$(group-free bazel --output_base="$output_b" cquery \
-            --output=files @mkosi_debian_tools//:namespace_runner | tail -n 1)"
-          test "$first_launcher_sha" = "$(sha256sum "$second_launcher" | cut -d' ' -f1)"
-          test "$first_runner_sha" = "$(sha256sum "$second_runner" | cut -d' ' -f1)"
-          echo "clean rebuild launcher SHA: $first_launcher_sha"
-          echo "clean rebuild namespace runner SHA: $first_runner_sha"
-          sudo -n rm -rf "$output_a" "$output_b" "$execution_log"
+        run: group-free ./ci/verify-bootstrap-reproducibility.sh
 
   conclusion:
     name: CI conclusion
