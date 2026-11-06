@@ -1,0 +1,8 @@
+#!/bin/bash
+# systemd runs generators whenever it starts, so the serial console shows where this executable is installed.
+if [[ -e /etc/initrd-release ]]; then
+    stage=initrd
+else
+    stage=root
+fi
+echo "rules-mkosi shared tree: ${stage}" >/dev/kmsg

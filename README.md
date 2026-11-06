@@ -134,7 +134,7 @@ Files under `//mkosi/private` are not API.
 | --- | --- |
 | `mkosi_image` | Builds a raw disk image. Returns `MkosiImageInfo`. |
 | `mkosi_base` | Builds the version-independent part of a release. Returns `MkosiBaseInfo`. |
-| `mkosi_config_tree`, `mkosi_source_tree` | Mark a directory as an mkosi configuration tree or `BuildSources` tree. |
+| `mkosi_config_tree`, `mkosi_source_tree` | Declare or assemble an mkosi configuration tree; mark a `BuildSources` tree. |
 | `mkosi_rootfs_payload` | Installs a Bazel file or directory at an absolute image path. |
 | `mkosi_reproducibility_manifest` | Normalized JSON projection of a release image for reproducibility comparisons. |
 | `qemu_ovmf_boot_test`, `qemu_seabios_boot_test` | Boot an image under QEMU with UEFI (optionally [Secure Boot](docs/secure-boot.md#testing-enrollment-in-qemu)) or BIOS firmware. |
@@ -181,6 +181,7 @@ mkosi_image(
 ```
 
 - Bazel does not preserve source mode bits; list scripts that must stay executable in `executable_paths`.
+- `mkosi_config_tree` can also assemble a tree, see [Assembling configuration trees](#assembling-configuration-trees).
 - `rootfs_payloads` install files as root-owned `0644` (`0755` if executable), directories `0755`, timestamps zero.
   Relative symlinks inside trees are kept.
   Use them for units (`/usr/lib/systemd/system`), sysusers and tmpfiles definitions, binaries, and `/etc/skel` content.
@@ -188,6 +189,39 @@ mkosi_image(
 - Traversal, colliding or overlapping destinations, duplicate sources, and escaping symlinks fail before anything is staged.
 
 The rule always produces an uncompressed raw disk image; configuration cannot change the output format or location.
+
+### Assembling configuration trees
+
+Instead of `src`, `mkosi_config_tree` can assemble a tree from `srcs`, placed at their path relative to the package of the listed target minus `strip_prefix`, and from `trees`, keyed by the directory to place them in.
+A `trees` target may be listed under several keys, for example to share files between the image and mkosi's default initrd, which reads `mkosi.initrd.conf/`.
+An `mkosi_config_tree` or a generated directory in `trees` contributes its contents, and the former also its `executable_paths`; other targets contribute their files at their package-relative paths.
+
+```starlark
+mkosi_config_tree(
+    name = "boot_splash",
+    srcs = glob(["splash/**"]),
+    strip_prefix = "splash",
+    executable_paths = ["usr/lib/systemd/system-generators/splash-generator"],
+)
+
+mkosi_config_tree(
+    name = "os_config",
+    srcs = glob(["mkosi/**"]),  # mkosi/mkosi.conf becomes mkosi.conf.
+    strip_prefix = "mkosi",
+    trees = {
+        "mkosi.extra": ":boot_splash",
+        "mkosi.initrd.conf/mkosi.extra": ":boot_splash",
+    },
+    executable_paths = ["mkosi.extra/usr/local/bin/tool"],
+)
+```
+
+One action copies the inputs into a new directory; directories merge, while duplicate files fail.
+Traversal, absolute paths, and collisions fail during analysis where the paths are known.
+Bazel copies what a symlink points to, so the action rejects `srcs` and `trees` source files that are, or lie below, a symlink in their package, such as the links of `systemctl enable`.
+Wrap a directory with symlinks in `mkosi_config_tree(src = ...)` and map it through `trees`; `src` keeps relative links and rejects absolute or escaping ones.
+The check sees symlinks only when the action runs locally or sandboxed: under remote execution, or on a remote-cache hit for an action first run there, Bazel may deliver a symlinked source as the content that it points to.
+Inside a fetched archive repository, a committed link that mimics Bazel's own layout may still be followed, as the archive can ship arbitrary content anyway.
 
 ## Tracer and release modes
 

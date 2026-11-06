@@ -10,6 +10,7 @@ exports_files([
     "boot_test.py",
     "bootstrap_binary.bzl",
     "c_options.bzl",
+    "config_tree.bzl",
     "debian_control.py",
     "diagnostics.py",
     "file_hashing.py",
