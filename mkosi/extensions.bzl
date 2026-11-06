@@ -42,6 +42,10 @@ _QEMU_REPOSITORY_ATTRS = {
 }
 
 _toolchain = tag_class(
+    doc = """Selects the mkosi version of the `@mkosi_toolchains` repository.
+
+The selected version is the root module's, or the default without one; a dependency module that requests another
+version fails module resolution.""",
     attrs = {
         "name": attr.string(
             default = "mkosi",
@@ -49,7 +53,7 @@ _toolchain = tag_class(
         ),
         "version": attr.string(
             default = DEFAULT_MKOSI_VERSION,
-            doc = "mkosi version from the supported pinned-version table.",
+            doc = "mkosi version, one of: " + ", ".join(sorted(MKOSI_VERSIONS.keys())) + ".",
         ),
     },
 )
@@ -138,6 +142,9 @@ def _mkosi_impl(module_ctx):
 
 mkosi = module_extension(
     implementation = _mkosi_impl,
+    doc = """Creates `@mkosi_toolchains`: the pinned mkosi with its Python runtime, and QEMU, OVMF, and SeaBIOS.
+
+rules_mkosi registers these toolchains itself.""",
     tag_classes = {"toolchain": _toolchain},
     arch_dependent = False,
     os_dependent = False,

@@ -5,11 +5,11 @@ load("//mkosi/private:python_action.bzl", "run_python", "static_python_interpret
 DebianToolsInfo = provider(
     doc = "Pinned Debian userspace tools and provenance.",
     fields = {
-        "architecture": "Debian package architecture.",
+        "architecture": "Debian package architecture, such as `amd64`.",
         "archive_sha256": "SHA-256 digest of the flattened package archive.",
-        "codename": "Debian codename.",
+        "codename": "Debian codename, such as `trixie`.",
         "components": "Checked-in required component manifest.",
-        "distribution": "Distribution name.",
+        "distribution": "mkosi distribution name, `debian`.",
         "extractor": "Shared strict extraction implementation.",
         "format_version": "Toolchain contract version.",
         "launcher": "FilesToRunProvider for the root-isolated executable launcher.",
@@ -19,7 +19,7 @@ DebianToolsInfo = provider(
         "python": "Pinned static Python bootstrap interpreter.",
         "python_files_to_run": "FilesToRunProvider for the static interpreter.",
         "python_version": "Pinned static Python bootstrap version.",
-        "release": "Numeric Debian release.",
+        "release": "Numeric Debian release, such as `13`.",
         "required_components": "Initial tracer-required component names.",
         "snapshot": "Pinned snapshot identifier.",
         "snapshot_url": "Pinned snapshot URL.",

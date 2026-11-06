@@ -130,6 +130,7 @@ For a complete release configuration, with a locked Debian snapshot, UKI, dm-ver
 
 Load everything from `@rules_mkosi//mkosi:defs.bzl`.
 Files under `//mkosi/private` are not API.
+The [API reference](docs/api/defs.md), generated with Stardoc, documents every attribute and provider field; the module extensions are documented in [`mkosi`](docs/api/mkosi_extension.md) and [`debian_tools`](docs/api/debian_tools_extension.md).
 
 | Symbol | Purpose |
 | --- | --- |
@@ -393,14 +394,7 @@ qemu_seabios_boot_test(
 
 The test boots a read-only snapshot of `MkosiImageInfo.raw_image`, waits for the exact `readiness_marker` on the serial console, and requires a clean guest shutdown.
 
-| Attribute | Default | Meaning |
-| --- | --- | --- |
-| `readiness_marker` | Hostname marker of the test fixtures | Serial line that proves userspace is ready. Set it for your image. |
-| `shutdown_markers` | systemd power-off lines | Serial lines that prove a clean shutdown. |
-| `machine_args` | `-machine q35 -m 512M` (`pc` for SeaBIOS) | QEMU machine and memory arguments. |
-| `accelerator` | `"auto"` | KVM when `/dev/kvm` is readable and writable, otherwise TCG; `"tcg"` forces TCG. |
-| `timeout` | `"moderate"` | `short`, `moderate`, or `long`. Deadlines plus 30 s cleanup must fit (60, 300, 900 s). |
-| `boot_timeout_seconds`, `qmp_initialization_timeout_seconds`, `shutdown_timeout_seconds`, `diagnostic_bytes` | 180, 15, 30 (60 for SeaBIOS), 65536 | Positive deadlines and retained log size. |
+Further attributes set the shutdown markers, QEMU machine arguments, the accelerator (KVM with a TCG fallback by default), the deadlines, and the retained log size; see [`qemu_ovmf_boot_config`](docs/api/defs.md#qemu_ovmf_boot_config) and [`qemu_seabios_boot_config`](docs/api/defs.md#qemu_seabios_boot_config).
 
 `qemu_ovmf_boot_test` also supports multi-boot scenarios such as A/B updates:
 
@@ -416,43 +410,10 @@ A Bazel server started without supplementary groups needs a user ACL instead, su
 
 ## Providers
 
-### `MkosiImageInfo`
-
-Select artifacts by field, never by file name or `DefaultInfo` order.
-`DefaultInfo.files` contains every non-`None` artifact.
-
-| Field | Type | Present |
-| --- | --- | --- |
-| `format_version` | `string` | Always `mkosi-image-v3`. |
-| `firmware` | `string` | `uefi` or `bios`. |
-| `image_id`, `image_version` | `string` or `None` | When set on the rule. |
-| `image_version_file` | `File` or `None` | When set on the rule; contains the version and an optional newline. |
-| `raw_image` | `File` | Always. |
-| `build_metadata` | `File` | Always. JSON, schema `mkosi-image-build-metadata-v3`: mode, outputs, the snapshot and lock digest when the image is built from `debian_snapshot` or `base`, and for release images the seed and epoch. |
-| `partition_metadata` | `File` or `None` | Release images: normalized GPT layout. |
-| `uki`, `uki_metadata` | `File` or `None` | `unified_kernel_image = "unsigned"`. |
-| `root_image`, `root_hash`, `root_hash_image`, `verity_metadata` | `File` or `None` | `verity = "hash"`. `root_hash` is the lowercase hex root hash. |
-| `manifest` | `File` or `None` | `manifest = True`: mkosi's JSON list of the installed packages, including those of a finalized `base`. |
-| `image` | `File` | Deprecated alias of `raw_image`. |
-
-### `MkosiBaseInfo`
-
-`mkosi_base` returns `format_version` (`mkosi-base-v1`), `root_tree` (a reproducible tar of the installed root), `initrd` (mkosi's default initrd), and the `debian_snapshot`, `release_seed`, and `release_source_date_epoch` the finalization inherits.
-
-### Other providers
-
-| Provider | Contents |
-| --- | --- |
-| `MkosiConfigTreeInfo`, `MkosiSourceTreeInfo` | `tree`, `executable_paths`. |
-| `MkosiRootfsPayloadInfo` | `artifact`, `destination`, `executable_paths`, `is_tree`. |
-| `DebianSnapshotInfo` | Snapshot identity (distribution, release, codename, architecture, components, timestamp, URL), `lock_sha256`, the staged `repository`, and package records. |
-| `DebianToolsInfo` | The Debian tools archive, launcher, and provenance. |
-| `MkosiToolchainInfo` | mkosi version and provenance, its Python runtime, `python_version`, `resolved_python_version`, `resolved_python_interpreter`. |
-| `MkosiQemuToolchainInfo` | QEMU, `qemu-img`, OVMF, and SeaBIOS files with provenance. |
-| `QemuBootConfigInfo` | Validated `test_timeout`, deadlines, and `cleanup_margin_seconds` of a `*_boot_config` target. `QemuOvmfBootConfigInfo` is a deprecated alias. |
-| `SysupdatePayloadInfo` | See [A/B updates](docs/sysupdate-ab.md#update-payloads). |
-| `SecureBootSigningRequestInfo`, `SecureBootSignedBinaryInfo` | See [Secure Boot](docs/secure-boot.md). |
-| `SysupdateSigningRequestInfo` | See [updates over HTTP](docs/sysupdate-ab.md#signing-sha256sums-offline). |
+Select artifacts through provider fields, never by file name or `DefaultInfo` order; `DefaultInfo.files` of `mkosi_image` contains every artifact that is not `None`.
+[`MkosiImageInfo`](docs/api/defs.md#MkosiImageInfo) has the raw image, build and partition metadata, and the UKI and dm-verity artifacts of release images, and [`MkosiBaseInfo`](docs/api/defs.md#MkosiBaseInfo) the output of `mkosi_base`.
+The [API reference](docs/api/defs.md) lists the fields of every provider; for the update and signing providers see also [A/B updates](docs/sysupdate-ab.md#update-payloads) and [Secure Boot](docs/secure-boot.md).
+`QemuOvmfBootConfigInfo` is a deprecated alias of `QemuBootConfigInfo`.
 
 ## Python
 

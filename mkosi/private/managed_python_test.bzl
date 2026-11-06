@@ -2,7 +2,10 @@
 
 ManagedPythonTestInfo = provider(
     "Managed interpreter test launcher contract.",
-    fields = ["source", "timeout"],
+    fields = {
+        "source": "The Python script File that the test runs.",
+        "timeout": "Bazel timeout category of the test.",
+    },
 )
 
 def _managed_python_test_impl(ctx):

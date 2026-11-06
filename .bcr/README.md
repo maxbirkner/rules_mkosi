@@ -3,7 +3,7 @@
 The files in this directory are templates for [`bazel-contrib/publish-to-bcr`](https://github.com/bazel-contrib/publish-to-bcr).
 Pushing a `vMAJOR.MINOR.PATCH` tag runs [`release.yml`](../.github/workflows/release.yml), which:
 
-1. Builds `rules_mkosi-<tag>.tar.gz` with [`release_prep.sh`](../.github/workflows/release_prep.sh), attests it, and uploads it to a draft GitHub release.
+1. Builds `rules_mkosi-<tag>.tar.gz` and the API documentation archive `rules_mkosi-<tag>.docs.tar.gz`, which `docs_url` in `source.template.json` points to, with [`release_prep.sh`](../.github/workflows/release_prep.sh), attests them, and uploads them to a draft GitHub release.
 2. Runs [`publish.yml`](../.github/workflows/publish.yml), which generates the registry entry from these templates, attests it, pushes it to the registry fork, opens a draft pull request against [`bazelbuild/bazel-central-registry`](https://github.com/bazelbuild/bazel-central-registry), and publishes the draft GitHub release.
 
 Prerelease tags such as `v1.2.3-rc.1` are not supported: they do not trigger the workflow, and `release_prep.sh` rejects them.

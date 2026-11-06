@@ -141,3 +141,9 @@ cc_test(
     tags = ["requires_kernel_contract"],
     deps = [":kernel_preflight_lib"],
 )
+
+filegroup(
+    name = "bzl_srcs",
+    srcs = glob(["*.bzl"]),
+    visibility = ["//mkosi:__pkg__"],
+)

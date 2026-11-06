@@ -3,9 +3,9 @@
 load(":mkosi_image.bzl", "MkosiImageInfo")
 load(
     ":qemu_boot_test.bzl",
-    "BOOT_CONFIG_ATTRS",
     "QEMU_TOOLCHAIN_TYPE",
     "QemuBootConfigInfo",
+    "adapter_attrs",
     "boot_config",
     "boot_config_outputs",
     "boot_test",
@@ -123,7 +123,14 @@ def _qemu_ovmf_boot_config_impl(ctx):
 
 qemu_ovmf_boot_config = rule(
     implementation = _qemu_ovmf_boot_config_impl,
-    attrs = BOOT_CONFIG_ATTRS | {
+    doc = """Writes the configuration of a qemu_ovmf_boot_test, which declares it as `<name>_config`.
+
+Use it directly only to inspect the validated deadlines through QemuBootConfigInfo.""",
+    attrs = adapter_attrs(
+        readiness_marker = "systemd[1]: Hostname set to <rules-mkosi-tracer>.",
+        machine = "q35",
+        shutdown_timeout_seconds = 30,
+    ) | {
         "allow_reboot": attr.bool(
             doc = """Keep QEMU running across guest reboots instead of treating a reboot as an exit.
 
@@ -169,38 +176,23 @@ def _secure_boot_firmware(secure_boot):
         return {}
     return {"secure_boot_code": _SECURE_BOOT_CODE, "secure_boot_vars": _SECURE_BOOT_VARS}
 
-_SHUTDOWN_MARKERS = [
-    "systemd-shutdown[1]: Powering off.",
-    "reboot: Power down",
-]
-
-def qemu_ovmf_boot_test(
-        name,
-        image,
-        readiness_marker = "systemd[1]: Hostname set to <rules-mkosi-tracer>.",
-        progress_markers = [],
-        expected_failure_marker = "",
-        stop_after_readiness = False,
-        allow_reboot = False,
-        read_only_shares = {},
-        http_shares = {},
-        secure_boot = False,
-        shutdown_markers = _SHUTDOWN_MARKERS,
-        machine_args = ["-machine", "q35", "-m", "512M"],
-        accelerator = "auto",
-        boot_timeout_seconds = 180,
-        qmp_initialization_timeout_seconds = 15,
-        shutdown_timeout_seconds = 30,
-        diagnostic_bytes = 65536,
-        timeout = "moderate",
-        tags = []):
+def qemu_ovmf_boot_test(name, image, secure_boot = False, timeout = "moderate", tags = [], **kwargs):
     """Boots an image with OVMF and checks its serial lifecycle markers.
 
+    The test waits for readiness_marker on the serial console and then for the guest to power off by itself.
     Multi-boot lifecycles, such as an A/B update followed by a reboot, set allow_reboot so that one QEMU process keeps
     the image snapshot and the firmware variables across guest reboots and list their ordered checkpoints in
     progress_markers; read_only_shares (virtio-9p) and http_shares (HTTP) expose update payloads to the guest.
-    accelerator selects KVM with a TCG fallback (`auto`, the default) or forces TCG (`tcg`); the test log records it.
-    secure_boot boots Debian's Secure Boot capable OVMF in Setup Mode on q35 instead; see docs/secure-boot.md.
+    Firmware, serial, QEMU, and boot-evidence logs are written to the test's undeclared outputs.
+
+    Args:
+      name: Name of the test. The configuration target is `<name>_config`.
+      image: mkosi_image to boot.
+      secure_boot: Boot Debian's Secure Boot capable OVMF in Setup Mode instead of the toolchain's OVMF; see
+        docs/secure-boot.md.
+      timeout: Bazel timeout category of the test, passed to the configuration as test_timeout.
+      tags: Tags of the test.
+      **kwargs: Further attributes of qemu_ovmf_boot_config, such as readiness_marker.
     """
     boot_test(
         name = name,
@@ -208,19 +200,5 @@ def qemu_ovmf_boot_test(
         timeout = timeout,
         tags = tags,
         image = image,
-        readiness_marker = readiness_marker,
-        progress_markers = progress_markers,
-        expected_failure_marker = expected_failure_marker,
-        stop_after_readiness = stop_after_readiness,
-        allow_reboot = allow_reboot,
-        read_only_shares = read_only_shares,
-        http_shares = http_shares,
-        shutdown_markers = shutdown_markers,
-        machine_args = machine_args,
-        accelerator = accelerator,
-        boot_timeout_seconds = boot_timeout_seconds,
-        qmp_initialization_timeout_seconds = qmp_initialization_timeout_seconds,
-        shutdown_timeout_seconds = shutdown_timeout_seconds,
-        diagnostic_bytes = diagnostic_bytes,
-        **_secure_boot_firmware(secure_boot)
+        **(kwargs | _secure_boot_firmware(secure_boot))
     )

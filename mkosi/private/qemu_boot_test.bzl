@@ -24,39 +24,77 @@ QemuBootConfigInfo = provider(
     },
 )
 
+_SHUTDOWN_MARKERS = [
+    "systemd-shutdown[1]: Powering off.",
+    "reboot: Power down",
+]
+
+# Attributes of every firmware adapter; the adapters add readiness_marker, machine_args and shutdown_timeout_seconds
+# with their own defaults.
 BOOT_CONFIG_ATTRS = {
     "accelerator": attr.string(
         default = "auto",
         doc = QEMU_ACCELERATOR_DOC,
     ),
-    "boot_timeout_seconds": attr.int(mandatory = True),
-    "diagnostic_bytes": attr.int(mandatory = True),
+    "boot_timeout_seconds": attr.int(
+        default = 180,
+        doc = "Seconds that QEMU may take after QMP is ready until readiness_marker appears on the serial console.",
+    ),
+    "diagnostic_bytes": attr.int(
+        default = 65536,
+        doc = "Bytes of the end of each log printed on failure; the retained test outputs are capped at 256 KiB.",
+    ),
     "image": attr.label(
         mandatory = True,
         providers = [MkosiImageInfo],
         doc = "mkosi_image whose raw_image is booted through a QEMU snapshot, leaving the image unchanged.",
     ),
-    "machine_args": attr.string_list(
-        mandatory = True,
-        doc = "QEMU machine and memory arguments.",
-    ),
-    "qmp_initialization_timeout_seconds": attr.int(mandatory = True),
-    "readiness_marker": attr.string(
-        mandatory = True,
-        doc = "Exact serial marker proving guest userspace readiness.",
+    "qmp_initialization_timeout_seconds": attr.int(
+        default = 15,
+        doc = "Seconds that QEMU may take to accept QMP connections.",
     ),
     "shutdown_markers": attr.string_list(
-        mandatory = True,
-        doc = "Exact serial markers proving guest-initiated clean shutdown.",
+        default = _SHUTDOWN_MARKERS,
+        doc = "Exact serial markers proving guest-initiated clean shutdown; one of them must appear.",
     ),
-    "shutdown_timeout_seconds": attr.int(mandatory = True),
-    "test_timeout": attr.string(default = "moderate"),
+    "test_timeout": attr.string(
+        default = "moderate",
+        doc = """Bazel timeout category of the test: `short`, `moderate`, or `long`.
+
+The QMP, boot and shutdown deadlines plus a 30 second cleanup margin must fit it (60, 300, or 900 seconds).""",
+    ),
     "_kernel_preflight": attr.label(
         cfg = "exec",
         default = "//mkosi/private:kernel_preflight",
         executable = True,
     ),
 }
+
+def adapter_attrs(readiness_marker, machine, shutdown_timeout_seconds):
+    """Returns the BOOT_CONFIG_ATTRS whose defaults differ between the firmware adapters.
+
+    Args:
+      readiness_marker: Default readiness_marker.
+      machine: Default QEMU machine type.
+      shutdown_timeout_seconds: Default shutdown_timeout_seconds.
+    """
+    return BOOT_CONFIG_ATTRS | {
+        "machine_args": attr.string_list(
+            default = ["-machine", machine, "-m", "512M"],
+            doc = "QEMU machine and memory arguments.",
+        ),
+        "readiness_marker": attr.string(
+            default = readiness_marker,
+            doc = """Exact serial marker proving guest userspace readiness.
+
+The default is the hostname line of rules_mkosi's own test images; set it for your image, for example to
+`systemd[1]: Hostname set to <myhost>.`""",
+        ),
+        "shutdown_timeout_seconds": attr.int(
+            default = shutdown_timeout_seconds,
+            doc = "Seconds after readiness that the guest may take to power off by itself.",
+        ),
+    }
 
 def validate_lifecycle(ctx):
     """Fails unless the lifecycle limits are positive and the readiness and shutdown markers are set.
