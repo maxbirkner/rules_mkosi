@@ -170,7 +170,9 @@ such as glob(["mkosi/**"]).
 
 Bazel copies what a symlink points to, so the action rejects source files that are, or lie below, a symlink inside
 their package, such as a link that systemctl enable creates. Map such trees through trees with an mkosi_config_tree
-whose src keeps relative links and rejects absolute ones.""",
+whose src keeps relative links and rejects absolute ones. The check only sees symlinks in local or sandboxed
+execution; remote execution, or a remote-cache hit for an action that ran remotely, may deliver a symlinked source
+as the content that it points to.""",
         ),
         "strip_prefix": attr.string(
             doc = "Normalized package-relative directory removed from every srcs path; srcs must all be below it.",

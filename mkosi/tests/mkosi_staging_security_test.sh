@@ -106,32 +106,70 @@ expect_failure "$root/merged-alias" --merge \
     --mapping "$root/merged-usr-b" . tree
 rm "$root/merged-usr-b/alias"
 
-# Source files are checked behind Bazel's sandbox and execroot links, whose targets end with the path they stand for.
+# Source files are checked behind a layout like Bazel's: sandbox links into the execroot, whose top-level entries and
+# MODULE.bazel link into the workspace checkout, and external repositories below an output base.
 python_path="$(realpath "$python")"
 stage_path="$(realpath "$stage_script")"
-mkdir -p "$root/workspace/pkg/sub" "$root/execroot" "$root/sandbox"
+mkdir -p "$root/workspace/pkg/sub" "$root/execroot/external" "$root/sandbox" "$root/host/extra" "$root/other/pkg"
+printf module > "$root/workspace/MODULE.bazel"
+printf module > "$root/other/MODULE.bazel"
+printf host > "$root/host/name"
+printf host > "$root/host/extra/file"
 printf regular > "$root/workspace/pkg/file"
+printf regular > "$root/workspace/plain"
+printf other > "$root/other/pkg/checkout"
 ln -s file "$root/workspace/pkg/relative"
 ln -s "$root/outside/file" "$root/workspace/pkg/absolute"
 ln -s "$root/outside" "$root/workspace/pkg/linked"
-ln -s "$root/workspace/pkg" "$root/execroot/pkg"
+ln -s "$root/other/pkg/checkout" "$root/workspace/pkg/checkout"
+ln -s "$root/host/name" "$root/workspace/name"
+ln -s "$root/host/extra" "$root/workspace/extra"
+for entry in MODULE.bazel pkg plain name extra; do
+    ln -s "$root/workspace/$entry" "$root/execroot/$entry"
+done
+
+# One repository as local_repository lays it out, one link to a checkout, and one as new_local_repository does, one
+# link per entry of a directory without repository markers.
+mkdir -p "$root/output-base/external" "$root/local-checkout" "$root/forest-source/sub" "$root/output-base/external/forest"
+printf module > "$root/local-checkout/MODULE.bazel"
+printf top > "$root/local-checkout/top"
+ln -s "$root/host/name" "$root/local-checkout/linked"
+printf top > "$root/forest-source/top"
+printf nested > "$root/forest-source/sub/file"
+ln -s "$root/local-checkout" "$root/output-base/external/local"
+: > "$root/output-base/external/forest/REPO.bazel"
+for entry in top sub; do
+    ln -s "$root/forest-source/$entry" "$root/output-base/external/forest/$entry"
+done
+for repository in local forest; do
+    : > "$root/output-base/external/@$repository.marker"
+    ln -s "$root/output-base/external/$repository" "$root/execroot/external/$repository"
+done
+
 stage_source() {
-    mkdir -p "$root/sandbox/pkg/$(dirname "$1")"
-    ln -sfn "$root/execroot/pkg/$1" "$root/sandbox/pkg/$1"
-    (cd "$root/sandbox" && "$python_path" "$stage_path" --merge --output "$root/source-$2" \
-        --source-file "pkg/$1" "$1" pkg 2> "$root/source-$2.err")
+    mkdir -p "$root/sandbox/$(dirname "$1")"
+    ln -sfn "$root/execroot/$1" "$root/sandbox/$1"
+    rm -rf "$root/source-$3"
+    (cd "$root/sandbox" && "$python_path" "$stage_path" --merge --output "$root/source-$3" \
+        --source-file "$1" "$1" "$2" 2> "$root/source-$3.err")
 }
-stage_source file regular
-test "$(cat "$root/source-regular/file")" = regular
-for name in relative absolute linked/file; do
-    if stage_source "$name" rejected; then
-        echo "a symlinked source file was staged: $name" >&2
+for source in pkg/file:pkg plain: external/local/top:external/local external/forest/top:external/forest \
+    external/forest/sub/file:external/forest/sub; do
+    stage_source "${source%%:*}" "${source#*:}" accepted
+    test -f "$root/source-accepted/${source%%:*}"
+done
+for source in pkg/relative:pkg:pkg/relative pkg/absolute:pkg:pkg/absolute pkg/linked/file:pkg:pkg/linked \
+    pkg/checkout:pkg:pkg/checkout name::name extra/file::extra external/local/linked:external/local:external/local/linked; do
+    path="${source%%:*}"
+    rest="${source#*:}"
+    if stage_source "$path" "${rest%%:*}" rejected; then
+        echo "a symlinked source file was staged: $path" >&2
         exit 1
     fi
-    grep -q "is a symlink or lies below one at pkg/${name%%/*};" "$root/source-rejected.err"
+    grep -q "is a symlink or lies below one at ${rest#*:};" "$root/source-rejected.err"
     test ! -e "$root/source-rejected"
 done
-if stage_source sub directory; then
+if stage_source pkg/sub pkg directory; then
     echo "a source directory was staged as a file" >&2
     exit 1
 fi

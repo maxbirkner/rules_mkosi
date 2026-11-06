@@ -92,51 +92,99 @@ _WRAP_HINT = (
 )
 # Bazel reaches a source file through at most a sandbox link, an execroot link and a repository link.
 _MAX_BAZEL_LINKS = 8
+_REPOSITORY_MARKERS = ("MODULE.bazel", "REPO.bazel", "WORKSPACE", "WORKSPACE.bazel")
 
 
-def _bazel_link_root(link, prefix):
-    """Returns the root that a link of Bazel's execroot, sandbox or runfiles forest rebases prefix to, or None."""
+def _is_repository_root(directory):
+    return any((directory / name).is_file() for name in _REPOSITORY_MARKERS)
+
+
+def _is_bazel_tree(directory):
+    """Whether Bazel laid out directory: the execroot, which links the main repository's files, or a fetched
+    repository below <output_base>/external, which Bazel marks with @<name>.marker."""
+    if any((directory / name).is_symlink() for name in _REPOSITORY_MARKERS):
+        return True
+    resolved = directory.resolve()
+    return resolved.parent.name == "external" and (resolved.parent / "@{}.marker".format(resolved.name)).is_file()
+
+
+def _is_source_checkout(directory):
+    return _is_repository_root(directory) and not _is_bazel_tree(directory)
+
+
+def _mirrors(repository, directory):
+    """Whether repository links every entry of directory, as new_local_repository lays out a repository."""
+    try:
+        names = os.listdir(directory)
+    except OSError:
+        return False
+    return bool(names) and all(
+        os.path.islink(repository / name) and os.readlink(repository / name) == os.path.join(directory, name)
+        for name in names
+    )
+
+
+def _bazel_hop(link, parts, index, repository_depth):
+    """Returns (root, consumed parts) to restart from if link is one of Bazel's own, otherwise None.
+
+    A sandbox, runfiles or execroot link points at the same path below a repository root or an output base. A link at
+    the top of a repository points at the same name in a repository root, or mirrors a new_local_repository directory.
+    """
     target = os.readlink(link)
-    # A link to the same path below / is a host path that only looks like one of Bazel's links.
-    if os.path.isabs(target) and target != "/" + prefix and target.endswith("/" + prefix):
-        return pathlib.Path(target[: len(target) - len(prefix)])
+    if not os.path.isabs(target):
+        return None
+    prefix = "/".join(parts[: index + 1])
+    if target != "/" + prefix and target.endswith("/" + prefix):
+        root = pathlib.Path(target[: len(target) - len(prefix)])
+        output_base = parts[0] == "external" and (root / "external" / "@{}.marker".format(parts[1])).is_file()
+        if _is_repository_root(root) or output_base:
+            return root, 0
+    directory = pathlib.Path(target).parent
+    top_level = index == repository_depth and pathlib.Path(target).name == parts[index]
+    if top_level and (_is_repository_root(directory) or _mirrors(link.parent, directory)):
+        return directory, index
     return None
 
 
 def _walk_source_file(root, parts, package_depth, source):
-    """Returns the root to restart from after a Bazel link, or None once the declared file is reached."""
+    """Walks parts below root and returns (root, consumed parts) after one of Bazel's links, or None at the file.
+
+    Bazel's links are only followed until the walk enters a source checkout, so links inside it fail.
+    """
+    repository_depth = 2 if parts[0] == "external" else 0
+    in_checkout = repository_depth == 0 and _is_source_checkout(root)
     current = root
     for index, part in enumerate(parts):
         current = current / part
-        if not current.is_symlink():
-            continue
-        prefix = "/".join(parts[: index + 1])
-        rebased = _bazel_link_root(current, prefix)
-        if rebased is not None:
-            return rebased
-        if index >= package_depth:
-            raise ValueError(
-                "source file {} is a symlink or lies below one at {}; Bazel would copy what it points to, so {}".format(
-                    source, prefix, _WRAP_HINT
+        if current.is_symlink():
+            hop = None if in_checkout else _bazel_hop(current, parts, index, repository_depth)
+            if hop is not None:
+                return hop
+            if index >= package_depth:
+                raise ValueError(
+                    "source file {} is a symlink or lies below one at {}; Bazel would copy what it points to, "
+                    "so {}".format(source, "/".join(parts[: index + 1]), _WRAP_HINT)
                 )
-            )
+        if index + 1 == repository_depth:
+            in_checkout = _is_source_checkout(current)
     return None
 
 
 def _check_source_file(source, package):
     """Rejects a declared source file that is, or lies below, a symlink inside its package.
 
-    Bazel's own links, whose absolute target ends with the path that they stand for, are followed.
+    Only Bazel's own sandbox, runfiles, execroot and repository links are followed.
     """
     if package and not source.startswith(package + "/"):
         raise ValueError("source file {} is not below its package {}".format(source, package))
     parts = source.split("/")
     package_depth = len(package.split("/")) if package else 0
-    root = pathlib.Path(".")
+    root, consumed = pathlib.Path("."), 0
     for _ in range(_MAX_BAZEL_LINKS):
-        root = _walk_source_file(root, parts, package_depth, source)
-        if root is None:
+        hop = _walk_source_file(root, parts[consumed:], package_depth - consumed, source)
+        if hop is None:
             return
+        root, consumed = hop[0], consumed + hop[1]
     raise ValueError("source file {} is behind too many links".format(source))
 
 

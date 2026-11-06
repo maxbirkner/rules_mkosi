@@ -219,6 +219,7 @@ One action copies the inputs into a new directory; directories merge, while dupl
 Traversal, absolute paths, and collisions fail during analysis where the paths are known.
 Bazel copies what a symlink points to, so the action rejects `srcs` and `trees` source files that are, or lie below, a symlink in their package, such as the links of `systemctl enable`.
 Wrap a directory with symlinks in `mkosi_config_tree(src = ...)` and map it through `trees`; `src` keeps relative links and rejects absolute or escaping ones.
+The check sees symlinks only when the action runs locally or sandboxed: under remote execution, or on a remote-cache hit for an action first run there, Bazel may deliver a symlinked source as the content that it points to.
 
 ## Tracer and release modes
 

@@ -56,6 +56,7 @@ test_suite(
     name = "stock_runner_tests",
     tests = [
         ":boot_launcher_contract_test",
+        ":external_root_package_tree_build_test",
         ":immutable_config_tree_public_provider_test",
         ":kernel_preflight_build_test",
         ":mkosi_config_test",
@@ -83,6 +84,7 @@ behavior_targets(
         ":debian_tools_public_provider_test",
         ":demo_artifact_test",
         ":uefi_boot_test",
+        ":external_root_package_tree_build_test",
         ":image_public_provider_test",
         ":immutable_config_tree_public_provider_test",
         ":mkosi_python_override_test",
@@ -307,6 +309,18 @@ mkosi_config_tree(
 config_tree_public_api_test(
     name = "immutable_config_tree_public_provider_test",
     target_under_test = ":immutable_release_config_tree",
+)
+
+# local_path_override materialises @rules_mkosi as one link to its checkout; a file of its root package passes the
+# symlink check.
+mkosi_config_tree(
+    name = "external_root_package_tree",
+    srcs = ["@rules_mkosi//:LICENSE"],
+)
+
+build_test(
+    name = "external_root_package_tree_build_test",
+    targets = [":external_root_package_tree"],
 )
 
 mkosi_config_tree(
