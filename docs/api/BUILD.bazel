@@ -1,0 +1,34 @@
+# Generated API reference. `bazel run //docs/api:update` regenerates the committed files, and
+# `bazel test //docs/api:all` fails while they differ from the generated ones. This package uses dev dependencies, so
+# dependent modules cannot load it.
+
+load("@bazel_lib//lib:write_source_files.bzl", "write_source_files")
+load("@stardoc//stardoc:stardoc.bzl", "stardoc")
+
+_API_DOCS = {
+    "debian_tools_extension": (
+        "//mkosi/debian:extensions.bzl",
+        ["debian_tools"],
+    ),
+    "defs": ("//mkosi:defs.bzl", []),
+    "mkosi_extension": (
+        "//mkosi:extensions.bzl",
+        ["mkosi"],
+    ),
+}
+
+[
+    stardoc(
+        name = name + "_docs",
+        out = name + "_docs.md",
+        input = src,
+        symbol_names = symbols,
+        deps = ["//mkosi:bzl"],
+    )
+    for name, (src, symbols) in _API_DOCS.items()
+]
+
+write_source_files(
+    name = "update",
+    files = {name + ".md": ":{}_docs".format(name) for name in _API_DOCS},
+)
