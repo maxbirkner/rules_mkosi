@@ -5,16 +5,16 @@ load(":python_action.bzl", "run_python", "static_python_interpreter")
 DebianSnapshotInfo = provider(
     doc = "Authenticated, content-addressed Debian snapshot repository.",
     fields = {
-        "architecture": "Package architecture.",
-        "codename": "Debian codename.",
+        "architecture": "Debian package architecture, such as `amd64`.",
+        "codename": "Debian codename, such as `trixie`.",
         "components": "Archive components staged in the repository, starting with main.",
-        "distribution": "Distribution name.",
+        "distribution": "mkosi distribution name, `debian`.",
         "format_version": "Repository layout contract version.",
         "inrelease": "Authenticated InRelease metadata.",
         "lock_sha256": "Digest of the package and repository lock.",
         "package_files": "Locked package files staged in the repository.",
         "packages_metadata": "Authenticated Packages metadata of every staged component.",
-        "release": "Numeric Debian release.",
+        "release": "Numeric Debian release, such as `13`.",
         "release_metadata": "Authenticated Release metadata.",
         "repository": "TreeArtifact containing the local APT repository.",
         "snapshot": "Immutable snapshot identifier.",
@@ -140,8 +140,8 @@ def _impl(ctx):
 debian_snapshot = rule(
     implementation = _impl,
     attrs = {
-        "architecture": attr.string(default = "amd64", doc = "Package architecture."),
-        "codename": attr.string(default = "trixie", doc = "Debian codename."),
+        "architecture": attr.string(default = "amd64", doc = "Debian package architecture, such as `amd64`."),
+        "codename": attr.string(default = "trixie", doc = "Debian codename, such as `trixie`."),
         "component_package_records": attr.string_list(
             doc = "component|architecture|path|sha256 records for component_packages.",
         ),
@@ -149,7 +149,7 @@ debian_snapshot = rule(
             allow_files = True,
             doc = "Packages.xz indexes of components other than main, aligned with component_package_records.",
         ),
-        "distribution": attr.string(default = "debian", doc = "Distribution name."),
+        "distribution": attr.string(default = "debian", doc = "mkosi distribution name, `debian`."),
         "format_version": attr.string(default = "debian-snapshot-v1", doc = "Repository layout contract version."),
         "inrelease": attr.label(mandatory = True, allow_single_file = True, doc = "Signed InRelease metadata."),
         "lock_sha256": attr.string(mandatory = True, doc = "SHA-256 of the lock that pins the repository and packages."),
@@ -173,9 +173,9 @@ debian_snapshot = rule(
             doc = "Repository path of packages_xz.",
         ),
         "packages_xz": attr.label(mandatory = True, allow_single_file = True, doc = "main binary-amd64 Packages.xz."),
-        "release": attr.string(default = "13", doc = "Numeric Debian release."),
+        "release": attr.string(default = "13", doc = "Numeric Debian release, such as `13`."),
         "release_gpg": attr.label(mandatory = True, allow_single_file = True, doc = "Detached Release.gpg signature."),
-        "release_metadata": attr.label(mandatory = True, allow_single_file = True, doc = "Release metadata."),
+        "release_metadata": attr.label(mandatory = True, allow_single_file = True, doc = "Release file of the snapshot, verified against inrelease."),
         "snapshot": attr.string(mandatory = True, doc = "Immutable snapshot identifier, such as 20250814T000000Z."),
         "snapshot_url": attr.string(mandatory = True, doc = "Immutable snapshot URL."),
         "_stager": attr.label(

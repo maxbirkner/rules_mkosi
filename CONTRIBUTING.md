@@ -17,12 +17,20 @@ prek run --all-files                 # Formatting, linting, spelling, secrets.
 prek install                         # Optional: run the same checks as Git hooks.
 bazel test //...                     # Root module; excludes e2e/.
 ci/regen-lockfiles.sh --check       # Committed lockfiles are current.
+bazel run //docs/api:update          # Regenerate the API reference in docs/api.
 (cd e2e/smoke && bazel test //...)   # Independent consumer module.
 e2e/module_resolution/test.sh consumer_isolation  # One module-resolution fixture.
 ```
 
 Run Bazel from a module root, or use [`tools/bazel`](tools/README.md) from a subdirectory.
 See [`e2e/README.md`](e2e/README.md) for the consumer and module-resolution fixtures.
+
+### API reference
+
+`docs/api` is generated with Stardoc from the docstrings of the public Starlark API: `mkosi/defs.bzl` and the module extensions.
+`bazel test //docs/api:all`, part of `bazel test //...`, fails while the committed files differ from the generated ones; regenerate them with `bazel run //docs/api:update`.
+Document every public attribute, provider field, and macro argument with its meaning.
+A release also uploads the extracted documentation as `rules_mkosi-<tag>.docs.tar.gz`, which the Bazel Central Registry displays.
 
 ### Bazel versions and lockfiles
 
@@ -54,7 +62,7 @@ Plain `bazel test //...` runs the complete suite on a capable host.
 | `manifest` | Runs only `manifest`-tagged tests with `--enable_runfiles=no`. |
 | `deterministic` | Offline bootstrap build without cache reuse. |
 | `kvm_unavailable` | Hides `/dev/kvm` from tests, so boot tests must fall back to TCG. CI runs `//mkosi/tests:qemu_ovmf_smoke_test` with it. |
-| `bazel9` | `--lockfile_mode=off` for Bazel 9. |
+| `bazel9` | `--lockfile_mode=off` for Bazel 9, and a link option that protobuf's tools for Stardoc need there. |
 
 Executable tests use only the semantic tags `requires-network`, `requires_kernel_contract`, and `manifest`.
 `manual` is reserved for analysis-test subjects that must not run on their own.
