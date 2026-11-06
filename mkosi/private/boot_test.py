@@ -7,6 +7,7 @@ os.environ["PATH"] = ""
 
 import contextlib
 import dataclasses
+import errno
 import pathlib
 import runpy
 import shlex
@@ -237,11 +238,15 @@ def _resolve_runfile_directory(path):
 
 
 def _link_or_copy(source, destination):
+    """Hard-links or copies source to destination, failing if a share already provides a file of that name."""
     destination.parent.mkdir(parents=True, exist_ok=True)
     try:
         os.link(source, destination)
+    except FileExistsError:
+        raise FileExistsError(errno.EEXIST, "more than one share source provides", str(destination)) from None
     except OSError:
-        shutil.copyfile(source, destination)
+        with open(source, "rb") as original, open(destination, "xb") as copy:
+            shutil.copyfileobj(original, copy)
 
 
 def _materialize_share(source, destination):
@@ -249,9 +254,10 @@ def _materialize_share(source, destination):
 
     Bazel may present tree artifacts as directories of symlinks into the output base, or only list their files
     in a runfiles manifest. QEMU's 9p server would expose host symlinks verbatim, so the guest needs a tree of
-    regular files instead. source is a directory or a mapping from relative file names to files.
+    regular files instead. source is a directory or a mapping from relative file names to files. Several sources
+    merge into one destination, but none may provide a file that another one provides.
     """
-    destination.mkdir(parents=True)
+    destination.mkdir(parents=True, exist_ok=True)
     if isinstance(source, dict):
         for relative, physical in sorted(source.items()):
             _link_or_copy(os.path.realpath(physical), destination / relative)
@@ -295,8 +301,8 @@ def _http_arguments(shares, scratch):
         return []
     root = scratch / "http"
     shutil.rmtree(root, ignore_errors=True)
-    root.mkdir(parents=True)
     for path, sources in shares:
+        (root / path).mkdir(parents=True)
         for source in sources:
             if isinstance(source, dict) or os.path.isdir(source):
                 _materialize_share(source, root / path)
