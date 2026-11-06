@@ -55,6 +55,12 @@ _reproducibility_manifest_test = analysistest.make(
     _reproducibility_manifest_test_impl,
 )
 
+def _assert_raw_image_selectors(env, target):
+    """Asserts that the image alias and the raw_image output group select exactly MkosiImageInfo.raw_image."""
+    info = target[MkosiImageInfo]
+    asserts.equals(env, info.raw_image, info.image)
+    asserts.equals(env, [info.raw_image], target[OutputGroupInfo].raw_image.to_list())
+
 def _provider_test_impl(ctx):
     env = analysistest.begin(ctx)
     target = analysistest.target_under_test(env)
@@ -63,7 +69,7 @@ def _provider_test_impl(ctx):
     info = target[MkosiImageInfo]
     asserts.equals(env, "mkosi-image-v3", info.format_version)
     asserts.equals(env, ctx.attr.expected_output, info.raw_image.basename)
-    asserts.equals(env, info.raw_image, info.image)
+    _assert_raw_image_selectors(env, target)
     asserts.equals(env, None, info.manifest)
     asserts.equals(env, None, info.partition_metadata)
     asserts.equals(env, None, info.uki)

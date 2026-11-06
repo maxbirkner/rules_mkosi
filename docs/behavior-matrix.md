@@ -119,7 +119,8 @@ Production keys never enter Bazel; the ephemeral test key stays inside one uncac
 Import checks the exact signer, the SHA-256 signature, and byte equivalence to the request; signed responses are not reproducible.
 
 <!-- behavior:BHV-SECURE-BOOT-IMAGE -->
-`secure_boot_signed_image` rewrites only the ESP of a copy of a UEFI release image: it replaces every copy of each requested unsigned binary with its verified signed binary, adds validated `.auth` files to `/loader/keys/auto/` and sets `secure-boot-enroll` in `loader.conf`.
+`secure_boot_signed_image` rewrites only the ESP of a copy of a UEFI release image: it replaces every copy of each requested unsigned binary with its verified signed binary, adds validated `.auth` files to `/loader/keys/auto/`, sets `secure-boot-enroll` in `loader.conf`, and writes a manifest of the keys, their certificate fingerprints and the signers to `/loader/rules_mkosi-secure-boot.json`.
+Its `raw_image` output group holds only the disk image.
 It rejects signed binaries without an unsigned copy, remaining unsigned PE files, missing PK, KEK or db files, malformed authenticated variables, and a db that does not trust the signer of every imported or already signed `*.efi` or boot entry binary on the ESP; the output is deterministic for the same inputs.
 
 <!-- behavior:BHV-SECURE-BOOT-SIGNER -->
@@ -134,7 +135,7 @@ It rejects signed binaries without an unsigned copy, remaining unsigned PE files
 `sysupdate_import_signature` accepts only exactly one detached signature that sqv verifies over that `SHA256SUMS` with that certificate, and returns the payload's `SysupdatePayloadInfo` with `signature`; `sysupdate_ephemeral_test_fixture` signs in one uncached, local action and outputs only public data.
 
 <!-- behavior:BHV-IMAGE-PROVIDER -->
-`MkosiImageInfo` has a fixed `format_version`, exposes every artifact role as `File` or `None`, keeps `image` as an alias of `raw_image`, projects each present artifact once through `DefaultInfo`, and exposes `firmware`, `image_id`, `image_version`, and `image_version_file`.
+`MkosiImageInfo` has a fixed `format_version`, exposes every artifact role as `File` or `None`, keeps `image` as an alias of `raw_image`, projects each present artifact once through `DefaultInfo` and `raw_image` alone through the `raw_image` output group, and exposes `firmware`, `image_id`, `image_version`, and `image_version_file`.
 
 <!-- behavior:BHV-TREE-PROVIDERS -->
 `MkosiConfigTreeInfo` and `MkosiSourceTreeInfo` expose `tree` and normalized `executable_paths`.

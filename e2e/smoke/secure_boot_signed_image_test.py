@@ -1,14 +1,44 @@
 """Checks the ESP changes that secure_boot_signed_image recorded for the signed A/B release disk image."""
 
+import base64
 import hashlib
 import json
+import os
+import subprocess
 import sys
 import unittest
 from pathlib import Path
 
+ESP_TYPE_GUID = "c12a7328-f81f-11d2-ba4b-00a0c93ec93b"
+ESP_MANIFEST = "loader/rules_mkosi-secure-boot.json"
+
 
 def _sha256(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def _certificate_sha256(path):
+    """Returns the SHA-256 of the DER encoding of the PEM certificate at path."""
+    body = "".join(line for line in Path(path).read_text().splitlines() if not line.startswith("-----"))
+    return hashlib.sha256(base64.b64decode(body)).hexdigest()
+
+
+def _read_esp_file(image, partition_metadata, launcher, esp_path):
+    """Returns the bytes of esp_path on the ESP of image, read with the pinned mtools as install tooling could."""
+    partitions = json.loads(Path(partition_metadata).read_text())["partitions"]
+    [esp] = [partition for partition in partitions if partition["type_guid"] == ESP_TYPE_GUID]
+    environment = dict(os.environ, MKOSI_DEBIAN_TOOLS_SCRATCH=os.path.join(os.environ["TEST_TMPDIR"], "mtype"))
+    image_path = "/inputs/image.raw@@{}".format(esp["start_bytes"])
+    command = ["/usr/bin/mtype", "-i", image_path, "::/" + esp_path]
+    result = subprocess.run(
+        [launcher, "--ro-bind", "{}:/inputs/image.raw".format(Path(image).resolve()), *command],
+        capture_output=True,
+        check=False,
+        env=environment,
+    )
+    if result.returncode:
+        raise AssertionError("mtype {} failed: {}".format(esp_path, result.stderr.decode(errors="replace")))
+    return result.stdout
 
 
 def _one(paths, suffix):
@@ -31,7 +61,7 @@ class SignedImageTest(unittest.TestCase):
     def test_keys_and_enrollment_mode_are_added(self):
         self.assertEqual(METADATA["secure_boot_enroll"], "force")
         keys = {name: _sha256(_one(SIGNER, "/{}.auth".format(name))) for name in ("PK", "KEK", "db")}
-        self.assertEqual(METADATA["auto_enroll_keys"], keys)
+        self.assertEqual({key["variable"]: key["sha256"] for key in METADATA["auto_enroll_keys"]}, keys)
         for path in ("loader/keys/auto/PK.auth", "loader/keys/auto/KEK.auth", "loader/keys/auto/db.auth"):
             self.assertIn(path, METADATA["changed_esp_paths"])
         self.assertIn("loader/loader.conf", [path.lower() for path in METADATA["changed_esp_paths"]])
@@ -39,8 +69,27 @@ class SignedImageTest(unittest.TestCase):
     def test_disk_image_keeps_the_unsigned_image_size(self):
         self.assertGreater(Path(_one(IMAGE, ".raw")).stat().st_size, 1 << 30)
 
+    def test_raw_image_output_group_holds_only_the_disk_image(self):
+        self.assertEqual(RAW_IMAGE, [_one(IMAGE, ".raw")])
+
+    def test_esp_manifest_names_the_enrolled_db_certificate_and_the_signers(self):
+        [image] = RAW_IMAGE
+        manifest = json.loads(_read_esp_file(image, PARTITION_METADATA, LAUNCHER, ESP_MANIFEST))
+        self.assertEqual(manifest["format_version"], "mkosi-secure-boot-esp-manifest-v1")
+        self.assertEqual(METADATA["esp_manifest"], ESP_MANIFEST)
+        for field in ("auto_enroll_keys", "replaced", "secure_boot_enroll"):
+            self.assertEqual(manifest[field], METADATA[field], field)
+        db = _certificate_sha256(_one(SIGNER, ".certificate.pem"))
+        keys = {key["variable"]: key for key in manifest["auto_enroll_keys"]}
+        self.assertEqual(keys["db"]["x509_sha256"], [db])
+        self.assertEqual(keys["db"]["esp_path"], "loader/keys/auto/db.auth")
+        self.assertEqual({entry["signer_sha256"] for entry in manifest["replaced"]}, {db})
+
 
 if __name__ == "__main__":
-    IMAGE, SYSTEMD_BOOT, UKI, SIGNER = (group.split() for group in " ".join(sys.argv[1:]).split(" -- "))
+    IMAGE, SYSTEMD_BOOT, UKI, SIGNER, RAW_IMAGE, TOOLS = (
+        group.split() for group in " ".join(sys.argv[1:]).split(" -- ")
+    )
+    PARTITION_METADATA, LAUNCHER = TOOLS
     METADATA = json.loads(Path(_one(IMAGE, ".secure-boot-image.json")).read_text())
     unittest.main(argv=[sys.argv[0]])

@@ -413,6 +413,7 @@ A Bazel server started without supplementary groups needs a user ACL instead, su
 ## Providers
 
 Select artifacts through provider fields, never by file name or `DefaultInfo` order; `DefaultInfo.files` of `mkosi_image` contains every artifact that is not `None`.
+Without a custom rule, `filegroup(srcs = [":os"], output_group = "raw_image")` or `bazel build --output_groups=raw_image` selects only the raw disk image of `mkosi_image` or `secure_boot_signed_image`.
 [`MkosiImageInfo`](docs/api/defs.md#MkosiImageInfo) has the raw image, build and partition metadata, and the UKI and dm-verity artifacts of release images, and [`MkosiBaseInfo`](docs/api/defs.md#MkosiBaseInfo) the output of `mkosi_base`.
 The [API reference](docs/api/defs.md) lists the fields of every provider; for the update and signing providers see also [A/B updates](docs/sysupdate-ab.md#update-payloads) and [Secure Boot](docs/secure-boot.md).
 `QemuOvmfBootConfigInfo` is a deprecated alias of `QemuBootConfigInfo`.

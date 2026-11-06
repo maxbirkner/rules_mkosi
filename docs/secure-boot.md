@@ -205,9 +205,53 @@ secure_boot_signed_image(
   It does not verify the PKCS#7 signatures of the `.auth` files, which the firmware checks during enrollment.
 - Only the files of the ESP change.
   The GPT, the other partitions, and the FAT volume ID, label and geometry stay as built, so the result is deterministic for the same signed inputs.
+- The ESP also gets `/loader/rules_mkosi-secure-boot.json`, an [ESP manifest](#image-metadata) of the signed binaries and the auto-enrollment keys, which systemd-boot ignores.
 - The rule returns DefaultInfo with the disk image and a JSON record of the changes, and the image's `MkosiImageInfo` with `raw_image` replaced, so `qemu_ovmf_boot_test` and install tooling accept it directly.
+  Like the one of `mkosi_image`, its `raw_image` output group holds only the disk image; `secure_boot_metadata` holds only the JSON record.
 
 The action copies the multi-gigabyte image; it uses the image build's execution requirements and the mnemonic `SecureBootSignedImage`, so you can keep its output out of caches like the image itself, for example with `--modify_execution_info=SecureBootSignedImage=+no-cache`.
+
+Select the disk image for upload or install tooling without a custom rule:
+
+```starlark
+filegroup(
+    name = "os_installer_image",
+    srcs = [":os_installer"],
+    output_group = "raw_image",
+)
+```
+
+On the command line, `bazel build //:os_installer --output_groups=raw_image` builds only the disk image.
+
+### Image metadata
+
+Install tooling can check, before it writes an image, that the image enrolls keys and that its db trusts the device's current signer, or refuse to write an image without keys to a device in Setup Mode.
+The same facts are available in two places:
+
+- `<name>.secure-boot-image.json`, the record in the `secure_boot_metadata` output group, with format `mkosi-secure-boot-signed-image-v2`.
+- `/loader/rules_mkosi-secure-boot.json` on the ESP of the disk image, with format `mkosi-secure-boot-esp-manifest-v1`, so tools can read it from an image file, or from a freshly written device before its first boot, with any FAT reader, such as `mtype -i os_installer.raw@@<ESP offset> ::/loader/rules_mkosi-secure-boot.json`.
+  Every signed image has it; an image without keys has empty `auto_enroll_keys`.
+
+Both documents describe the image as built, and nothing updates the ESP manifest after the image is written:
+
+- Once the device boots, systemd-boot renames boot-counted UKIs, for example `os_1+3.efi` to `os_1+2-1.efi`, and systemd-sysupdate installs newer UKIs and removes old ones, so `replaced` no longer matches the ESP.
+  Match UKIs by `signed_sha256` rather than by `esp_path`.
+- `auto_enroll_keys` are the keys that the image offers, not the keys that the firmware enrolled: systemd-boot enrolls them only in Setup Mode, depending on `secure_boot_enroll`.
+  Read the `PK`, `KEK`, `db` and `dbx` EFI variables to learn what a device trusts.
+
+| Field | Record | ESP manifest | Meaning |
+| --- | --- | --- | --- |
+| `format_version` | yes | yes | Schema of the document. |
+| `auto_enroll_keys` | yes | yes | One object per `.auth` file in `/loader/keys/auto/`, in `PK`, `KEK`, `db`, `dbx` order; empty without `auto_enroll_keys`. |
+| `secure_boot_enroll` | yes | yes | The `secure-boot-enroll` mode written to `loader.conf`, or `null` without keys. |
+| `replaced` | yes | yes | One object per ESP file replaced by a signed binary, sorted by `esp_path`. |
+| `changed_esp_paths` | yes | no | Every ESP file that the rule added or replaced, including the ESP manifest. |
+| `esp_manifest` | yes | no | ESP path of the ESP manifest. |
+
+An `auto_enroll_keys` object has `variable` (`PK`, `KEK`, `db` or `dbx`), `esp_path`, the file's `sha256` and `size` in bytes, `x509_sha256`, the SHA-256 fingerprints of the DER X.509 certificates in its signature lists in file order, and `signature_count`, the number of entries of all its signature lists, including hashes such as those in `dbx`.
+A `replaced` object has `esp_path`, `unsigned_sha256`, `signed_sha256`, and `signer_sha256`, the SHA-256 fingerprint of the DER certificate that signed the binary.
+Digests are lowercase hexadecimal; both documents are deterministic for the same inputs.
+A new major `format_version` marks incompatible changes; fields may be added without one.
 
 ### Auto-enrollment on first boot
 

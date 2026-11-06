@@ -554,6 +554,7 @@ def _image_providers(settings, outputs):
             image = outputs.raw_image,
             **artifacts
         ),
+        OutputGroupInfo(raw_image = depset([outputs.raw_image])),
     ]
 
 def _mkosi_image_impl(ctx):
@@ -682,7 +683,8 @@ blocked. Release mode installs packages only from an authenticated debian_snapsh
 outputs may be cached; with base, it finalizes a cached mkosi_base for one version instead. Builds run locally and
 need the Linux namespace and mount capabilities of the host-kernel contract.
 
-Select outputs through MkosiImageInfo; DefaultInfo contains every produced artifact.
+Select outputs through MkosiImageInfo; DefaultInfo contains every produced artifact. The raw_image output group
+contains only the raw disk image, for `bazel build --output_groups=raw_image` or `filegroup(output_group = "raw_image")`.
 """,
     provides = [MkosiImageInfo],
     toolchains = MKOSI_BUILD_TOOLCHAINS,
