@@ -368,7 +368,7 @@ def algorithm_oid(item):
     return der_oid(children[0])
 
 
-def _signed_data(payload):
+def parse_signed_data(payload):
     """Returns the SignedData fields of a DER PKCS#7 ContentInfo."""
     outer, end = der_read(payload)
     outer_children = outer.children()
@@ -422,7 +422,7 @@ def _check_signer_info(signer_infos):
 
 
 def authenticode_facts(payload):
-    signed = _signed_data(payload)
+    signed = parse_signed_data(payload)
     image_digest = _image_digest(signed[2])
     _check_signer_info(signed[-1])
     return image_digest.value
@@ -462,22 +462,27 @@ _REQUEST_FIELDS = {
 }
 
 
-def _load_request(args):
-    """Returns the signing request and its recorded digest after checking both against the unsigned binary."""
-    request = json.loads(Path(args.request).read_text())
-    if set(request) != _REQUEST_FIELDS or request["format_version"] != REQUEST_FORMAT:
+def validate_request(request, recorded_request_digest):
+    """Raises ValueError unless request is a signing request document whose canonical digest is recorded."""
+    if not isinstance(request, dict) or set(request) != _REQUEST_FIELDS or request["format_version"] != REQUEST_FORMAT:
         raise ValueError("invalid signing request schema")
-    recorded_request_digest = Path(args.request_digest).read_text().strip()
     if recorded_request_digest != request_digest(request):
         raise ValueError("signing request digest does not match request")
     if request["context"] != _context(request["esp_path"]) or request["signature_algorithm"] != ALGORITHM:
         raise ValueError("wrong signing context or algorithm")
+
+
+def _load_request(args):
+    """Returns the signing request and its recorded digest after checking both against the unsigned binary."""
+    request = json.loads(Path(args.request).read_text())
+    recorded_request_digest = Path(args.request_digest).read_text().strip()
+    validate_request(request, recorded_request_digest)
     if file_hashing.sha256_file(args.unsigned) != request["unsigned_sha256"]:
         raise ValueError("unsigned binary no longer matches its request")
     return request, recorded_request_digest
 
 
-def _verify_embedded_digest(unsigned_data, signed_data):
+def verify_embedded_digest(unsigned_data, signed_data):
     """Returns the Authenticode payload of signed_data after checking it signs exactly unsigned_data."""
     payload = prove_equivalence(unsigned_data, signed_data)
     embedded_digest = authenticode_facts(payload)
@@ -498,7 +503,7 @@ def _select_signed(args):
     for candidate in args.signed:
         signed_data = Path(candidate).read_bytes()
         try:
-            return candidate, _verify_embedded_digest(unsigned_data, signed_data)
+            return candidate, verify_embedded_digest(unsigned_data, signed_data)
         except ValueError as error:
             errors.append(str(error))
     if len(errors) == 1:

@@ -16,6 +16,7 @@ load(
     "secure_boot_ephemeral_test_fixture",
     "secure_boot_import_response",
     "secure_boot_signed_image",
+    "secure_boot_signing_manifest",
     "secure_boot_signing_request",
     "sysupdate_ephemeral_test_fixture",
     "sysupdate_import_signature",
@@ -107,6 +108,7 @@ behavior_targets(
         ":secure_boot_lifecycle_test",
         ":secure_boot_signed_binaries_test",
         ":secure_boot_signed_image_test",
+        ":secure_boot_signing_manifest_test",
         ":sysupdate_base_public_provider_test",
         ":sysupdate_lifecycle_test",
         ":sysupdate_payload_public_provider_test",
@@ -941,6 +943,32 @@ py_test(
         ":sysupdate_v1_uki_signing_request",
     ],
     main = "secure_boot_signed_binaries_test.py",
+)
+
+# What an external signer reads: the requests of release 1 and the names of their signed binaries.
+secure_boot_signing_manifest(
+    name = "sysupdate_v1_signing_manifest",
+    requests = {
+        ":sysupdate_v1_systemd_boot_signing_request": "systemd-bootx64.efi",
+        ":sysupdate_v1_uki_signing_request": "uki.efi",
+    },
+)
+
+py_test(
+    name = "secure_boot_signing_manifest_test",
+    srcs = ["secure_boot_signing_manifest_test.py"],
+    args = [
+        "$(rootpath @rules_mkosi//mkosi:secure_boot_signer)",
+        "$(rootpaths :sysupdate_v1_signing_manifest)",
+        "--",
+        "$(rootpaths :secure_boot_test_signer)",
+    ],
+    data = [
+        ":secure_boot_test_signer",
+        ":sysupdate_v1_signing_manifest",
+        "@rules_mkosi//mkosi:secure_boot_signer",
+    ],
+    main = "secure_boot_signing_manifest_test.py",
 )
 
 # The installable disk image of release 1: signed systemd-boot and UKI, and keys that systemd-boot enrolls in Setup Mode.
