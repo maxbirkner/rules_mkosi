@@ -73,6 +73,7 @@ use_repo(debian_tools, "mkosi_debian_snapshot")
 ```
 
 rules_mkosi registers its own mkosi, QEMU, and Debian tools toolchains.
+Registering them downloads nothing: mkosi, QEMU, the firmware, and the Debian userspace are fetched only when a target uses one of these toolchains.
 The musl registration does not change the platform of your other targets.
 Unsupported or conflicting mkosi versions fail during module resolution, and only the root module may set the toolchain `name`.
 

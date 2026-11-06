@@ -601,6 +601,51 @@ jobs:
           esac
           rm -rf "$fixture_root/.cache"
 
+  lazy-toolchain-fetch:
+    name: Lazy toolchain fetch ${{ matrix.bazel }} / ${{ matrix.module }}
+    needs: bazel-versions
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        bazel: ${{ fromJSON(needs.bazel-versions.outputs.tested) }}
+        module:
+          - root
+          - consumer
+        include:
+          - module: root
+            directory: .
+            # A plain cc_library, which resolves only the C/C++ toolchain.
+            target: //mkosi/private:write_all
+          - module: consumer
+            directory: e2e/smoke
+            # A plain py_binary, which resolves the Python and C/C++ toolchains.
+            target: //:payload_tree_generator
+    env:
+      DEFAULT_BAZEL_VERSION: ${{ needs.bazel-versions.outputs.default }}
+      USE_BAZEL_VERSION: ${{ matrix.bazel }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up Bazel
+        uses: bazel-contrib/setup-bazel@c5acdfb288317d0b5c0bbd7a396a3dc868bb0f86 # v0.19.0
+        with:
+          bazelisk-cache: true
+          bazelisk-version: 1.28.0
+          cache-save: ${{ github.event_name != 'pull_request' }}
+          repository-cache: true
+
+      - name: Analyse a target that uses no rules_mkosi toolchain
+        run: |
+          actual="$(bazel --version)"
+          echo "$actual"
+          test "$actual" = "bazel ${{ matrix.bazel }}"
+          if [ "${{ matrix.bazel }}" != "$DEFAULT_BAZEL_VERSION" ]; then
+            export LOCKFILE_MODE=off
+          fi
+          ci/check-lazy-toolchain-fetch.sh ${{ matrix.directory }} ${{ matrix.target }}
+
   bcr-presubmit:
     name: BCR presubmit ${{ matrix.bazel }}
     needs: bazel-versions
@@ -687,6 +732,7 @@ jobs:
       - test
       - namespace-contract
       - module-resolution
+      - lazy-toolchain-fetch
       - bcr-presubmit
       - bootstrap-determinism
     runs-on: ubuntu-24.04
@@ -695,11 +741,11 @@ jobs:
         env:
           RESULTS: ${{ join(needs.*.result, ' ') }}
         run: |-
-          # Keep this count in sync with the eight entries in `needs` above.
+          # Keep this count in sync with the nine entries in `needs` above.
           # shellcheck disable=SC2086 # Split the space-separated results into positional parameters.
           set -- $RESULTS
-          if [ "$#" -ne 8 ]; then
-            echo "expected eight required CI results, got $#" >&2
+          if [ "$#" -ne 9 ]; then
+            echo "expected nine required CI results, got $#" >&2
             exit 1
           fi
           for result; do

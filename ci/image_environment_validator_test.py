@@ -8,7 +8,7 @@ from typing import Any
 sys.path.insert(0, str(pathlib.Path(__file__).parent))
 from image_environment_validator import environment_errors, graph_errors, interpreter_flags
 
-PYTHONPATH = "external/+mkosi+mkosi_toolchains:external/rules_python++pip+pefile/site-packages"
+PYTHONPATH = "external/+mkosi+mkosi_source:external/rules_python++pip+pefile/site-packages"
 RELEASE = {"MKOSI_HOST_DISTRIBUTION": "debian", "MKOSI_HOST_RELEASE": "trixie", "SOURCE_DATE_EPOCH": "0"}
 
 
