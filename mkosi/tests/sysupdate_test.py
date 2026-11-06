@@ -4,6 +4,7 @@ import contextlib
 import hashlib
 import io
 import json
+import lzma
 import os
 import pathlib
 import sys
@@ -29,8 +30,13 @@ class TransferTest(unittest.TestCase):
         transfers = sysupdate.transfers("os", boot_attempts=3, instances=2)
         self.assertEqual(["10-root.transfer", "20-root-verity.transfer", "90-uki.transfer"], sorted(transfers))
         for name, pattern, label, partition_type in (
-            ("10-root.transfer", "os_@v.root.@u.raw", "os_@v", "root-x86-64"),
-            ("20-root-verity.transfer", "os_@v.root-verity.@u.raw", "os_@v_verity", "root-x86-64-verity"),
+            ("10-root.transfer", "os_@v.root.@u.raw.xz os_@v.root.@u.raw", "os_@v", "root-x86-64"),
+            (
+                "20-root-verity.transfer",
+                "os_@v.root-verity.@u.raw.xz os_@v.root-verity.@u.raw",
+                "os_@v_verity",
+                "root-x86-64-verity",
+            ),
         ):
             with self.subTest(name=name):
                 content = transfers[name]
@@ -151,21 +157,37 @@ class PayloadTest(unittest.TestCase):
             "--signing-request={}".format(self.root / "request.json"),
         ]
 
-    def test_payload_names_and_checksums(self):
-        output = self.run_payload()
-        root_name = "os_7.root.{}.raw".format(ROOT_UUID)
-        verity_name = "os_7.root-verity.{}.raw".format(VERITY_UUID)
-        self.assertEqual(
-            sorted(["SHA256SUMS", "os_7.efi", root_name, verity_name]),
-            sorted(path.name for path in output.iterdir()),
-        )
-        self.assertEqual(self.root_image.read_bytes(), (output / root_name).read_bytes())
+    def assert_read_only_files_with_checksums(self, output, suffix=""):
+        """Checks that output holds exactly the payload files and a SHA256SUMS of them, and returns their names."""
+        root_name = "os_7.root.{}.raw{}".format(ROOT_UUID, suffix)
+        verity_name = "os_7.root-verity.{}.raw{}".format(VERITY_UUID, suffix)
+        names = sorted(["os_7.efi", root_name, verity_name])
+        self.assertEqual(sorted([*names, "SHA256SUMS"]), sorted(path.name for path in output.iterdir()))
         self.assertEqual(0o444, (output / root_name).stat().st_mode & 0o777)
         expected = "".join(
-            "{}  {}\n".format(hashlib.sha256((output / name).read_bytes()).hexdigest(), name)
-            for name in sorted(["os_7.efi", root_name, verity_name])
+            "{}  {}\n".format(hashlib.sha256((output / name).read_bytes()).hexdigest(), name) for name in names
         )
         self.assertEqual(expected, (output / "SHA256SUMS").read_text())
+        return root_name, verity_name
+
+    def test_payload_names_and_checksums(self):
+        output = self.run_payload()
+        root_name, _ = self.assert_read_only_files_with_checksums(output)
+        self.assertEqual(self.root_image.read_bytes(), (output / root_name).read_bytes())
+
+    def test_xz_payload_compresses_partitions_and_lists_the_compressed_files(self):
+        self.write_verity_metadata(data_blocks=1, tree_size=0)
+        output = self.run_payload("--compression=xz")
+        root_name, verity_name = self.assert_read_only_files_with_checksums(output, ".xz")
+        self.assertEqual(self.root_image.read_bytes()[:4096], lzma.decompress((output / root_name).read_bytes()))
+        self.assertEqual(b"verity".ljust(4096, b"\0"), lzma.decompress((output / verity_name).read_bytes()))
+        self.assertEqual(b"uki", (output / "os_7.efi").read_bytes())
+
+    def test_xz_payload_is_deterministic(self):
+        first = {path.name: path.read_bytes() for path in self.run_payload("--compression=xz").iterdir()}
+        (self.root / "payload").rename(self.root / "first")
+        second = {path.name: path.read_bytes() for path in self.run_payload("--compression=xz").iterdir()}
+        self.assertEqual(first, second)
 
     def test_payload_version_from_file(self):
         (self.root / "version").write_text("7\n")

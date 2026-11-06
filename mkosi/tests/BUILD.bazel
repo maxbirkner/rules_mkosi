@@ -901,8 +901,10 @@ mkosi_reproducibility_manifest(
     tags = ["manual"],
 )
 
+# ci/verify-release-reproducibility.sh compares two independent builds of this payload, including its xz files.
 sysupdate_payload(
     name = "erofs_release_payload",
+    compression = "xz",
     image = ":erofs_release",
     tags = ["manual"],
 )
