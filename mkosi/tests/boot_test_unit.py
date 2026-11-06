@@ -2,6 +2,7 @@ import contextlib
 import io
 import json
 import pathlib
+import shlex
 import socket
 import subprocess
 import tempfile
@@ -602,6 +603,77 @@ class BootLifecycleTest(unittest.TestCase):
             materialized = root / "scratch" / "shares" / "tag"
             self.assertEqual(b"root", (materialized / "root.raw").read_bytes())
             self.assertEqual(b"uki", (materialized / "nested" / "uki.efi").read_bytes())
+
+    def test_http_shares_serve_directory_contents_and_files_below_their_path(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            payload = root / "payload"
+            payload.mkdir()
+            (payload / "SHA256SUMS").write_bytes(b"sums")
+            (root / "SHA256SUMS.gpg").write_bytes(b"signature")
+            sources = [str(payload), str(root / "SHA256SUMS.gpg")]
+            arguments = boot_test._http_arguments([("after-1", sources)], root / "scratch")
+            self.assertEqual(["-netdev", "-device"], arguments[::2])
+            self.assertEqual("virtio-net-pci,netdev=http,romfile=", arguments[3])
+            prefix = "user,id=http,restrict=on,guestfwd=tcp:10.0.2.100:80-cmd:"
+            self.assertTrue(arguments[1].startswith(prefix))
+            command = shlex.split(arguments[1][len(prefix) :].replace(",,", ","))
+            for path, expected in (("SHA256SUMS", b"sums"), ("SHA256SUMS.gpg", b"signature")):
+                request = "GET /after-1/{} HTTP/1.1\r\nHost: 10.0.2.100\r\n\r\n".format(path).encode()
+                # QEMU starts the command in its own working directory.
+                response = subprocess.run(command, input=request, capture_output=True, check=True, cwd=root).stdout
+                self.assertTrue(response.startswith(b"HTTP/1.0 200 OK\r\n"), response)
+                self.assertTrue(response.endswith(b"\r\n\r\n" + expected), response)
+            self.assertIn('"GET /after-1/SHA256SUMS HTTP/1.1" 200', (root / "scratch" / "http-share.log").read_text())
+
+    def _http_share(self, root, *sources):
+        """Materializes sources at one HTTP path and returns the served directory."""
+        boot_test._http_arguments([("after-1", [str(source) for source in sources])], root / "scratch")
+        return root / "scratch" / "http" / "after-1"
+
+    def _directory(self, root, name, files):
+        directory = root / name
+        for relative, content in files.items():
+            (directory / relative).parent.mkdir(parents=True, exist_ok=True)
+            (directory / relative).write_bytes(content)
+        return directory
+
+    def test_http_share_merges_a_file_before_a_directory_and_several_directories(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            (root / "SHA256SUMS.gpg").write_bytes(b"signature")
+            first = self._directory(root, "first", {"SHA256SUMS": b"sums", "nested/a.raw": b"a"})
+            second = self._directory(root, "second", {"os.efi": b"uki", "nested/b.raw": b"b"})
+            served = self._http_share(root, root / "SHA256SUMS.gpg", first, second)
+            self.assertEqual(
+                {
+                    "SHA256SUMS.gpg": b"signature",
+                    "SHA256SUMS": b"sums",
+                    "os.efi": b"uki",
+                    "nested/a.raw": b"a",
+                    "nested/b.raw": b"b",
+                },
+                {str(path.relative_to(served)): path.read_bytes() for path in served.rglob("*") if path.is_file()},
+            )
+
+    def test_http_share_rejects_a_file_name_that_two_sources_provide(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            first = self._directory(root, "first", {"SHA256SUMS": b"first"})
+            second = self._directory(root, "second", {"SHA256SUMS": b"second"})
+            (root / "single").mkdir()
+            (root / "single" / "SHA256SUMS").write_bytes(b"file")
+            for sources in ((first, second), (first, root / "single" / "SHA256SUMS")):
+                with self.subTest(sources=sources), self.assertRaisesRegex(FileExistsError, "more than one share"):
+                    self._http_share(root, *sources)
+                self.assertEqual(b"first", (root / "scratch" / "http" / "after-1" / "SHA256SUMS").read_bytes())
+
+    def test_only_http_shares_give_the_guest_a_network(self):
+        self.assertEqual([], boot_test._http_arguments([], pathlib.Path("unused")))
+        self.assertNotIn("-netdev", self._lifecycle_boot(b"READY\nSHUTDOWN\n"))
+        with tempfile.NamedTemporaryFile() as file:
+            command = self._lifecycle_boot(b"READY\nSHUTDOWN\n", http_shares=[("payload", [file.name])])
+        self.assertIn("-netdev", command)
 
     def test_qmp_malformed_and_eof_are_bounded_errors(self):
         for payload in (b"not-json\n", b""):

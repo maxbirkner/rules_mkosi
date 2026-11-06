@@ -8,6 +8,7 @@
     "dmsetup",
     "dosfstools",
     "e2fsprogs",
+    "gpg",
     "gzip",
     "kmod",
     "less",

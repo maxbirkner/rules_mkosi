@@ -62,6 +62,24 @@ class TransferTest(unittest.TestCase):
                     _section(content, "Target"),
                 )
 
+    def test_url_transfers_download_signed_payloads(self):
+        transfers = sysupdate.transfers("os", boot_attempts=3, instances=2, url="https://updates.example/os-%A")
+        for name, pattern in (
+            ("10-root.transfer", "os_@v.root.@u.raw.xz os_@v.root.@u.raw"),
+            ("20-root-verity.transfer", "os_@v.root-verity.@u.raw.xz os_@v.root-verity.@u.raw"),
+            ("90-uki.transfer", "os_@v.efi"),
+        ):
+            with self.subTest(name=name):
+                self.assertEqual({"ProtectVersion": "%A", "Verify": "yes"}, _section(transfers[name], "Transfer"))
+                self.assertEqual(
+                    {"Type": "url-file", "Path": "https://updates.example/os-%A", "MatchPattern": pattern},
+                    _section(transfers[name], "Source"),
+                )
+        self.assertEqual(
+            _section(sysupdate.transfers("os", 3, 2)["90-uki.transfer"], "Target"),
+            _section(transfers["90-uki.transfer"], "Target"),
+        )
+
     def test_uki_transfer_enables_boot_counting(self):
         target = _section(sysupdate.transfers("os", boot_attempts=1, instances=3)["90-uki.transfer"], "Target")
         self.assertEqual(

@@ -7,7 +7,7 @@ mkosi/debian/debian_tools_security_test.py:DebianToolsSecurityTest.test_extracti
 mkosi/debian/debian_tools_security_test.py:DebianToolsSecurityTest.test_forward_symlink_and_hardlink_graphs 46
 mkosi/debian/generate_lock_test.py:GenerateTest.setUp 48
 mkosi/private/boot_test.py:_boot 63
-mkosi/private/qemu_ovmf_boot_test.bzl:qemu_ovmf_boot_test 52
+mkosi/private/qemu_ovmf_boot_test.bzl:qemu_ovmf_boot_test 50
 mkosi/tests/bios_image_artifact_test.py:main 45
 mkosi/tests/boot_test_unit.py:BootLifecycleTest._run 82
 mkosi/tests/boot_test_unit.py:BootLifecycleTest.test_accelerator_arguments_are_passed_and_selected_accelerator_is_recorded 47

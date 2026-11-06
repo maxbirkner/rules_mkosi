@@ -17,7 +17,10 @@ load(
     "secure_boot_import_response",
     "secure_boot_signed_image",
     "secure_boot_signing_request",
+    "sysupdate_ephemeral_test_fixture",
+    "sysupdate_import_signature",
     "sysupdate_payload",
+    "sysupdate_signing_request",
     "sysupdate_transfers",
 )
 load("@rules_mkosi//mkosi/tests:behavior_targets.bzl", "behavior_targets")
@@ -100,6 +103,7 @@ behavior_targets(
         ":sysupdate_lifecycle_test",
         ":sysupdate_payload_public_provider_test",
         ":sysupdate_payload_test",
+        ":sysupdate_signed_payload_public_provider_test",
         ":sysupdate_string_version_payload_public_provider_test",
         ":sysupdate_transfers_public_provider_test",
         ":tree_demo_build_test",
@@ -740,10 +744,13 @@ mkosi_config_tree(
     src = "testdata/sysupdate-config",
 )
 
+# Each release downloads the next one from the directory named after its own
+# version on the test's HTTP server, so release 1 sees only release 2.
 sysupdate_transfers(
     name = "sysupdate_transfers",
     boot_attempts = 1,
     image_id = "rules-mkosi-ab",
+    url = "http://10.0.2.100/after-%A",
 )
 
 mkosi_rootfs_payload(
@@ -763,6 +770,12 @@ mkosi_rootfs_payload(
     name = "sysupdate_lifecycle_preset",
     src = "testdata/sysupdate-lifecycle/10-rules-mkosi-ab.preset",
     destination = "/usr/lib/systemd/system-preset/10-rules-mkosi-ab.preset",
+)
+
+mkosi_rootfs_payload(
+    name = "sysupdate_network",
+    src = "testdata/sysupdate-lifecycle/80-qemu-user.network",
+    destination = "/usr/lib/systemd/network/80-qemu-user.network",
 )
 
 mkosi_rootfs_payload(
@@ -791,6 +804,7 @@ mkosi_base(
         ":sysupdate_lifecycle_driver",
         ":sysupdate_lifecycle_preset",
         ":sysupdate_lifecycle_service",
+        ":sysupdate_network",
         ":sysupdate_transfers",
     ],
 )
@@ -933,6 +947,50 @@ sysupdate_payload(
     signed_uki = ":sysupdate_v2_signed_uki",
 )
 
+# One throwaway OpenPGP key signs the SHA256SUMS of every payload that the
+# lifecycle tests serve over HTTP, as an external signer would answer their
+# signing requests. The guests trust its certificate from the shared keyring.
+sysupdate_ephemeral_test_fixture(
+    name = "sysupdate_test_signer",
+    payloads = [
+        ":sysupdate_v2_payload",
+        ":sysupdate_v2_signed_payload",
+        ":sysupdate_v3_payload",
+    ],
+)
+
+filegroup(
+    name = "sysupdate_test_keyring",
+    srcs = [":sysupdate_test_signer"],
+    output_group = "keyring",
+)
+
+[
+    sysupdate_signing_request(
+        name = payload + "_signing_request",
+        payload = ":" + payload,
+        public_key = ":sysupdate_test_signer",
+    )
+    for payload in (
+        "sysupdate_v2_payload",
+        "sysupdate_v2_signed_payload",
+        "sysupdate_v3_payload",
+    )
+]
+
+[
+    sysupdate_import_signature(
+        name = payload + "_published",
+        request = ":{}_signing_request".format(payload),
+        signature = ":sysupdate_test_signer",
+    )
+    for payload in (
+        "sysupdate_v2_payload",
+        "sysupdate_v2_signed_payload",
+        "sysupdate_v3_payload",
+    )
+]
+
 # Boots the signed release 1 disk image with Secure Boot capable OVMF in Setup
 # Mode: systemd-boot enrolls the test PK, KEK and db and resets, and release 1
 # then runs with Secure Boot enabled. It updates to release 2, whose signed UKI
@@ -943,6 +1001,10 @@ qemu_ovmf_boot_test(
     timeout = "long",
     allow_reboot = True,
     boot_timeout_seconds = 780,
+    http_shares = {
+        ":sysupdate_v2_signed_payload_published": "after-1",
+        ":sysupdate_v3_payload_published": "after-2",
+    },
     image = ":sysupdate_v1_secure_boot",
     machine_args = [
         "-machine",
@@ -962,10 +1024,7 @@ qemu_ovmf_boot_test(
         "rules-mkosi-ab: 2 is blessed",
         "rules-mkosi-ab: installed 3",
     ],
-    read_only_shares = {
-        ":sysupdate_v2_signed_payload": "payload-2",
-        ":sysupdate_v3_payload": "payload-3",
-    },
+    read_only_shares = {":sysupdate_test_keyring": "keyring"},
     # systemd-boot decrements the boot counter before LoadImage, which the firmware denies.
     readiness_marker = "Error loading \\EFI\\Linux\\rules-mkosi-ab_3+0-1.efi: Access denied",
     secure_boot = True,
@@ -995,6 +1054,14 @@ sysupdate_public_api_test(
     expected_version = "3",
     image = ":sysupdate_v3",
     target_under_test = ":sysupdate_v3_payload",
+)
+
+sysupdate_public_api_test(
+    name = "sysupdate_signed_payload_public_provider_test",
+    expect_signature = True,
+    expected_version = "3",
+    image = ":sysupdate_v3",
+    target_under_test = ":sysupdate_v3_payload_published",
 )
 
 image_partition_metadata_file(
@@ -1032,15 +1099,20 @@ py_test(
     main = "sysupdate_payload_test.py",
 )
 
-# Boots release 1, applies release 2 with systemd-sysupdate from a read-only
-# share, reboots into it and waits for boot counting to bless it, then applies
-# release 3 from compressed files; its health check fails, and systemd-boot
-# must fall back to release 2 after its single boot attempt.
+# Boots release 1, downloads release 2 with systemd-sysupdate over HTTP and
+# verifies its signed SHA256SUMS, reboots into it and waits for boot counting
+# to bless it, then installs release 3 from compressed files the same way; its
+# health check fails, and systemd-boot must fall back to release 2 after its
+# single boot attempt.
 qemu_ovmf_boot_test(
     name = "sysupdate_lifecycle_test",
     timeout = "long",
     allow_reboot = True,
     boot_timeout_seconds = 780,
+    http_shares = {
+        ":sysupdate_v2_payload_published": "after-1",
+        ":sysupdate_v3_payload_published": "after-2",
+    },
     image = ":sysupdate_v1",
     machine_args = [
         "-machine",
@@ -1057,10 +1129,7 @@ qemu_ovmf_boot_test(
         "rules-mkosi-ab: health check failed",
         "rules-mkosi-ab: running 2 from erofs with roothash ",
     ],
-    read_only_shares = {
-        ":sysupdate_v2_payload": "payload-2",
-        ":sysupdate_v3_payload": "payload-3",
-    },
+    read_only_shares = {":sysupdate_test_keyring": "keyring"},
     readiness_marker = "rules-mkosi-ab: rolled back from 3 to 2",
     shutdown_timeout_seconds = 60,
 )

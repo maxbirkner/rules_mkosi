@@ -7,6 +7,7 @@ rules_mkosi builds versioned, immutable UEFI releases that update in place with 
 | `mkosi_image(image_id, image_version)` | A release with one populated root and verity slot and empty inactive slots. |
 | `sysupdate_transfers` | Transfer definitions that every release ships in `/usr/lib/sysupdate.d`. |
 | `sysupdate_payload` | The update directory that those transfers install from. |
+| `sysupdate_signing_request`, `sysupdate_import_signature` | An offline OpenPGP signature of the payload's `SHA256SUMS`, for [updates over HTTP](#updates-over-http). |
 | `mkosi_base` | Optional cached, version-independent base; see [two-stage releases](#two-stage-releases). |
 
 Requirements: `mode = "release"`, `unified_kernel_image = "unsigned"`, `verity = "hash"`, x86-64 UEFI, and systemd 257 or newer in the image (for `PathRelativeTo=explicit`).
@@ -271,6 +272,7 @@ sysupdate_transfers(
     # boot_attempts = 3,
     # instances = 2,
     # destination = "/usr/lib/sysupdate.d",
+    # url = "https://updates.example.com/my-os",
 )
 ```
 
@@ -288,8 +290,9 @@ It writes three transfers; both partitions are written before the UKI that refer
 | `boot_attempts` | `3` | `TriesLeft=` of a new UKI. `0` disables boot counting; do not switch a device to `0` while its ESP still holds counted UKIs. |
 | `instances` | `2` | Versions kept (`InstancesMax=`); at least 2. |
 | `destination` | `/usr/lib/sysupdate.d` | Directory in the image. |
+| `url` | `""` | HTTP(S) directory to download signed payloads from; see [updates over HTTP](#updates-over-http). |
 
-The update directory is chosen at run time with `--transfer-source=`.
+Without `url`, the update directory is chosen at run time with `--transfer-source=`.
 Every transfer protects the running version (`ProtectVersion=%A`).
 
 ## Update payloads
@@ -324,8 +327,94 @@ Apply the payload on the device:
 systemctl reboot
 ```
 
-The transfers use `Verify=no`.
+Transfers without `url` use `Verify=no`.
 Deliver payloads over an authenticated channel, or check `SHA256SUMS` against a trusted digest first.
+
+## Updates over HTTP
+
+With `url`, the transfers download releases from a web server or object storage instead of a local directory, and verify them:
+
+```starlark
+sysupdate_transfers(
+    name = "os_transfers",
+    image_id = "my-os",
+    url = "https://updates.example.com/my-os",
+)
+```
+
+systemd-sysupdate downloads `<url>/SHA256SUMS` and `<url>/SHA256SUMS.gpg`, checks the signature (`Verify=yes`), selects the newest version that `SHA256SUMS` lists, and downloads its files, checking each against its digest.
+Publish one payload directory and its `SHA256SUMS.gpg` at the URL; devices on any older release update to it.
+systemd expands specifiers in the URL, such as `%A` for the running `IMAGE_VERSION`; write `%%` for a literal `%`.
+The device needs network access and the `gpg` package, which `systemd-pull` runs to check the signature.
+
+### Signing SHA256SUMS offline
+
+As with [Secure Boot](secure-boot.md), rules_mkosi never handles the signing key: Bazel creates a request, a signer outside Bazel signs, and Bazel verifies the result.
+
+```starlark
+load("@rules_mkosi//mkosi:defs.bzl", "sysupdate_import_signature", "sysupdate_signing_request")
+
+sysupdate_signing_request(
+    name = "os_payload_signing_request",
+    payload = ":os_payload",
+    public_key = "keys/updates.pgp",  # The signer's OpenPGP certificate, binary or ASCII-armored.
+)
+
+sysupdate_import_signature(
+    name = "os_payload_signed",
+    request = ":os_payload_signing_request",
+    signature = "signed/SHA256SUMS.gpg",  # Returned by the external signer.
+)
+```
+
+1. `sysupdate_signing_request` outputs the payload's `SHA256SUMS`, the certificate in binary form as `signer.pgp`, and `request.json` (`mkosi-sysupdate-signing-request-v1`).
+   The request binds the SHA-256 of `SHA256SUMS`, the files and digests that it lists, and the signer's fingerprint.
+   A secret key, several certificates, or a payload that is already signed fail the build.
+   It returns `SysupdateSigningRequestInfo`.
+2. The external signer checks the request and makes a detached OpenPGP signature of exactly that `SHA256SUMS`, for example with `gpg --local-user <fingerprint> --output SHA256SUMS.gpg --detach-sign SHA256SUMS`.
+3. `sysupdate_import_signature` accepts the signature only if it is exactly one detached signature and `sqv` from the Debian tools verifies it over the requested `SHA256SUMS` with the requested certificate, and stores it in binary form.
+   Several signatures are rejected, because `gpg` on the device fails if it lacks the key of any of them.
+   It returns the payload's `SysupdatePayloadInfo` with `signature` set, and the payload directory and `SHA256SUMS.gpg` as its files.
+
+Publish both side by side, for example:
+
+```console
+bazel build //:os_payload_signed
+cp bazel-bin/os_payload/* bazel-bin/os_payload_signed/SHA256SUMS.gpg /srv/updates/my-os/
+```
+
+The payload stays deterministic and cacheable; only the signature depends on the signer.
+Use `compression = "xz"` on the payload to download less.
+
+### Shipping the public key
+
+`systemd-pull` (systemd 257) checks the signature against `/etc/systemd/import-pubring.gpg`, or `/usr/lib/systemd/import-pubring.gpg` if that does not exist.
+Debian's `systemd-container` ships the latter with distribution keys, so ship your signer's certificate as the former, which then is the only trusted keyring:
+
+```starlark
+mkosi_rootfs_payload(
+    name = "update_keyring",
+    src = "keys/updates.pgp",
+    destination = "/etc/systemd/import-pubring.gpg",
+)
+```
+
+Add it to `rootfs_payloads` of the base or release.
+`gpg` reads the file as a keyring, which must be binary: export the certificate with `gpg --export <fingerprint>`, or use the request's `signer.pgp`.
+To rotate keys, concatenate the old and the new certificate in the keyring of one release before you sign with the new key.
+
+| Protected against | Not protected against |
+| --- | --- |
+| The signing key reaching any Bazel action, cache, remote executor, runfiles tree, log, or CI artifact. | A compromised external signer. |
+| A substituted `SHA256SUMS`, payload file, signature, or key, including a signature of another payload by the trusted key. | Withheld releases: signatures do not expire, so a server can keep offering an old signed release, though devices never install one older than they run. |
+
+### Testing HTTP updates
+
+`sysupdate_ephemeral_test_fixture(payloads = [...])` signs the `SHA256SUMS` of payloads with a throwaway key that never leaves one uncached action that runs on the local machine, never remotely; never use it for production.
+Use it as the `public_key` of requests and the `signature` of imports; each import selects the fixture's signature that verifies.
+Its output group `keyring` holds a directory with the certificate as `import-pubring.gpg`.
+
+`qemu_ovmf_boot_test(http_shares = {":os_payload_signed": "updates"})` serves the files of the target, and the contents of its directories, at `http://10.0.2.100/updates/` through a virtio network interface on QEMU's user network, which reaches nothing else; give the guest the address `10.0.2.15/24`.
 
 ## Output sizes and caches
 
@@ -386,7 +475,8 @@ Use a real `release_source_date_epoch`, not `0`; see [release mode](../README.md
 
 ## Testing updates
 
-`qemu_ovmf_boot_test` with `allow_reboot`, `progress_markers`, and `read_only_shares` can drive an update inside a VM.
-`//e2e/smoke:sysupdate_lifecycle_test` is a complete example: it boots release 1, applies release 2 from a read-only share and checks that it is blessed, then applies release 3, whose health check fails, and checks the fallback to release 2.
+`qemu_ovmf_boot_test` with `allow_reboot`, `progress_markers`, and `read_only_shares` or `http_shares` can drive an update inside a VM.
+`//e2e/smoke:sysupdate_lifecycle_test` is a complete example: it boots release 1, downloads release 2 over HTTP with a signed `SHA256SUMS` and checks that it is blessed, then installs release 3 from compressed files, whose health check fails, and checks the fallback to release 2.
+The test's key cannot be part of the images, which the payloads it signs depend on, so the guest bind-mounts the fixture's keyring from a read-only share over `/usr/lib/systemd/import-pubring.gpg`.
 
 These rules have also been used to update and roll back a Debian 13 image on physical x86-64 hardware with `boot_attempts` of 1 and 3.

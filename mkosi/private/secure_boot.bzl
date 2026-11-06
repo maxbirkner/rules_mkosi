@@ -39,8 +39,9 @@ SecureBootEphemeralTestFixtureInfo = provider(
     },
 )
 
-# The fixture runs on the local machine, sandboxed where the strategy allows, and its outputs are never cached.
-_EPHEMERAL_EXECUTION_REQUIREMENTS = {
+# Ephemeral test fixtures run on the local machine, sandboxed where the strategy allows, and their outputs are never
+# cached.
+EPHEMERAL_EXECUTION_REQUIREMENTS = {
     "no-cache": "1",
     "no-remote": "1",
     "no-remote-cache": "1",
@@ -339,14 +340,14 @@ def _fixture_impl(ctx):
         unsigned,
         [certificate] + signed + auto_enroll_keys,
         "SecureBootEphemeralFixture",
-        execution_requirements = _EPHEMERAL_EXECUTION_REQUIREMENTS,
+        execution_requirements = EPHEMERAL_EXECUTION_REQUIREMENTS,
     )
     return [
         DefaultInfo(files = depset([certificate] + signed + auto_enroll_keys)),
         SecureBootEphemeralTestFixtureInfo(
             auto_enroll_keys = auto_enroll_keys,
             certificate = certificate,
-            execution_requirements = _EPHEMERAL_EXECUTION_REQUIREMENTS,
+            execution_requirements = EPHEMERAL_EXECUTION_REQUIREMENTS,
             signed_binaries = signed,
         ),
     ]

@@ -40,6 +40,21 @@ def _read_only_shares(shares):
         validated.append((mount_tag, files[0]))
     return [(directory, mount_tag) for mount_tag, directory in sorted(validated)]
 
+_HTTP_PATH_CHARACTERS = _MOUNT_TAG_CHARACTERS
+
+def _http_shares(shares):
+    """Validates http_shares and returns (URL path, files) pairs sorted by path."""
+    validated = {}
+    for target, path in shares.items():
+        if not path or path.strip(_HTTP_PATH_CHARACTERS) or path in (".", ".."):
+            fail("http_shares path %r must be letters, digits, '.', '_' or '-'" % path)
+        if path in validated:
+            fail("http_shares path %r is used more than once" % path)
+        validated[path] = target[DefaultInfo].files.to_list()
+        if not validated[path]:
+            fail("http_shares key %s provides no files" % target.label)
+    return sorted(validated.items())
+
 def _firmware(ctx, qemu):
     """Returns the OVMF code and variable store files and the QEMU arguments that the firmware needs."""
     if (ctx.file.secure_boot_code == None) != (ctx.file.secure_boot_vars == None):
@@ -55,6 +70,22 @@ def _firmware(ctx, qemu):
         "driver=cfi.pflash01,property=secure,value=on",
     ]
 
+def _shares(ctx):
+    """Returns the boot_test.py configuration of read_only_shares and http_shares, and the files they expose."""
+    shares = _read_only_shares(ctx.attr.read_only_shares)
+    http_shares = _http_shares(ctx.attr.http_shares)
+    config = {
+        "http_shares": [
+            {"files": [file.short_path for file in files], "path": path}
+            for path, files in http_shares
+        ],
+        "read_only_shares": [
+            {"directory": directory.short_path, "mount_tag": mount_tag}
+            for directory, mount_tag in shares
+        ],
+    }
+    return config, [directory for directory, _ in shares] + [file for _, files in http_shares for file in files]
+
 def _qemu_ovmf_boot_config_impl(ctx):
     image = ctx.attr.image[MkosiImageInfo].raw_image
     if image == None:
@@ -64,7 +95,7 @@ def _qemu_ovmf_boot_config_impl(ctx):
         fail("progress_markers must contain only nonempty markers")
     if ctx.attr.progress_markers and ctx.attr.expected_failure_marker:
         fail("progress_markers cannot be combined with expected_failure_marker")
-    shares = _read_only_shares(ctx.attr.read_only_shares)
+    share_config, share_files = _shares(ctx)
     validate_deadlines(ctx)
     qemu = ctx.toolchains[QEMU_TOOLCHAIN_TYPE].qemu
     firmware_code, firmware_vars, firmware_args = _firmware(ctx, qemu)
@@ -73,16 +104,12 @@ def _qemu_ovmf_boot_config_impl(ctx):
         "if=pflash,format=raw,readonly=on,file={firmware_code}",
         "-drive",
         "if=pflash,format=raw,file={firmware_vars}",
-    ]) | {
+    ]) | share_config | {
         "allow_reboot": ctx.attr.allow_reboot,
         "expected_failure_marker": ctx.attr.expected_failure_marker,
         "firmware_code": firmware_code.short_path,
         "firmware_vars": firmware_vars.short_path,
         "progress_markers": ctx.attr.progress_markers,
-        "read_only_shares": [
-            {"directory": directory.short_path, "mount_tag": mount_tag}
-            for directory, mount_tag in shares
-        ],
         "stop_after_readiness": ctx.attr.stop_after_readiness,
     }
     return boot_config_outputs(
@@ -91,7 +118,7 @@ def _qemu_ovmf_boot_config_impl(ctx):
         config,
         image,
         firmware_files = [firmware_code, firmware_vars],
-        extra_files = [directory for directory, _ in shares],
+        extra_files = share_files,
     )
 
 qemu_ovmf_boot_config = rule(
@@ -105,6 +132,13 @@ The image snapshot and the copied OVMF variables persist across reboots for the 
         ),
         "expected_failure_marker": attr.string(
             doc = "Exact serial marker that makes an intentionally failing boot pass before readiness.",
+        ),
+        "http_shares": attr.label_keyed_string_dict(
+            allow_files = True,
+            doc = """Targets whose files the guest can download from http://10.0.2.100/<path>/, keyed to their path.
+
+The files of a directory appear at the top of its path. The guest gets a virtio network interface on QEMU's user
+network, which reaches only this server; configure it with the static address 10.0.2.15/24 or DHCP.""",
         ),
         "progress_markers": attr.string_list(
             doc = "Exact serial markers that must appear in this order before readiness_marker.",
@@ -135,6 +169,11 @@ def _secure_boot_firmware(secure_boot):
         return {}
     return {"secure_boot_code": _SECURE_BOOT_CODE, "secure_boot_vars": _SECURE_BOOT_VARS}
 
+_SHUTDOWN_MARKERS = [
+    "systemd-shutdown[1]: Powering off.",
+    "reboot: Power down",
+]
+
 def qemu_ovmf_boot_test(
         name,
         image,
@@ -144,11 +183,9 @@ def qemu_ovmf_boot_test(
         stop_after_readiness = False,
         allow_reboot = False,
         read_only_shares = {},
+        http_shares = {},
         secure_boot = False,
-        shutdown_markers = [
-            "systemd-shutdown[1]: Powering off.",
-            "reboot: Power down",
-        ],
+        shutdown_markers = _SHUTDOWN_MARKERS,
         machine_args = ["-machine", "q35", "-m", "512M"],
         accelerator = "auto",
         boot_timeout_seconds = 180,
@@ -160,9 +197,8 @@ def qemu_ovmf_boot_test(
     """Boots an image with OVMF and checks its serial lifecycle markers.
 
     Multi-boot lifecycles, such as an A/B update followed by a reboot, set allow_reboot so that one QEMU process keeps
-    the image snapshot and the firmware variables across guest reboots, list their ordered checkpoints in
-    progress_markers, and may expose directories such as update payloads through read_only_shares.
-
+    the image snapshot and the firmware variables across guest reboots and list their ordered checkpoints in
+    progress_markers; read_only_shares (virtio-9p) and http_shares (HTTP) expose update payloads to the guest.
     accelerator selects KVM with a TCG fallback (`auto`, the default) or forces TCG (`tcg`); the test log records it.
     secure_boot boots Debian's Secure Boot capable OVMF in Setup Mode on q35 instead; see docs/secure-boot.md.
     """
@@ -178,6 +214,7 @@ def qemu_ovmf_boot_test(
         stop_after_readiness = stop_after_readiness,
         allow_reboot = allow_reboot,
         read_only_shares = read_only_shares,
+        http_shares = http_shares,
         shutdown_markers = shutdown_markers,
         machine_args = machine_args,
         accelerator = accelerator,

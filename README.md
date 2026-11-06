@@ -139,12 +139,13 @@ Files under `//mkosi/private` are not API.
 | `mkosi_reproducibility_manifest` | Normalized JSON projection of a release image for reproducibility comparisons. |
 | `qemu_ovmf_boot_test`, `qemu_seabios_boot_test` | Boot an image under QEMU with UEFI (optionally [Secure Boot](docs/secure-boot.md#testing-enrollment-in-qemu)) or BIOS firmware. |
 | `sysupdate_transfers`, `sysupdate_payload` | A/B updates; see [A/B updates](docs/sysupdate-ab.md). |
+| `sysupdate_signing_request`, `sysupdate_import_signature` | Offline OpenPGP signing of update payloads for HTTP updates; see [signed payloads](docs/sysupdate-ab.md#updates-over-http). |
 | `secure_boot_signing_request`, `secure_boot_import_response` | Offline signing of UKIs and ESP boot binaries such as systemd-boot; see [Secure Boot](docs/secure-boot.md). |
 | `secure_boot_signed_image` | Disk image with signed boot binaries and Secure Boot key auto-enrollment; see [Secure Boot](docs/secure-boot.md#signed-disk-images-and-key-auto-enrollment). |
 | `managed_python_test` | Runs a Python test on rules_mkosi's managed interpreter with an empty `PATH`. |
 | `MkosiToolchainInfo`, `MkosiQemuToolchainInfo`, `DebianToolsInfo`, `DebianSnapshotInfo` | Toolchain and snapshot providers for advanced integrations. |
 
-Lower-level symbols used by the toolchain repositories and tests (`debian_snapshot`, `qemu_executable`, `qemu_ovmf_toolchain`, `qemu_ovmf_smoke_test`, the `*_boot_config` rules, and `secure_boot_ephemeral_test_fixture`) are exported but are not needed for normal use.
+Lower-level symbols used by the toolchain repositories and tests (`debian_snapshot`, `qemu_executable`, `qemu_ovmf_toolchain`, `qemu_ovmf_smoke_test`, the `*_boot_config` rules, `secure_boot_ephemeral_test_fixture`, and `sysupdate_ephemeral_test_fixture`) are exported but are not needed for normal use.
 
 ## Building images
 
@@ -370,7 +371,9 @@ The test boots a read-only snapshot of `MkosiImageInfo.raw_image`, waits for the
 
 - `allow_reboot = True` keeps one QEMU process, its writable image snapshot, and the UEFI variables across guest reboots;
 - `progress_markers` must appear in order before `readiness_marker`;
-- `read_only_shares` maps directory targets to virtio-9p mount tags (1 to 31 characters) that the guest mounts with `mount -t 9p -o trans=virtio,ro <tag> <path>`.
+- `read_only_shares` maps directory targets to virtio-9p mount tags (1 to 31 characters) that the guest mounts with `mount -t 9p -o trans=virtio,ro <tag> <path>`;
+- `http_shares` maps targets to URL paths: the guest downloads their files, and the contents of their directories, from `http://10.0.2.100/<path>/` through a virtio network interface on QEMU's user network, which reaches nothing else.
+  Give the guest the address `10.0.2.15/24`, statically or with DHCP.
 
 Firmware, serial, QEMU, and boot-evidence logs are written to the test's undeclared outputs.
 Membership in the `kvm` group grants KVM access.
@@ -414,6 +417,7 @@ Select artifacts by field, never by file name or `DefaultInfo` order.
 | `QemuBootConfigInfo` | Validated `test_timeout`, deadlines, and `cleanup_margin_seconds` of a `*_boot_config` target. `QemuOvmfBootConfigInfo` is a deprecated alias. |
 | `SysupdatePayloadInfo` | See [A/B updates](docs/sysupdate-ab.md#update-payloads). |
 | `SecureBootSigningRequestInfo`, `SecureBootSignedBinaryInfo` | See [Secure Boot](docs/secure-boot.md). |
+| `SysupdateSigningRequestInfo` | See [updates over HTTP](docs/sysupdate-ab.md#signing-sha256sums-offline). |
 
 ## Python
 

@@ -2,6 +2,7 @@
 """Write systemd-sysupdate transfer definitions and matching A/B update payloads."""
 
 import argparse
+import functools
 import hashlib
 import json
 import lzma
@@ -18,17 +19,26 @@ file_hashing = _load_sibling(__file__, "file_hashing")
 _TRANSFER = """\
 [Transfer]
 ProtectVersion=%A
-Verify=no
+Verify={verify}
 
 [Source]
-Type=regular-file
-Path=/
-PathRelativeTo=explicit
-MatchPattern={source}
+{source}
+MatchPattern={pattern}
 
 [Target]
 {target}
 """
+
+# The directory is chosen at run time with --transfer-source=.
+_DIRECTORY_SOURCE = """\
+Type=regular-file
+Path=/
+PathRelativeTo=explicit"""
+
+# systemd-sysupdate downloads SHA256SUMS and, with Verify=yes, SHA256SUMS.gpg from Path, and then the matching files.
+_URL_SOURCE = """\
+Type=url-file
+Path={url}"""
 
 
 def root_name(image_id, version, partition_uuid):
@@ -77,21 +87,27 @@ def _compressed_or_plain(pattern):
     return " ".join(pattern + suffix for suffix in sorted(COMPRESSION_SUFFIXES.values(), reverse=True))
 
 
-def transfers(image_id, boot_attempts, instances):
+def transfers(image_id, boot_attempts, instances, url=None):
     """Returns transfer file names and contents for the root, verity and UKI resources.
 
     File names sort so that both partitions are written before the UKI that references them, and partition sources
     match every payload compression.
     systemd-sysupdate names a new UKI after the first target MatchPattern and gives it TriesLeft=3 unless
     configured otherwise, so boot counting is disabled by listing the counter-free pattern first.
+    Without url, the source is a directory; with url, an HTTP(S) directory whose SHA256SUMS must be signed.
     """
+    transfer = functools.partial(
+        _TRANSFER.format,
+        verify="yes" if url else "no",
+        source=_URL_SOURCE.format(url=url) if url else _DIRECTORY_SOURCE,
+    )
     partitions = (
         ("10-root.transfer", root_name, "", "root-x86-64"),
         ("20-root-verity.transfer", verity_name, "_verity", "root-x86-64-verity"),
     )
     result = {
-        name: _TRANSFER.format(
-            source=_compressed_or_plain(source_name(image_id, "@v", "@u")),
+        name: transfer(
+            pattern=_compressed_or_plain(source_name(image_id, "@v", "@u")),
             target=_PARTITION_TARGET.format(
                 label=image_id + "_@v" + label_suffix,
                 partition_type=partition_type,
@@ -100,8 +116,8 @@ def transfers(image_id, boot_attempts, instances):
         )
         for name, source_name, label_suffix, partition_type in partitions
     }
-    result["90-uki.transfer"] = _TRANSFER.format(
-        source=uki_name(image_id, "@v"),
+    result["90-uki.transfer"] = transfer(
+        pattern=uki_name(image_id, "@v"),
         target=_uki_target(image_id, boot_attempts, instances),
     )
     return result
@@ -251,7 +267,7 @@ def payload(args):
 def write_transfers(args):
     output = Path(args.output)
     output.mkdir(parents=True, exist_ok=True)
-    for name, content in transfers(args.image_id, args.boot_attempts, args.instances).items():
+    for name, content in transfers(args.image_id, args.boot_attempts, args.instances, args.url).items():
         (output / name).write_text(content, encoding="ascii")
 
 
@@ -262,6 +278,7 @@ def main():
     transfer_parser.add_argument("--image-id", required=True)
     transfer_parser.add_argument("--boot-attempts", type=int, required=True)
     transfer_parser.add_argument("--instances", type=int, required=True)
+    transfer_parser.add_argument("--url")
     transfer_parser.add_argument("--output", required=True)
     transfer_parser.set_defaults(handler=write_transfers)
     payload_parser = commands.add_parser("payload")

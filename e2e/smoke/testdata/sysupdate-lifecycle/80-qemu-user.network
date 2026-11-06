@@ -1,0 +1,7 @@
+# The virtio network interface on QEMU's user network, whose only peer is the
+# test's HTTP server at 10.0.2.100.
+[Match]
+Type=ether
+
+[Network]
+Address=10.0.2.15/24
