@@ -17,7 +17,7 @@ prek run --all-files                 # Formatting, linting, spelling, secrets.
 prek install                         # Optional: run the same checks as Git hooks.
 bazel test //...                     # Root module; excludes e2e/.
 ci/regen-lockfiles.sh --check       # Committed lockfiles are current.
-bazel run //docs:update              # Regenerate the API reference in docs/api.
+bazel run //docs/api:update          # Regenerate the API reference in docs/api.
 (cd e2e/smoke && bazel test //...)   # Independent consumer module.
 e2e/module_resolution/test.sh consumer_isolation  # One module-resolution fixture.
 ```
@@ -28,7 +28,7 @@ See [`e2e/README.md`](e2e/README.md) for the consumer and module-resolution fixt
 ### API reference
 
 `docs/api` is generated with Stardoc from the docstrings of the public Starlark API: `mkosi/defs.bzl` and the module extensions.
-`bazel test //docs:all`, part of `bazel test //...`, fails while the committed files differ from the generated ones; regenerate them with `bazel run //docs:update`.
+`bazel test //docs/api:all`, part of `bazel test //...`, fails while the committed files differ from the generated ones; regenerate them with `bazel run //docs/api:update`.
 Document every public attribute, provider field, and macro argument with its meaning.
 A release also uploads the extracted documentation as `rules_mkosi-<tag>.docs.tar.gz`, which the Bazel Central Registry displays.
 
