@@ -120,16 +120,33 @@ class MkosiContractTest(unittest.TestCase):
             self.contract.verify()
         message = str(raised.exception)
         self.assertIn("internals that rules_mkosi release mode patches differ", message)
-        self.assertIn("mkosi.config:parse_ini changed; _ConfigurationValidator.parse_ini replaces or wraps it", message)
+        self.assertIn(
+            "mkosi.config:parse_ini changed (source sha256 {}); _ConfigurationValidator.parse_ini replaces or wraps "
+            "it. Re-verify that it still yields (section, setting, value) for every setting".format(
+                self.contract.source_sha256(parse_ini)
+            ),
+            message,
+        )
+        self.assertIn("docs/mkosi-internals.md#upgrading-mkosi", message)
         self.assertIn("release_patches.py", message)
         self.assertIn("mkosi_contract.py", message)
 
+    def test_every_patch_names_its_replacement_and_what_to_reverify(self):
+        for patched in self._pinned().patched:
+            with self.subTest(name=patched.name):
+                replacement = self.release_patches
+                for part in patched.patch.split("."):
+                    replacement = getattr(replacement, part)
+                self.assertTrue(callable(replacement))
+                self.assertRegex(patched.recheck, r"^\S.*[^.]$")
+
     def test_removed_internal_is_reported(self):
         contract = dataclasses.replace(
-            self._pinned(), patched=(self.contract.Patched("mkosi.config:no_such_function", "_patch", "0"),)
+            self._pinned(),
+            patched=(self.contract.Patched("mkosi.config:no_such_function", "_patch", "0", "it still exists"),),
         )
         self.assertEqual(
-            ["mkosi.config:no_such_function no longer exists; _patch cannot patch it"],
+            ["mkosi.config:no_such_function no longer exists; _patch cannot patch it. Re-verify that it still exists"],
             self.contract.violations(contract=contract),
         )
 
