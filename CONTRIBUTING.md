@@ -20,6 +20,7 @@ ci/regen-lockfiles.sh --check       # Committed lockfiles are current.
 bazel run //docs/api:update          # Regenerate the API reference in docs/api.
 (cd e2e/smoke && bazel test //...)   # Independent consumer module.
 e2e/module_resolution/test.sh consumer_isolation  # One module-resolution fixture.
+ci/check-lazy-toolchain-fetch.sh . //mkosi/private:write_all  # Registered toolchains fetch no heavy repository.
 ```
 
 Run Bazel from a module root, or use [`tools/bazel`](tools/README.md) from a subdirectory.

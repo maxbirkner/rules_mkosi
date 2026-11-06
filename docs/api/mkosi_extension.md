@@ -13,7 +13,8 @@ mkosi.toolchain(<a href="#mkosi.toolchain-name">name</a>, <a href="#mkosi.toolch
 
 Creates `@mkosi_toolchains`: the pinned mkosi with its Python runtime, and QEMU, OVMF, and SeaBIOS.
 
-rules_mkosi registers these toolchains itself.
+rules_mkosi registers these toolchains itself. `@mkosi_toolchains` downloads nothing; mkosi, QEMU, and the firmware are
+fetched only when a target uses one of these toolchains.
 
 
 **TAG CLASSES**
