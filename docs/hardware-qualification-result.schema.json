@@ -1,0 +1,531 @@
+{
+  "$defs": {
+    "check": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "failed"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "logs": {
+                "minItems": 1
+              }
+            },
+            "required": [
+              "failure"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "passed"
+              }
+            }
+          },
+          "then": {
+            "not": {
+              "required": [
+                "failure"
+              ]
+            },
+            "properties": {
+              "logs": {
+                "minItems": 1
+              }
+            }
+          }
+        }
+      ],
+      "properties": {
+        "failure": {
+          "$ref": "#/$defs/failure"
+        },
+        "id": {
+          "enum": [
+            "artifact-digest",
+            "identity",
+            "firmware-boot",
+            "boot-chain",
+            "boot-to-userspace",
+            "storage",
+            "reboot-poweroff",
+            "tpm2",
+            "verity-root",
+            "ab-update",
+            "network-wired",
+            "network-wifi",
+            "console-serial",
+            "console-graphical",
+            "secure-boot-state",
+            "secure-boot-enrollment",
+            "secure-boot-enforcement",
+            "option-rom"
+          ]
+        },
+        "logs": {
+          "items": {
+            "$ref": "#/$defs/log"
+          },
+          "type": "array"
+        },
+        "notes": {
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "passed",
+            "failed",
+            "not-applicable"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "status",
+        "logs"
+      ],
+      "type": "object"
+    },
+    "failure": {
+      "additionalProperties": false,
+      "properties": {
+        "attribution": {
+          "enum": [
+            "rules-mkosi",
+            "image-configuration",
+            "firmware",
+            "hardware",
+            "procedure"
+          ]
+        },
+        "category": {
+          "enum": [
+            "provisioning",
+            "firmware-boot",
+            "secure-boot",
+            "boot-loader",
+            "kernel-initrd",
+            "root-integrity",
+            "storage",
+            "network",
+            "console",
+            "update-rollback",
+            "tpm",
+            "power-state",
+            "hardware-fault"
+          ]
+        },
+        "issue": {
+          "format": "uri",
+          "type": "string"
+        },
+        "summary": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "category",
+        "attribution",
+        "summary"
+      ],
+      "type": "object"
+    },
+    "log": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "pattern": "^logs/[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$",
+          "type": "string"
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      },
+      "required": [
+        "path",
+        "sha256"
+      ],
+      "type": "object"
+    },
+    "nonempty_string": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    }
+  },
+  "$id": "https://github.com/maxbirkner/rules_mkosi/blob/main/docs/hardware-qualification-result.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "One physical qualification run of one machine in one firmware configuration; see docs/hardware-qualification.md.",
+  "if": {
+    "properties": {
+      "outcome": {
+        "const": "passed"
+      }
+    }
+  },
+  "properties": {
+    "checks": {
+      "items": {
+        "$ref": "#/$defs/check"
+      },
+      "minItems": 1,
+      "type": "array"
+    },
+    "class": {
+      "pattern": "^(uefi|bios)-[a-z0-9]+(-[a-z0-9]+)*$",
+      "type": "string"
+    },
+    "finished_at": {
+      "format": "date-time",
+      "type": "string"
+    },
+    "firmware": {
+      "additionalProperties": false,
+      "properties": {
+        "boot_mode": {
+          "enum": [
+            "uefi",
+            "csm",
+            "bios"
+          ]
+        },
+        "db_includes_microsoft_uefi_ca": {
+          "type": "boolean"
+        },
+        "secure_boot": {
+          "enum": [
+            "disabled",
+            "setup-mode",
+            "custom-keys",
+            "microsoft-factory-keys",
+            "not-applicable"
+          ]
+        },
+        "settings": {
+          "items": {
+            "$ref": "#/$defs/nonempty_string"
+          },
+          "type": "array"
+        },
+        "tier": {
+          "enum": [
+            "uefi",
+            "bios"
+          ]
+        }
+      },
+      "required": [
+        "tier",
+        "boot_mode",
+        "secure_boot"
+      ],
+      "type": "object"
+    },
+    "format_version": {
+      "const": "rules-mkosi-hardware-qualification-result-v1"
+    },
+    "machine": {
+      "additionalProperties": false,
+      "properties": {
+        "boot_disk": {
+          "additionalProperties": false,
+          "properties": {
+            "model": {
+              "$ref": "#/$defs/nonempty_string"
+            },
+            "transport": {
+              "enum": [
+                "nvme",
+                "sata",
+                "usb",
+                "mmc"
+              ]
+            }
+          },
+          "required": [
+            "transport",
+            "model"
+          ],
+          "type": "object"
+        },
+        "consoles": {
+          "items": {
+            "enum": [
+              "serial",
+              "graphical"
+            ]
+          },
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "cpu": {
+          "$ref": "#/$defs/nonempty_string"
+        },
+        "dmi": {
+          "additionalProperties": false,
+          "properties": {
+            "bios_date": {
+              "$ref": "#/$defs/nonempty_string"
+            },
+            "bios_vendor": {
+              "$ref": "#/$defs/nonempty_string"
+            },
+            "bios_version": {
+              "$ref": "#/$defs/nonempty_string"
+            },
+            "board_name": {
+              "type": "string"
+            },
+            "board_vendor": {
+              "type": "string"
+            },
+            "product_name": {
+              "$ref": "#/$defs/nonempty_string"
+            },
+            "product_version": {
+              "type": "string"
+            },
+            "sys_vendor": {
+              "$ref": "#/$defs/nonempty_string"
+            }
+          },
+          "required": [
+            "sys_vendor",
+            "product_name",
+            "bios_vendor",
+            "bios_version",
+            "bios_date"
+          ],
+          "type": "object"
+        },
+        "network": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "driver": {
+                "$ref": "#/$defs/nonempty_string"
+              },
+              "firmware": {
+                "items": {
+                  "$ref": "#/$defs/nonempty_string"
+                },
+                "type": "array"
+              },
+              "kind": {
+                "enum": [
+                  "wired",
+                  "wifi"
+                ]
+              }
+            },
+            "required": [
+              "kind",
+              "driver"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "tpm2": {
+          "enum": [
+            "firmware",
+            "discrete",
+            "absent"
+          ]
+        }
+      },
+      "required": [
+        "dmi",
+        "cpu",
+        "boot_disk",
+        "network",
+        "consoles",
+        "tpm2"
+      ],
+      "type": "object"
+    },
+    "operator": {
+      "$ref": "#/$defs/nonempty_string"
+    },
+    "outcome": {
+      "enum": [
+        "passed",
+        "failed",
+        "invalid"
+      ]
+    },
+    "started_at": {
+      "format": "date-time",
+      "type": "string"
+    },
+    "subject": {
+      "additionalProperties": false,
+      "properties": {
+        "image": {
+          "additionalProperties": false,
+          "properties": {
+            "auto_enroll_keys": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "name": {
+                    "enum": [
+                      "PK.auth",
+                      "KEK.auth",
+                      "db.auth",
+                      "dbx.auth"
+                    ]
+                  },
+                  "sha256": {
+                    "$ref": "#/$defs/sha256"
+                  }
+                },
+                "required": [
+                  "name",
+                  "sha256"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "canonical_sha256": {
+              "$ref": "#/$defs/sha256"
+            },
+            "reproducibility_manifest_sha256": {
+              "$ref": "#/$defs/sha256"
+            },
+            "signed_binaries": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "esp_path": {
+                    "description": "Empty for the UKI, as in the signing request.",
+                    "type": "string"
+                  },
+                  "sha256": {
+                    "$ref": "#/$defs/sha256"
+                  }
+                },
+                "required": [
+                  "esp_path",
+                  "sha256"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "signed_image_record_sha256": {
+              "$ref": "#/$defs/sha256"
+            },
+            "written_sha256": {
+              "$ref": "#/$defs/sha256"
+            }
+          },
+          "required": [
+            "reproducibility_manifest_sha256",
+            "canonical_sha256",
+            "written_sha256"
+          ],
+          "type": "object"
+        },
+        "rules_mkosi": {
+          "additionalProperties": false,
+          "properties": {
+            "archive_sha256": {
+              "$ref": "#/$defs/sha256"
+            },
+            "commit": {
+              "pattern": "^[0-9a-f]{40}$",
+              "type": "string"
+            },
+            "version": {
+              "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "commit"
+          ],
+          "type": "object"
+        },
+        "update_payloads": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "expected": {
+                "enum": [
+                  "blessed",
+                  "rolled-back",
+                  "refused"
+                ]
+              },
+              "sha256sums_sha256": {
+                "$ref": "#/$defs/sha256"
+              },
+              "version": {
+                "pattern": "^[A-Za-z0-9.]+$",
+                "type": "string"
+              }
+            },
+            "required": [
+              "version",
+              "sha256sums_sha256",
+              "expected"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "rules_mkosi",
+        "image"
+      ],
+      "type": "object"
+    }
+  },
+  "required": [
+    "format_version",
+    "class",
+    "subject",
+    "machine",
+    "firmware",
+    "operator",
+    "started_at",
+    "finished_at",
+    "checks",
+    "outcome"
+  ],
+  "then": {
+    "properties": {
+      "checks": {
+        "items": {
+          "properties": {
+            "status": {
+              "enum": [
+                "passed",
+                "not-applicable"
+              ]
+            }
+          }
+        }
+      }
+    }
+  },
+  "title": "rules_mkosi hardware qualification result",
+  "type": "object"
+}

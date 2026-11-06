@@ -61,7 +61,7 @@ Externally signed artifacts are not claimed to be reproducible.
 
 Inspection tools, QEMU, and firmware are resolved as Bazel toolchains, never assumed on the runner.
 
-Remaining test work: power interruption tests outside ordinary BCR workers, and representative physical-hardware qualification.
+Remaining test work: power interruption tests outside ordinary BCR workers, and representative physical-hardware qualification runs following [hardware qualification](../hardware-qualification.md).
 
 ## CI
 
