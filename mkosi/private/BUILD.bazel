@@ -1,4 +1,5 @@
 load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test")
+load("@rules_python//python:defs.bzl", "py_binary")
 load("//mkosi:toolchain.bzl", "managed_python_tool")
 load("//mkosi:versions.bzl", "DEFAULT_PYTHON_VERSION")
 load(":c_options.bzl", "C_WARNINGS")
@@ -34,6 +35,7 @@ exports_files([
     "efi_auth.py",
     "esp_files.py",
     "secure_boot_image.py",
+    "secure_boot_signer.py",
     "launcher_tool.py",
     "sibling_loader.py",
     "image_identity.bzl",
@@ -73,6 +75,29 @@ filegroup(
         "mkosi_runner/tree.py",
     ],
     visibility = ["//visibility:public"],
+)
+
+# Reference external signer for secure_boot_signing_manifest; public as //mkosi:secure_boot_signer.
+py_binary(
+    name = "secure_boot_signer",
+    srcs = ["secure_boot_signer.py"],
+    args = [
+        "--debian-tools",
+        "$(rlocationpath @mkosi_debian_tools//:launcher)",
+    ],
+    data = [
+        "efi_auth.py",
+        "esp_files.py",
+        "file_hashing.py",
+        "gpt_partitions.py",
+        "launcher_tool.py",
+        "secure_boot.py",
+        "sibling_loader.py",
+        "@mkosi_debian_tools//:launcher",
+    ],
+    python_version = DEFAULT_PYTHON_VERSION,
+    visibility = ["//mkosi:__pkg__"],
+    deps = ["@rules_python//python/runfiles"],
 )
 
 # Interpreter for managed_python_test, resolved for rules_mkosi's Python line.

@@ -295,6 +295,70 @@ equivalent to the requested unsigned binary.""",
     toolchains = [MKOSI_TOOLCHAIN_TYPE],
 )
 
+SIGNING_MANIFEST_FORMAT = "mkosi-secure-boot-signing-manifest-v1"
+
+def _validate_signed_name(label, signed_name):
+    if not signed_name or not signed_name[0].isalnum() or signed_name.strip(_ESP_PATH_CHARACTERS):
+        fail(
+            ("signed file name %r of %s must start with a letter or digit and contain only letters, digits, '.', " +
+             "'_', '+' and '-'") % (signed_name, label),
+        )
+
+def _manifest_entry(label, request, signed_name):
+    """Returns the manifest entry of one request: the exec paths of its files and the signed file name."""
+    return {
+        "certificate": request.certificate.path,
+        "context": "uefi-secure-boot-esp-file" if request.esp_path else "uefi-secure-boot-uki",
+        "esp_path": request.esp_path,
+        "label": str(label),
+        "request": request.request.path,
+        "request_digest": request.request_digest.path,
+        "signed_name": signed_name,
+        "unsigned_binary": request.unsigned_binary.path,
+    }
+
+def _manifest_impl(ctx):
+    entries = []
+    files = []
+    owners = {}
+    for target, signed_name in ctx.attr.requests.items():
+        _validate_signed_name(target.label, signed_name)
+        if signed_name in owners:
+            fail("requests %s and %s have the same signed file name %r" % (owners[signed_name], target.label, signed_name))
+        owners[signed_name] = target.label
+        request = target[SecureBootSigningRequestInfo]
+        entries.append(_manifest_entry(target.label, request, signed_name))
+        files += [request.request, request.request_digest, request.unsigned_binary, request.certificate]
+    manifest = ctx.actions.declare_file(ctx.label.name + ".secure-boot-signing-manifest.json")
+    document = {
+        "format_version": SIGNING_MANIFEST_FORMAT,
+        "requests": sorted(entries, key = lambda entry: entry["signed_name"]),
+    }
+    ctx.actions.write(manifest, json.encode_indent(document, indent = "  ") + "\n")
+    return [DefaultInfo(files = depset([manifest] + files))]
+
+secure_boot_signing_manifest = rule(
+    implementation = _manifest_impl,
+    attrs = {
+        "requests": attr.label_keyed_string_dict(
+            mandatory = True,
+            allow_empty = False,
+            providers = [SecureBootSigningRequestInfo],
+            doc = """secure_boot_signing_request targets, each mapped to the file name of its signed binary, such as
+`{":os_signing_request": "os.efi"}`.
+
+A name starts with a letter or digit and contains only letters, digits, '.', '_', '+' and '-'; names must be distinct.""",
+        ),
+    },
+    doc = """Lists signing requests for an external signer that needs no knowledge of Bazel providers.
+
+Outputs `<name>.secure-boot-signing-manifest.json` (`mkosi-secure-boot-signing-manifest-v1`) together with every file
+that it names, so `bazel build` materializes them. Each entry of its `requests` array, sorted by `signed_name`, holds the
+execution-root-relative paths of the `request` JSON, its `request_digest`, the `unsigned_binary` and the normalized DER
+`certificate`, the request's `esp_path` and `context`, the request's `label`, and `signed_name`, the file name under
+which the signer returns the signed binary. `@rules_mkosi//mkosi:secure_boot_signer` signs every entry of a manifest.""",
+)
+
 def _fixture_binaries(ctx):
     """Returns the unsigned UKIs and ESP files of the fixture's images, extracting the ESP files."""
     unsigned = []

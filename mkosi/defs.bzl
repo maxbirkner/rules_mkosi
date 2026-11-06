@@ -56,6 +56,7 @@ load(
     _secure_boot_ephemeral_test_fixture = "secure_boot_ephemeral_test_fixture",
     _secure_boot_import_response = "secure_boot_import_response",
     _secure_boot_signed_image = "secure_boot_signed_image",
+    _secure_boot_signing_manifest = "secure_boot_signing_manifest",
     _secure_boot_signing_request = "secure_boot_signing_request",
 )
 load(
@@ -107,6 +108,7 @@ SecureBootSigningRequestInfo = _SecureBootSigningRequestInfo
 SecureBootSignedBinaryInfo = _SecureBootSignedBinaryInfo
 SecureBootEphemeralTestFixtureInfo = _SecureBootEphemeralTestFixtureInfo
 secure_boot_signing_request = _secure_boot_signing_request
+secure_boot_signing_manifest = _secure_boot_signing_manifest
 secure_boot_import_response = _secure_boot_import_response
 secure_boot_ephemeral_test_fixture = _secure_boot_ephemeral_test_fixture
 secure_boot_signed_image = _secure_boot_signed_image

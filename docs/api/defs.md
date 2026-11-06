@@ -465,6 +465,33 @@ the image's MkosiImageInfo with raw_image replaced by the signed disk image.
 | <a id="secure_boot_signed_image-signed_binaries"></a>signed_binaries |  secure_boot_import_response targets for the image's UKI and ESP binaries.<br><br>Each replaces every ESP file with the bytes of its unsigned binary. The build fails if a PE/COFF binary on the ESP stays unsigned.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | required |  |
 
 
+<a id="secure_boot_signing_manifest"></a>
+
+## secure_boot_signing_manifest
+
+<pre>
+load("@rules_mkosi//mkosi:defs.bzl", "secure_boot_signing_manifest")
+
+secure_boot_signing_manifest(<a href="#secure_boot_signing_manifest-name">name</a>, <a href="#secure_boot_signing_manifest-requests">requests</a>)
+</pre>
+
+Lists signing requests for an external signer that needs no knowledge of Bazel providers.
+
+Outputs `<name>.secure-boot-signing-manifest.json` (`mkosi-secure-boot-signing-manifest-v1`) together with every file
+that it names, so `bazel build` materializes them. Each entry of its `requests` array, sorted by `signed_name`, holds the
+execution-root-relative paths of the `request` JSON, its `request_digest`, the `unsigned_binary` and the normalized DER
+`certificate`, the request's `esp_path` and `context`, the request's `label`, and `signed_name`, the file name under
+which the signer returns the signed binary. `@rules_mkosi//mkosi:secure_boot_signer` signs every entry of a manifest.
+
+**ATTRIBUTES**
+
+
+| Name  | Description | Type | Mandatory | Default |
+| :------------- | :------------- | :------------- | :------------- | :------------- |
+| <a id="secure_boot_signing_manifest-name"></a>name |  A unique name for this target.   | <a href="https://bazel.build/concepts/labels#target-names">Name</a> | required |  |
+| <a id="secure_boot_signing_manifest-requests"></a>requests |  secure_boot_signing_request targets, each mapped to the file name of its signed binary, such as `{":os_signing_request": "os.efi"}`.<br><br>A name starts with a letter or digit and contains only letters, digits, '.', '_', '+' and '-'; names must be distinct.   | <a href="https://bazel.build/rules/lib/core/dict">Dictionary: Label -> String</a> | required |  |
+
+
 <a id="secure_boot_signing_request"></a>
 
 ## secure_boot_signing_request

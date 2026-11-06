@@ -12,6 +12,7 @@ load(
     "secure_boot_ephemeral_test_fixture",
     "secure_boot_import_response",
     "secure_boot_signed_image",
+    "secure_boot_signing_manifest",
     "secure_boot_signing_request",
 )
 load(":analysis_test_helpers.bzl", "expected_failure_test", "option_value", "single_action")
@@ -333,6 +334,79 @@ def _request_tests(image):
         ":secure_boot_uki_request_test",
     ]
 
+def _manifest_test_impl(ctx):
+    env = analysistest.begin(ctx)
+    target = analysistest.target_under_test(env)
+    write = single_action(env, "FileWrite")
+    manifest = json.decode(write.content)
+    asserts.equals(env, "mkosi-secure-boot-signing-manifest-v1", manifest["format_version"])
+    files = target[DefaultInfo].files.to_list()
+    asserts.equals(env, write.outputs.to_list(), files[:1])
+    asserts.equals(env, "secure_boot_manifest_subject.secure-boot-signing-manifest.json", files[0].basename)
+    expected = []
+    for request_target, signed_name in ((ctx.attr.esp_file_request, "systemd-bootx64.efi"), (ctx.attr.uki_request, "uki.efi")):
+        request = request_target[SecureBootSigningRequestInfo]
+        request_files = [request.request, request.request_digest, request.unsigned_binary, request.certificate]
+        asserts.true(env, all([file in files for file in request_files]), "the manifest must output the files it names")
+        expected.append({
+            "certificate": request.certificate.path,
+            "context": "uefi-secure-boot-esp-file" if request.esp_path else "uefi-secure-boot-uki",
+            "esp_path": request.esp_path,
+            "label": str(request_target.label),
+            "request": request.request.path,
+            "request_digest": request.request_digest.path,
+            "signed_name": signed_name,
+            "unsigned_binary": request.unsigned_binary.path,
+        })
+    asserts.equals(env, expected, manifest["requests"])
+    return analysistest.end(env)
+
+_manifest_test = analysistest.make(
+    _manifest_test_impl,
+    attrs = {
+        "esp_file_request": attr.label(mandatory = True, providers = [SecureBootSigningRequestInfo]),
+        "uki_request": attr.label(mandatory = True, providers = [SecureBootSigningRequestInfo]),
+    },
+)
+
+def _manifest_tests():
+    """Declares tests of secure_boot_signing_manifest over the request subjects and returns their labels."""
+    secure_boot_signing_manifest(
+        name = "secure_boot_manifest_subject",
+        requests = {
+            ":secure_boot_esp_file_request_subject": "systemd-bootx64.efi",
+            ":secure_boot_uki_request_subject": "uki.efi",
+        },
+        tags = ["manual"],
+    )
+    _manifest_test(
+        name = "secure_boot_manifest_test",
+        esp_file_request = ":secure_boot_esp_file_request_subject",
+        target_under_test = ":secure_boot_manifest_subject",
+        uki_request = ":secure_boot_uki_request_subject",
+    )
+    tests = [":secure_boot_manifest_test"]
+    for subject, requests, error in (
+        ("path_name", {":secure_boot_uki_request_subject": "signed/uki.efi"}, 'signed file name "signed/uki.efi"'),
+        (
+            "duplicate_name",
+            {":secure_boot_esp_file_request_subject": "x.efi", ":secure_boot_uki_request_subject": "x.efi"},
+            'have the same signed file name "x.efi"',
+        ),
+    ):
+        secure_boot_signing_manifest(
+            name = "secure_boot_manifest_%s_subject" % subject,
+            requests = requests,
+            tags = ["manual"],
+        )
+        expected_failure_test(
+            name = "secure_boot_manifest_%s_test" % subject,
+            expected_error = error,
+            target_under_test = ":secure_boot_manifest_%s_subject" % subject,
+        )
+        tests.append(":secure_boot_manifest_%s_test" % subject)
+    return tests
+
 def _invalid_esp_path_tests(image):
     """Declares tests that requests reject unsafe ESP paths and returns their labels."""
     tests = []
@@ -373,8 +447,8 @@ def secure_boot_test_suite(name, image):
     native.test_suite(
         name = name,
         tests = (
-            [":secure_boot_fixture_action_test"] + _request_tests(image) + _invalid_esp_path_tests(image) +
-            _signed_image_tests(image) + _secure_boot_firmware_tests() + _testonly_image_tests(image) +
-            _boot_attribute_failure_tests(image)
+            [":secure_boot_fixture_action_test"] + _request_tests(image) + _manifest_tests() +
+            _invalid_esp_path_tests(image) + _signed_image_tests(image) + _secure_boot_firmware_tests() +
+            _testonly_image_tests(image) + _boot_attribute_failure_tests(image)
         ),
     )

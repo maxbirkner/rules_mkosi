@@ -143,6 +143,7 @@ The [API reference](docs/api/defs.md), generated with Stardoc, documents every a
 | `sysupdate_transfers`, `sysupdate_payload` | A/B updates; see [A/B updates](docs/sysupdate-ab.md). |
 | `sysupdate_signing_request`, `sysupdate_import_signature` | Offline OpenPGP signing of update payloads for HTTP updates; see [signed payloads](docs/sysupdate-ab.md#updates-over-http). |
 | `secure_boot_signing_request`, `secure_boot_import_response` | Offline signing of UKIs and ESP boot binaries such as systemd-boot; see [Secure Boot](docs/secure-boot.md). |
+| `secure_boot_signing_manifest` | Lists signing requests for an external signer such as the reference `@rules_mkosi//mkosi:secure_boot_signer`; see [signing in CI](docs/secure-boot.md#signing-in-ci). |
 | `secure_boot_signed_image` | Disk image with signed boot binaries and Secure Boot key auto-enrollment; see [Secure Boot](docs/secure-boot.md#signed-disk-images-and-key-auto-enrollment). |
 | `managed_python_test` | Runs a Python test on rules_mkosi's managed interpreter with an empty `PATH`. |
 | `MkosiToolchainInfo`, `MkosiQemuToolchainInfo`, `DebianToolsInfo`, `DebianSnapshotInfo` | Toolchain and snapshot providers for advanced integrations. |
