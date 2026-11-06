@@ -185,15 +185,13 @@ class ReleaseSandboxTest(_WrapperTest):
         (repository / "dists/trixie/main/Release").write_text("locked metadata\n")
         arguments = []
         mirror = sandbox.configure_release_mirror(repository, root / "workspace", arguments)
-        assert arguments == [
-            "--local-mirror",
-            "file://" + os.fspath(mirror),
-            "--sandbox-tree",
-            os.fspath(root / "workspace/release-sandbox"),
-        ]
-        assert (mirror / "dists/trixie/main/Release").read_text() == "locked metadata\n"
-        assert mirror.stat().st_mtime == 0
-        etc = root / "workspace/release-sandbox/etc"
+        sandbox_tree = root / "workspace/release-sandbox"
+        assert mirror.directory == root / "workspace/debian-snapshot"
+        assert mirror.sandbox_tree == sandbox_tree
+        assert arguments == ["--sandbox-tree", os.fspath(sandbox_tree)]
+        assert (mirror.directory / "dists/trixie/main/Release").read_text() == "locked metadata\n"
+        assert mirror.directory.stat().st_mtime == 0
+        etc = sandbox_tree / "etc"
         assert (etc / "apt/apt.conf.d/99rules-mkosi-release").read_text() == (
             'Acquire::Languages "none";\nAcquire::By-Hash "no";\n'
         )
@@ -201,6 +199,19 @@ class ReleaseSandboxTest(_WrapperTest):
         assert (etc / "group").read_text() == sandbox.GROUP
         assert (etc / "hosts").read_text() == sandbox.HOSTS
         assert (etc / "nsswitch.conf").read_text() == sandbox.NSSWITCH
+        assert not (etc / "apt/sources.list.d/mkosi.sources").exists()
+
+    def test_mirror_sources_list_the_requested_components_at_the_repository_path(self):
+        wrapper, root = self.wrapper, self.root
+        repository = root / "repository"
+        repository.mkdir()
+        mirror = wrapper.release_sandbox.configure_release_mirror(repository, root / "workspace", [])
+        mirror.write_sources("trixie", ("main", "contrib"))
+        sources = mirror.sandbox_tree / "etc/apt/sources.list.d/mkosi.sources"
+        assert sources.read_text() == (
+            "Types: deb\nURIs: file:///repository\nSuites: trixie\nComponents: main contrib\nTrusted: yes\n"
+        )
+        assert sources.stat().st_mtime == 0
 
     def test_release_patches_do_not_read_host_identity_files(self):
         release_setup = inspect.getsource(self.wrapper.release_patches)

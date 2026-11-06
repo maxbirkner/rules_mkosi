@@ -1,8 +1,9 @@
 """Patches mkosi v27 internals so that a release build reads only declared inputs and is reproducible.
 
-mkosi has no options for these constraints, so its functions are replaced in the release child process, which runs
-mkosi in-process. mkosi_contract.py pins the patched internals of each supported mkosi version, and release mode fails
-before patching a different mkosi.
+Where mkosi has no option for a constraint, its functions are replaced in the release child process, which runs mkosi
+in-process. mkosi_contract.py pins the patched internals of each supported mkosi version, and release mode fails before
+patching a different mkosi. The APT sources of the Debian snapshot mirror use mkosi's documented sandbox tree override
+instead of a patch.
 """
 
 import datetime
@@ -18,8 +19,6 @@ from .release_validation import (
     validate_release_configuration,
 )
 
-_IN_SANDBOX_REPOSITORY = "/repository"
-
 
 def activate_release_mode(mirror, settings, allowed_paths, allowed_extra_tree):
     """Patches mkosi for a release build of settings.stage.
@@ -33,8 +32,8 @@ def activate_release_mode(mirror, settings, allowed_paths, allowed_extra_tree):
     if (mirror is None) != (settings.stage == "finalize"):
         raise SystemExit("only the release finalize stage runs without the Debian snapshot mirror")
     if mirror is not None:
-        _serve_local_mirror(os.fspath(mirror), settings.components)
-    _ConfigurationValidator(settings, allowed_paths, allowed_extra_tree).install()
+        _serve_mirror(mirror)
+    _ConfigurationValidator(settings, allowed_paths, allowed_extra_tree, mirror).install()
     mkosi.distribution.debian.install_apt_sources = _remove_apt_sources
     mkosi.install_sandbox_trees = _install_sandbox_trees
     if settings.stage == "base":
@@ -47,7 +46,8 @@ def activate_release_mode(mirror, settings, allowed_paths, allowed_extra_tree):
 def activate_snapshot_mirror(mirror, components):
     """Patches mkosi so that a tracer build installs packages only from the Debian snapshot mirror."""
     mkosi_contract.verify()
-    _serve_local_mirror(os.fspath(mirror), components)
+    _serve_mirror(mirror)
+    _MirrorConfiguration(mirror, components).install()
 
 
 def include_base_packages_in_manifest():
@@ -67,37 +67,30 @@ def include_base_packages_in_manifest():
     Manifest.record_deb_packages = record_deb_packages
 
 
-def _serve_local_mirror(mirror, components):
-    """Mounts the long Bazel mirror path read-only at mkosi's stable in-sandbox repository path.
+def _serve_mirror(mirror):
+    """Mounts the snapshot mirror read-only at mkosi's stable in-sandbox repository path, /repository.
 
-    mkosi v27 registers a local mirror with only the main component. The snapshot can stage more components, so the
-    mirror source instead lists main plus the components requested through Repositories=, each of which must be
-    present in the snapshot.
+    mkosi maps the /repository paths of the debs that it bootstraps a Debian root from to Context.repository, so the
+    mirror replaces that local package repository instead of being mounted elsewhere.
     """
     from mkosi.context import Context
-    from mkosi.distribution.debian import Installer
     from mkosi.installer import PackageManager
 
-    _patch_repositories(Installer, "file://" + mirror, components)
-    _patch_mounts(PackageManager, mirror)
-    _patch_context_repository(Context, mirror)
+    directory = os.fspath(mirror.directory)
+    _patch_mounts(PackageManager, directory)
+    _patch_context_repository(Context, directory)
 
 
-def _patch_repositories(installer, source_url, components):
-    original = installer.repositories.__func__
+def _write_mirror_sources(mirror, images, components):
+    """Lists the mirror in APT sources for the suite and the Repositories= of the parsed images.
 
-    # The APT sources of the image, for_image=True, never name the build's mirror, so they stay mkosi's defaults.
-    def repositories(cls, context, for_image=False):
-        for repository in original(cls, context, for_image):
-            if repository.url == source_url:
-                repository = replace(
-                    repository,
-                    url="file://" + _IN_SANDBOX_REPOSITORY,
-                    components=release_apt_components(context.config.repositories, components),
-                )
-            yield repository
-
-    installer.repositories = classmethod(repositories)
+    The sources list main plus the components requested through Repositories=, each of which must be present in the
+    snapshot. Both settings are universal, so every image of the build uses the same sources.
+    """
+    if not images:
+        raise SystemExit("mkosi parsed no image to install from the Debian snapshot mirror")
+    config = images[0]
+    mirror.write_sources(config.release, release_apt_components(config.repositories, components))
 
 
 def _patch_mounts(package_manager, mirror):
@@ -105,13 +98,10 @@ def _patch_mounts(package_manager, mirror):
 
     def mounts(cls, context):
         options = original(cls, context)
-        repository = _find_bind(options, "--bind", mirror, _IN_SANDBOX_REPOSITORY)
+        repository = _find_bind(options, "--bind", mirror, "/repository")
         if repository is None:
             raise SystemExit("mkosi did not register the declared release mirror")
         options[repository] = "--ro-bind"
-        duplicate = _find_bind(options, "--ro-bind", mirror, mirror)
-        if duplicate is not None:
-            del options[duplicate : duplicate + 3]
         return options
 
     package_manager.mounts = classmethod(mounts)
@@ -145,25 +135,19 @@ def _patch_context_repository(context_class, mirror):
     context_class.repository = property(repository)
 
 
-class _ConfigurationValidator:
-    """Validates the first configuration that mkosi parses for the requested image, and the INI files it reads."""
+class _FirstConfiguration:
+    """Wraps mkosi's parse_config to act once on the first configuration that it parses for the requested image."""
 
-    def __init__(self, settings, allowed_paths, allowed_extra_tree):
+    def __init__(self):
         import mkosi.config
 
         self._config_module = mkosi.config
         self._original_parse_config = mkosi.config.parse_config
-        self._original_parse_ini = mkosi.config.parse_ini
-        self._settings = settings
-        self._allowed_paths = allowed_paths
-        self._allowed_extra_tree = allowed_extra_tree
-        self._declared_roots = tuple(Path(path).resolve() for path in allowed_paths)
         self._pending = True
         self._depth = 0
 
     def install(self):
         self._config_module.parse_config = self.parse_config
-        self._config_module.parse_ini = self.parse_ini
 
     def parse_config(self, *args, **kwargs):
         # mkosi parses its bundled mkosi-initrd configuration separately; that pinned resource is not caller input.
@@ -174,11 +158,47 @@ class _ConfigurationValidator:
         finally:
             self._depth -= 1
         if self._pending and self._depth == 0 and primary:
-            parsed = self._validated(parsed)
+            parsed = self._resolved(parsed)
             self._pending = False
         return parsed
 
-    def _validated(self, parsed):
+    def _resolved(self, parsed):
+        raise NotImplementedError
+
+
+class _MirrorConfiguration(_FirstConfiguration):
+    """Serves the Debian snapshot mirror with the components that the parsed configuration requests."""
+
+    def __init__(self, mirror, components):
+        super().__init__()
+        self._mirror = mirror
+        self._components = components
+
+    def _resolved(self, parsed):
+        _write_mirror_sources(self._mirror, parsed[2], self._components)
+        return parsed
+
+
+class _ConfigurationValidator(_FirstConfiguration):
+    """Validates the first configuration that mkosi parses for the requested image, and the INI files it reads.
+
+    A release stage that installs packages also serves the Debian snapshot mirror for the validated configuration.
+    """
+
+    def __init__(self, settings, allowed_paths, allowed_extra_tree, mirror=None):
+        super().__init__()
+        self._original_parse_ini = self._config_module.parse_ini
+        self._settings = settings
+        self._allowed_paths = allowed_paths
+        self._allowed_extra_tree = allowed_extra_tree
+        self._declared_roots = tuple(Path(path).resolve() for path in allowed_paths)
+        self._mirror = mirror
+
+    def install(self):
+        super().install()
+        self._config_module.parse_ini = self.parse_ini
+
+    def _resolved(self, parsed):
         images = tuple(_without_proxy_certificates(config) for config in parsed[2])
         validate_release_configuration(
             tuple(config for config in images if getattr(config, "image", "main") == "main"),
@@ -186,6 +206,8 @@ class _ConfigurationValidator:
             self._allowed_paths,
             self._allowed_extra_tree,
         )
+        if self._mirror is not None:
+            _write_mirror_sources(self._mirror, images, self._settings.components)
         return (parsed[0], parsed[1], images)
 
     def parse_ini(self, *args, **kwargs):
