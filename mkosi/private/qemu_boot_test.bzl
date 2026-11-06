@@ -203,7 +203,10 @@ def boot_config_outputs(ctx, qemu, config, image, firmware_files, extra_files = 
         ),
     ]
 
-def boot_test(name, config_rule, timeout, tags, **config_attrs):
+# Common attributes that apply to both the test and its configuration.
+_SHARED_COMMON_ATTRS = ["exec_compatible_with", "target_compatible_with", "visibility"]
+
+def boot_test(name, config_rule, timeout, tags, testonly = None, **config_attrs):
     """Declares a boot configuration with config_rule and the boot_test.py test that uses it.
 
     Args:
@@ -211,15 +214,20 @@ def boot_test(name, config_rule, timeout, tags, **config_attrs):
       config_rule: Firmware adapter rule that writes the configuration.
       timeout: Bazel test timeout category.
       tags: Test tags.
-      **config_attrs: Further config_rule attributes.
+      testonly: testonly of the test; None keeps the default of test rules.
+      **config_attrs: Further config_rule attributes and the common attributes in _SHARED_COMMON_ATTRS.
     """
+    common_attrs = {key: value for key, value in config_attrs.items() if key in _SHARED_COMMON_ATTRS}
     config_name = name + "_config"
     config_rule(
         name = config_name,
         test_timeout = timeout,
         tags = ["manual"],
+        # Only tests use the configuration, and it must accept testonly images.
+        testonly = True,
         **config_attrs
     )
+    test_attrs = common_attrs if testonly == None else common_attrs | {"testonly": testonly}
     managed_python_test(
         name = name,
         src = "@rules_mkosi//mkosi/private:boot_test.py",
@@ -233,4 +241,5 @@ def boot_test(name, config_rule, timeout, tags, **config_attrs):
         ],
         timeout = timeout,
         tags = tags,
+        **test_attrs
     )

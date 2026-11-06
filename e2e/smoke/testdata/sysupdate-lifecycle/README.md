@@ -17,4 +17,6 @@ static address on QEMU's user network. The preset enables both units and
 The driver also prints the `SecureBoot` and `SetupMode` EFI variables of each
 boot. `secure_boot_lifecycle_test` boots the signed release 1 disk image,
 updates to release 2 from a payload with a signed UKI, and expects the
-firmware to refuse the unsigned UKI of release 3.
+firmware to refuse the unsigned UKI of release 3. It also passes the driver a
+drop-in as an SMBIOS credential, which prints
+`rules-mkosi-ab: credential drop-in applied` before the driver runs.

@@ -175,6 +175,99 @@ def _secure_boot_firmware_test_impl(ctx):
 
 _secure_boot_firmware_test = analysistest.make(_secure_boot_firmware_test_impl)
 
+def _credentials_test_impl(ctx):
+    env = analysistest.begin(ctx)
+    config = json.decode(single_action(env, "FileWrite").content)
+    asserts.equals(
+        env,
+        [
+            "-smbios",
+            "type=11,value=io.systemd.credential:rules-mkosi.marker=a,,b",
+            "-smbios",
+            "type=11,value=io.systemd.credential:systemd.unit-dropin.ready.service=[Service]\nExecStart=true\n",
+        ],
+        config["qemu_args"][-4:],
+    )
+    return analysistest.end(env)
+
+_credentials_test = analysistest.make(_credentials_test_impl)
+
+def _boot_test_runfiles_test_impl(ctx):
+    env = analysistest.begin(ctx)
+    runfiles = analysistest.target_under_test(env)[DefaultInfo].default_runfiles.files.to_list()
+    asserts.true(env, ctx.attr.config in [file.basename for file in runfiles])
+    return analysistest.end(env)
+
+_boot_test_runfiles_test = analysistest.make(
+    _boot_test_runfiles_test_impl,
+    attrs = {"config": attr.string(mandatory = True)},
+)
+
+def _testonly_image_tests(image):
+    """Declares tests that a boot test accepts a testonly image and passes credentials; returns their labels."""
+    secure_boot_signed_image(
+        name = "secure_boot_testonly_signed_image_subject",
+        testonly = True,
+        auto_enroll_keys = [":secure_boot_ephemeral_fixture"],
+        image = image,
+        secure_boot_enroll = "force",
+        signed_binaries = [":secure_boot_uki_import_subject", ":secure_boot_esp_file_import_subject"],
+        tags = ["manual"],
+    )
+
+    # Not testonly itself: the macro makes its configuration testonly.
+    qemu_ovmf_boot_test(
+        name = "secure_boot_testonly_image_boot",
+        credentials = {
+            "rules-mkosi.marker": "a,b",
+            "systemd.unit-dropin.ready.service": "[Service]\nExecStart=true\n",
+        },
+        image = ":secure_boot_testonly_signed_image_subject",
+        secure_boot = True,
+        tags = ["manual"],
+    )
+    _credentials_test(
+        name = "secure_boot_testonly_image_boot_config_test",
+        target_under_test = ":secure_boot_testonly_image_boot_config",
+    )
+    _boot_test_runfiles_test(
+        name = "secure_boot_testonly_image_boot_runfiles_test",
+        config = "secure_boot_testonly_image_boot_config.json",
+        target_under_test = ":secure_boot_testonly_image_boot",
+    )
+    return [
+        ":secure_boot_testonly_image_boot_config_test",
+        ":secure_boot_testonly_image_boot_runfiles_test",
+    ]
+
+def _boot_attribute_failure_tests(image):
+    """Declares tests that boot tests reject testonly = False and invalid credential names; returns their labels."""
+    qemu_ovmf_boot_test(
+        name = "not_testonly_boot",
+        testonly = False,
+        image = image,
+        tags = ["manual"],
+    )
+    expected_failure_test(
+        name = "not_testonly_boot_test",
+        expected_error = "depends on testonly target",
+        target_under_test = ":not_testonly_boot",
+    )
+    names = ["", "..", "a/b", "a:b", "a=b", "a b"]
+    for index, name in enumerate(names):
+        qemu_ovmf_boot_config(
+            name = "invalid_credential_name_%d_subject" % index,
+            credentials = {name: "value"},
+            image = image,
+            tags = ["manual"],
+        )
+        expected_failure_test(
+            name = "invalid_credential_name_%d_test" % index,
+            expected_error = "credentials name %r must be" % name,
+            target_under_test = ":invalid_credential_name_%d_subject" % index,
+        )
+    return [":not_testonly_boot_test"] + [":invalid_credential_name_%d_test" % index for index in range(len(names))]
+
 def _secure_boot_firmware_tests():
     """Declares tests of qemu_ovmf_boot_test(secure_boot = True) and returns their labels."""
     qemu_ovmf_boot_test(
@@ -355,6 +448,7 @@ def secure_boot_test_suite(name, image):
         name = name,
         tests = (
             [":secure_boot_fixture_action_test"] + _request_tests(image) + _manifest_tests() +
-            _invalid_esp_path_tests(image) + _signed_image_tests(image) + _secure_boot_firmware_tests()
+            _invalid_esp_path_tests(image) + _signed_image_tests(image) + _secure_boot_firmware_tests() +
+            _testonly_image_tests(image) + _boot_attribute_failure_tests(image)
         ),
     )

@@ -264,6 +264,51 @@ qemu_ovmf_boot_test(
 
 [`e2e/smoke`](../e2e/smoke/BUILD.bazel) `secure_boot_lifecycle_test` enrolls the keys of `secure_boot_ephemeral_test_fixture`, checks the `SecureBoot` and `SetupMode` EFI variables from release 1, updates to release 2 with a signed UKI, and expects the firmware to refuse the unsigned UKI of release 3.
 
+The boot test's `<name>_config` target is always testonly, so a testonly image, such as one signed by `secure_boot_ephemeral_test_fixture` and marked testonly, boots without `testonly` on the test.
+
+#### Configuring the guest under Secure Boot
+
+Tests often configure the guest from outside the image, for example to start a unit that prints a readiness marker.
+With Secure Boot enabled, these ways behave differently in systemd 257:
+
+| Way | With Secure Boot |
+| --- | --- |
+| Boot loader options, such as `options` in a Type #1 entry or a command line edited in the systemd-boot menu | Ignored, because the UKI has a `.cmdline` section ([systemd-stub(7)][systemd-stub]). |
+| SMBIOS Type 11 string `io.systemd.stub.kernel-cmdline-extra=` in `machine_args` | Appended to the kernel command line and measured into PCR 12; ignored only in confidential VMs ([systemd-stub(7)][systemd-stub-smbios], [`stub.c`][stub-c]). |
+| SMBIOS credentials (`io.systemd.credential:` and `io.systemd.credential.binary:`), for example with `credentials` | Imported by the service manager; ignored only in containers and confidential VMs ([systemd.system-credentials(7)][system-credentials], [`import-creds.c`][import-creds]). |
+
+`secure_boot_lifecycle_test` checks both SMBIOS ways with Secure Boot enabled.
+`credentials` passes each entry as `io.systemd.credential:<name>=<value>` without restating `machine_args`.
+A `systemd.unit-dropin.<unit>` credential adds a drop-in to a unit ([systemd-debug-generator(8)][debug-generator]), so a test can start a readiness unit that the image does not enable:
+
+```starlark
+qemu_ovmf_boot_test(
+    name = "os_secure_boot_ready_test",
+    allow_reboot = True,
+    credentials = {
+        "systemd.unit-dropin.multi-user.target": "[Unit]\nWants=os-ready.service\n",
+    },
+    image = ":os_installer",
+    progress_markers = ["Custom Secure Boot keys successfully enrolled, rebooting the system now!"],
+    readiness_marker = "os-ready: SecureBoot=1",
+    secure_boot = True,
+    stop_after_readiness = True,
+)
+```
+
+Prefer markers that the image's units or the boot loader print over kernel messages.
+`quiet` on the image's kernel command line lowers the log level of the kernel's EFI stub, which then no longer prints `EFI stub: UEFI Secure Boot is enabled.` ([`efi-stub-helper.c`][efi-stub-helper], [`secureboot.c`][efi-secureboot]).
+systemd-boot prints `Custom Secure Boot keys successfully enrolled, rebooting the system now!` regardless, and a unit can report the `SecureBoot` EFI variable, as `secure_boot_lifecycle_test` does.
+
+[systemd-stub]: https://www.freedesktop.org/software/systemd/man/257/systemd-stub.html#Description
+[systemd-stub-smbios]: https://www.freedesktop.org/software/systemd/man/257/systemd-stub.html#io.systemd.stub.kernel-cmdline-extra
+[stub-c]: https://github.com/systemd/systemd/blob/v257/src/boot/stub.c#L771-L800
+[system-credentials]: https://www.freedesktop.org/software/systemd/man/257/systemd.system-credentials.html
+[import-creds]: https://github.com/systemd/systemd/blob/v257/src/core/import-creds.c#L570-L600
+[debug-generator]: https://www.freedesktop.org/software/systemd/man/257/systemd-debug-generator.html
+[efi-stub-helper]: https://github.com/torvalds/linux/blob/v6.12/drivers/firmware/efi/libstub/efi-stub-helper.c#L75-L76
+[efi-secureboot]: https://github.com/torvalds/linux/blob/v6.12/drivers/firmware/efi/libstub/secureboot.c#L60
+
 ## Trust boundary
 
 | Protected against | Not protected against |
