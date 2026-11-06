@@ -1,4 +1,7 @@
 exports_files([
     "behavior-matrix.md",
+    "hardware-qualification.md",
+    "hardware-qualification-result.schema.json",
+    "hardware-qualification-signoff.schema.json",
     "secure-boot.md",
 ])

@@ -19,6 +19,7 @@ Prerelease tags such as `v1.2.3-rc.1` are not supported: they do not trigger the
 
 1. Pick a commit on `main` whose `CI conclusion` passed.
 2. Tag and push it, for example `git tag v0.1.0 <commit> && git push origin v0.1.0`.
+   To claim hardware classes, qualify the commit first and attach the evidence afterwards, as in [hardware qualification](../docs/hardware-qualification.md#release-sign-off).
 3. Wait for the BCR presubmit on the draft pull request, then mark it ready for review; as a listed maintainer, that approves the entry.
 
 If publishing fails after the archive was uploaded, fix the cause and use **Re-run failed jobs** on the `Release` run.

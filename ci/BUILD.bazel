@@ -40,6 +40,21 @@ py_test(
 )
 
 py_test(
+    name = "hardware_qualification_schemas_test",
+    srcs = [
+        "hardware_qualification_schemas.py",
+        "hardware_qualification_schemas_test.py",
+    ],
+    args = ["$(rootpath //docs:hardware-qualification.md)"],
+    data = [
+        "//docs:hardware-qualification.md",
+        "//docs:hardware-qualification-result.schema.json",
+        "//docs:hardware-qualification-signoff.schema.json",
+    ],
+    main = "hardware_qualification_schemas_test.py",
+)
+
+py_test(
     name = "action_graph_validator_test",
     srcs = [
         "action_graph_validator.py",

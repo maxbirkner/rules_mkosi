@@ -267,7 +267,8 @@ Use a real epoch, such as the snapshot time (`1789200491` for `20260912T080811Z`
 
 `firmware = "bios"` is an x86-64 compatibility tier for release images.
 It uses GRUB i386-pc, requires one GPT BIOS boot partition of at least 1 MiB and an amd64 snapshot, and rejects UKIs, dm-verity, and Secure Boot.
-It has no authenticated or measured boot chain and is not qualified on physical hardware.
+It has no authenticated or measured boot chain.
+Like the UEFI tier, it is qualified on physical hardware only as far as a release's [hardware qualification](docs/hardware-qualification.md) records it.
 
 ### Unsigned UKI and dm-verity
 
@@ -478,6 +479,7 @@ The flag affects only the bootstrap executables.
 - [A/B updates and two-stage releases](docs/sysupdate-ab.md)
 - [Secure Boot and offline signing](docs/secure-boot.md)
 - [Behavior catalog](docs/behavior-matrix.md)
+- [Physical hardware qualification](docs/hardware-qualification.md)
 - [Design records](docs/design/README.md)
 - [Contributing](CONTRIBUTING.md) and [end-to-end tests](e2e/README.md)
 
