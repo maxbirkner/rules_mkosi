@@ -45,5 +45,5 @@ Add to your \`MODULE.bazel\`:
 bazel_dep(name = "rules_mkosi", version = "$version")
 \`\`\`
 
-See the [setup instructions](https://github.com/maxbirkner/rules_mkosi/blob/$tag/README.md#setup) for the host requirements and the toolchain registration.
+See the [requirements](https://github.com/maxbirkner/rules_mkosi/blob/$tag/README.md#requirements) for the supported Bazel versions and hosts, and the [setup instructions](https://github.com/maxbirkner/rules_mkosi/blob/$tag/README.md#setup) for the module extensions to configure.
 EOF
