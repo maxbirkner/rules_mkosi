@@ -328,4 +328,5 @@ class SecureBootSignerTest(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    unittest.main(argv=sys.argv[:1])
+    # Verbose, so that CI can check from the test log that the host signing tool tests ran.
+    unittest.main(argv=sys.argv[:1], verbosity=2)
