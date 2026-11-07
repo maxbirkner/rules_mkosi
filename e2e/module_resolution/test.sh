@@ -54,14 +54,22 @@ case "$fixture" in
         done
         require_link_toolchain "selected bootstrap platform" "$graph" \
             x86_64-linux-musl/ x86_64-linux-gnu
+        # rules_mkosi's static toolchains also outrank the consumer's first-registered glibc toolchain for the
+        # consumer's own platform.
         graph="$(link_graph \
             --@rules_mkosi//mkosi/toolchain:bootstrap_platform=@rules_mkosi//mkosi/toolchain:inherit_platform \
             "$bootstrap_links")"
         require_link_toolchain "inherited bootstrap platform" "$graph" \
-            x86_64-linux-gnu x86_64-linux-musl/
+            x86_64-linux-musl/ x86_64-linux-gnu
         graph="$(link_graph 'mnemonic("CppLink", deps(@rules_mkosi//mkosi:kernel_preflight))')"
         require_link_toolchain "consumer target platform" "$graph" \
             x86_64-linux-gnu x86_64-linux-musl/
+        ;;
+    rules_cc_first)
+        LOCKFILE_MODE="$lockfile_mode" "$root/../../../ci/check-lazy-toolchain-fetch.sh" \
+            --consumer-cc-target //:consumer_cc \
+            --bootstrap-target @mkosi_debian_tools//:namespace_runner \
+            "$root" //:plain_test
         ;;
     default|explicit)
         definition="$("$bazel_command" --nosystem_rc --nohome_rc \

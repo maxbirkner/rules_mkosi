@@ -46,4 +46,5 @@ e2e/module_resolution/test.sh <fixture>
 | `nonroot_name` | A dependency module cannot rename the toolchain. |
 | `root_dependency` | Different root and dependency versions fail. |
 | `snapshot_name_conflict` | Duplicate `debian_tools.snapshot` names fail. |
-| `consumer_isolation` | A consumer with Python 3.13 by default, the `script` bootstrap, and a first-priority glibc toolchain still gets Python 3.14 tools and fully static bootstrap executables from rules_mkosi's libc-aware musl toolchain through `bootstrap_platform`. |
+| `consumer_isolation` | A consumer with Python 3.13 by default, the `script` bootstrap, and a first-priority glibc toolchain still gets Python 3.14 tools and fully static bootstrap executables from rules_mkosi's musl toolchains, both for its own platform and for a musl `bootstrap_platform`. |
+| `rules_cc_first` | A consumer that lists `rules_cc` before `rules_mkosi` and registers no toolchain: its C target resolves rules_cc's host toolchain without fetching the zig SDK, a plain `sh_test` fetches nothing heavy, and the namespace runner still resolves the zig toolchain (`ci/check-lazy-toolchain-fetch.sh`). |

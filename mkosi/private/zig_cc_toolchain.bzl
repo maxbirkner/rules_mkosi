@@ -4,6 +4,9 @@ Toolchain resolution loads every registered toolchain() target for any toolchain
 toolchain() targets take their execution constraints from @zig_config, the repository that downloads the zig SDK, so
 registering them fetches the SDK for every build. These targets use only @platforms and @zig_sdk//libc constraints,
 which download nothing, and reference the zig cc_toolchain by label, so Bazel fetches the SDK only when it selects one.
+
+@zig_config holds the SDK for the Bazel host, while these targets declare Linux x86-64 execution, which rules_mkosi
+requires of the host anyway.
 """
 
 _LINUX_X86_64 = [

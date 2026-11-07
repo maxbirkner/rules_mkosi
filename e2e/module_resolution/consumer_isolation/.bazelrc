@@ -1,5 +1,5 @@
-# Build rules_mkosi's fully static bootstrap executables for a musl platform, which the consumer's glibc toolchain
-# does not match.
+# Select a musl bootstrap platform, which rules_mkosi's libc-aware static toolchain matches and the consumer's glibc
+# toolchain does not.
 common --@rules_mkosi//mkosi/toolchain:bootstrap_platform=//:bootstrap_musl
 # Generate shell stage-one py_binary bootstraps, which the static Debian launcher cannot interpret.
 common --@rules_python//python/config_settings:bootstrap_impl=script

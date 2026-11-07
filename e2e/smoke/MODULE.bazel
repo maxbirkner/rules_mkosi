@@ -43,10 +43,6 @@ hermetic_cc = use_extension(
 )
 use_repo(hermetic_cc, "zig_sdk")
 
-# Static C/C++ toolchain for rules_mkosi's bootstrap executables only. Registered here, it takes precedence over the
-# toolchains that dependencies register.
-register_toolchains("@rules_mkosi//mkosi/toolchain/bootstrap_cc:all")
-
 python = use_extension("@rules_python//python/extensions:python.bzl", "python")
 python.defaults(python_version = "3.14")
 python.toolchain(python_version = "3.14")
