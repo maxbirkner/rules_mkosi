@@ -7,8 +7,10 @@ os.environ["PATH"] = ""
 
 import contextlib
 import dataclasses
+import errno
 import pathlib
 import runpy
+import shlex
 import shutil
 import socket
 import subprocess
@@ -109,6 +111,10 @@ def _export_boot_logs(serial_log, firmware_log, qemu_log, diagnostic_bytes, mark
             ("boot-evidence.log", _actual_boot_evidence(firmware, serial, limit, markers, accelerator)),
         ):
             (destination / name).write_bytes(_bounded_content(content, limit))
+        # http_share.py logs the requests of http_shares next to the serial log.
+        http_log = pathlib.Path(serial_log).with_name(HTTP_LOG)
+        if http_log.exists():
+            (destination / HTTP_LOG).write_bytes(_bounded_content(_read_log(http_log), limit))
     except OSError as error:
         print("unable to export bounded boot logs: {}".format(error), file=sys.stderr)
 
@@ -232,11 +238,15 @@ def _resolve_runfile_directory(path):
 
 
 def _link_or_copy(source, destination):
+    """Hard-links or copies source to destination, failing if a share already provides a file of that name."""
     destination.parent.mkdir(parents=True, exist_ok=True)
     try:
         os.link(source, destination)
+    except FileExistsError:
+        raise FileExistsError(errno.EEXIST, "more than one share source provides", str(destination)) from None
     except OSError:
-        shutil.copyfile(source, destination)
+        with open(source, "rb") as original, open(destination, "xb") as copy:
+            shutil.copyfileobj(original, copy)
 
 
 def _materialize_share(source, destination):
@@ -244,9 +254,10 @@ def _materialize_share(source, destination):
 
     Bazel may present tree artifacts as directories of symlinks into the output base, or only list their files
     in a runfiles manifest. QEMU's 9p server would expose host symlinks verbatim, so the guest needs a tree of
-    regular files instead. source is a directory or a mapping from relative file names to files.
+    regular files instead. source is a directory or a mapping from relative file names to files. Several sources
+    merge into one destination, but none may provide a file that another one provides.
     """
-    destination.mkdir(parents=True)
+    destination.mkdir(parents=True, exist_ok=True)
     if isinstance(source, dict):
         for relative, physical in sorted(source.items()):
             _link_or_copy(os.path.realpath(physical), destination / relative)
@@ -274,6 +285,38 @@ def _virtfs_arguments(shares, scratch):
             ),
         ]
     return arguments
+
+
+# QEMU's user network forwards guest connections to this address to http_share.py, and nothing else to the host.
+HTTP_ADDRESS = "10.0.2.100"
+HTTP_LOG = "http-share.log"
+
+
+def _http_arguments(shares, scratch):
+    """Returns QEMU arguments serving each (URL path, sources) pair at http://HTTP_ADDRESS/<path>/.
+
+    A source is a directory, whose files appear at the top of its path, a manifest mapping of one, or a file.
+    """
+    if not shares:
+        return []
+    root = scratch / "http"
+    shutil.rmtree(root, ignore_errors=True)
+    for path, sources in shares:
+        (root / path).mkdir(parents=True)
+        for source in sources:
+            if isinstance(source, dict) or os.path.isdir(source):
+                _materialize_share(source, root / path)
+            else:
+                _link_or_copy(os.path.realpath(source), root / path / os.path.basename(source))
+    # QEMU runs the command in its own working directory, and __file__ may be relative.
+    server = pathlib.Path(os.path.abspath(__file__)).with_name("http_share.py")
+    command = shlex.join([sys.executable, "-I", str(server), str(root), str(scratch / HTTP_LOG)])
+    return [
+        "-netdev",
+        "user,id=http,restrict=on,guestfwd=tcp:{}:80-cmd:{}".format(HTTP_ADDRESS, command.replace(",", ",,")),
+        "-device",
+        "virtio-net-pci,netdev=http,romfile=",
+    ]
 
 
 def _guest_started(serial):
@@ -402,6 +445,7 @@ class _BootOptions:
     stop_after_readiness: bool = False
     allow_reboot: bool = False
     read_only_shares: tuple = ()
+    http_shares: tuple = ()
     shutdown_markers: tuple = ()
     boot_timeout_seconds: float = 180
     qmp_initialization_timeout_seconds: float = 15
@@ -460,9 +504,11 @@ def _qemu_command(files, image, qemu, system_data, options, share_arguments):
     )
 
 
-def _share_arguments(files, read_only_shares):
+def _share_arguments(files, options):
     try:
-        return _virtfs_arguments(read_only_shares, files.scratch)
+        return _virtfs_arguments(options.read_only_shares, files.scratch) + _http_arguments(
+            options.http_shares, files.scratch
+        )
     except OSError as error:
         files.fail("SHARE_FAILURE", "cannot prepare read-only share: {}".format(error), include_firmware_log=False)
 
@@ -662,7 +708,7 @@ def _boot(image, qemu, system_data, options, host=_HOST):
             os.path.abspath(qemu),
             os.path.abspath(system_data),
             options,
-            _share_arguments(files, options.read_only_shares),
+            _share_arguments(files, options),
         )
         with open(files.qemu_log, "wb") as output:
             process = _start_qemu(files, host.process_factory, command, output)
@@ -719,6 +765,10 @@ def main():
             read_only_shares=[
                 (_resolve_runfile_directory(share["directory"]), share["mount_tag"])
                 for share in config.get("read_only_shares", ())
+            ],
+            http_shares=[
+                (share["path"], [_resolve_runfile_directory(path) for path in share["files"]])
+                for share in config.get("http_shares", ())
             ],
             shutdown_markers=config["shutdown_markers"],
             boot_timeout_seconds=config["boot_timeout_seconds"],

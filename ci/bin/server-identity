@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# Runs a command as this CI lane's Bazel server identity: SERVER_GROUPS=cleared
+# drops supplementary groups through group-free, and SERVER_GROUPS=kept keeps the
+# runner's groups and fails if it has none, so the lane covers a grouped server.
+set -euo pipefail
+
+if [[ $# -eq 0 ]]; then
+  echo "usage: server-identity COMMAND [ARGUMENT...]" >&2
+  exit 2
+fi
+
+case "${SERVER_GROUPS:-}" in
+  cleared)
+    exec "$(dirname "$0")/group-free" "$@"
+    ;;
+  kept)
+    if [[ "$(id -G)" == "$(id -g)" ]]; then
+      echo "server-identity: the runner user has no supplementary groups to keep" >&2
+      exit 1
+    fi
+    exec "$@"
+    ;;
+  *)
+    echo "server-identity: SERVER_GROUPS must be cleared or kept" >&2
+    exit 2
+    ;;
+esac

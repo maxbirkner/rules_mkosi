@@ -13,8 +13,9 @@ Bazel rules for building bootable Linux OS images with [mkosi](https://github.co
 | Requirement | Supported |
 | --- | --- |
 | Bazel | 8 and 9 (the current and previous LTS majors). The minimum is 8.8.2. |
+| Host | Linux x86-64. With local execution, the host is the execution platform, and rules_mkosi's default bootstrap execution platform always declares Linux x86-64, so on another host the `llvm` module's Linux x86-64 compiler fails when it runs. |
 | Execution platform | Linux x86-64, kernel 5.12 or newer, unprivileged user and mount namespaces under Bazel's Linux sandbox (see [host-kernel contract](docs/design/0004-host-kernel-contract.md)). |
-| Bazel server | Started without supplementary groups (see [below](#run-bazel-without-supplementary-groups)). |
+| Bazel server | Any unprivileged user; neither sudo nor a server without supplementary groups is needed (see [supplementary groups](#supplementary-groups)). |
 | Images | Debian 13 (trixie), amd64. |
 | KVM | Optional; boot tests fall back to TCG. |
 
@@ -40,15 +41,7 @@ rules_mkosi is published to the [Bazel Central Registry](https://registry.bazel.
 Add to the root `MODULE.bazel`, using the latest version from the [releases](https://github.com/maxbirkner/rules_mkosi/releases):
 
 ```starlark
-bazel_dep(name = "rules_mkosi", version = "0.1.0")
-
-# Static C/C++ toolchain for rules_mkosi's bootstrap executables. Its extension
-# reads only the root module's tags, so the root module must opt in.
-bazel_dep(name = "hermetic_cc_toolchain", version = "4.3.0")
-hermetic_cc = use_extension("@hermetic_cc_toolchain//toolchain:ext.bzl", "toolchains")
-hermetic_cc.exec_platform(arch = "amd64", os = "linux")
-use_repo(hermetic_cc, "zig_sdk")
-register_toolchains("@zig_sdk//toolchain:linux_amd64_musl")
+bazel_dep(name = "rules_mkosi", version = "0.0.1")
 
 # QEMU binaries used by the mkosi toolchain repository.
 bazel_dep(name = "rules_qemu", version = "0.3.0")
@@ -72,7 +65,10 @@ use_repo(debian_tools, "mkosi_debian_snapshot")
 ```
 
 rules_mkosi registers its own mkosi, QEMU, and Debian tools toolchains.
-The musl registration does not change the platform of your other targets.
+Registering them downloads nothing: mkosi, QEMU, the firmware, and the Debian userspace are fetched only when a target uses one of these toolchains.
+Its statically linked [bootstrap executables](#static-bootstrap-toolchain) use the musl C/C++ toolchain of the [`llvm` module](https://registry.bazel.build/modules/llvm) without any registration or module extension setup: your own C/C++ targets keep using your toolchains, and the LLVM toolchain and the musl and libc++ sources are downloaded only when a bootstrap executable is built.
+Only [your own bootstrap or execution platforms](#static-bootstrap-toolchain) that name its constraints need a `bazel_dep` on `llvm`.
+If you use the `llvm` module yourself, the bootstrap executables share its version, its `llvm.version(...)` choice, and your overrides of it.
 Unsupported or conflicting mkosi versions fail during module resolution, and only the root module may set the toolchain `name`.
 
 To use an unreleased commit, keep the `bazel_dep` and add an override:
@@ -85,16 +81,14 @@ git_override(
 )
 ```
 
-### Run Bazel without supplementary groups
+### Supplementary groups
 
-Image builds refuse to run with supplementary groups, and an unprivileged process cannot drop them.
-Start the Bazel server from a group-free identity; shut down a running server first because it keeps its groups:
-
-```console
-bazel shutdown
-sudo -n setpriv --reuid="$(id -u)" --regid="$(id -g)" --clear-groups \
-  env HOME="$HOME" PATH="$PATH" USER="$USER" bazel build //...
-```
+Image builds run from a normally started Bazel server, including one whose user has supplementary groups such as `docker` or `adm`.
+Bazel's Linux sandbox denies `setgroups`, so no action can drop these groups, and rules_mkosi's user namespaces keep them as unmapped IDs (the overflow GID, usually `nogroup`).
+Unmapped groups cannot own files or be assigned to them, so they do not change image contents, and release builds stay offline and reproducible.
+The Debian tools namespace detaches the host root, so there the groups only apply to the action's mounted inputs and outputs, which the Bazel server reads with the same groups.
+Like any other Bazel action, the image action itself can read host files that the groups make readable.
+For stricter isolation, start the server without supplementary groups, for example through `sudo setpriv --reuid="$(id -u)" --regid="$(id -g)" --clear-groups`.
 
 ## Quick start
 
@@ -135,26 +129,31 @@ qemu_ovmf_boot_test(
 ```
 
 `bazel test :demo_boot_test` builds the image over the network (tracer mode), boots it with OVMF, waits for the hostname line on the serial console, and expects the guest to power off by itself.
+For a complete release configuration, with a locked Debian snapshot, UKI, dm-verity, A/B updates, and a boot test, see the [release example](e2e/smoke/example/README.md).
 
 ## Public API
 
 Load everything from `@rules_mkosi//mkosi:defs.bzl`.
 Files under `//mkosi/private` are not API.
+The [API reference](docs/api/defs.md), generated with Stardoc, documents every attribute and provider field; the module extensions are documented in [`mkosi`](docs/api/mkosi_extension.md) and [`debian_tools`](docs/api/debian_tools_extension.md).
 
 | Symbol | Purpose |
 | --- | --- |
 | `mkosi_image` | Builds a raw disk image. Returns `MkosiImageInfo`. |
 | `mkosi_base` | Builds the version-independent part of a release. Returns `MkosiBaseInfo`. |
-| `mkosi_config_tree`, `mkosi_source_tree` | Mark a directory as an mkosi configuration tree or `BuildSources` tree. |
+| `mkosi_config_tree`, `mkosi_source_tree` | Declare or assemble an mkosi configuration tree; mark a `BuildSources` tree. |
 | `mkosi_rootfs_payload` | Installs a Bazel file or directory at an absolute image path. |
 | `mkosi_reproducibility_manifest` | Normalized JSON projection of a release image for reproducibility comparisons. |
-| `qemu_ovmf_boot_test`, `qemu_seabios_boot_test` | Boot an image under QEMU with UEFI or BIOS firmware. |
+| `qemu_ovmf_boot_test`, `qemu_seabios_boot_test` | Boot an image under QEMU with UEFI (optionally [Secure Boot](docs/secure-boot.md#testing-enrollment-in-qemu)) or BIOS firmware. |
 | `sysupdate_transfers`, `sysupdate_payload` | A/B updates; see [A/B updates](docs/sysupdate-ab.md). |
-| `secure_boot_signing_request`, `secure_boot_import_response` | Offline UKI signing; see [Secure Boot](docs/secure-boot.md). |
+| `sysupdate_signing_request`, `sysupdate_import_signature` | Offline OpenPGP signing of update payloads for HTTP updates; see [signed payloads](docs/sysupdate-ab.md#updates-over-http). |
+| `secure_boot_signing_request`, `secure_boot_import_response` | Offline signing of UKIs and ESP boot binaries such as systemd-boot; see [Secure Boot](docs/secure-boot.md). |
+| `secure_boot_signing_manifest` | Lists signing requests for an external signer such as the reference `@rules_mkosi//mkosi:secure_boot_signer`; see [signing in CI](docs/secure-boot.md#signing-in-ci). |
+| `secure_boot_signed_image` | Disk image with signed boot binaries and Secure Boot key auto-enrollment; see [Secure Boot](docs/secure-boot.md#signed-disk-images-and-key-auto-enrollment). |
 | `managed_python_test` | Runs a Python test on rules_mkosi's managed interpreter with an empty `PATH`. |
 | `MkosiToolchainInfo`, `MkosiQemuToolchainInfo`, `DebianToolsInfo`, `DebianSnapshotInfo` | Toolchain and snapshot providers for advanced integrations. |
 
-Lower-level symbols used by the toolchain repositories and tests (`debian_snapshot`, `qemu_executable`, `qemu_ovmf_toolchain`, `qemu_ovmf_smoke_test`, the `*_boot_config` rules, and `secure_boot_ephemeral_test_fixture`) are exported but are not needed for normal use.
+Lower-level symbols used by the toolchain repositories and tests (`debian_snapshot`, `qemu_executable`, `qemu_ovmf_toolchain`, `qemu_ovmf_smoke_test`, the `*_boot_config` rules, `secure_boot_ephemeral_test_fixture`, and `sysupdate_ephemeral_test_fixture`) are exported but are not needed for normal use.
 
 ## Building images
 
@@ -190,6 +189,7 @@ mkosi_image(
 ```
 
 - Bazel does not preserve source mode bits; list scripts that must stay executable in `executable_paths`.
+- `mkosi_config_tree` can also assemble a tree, see [Assembling configuration trees](#assembling-configuration-trees).
 - `rootfs_payloads` install files as root-owned `0644` (`0755` if executable), directories `0755`, timestamps zero.
   Relative symlinks inside trees are kept.
   Use them for units (`/usr/lib/systemd/system`), sysusers and tmpfiles definitions, binaries, and `/etc/skel` content.
@@ -197,6 +197,39 @@ mkosi_image(
 - Traversal, colliding or overlapping destinations, duplicate sources, and escaping symlinks fail before anything is staged.
 
 The rule always produces an uncompressed raw disk image; configuration cannot change the output format or location.
+
+### Assembling configuration trees
+
+Instead of `src`, `mkosi_config_tree` can assemble a tree from `srcs`, placed at their path relative to the package of the listed target minus `strip_prefix`, and from `trees`, keyed by the directory to place them in.
+A `trees` target may be listed under several keys, for example to share files between the image and mkosi's default initrd, which reads `mkosi.initrd.conf/`.
+An `mkosi_config_tree` or a generated directory in `trees` contributes its contents, and the former also its `executable_paths`; other targets contribute their files at their package-relative paths.
+
+```starlark
+mkosi_config_tree(
+    name = "boot_splash",
+    srcs = glob(["splash/**"]),
+    strip_prefix = "splash",
+    executable_paths = ["usr/lib/systemd/system-generators/splash-generator"],
+)
+
+mkosi_config_tree(
+    name = "os_config",
+    srcs = glob(["mkosi/**"]),  # mkosi/mkosi.conf becomes mkosi.conf.
+    strip_prefix = "mkosi",
+    trees = {
+        "mkosi.extra": ":boot_splash",
+        "mkosi.initrd.conf/mkosi.extra": ":boot_splash",
+    },
+    executable_paths = ["mkosi.extra/usr/local/bin/tool"],
+)
+```
+
+One action copies the inputs into a new directory; directories merge, while duplicate files fail.
+Traversal, absolute paths, and collisions fail during analysis where the paths are known.
+Bazel copies what a symlink points to, so the action rejects `srcs` and `trees` source files that are, or lie below, a symlink in their package, such as the links of `systemctl enable`.
+Wrap a directory with symlinks in `mkosi_config_tree(src = ...)` and map it through `trees`; `src` keeps relative links and rejects absolute or escaping ones.
+The check sees symlinks only when the action runs locally or sandboxed: under remote execution, or on a remote-cache hit for an action first run there, Bazel may deliver a symlinked source as the content that it points to.
+Inside a fetched archive repository, a committed link that mimics Bazel's own layout may still be followed, as the archive can ship arbitrary content anyway.
 
 ## Tracer and release modes
 
@@ -241,7 +274,8 @@ Use a real epoch, such as the snapshot time (`1789200491` for `20260912T080811Z`
 
 `firmware = "bios"` is an x86-64 compatibility tier for release images.
 It uses GRUB i386-pc, requires one GPT BIOS boot partition of at least 1 MiB and an amd64 snapshot, and rejects UKIs, dm-verity, and Secure Boot.
-It has no authenticated or measured boot chain and is not qualified on physical hardware.
+It has no authenticated or measured boot chain.
+Like the UEFI tier, it is qualified on physical hardware only as far as a release's [hardware qualification](docs/hardware-qualification.md) records it.
 
 ### Unsigned UKI and dm-verity
 
@@ -249,6 +283,16 @@ In release mode, `unified_kernel_image = "unsigned"` produces a UKI and `verity 
 Both require UEFI.
 Give the `Verity=hash` partition `SizeMinBytes=`, or `Minimize=` together with its data partition; the bundled `systemd-repart` reserves no default size for it, so release builds reject a hash partition without either.
 To sign the UKI outside Bazel, see [Secure Boot](docs/secure-boot.md).
+
+### Compressed read-only roots
+
+A dm-verity root is read-only, so it can be a compressed [erofs](https://erofs.docs.kernel.org/) file system instead of ext4, which shrinks the root to a fraction of its uncompressed size.
+Set `Format=erofs` and `Compression=zstd` or `lzma`, optionally with `CompressionLevel=`, on the `Verity=data` partition, and `Minimize=best` on it and on its `Verity=hash` partition, so that the file system and the hash tree only cover the root's contents.
+`lzma` gives the smallest root but decompresses slowest at run time; `zstd` reads faster for a slightly larger root.
+Higher levels mostly cost build time: for the 274 MB root of the A/B test image, zstd level 3 gives 175 MiB in 2 s, level 15 170 MiB in 42 s, and lzma level 6 167 MiB in 12 s.
+Already compressed files, such as Debian's xz-compressed kernel modules, gain nothing.
+mkosi's default initrd loads the `erofs` and `dm-verity` modules; if you set `KernelInitrdModules=`, keep `default` or list both.
+For A/B slots, update payloads and which outputs suit Bazel caches, see [compressed A/B roots](docs/sysupdate-ab.md#compressed-read-only-roots).
 
 ### Two-stage releases
 
@@ -285,17 +329,32 @@ For other packages, components, or a different snapshot time, lock your own.
 
    `channel` is the codename followed by its components; `main` is required and `archs` must be `["amd64"]`.
 
-2. Generate the lock (paths are relative to your workspace):
+2. Declare the lock targets next to the specification in `os/BUILD.bazel`:
+
+   ```starlark
+   load("@rules_mkosi//mkosi:defs.bzl", "debian_lock")
+
+   debian_lock(
+       name = "debian_lock",
+       spec = "debian.spec.json",
+       lock = "debian.lock.json",
+   )
+   ```
+
+   Then generate or refresh the lock with one command (it needs network access; extra arguments such as `--release` reach the generator):
 
    ```console
-   bazel run @rules_mkosi//mkosi/debian:generate_lock -- \
-     --spec os/debian.spec.json --output os/debian.lock.json
+   bazel run //os:debian_lock.update
    ```
 
    The lock contains the `Pre-Depends`/`Depends` closure of the requested packages plus every `Essential` and `required` package.
    `Recommends` and `Suggests` are not followed.
    Name a provider explicitly when a virtual package is ambiguous.
-   Add `--check` in CI to fail when the lock is out of date.
+
+   The lock records `spec_sha256`, the SHA-256 of the normalized specification.
+   `//os:debian_lock_test` fails without network access when the lock does not match its specification and names the update command, so humans and bots such as Renovate refresh the lock with that single command after editing the specification.
+   Locks generated before `spec_sha256` existed stay valid for builds but fail this test until they are regenerated once.
+   Without the macro, run `bazel run @rules_mkosi//mkosi/debian:generate_lock -- --spec os/debian.spec.json --output os/debian.lock.json`; add `--check-spec` to only check it offline, or `--check` to regenerate it and compare.
 
 3. Declare it in the root `MODULE.bazel`:
 
@@ -342,62 +401,27 @@ qemu_seabios_boot_test(
 
 The test boots a read-only snapshot of `MkosiImageInfo.raw_image`, waits for the exact `readiness_marker` on the serial console, and requires a clean guest shutdown.
 
-| Attribute | Default | Meaning |
-| --- | --- | --- |
-| `readiness_marker` | Hostname marker of the test fixtures | Serial line that proves userspace is ready. Set it for your image. |
-| `shutdown_markers` | systemd power-off lines | Serial lines that prove a clean shutdown. |
-| `machine_args` | `-machine q35 -m 512M` (`pc` for SeaBIOS) | QEMU machine and memory arguments. |
-| `accelerator` | `"auto"` | KVM when `/dev/kvm` is readable and writable, otherwise TCG; `"tcg"` forces TCG. |
-| `timeout` | `"moderate"` | `short`, `moderate`, or `long`. Deadlines plus 30 s cleanup must fit (60, 300, 900 s). |
-| `boot_timeout_seconds`, `qmp_initialization_timeout_seconds`, `shutdown_timeout_seconds`, `diagnostic_bytes` | 180, 15, 30 (60 for SeaBIOS), 65536 | Positive deadlines and retained log size. |
+Further attributes set the shutdown markers, QEMU machine arguments, the accelerator (KVM with a TCG fallback by default), the deadlines, and the retained log size; see [`qemu_ovmf_boot_config`](docs/api/defs.md#qemu_ovmf_boot_config) and [`qemu_seabios_boot_config`](docs/api/defs.md#qemu_seabios_boot_config).
 
 `qemu_ovmf_boot_test` also supports multi-boot scenarios such as A/B updates:
 
 - `allow_reboot = True` keeps one QEMU process, its writable image snapshot, and the UEFI variables across guest reboots;
 - `progress_markers` must appear in order before `readiness_marker`;
-- `read_only_shares` maps directory targets to virtio-9p mount tags (1 to 31 characters) that the guest mounts with `mount -t 9p -o trans=virtio,ro <tag> <path>`.
+- `read_only_shares` maps directory targets to virtio-9p mount tags (1 to 31 characters) that the guest mounts with `mount -t 9p -o trans=virtio,ro <tag> <path>`;
+- `http_shares` maps targets to URL paths: the guest downloads their files, and the contents of their directories, from `http://10.0.2.100/<path>/` through a virtio network interface on QEMU's user network, which reaches nothing else.
+  Give the guest the address `10.0.2.15/24`, statically or with DHCP.
 
 Firmware, serial, QEMU, and boot-evidence logs are written to the test's undeclared outputs.
-With `--clear-groups`, grant KVM access with a user ACL (`sudo setfacl -m "u:$USER:rw" /dev/kvm`) rather than `kvm` group membership.
+Membership in the `kvm` group grants KVM access.
+A Bazel server started without supplementary groups needs a user ACL instead, such as `sudo setfacl -m "u:$USER:rw" /dev/kvm`.
 
 ## Providers
 
-### `MkosiImageInfo`
-
-Select artifacts by field, never by file name or `DefaultInfo` order.
-`DefaultInfo.files` contains every non-`None` artifact.
-
-| Field | Type | Present |
-| --- | --- | --- |
-| `format_version` | `string` | Always `mkosi-image-v3`. |
-| `firmware` | `string` | `uefi` or `bios`. |
-| `image_id`, `image_version` | `string` or `None` | When set on the rule. |
-| `image_version_file` | `File` or `None` | When set on the rule; contains the version and an optional newline. |
-| `raw_image` | `File` | Always. |
-| `build_metadata` | `File` | Always. JSON, schema `mkosi-image-build-metadata-v3`: mode, outputs, the snapshot and lock digest when the image is built from `debian_snapshot` or `base`, and for release images the seed and epoch. |
-| `partition_metadata` | `File` or `None` | Release images: normalized GPT layout. |
-| `uki`, `uki_metadata` | `File` or `None` | `unified_kernel_image = "unsigned"`. |
-| `root_image`, `root_hash`, `root_hash_image`, `verity_metadata` | `File` or `None` | `verity = "hash"`. `root_hash` is the lowercase hex root hash. |
-| `manifest` | `File` or `None` | `manifest = True`: mkosi's JSON list of the installed packages, including those of a finalized `base`. |
-| `image` | `File` | Deprecated alias of `raw_image`. |
-
-### `MkosiBaseInfo`
-
-`mkosi_base` returns `format_version` (`mkosi-base-v1`), `root_tree` (a reproducible tar of the installed root), `initrd` (mkosi's default initrd), and the `debian_snapshot`, `release_seed`, and `release_source_date_epoch` the finalization inherits.
-
-### Other providers
-
-| Provider | Contents |
-| --- | --- |
-| `MkosiConfigTreeInfo`, `MkosiSourceTreeInfo` | `tree`, `executable_paths`. |
-| `MkosiRootfsPayloadInfo` | `artifact`, `destination`, `executable_paths`, `is_tree`. |
-| `DebianSnapshotInfo` | Snapshot identity (distribution, release, codename, architecture, components, timestamp, URL), `lock_sha256`, the staged `repository`, and package records. |
-| `DebianToolsInfo` | The Debian tools archive, launcher, and provenance. |
-| `MkosiToolchainInfo` | mkosi version and provenance, its Python runtime, `python_version`, `resolved_python_version`, `resolved_python_interpreter`. |
-| `MkosiQemuToolchainInfo` | QEMU, `qemu-img`, OVMF, and SeaBIOS files with provenance. |
-| `QemuBootConfigInfo` | Validated `test_timeout`, deadlines, and `cleanup_margin_seconds` of a `*_boot_config` target. `QemuOvmfBootConfigInfo` is a deprecated alias. |
-| `SysupdatePayloadInfo` | See [A/B updates](docs/sysupdate-ab.md#update-payloads). |
-| `SecureBootSigningRequestInfo`, `SecureBootSignedUkiInfo` | See [Secure Boot](docs/secure-boot.md). |
+Select artifacts through provider fields, never by file name or `DefaultInfo` order; `DefaultInfo.files` of `mkosi_image` contains every artifact that is not `None`.
+Without a custom rule, `filegroup(srcs = [":os"], output_group = "raw_image")` or `bazel build --output_groups=raw_image` selects only the raw disk image of `mkosi_image` or `secure_boot_signed_image`.
+[`MkosiImageInfo`](docs/api/defs.md#MkosiImageInfo) has the raw image, build and partition metadata, and the UKI and dm-verity artifacts of release images, and [`MkosiBaseInfo`](docs/api/defs.md#MkosiBaseInfo) the output of `mkosi_base`.
+The [API reference](docs/api/defs.md) lists the fields of every provider; for the update and signing providers see also [A/B updates](docs/sysupdate-ab.md#update-payloads) and [Secure Boot](docs/secure-boot.md).
+`QemuOvmfBootConfigInfo` is a deprecated alias of `QemuBootConfigInfo`.
 
 ## Python
 
@@ -413,7 +437,6 @@ register_toolchains("//toolchains:python_3_14")
 
 | Symptom | Fix |
 | --- | --- |
-| `cannot clear supplementary groups` | [Restart the Bazel server without supplementary groups](#run-bazel-without-supplementary-groups). |
 | `KERNEL_CAPABILITY_FAILURE` | The host does not meet the [host-kernel contract](docs/design/0004-host-kernel-contract.md). Each `FAIL` line names its remediation. Do not disable the Linux sandbox. |
 | `TOOLCHAIN_FAILURE` | A registered toolchain is missing or could not start; check the toolchain setup above. |
 | `NETWORK_FAILURE` | A tracer build could not download packages, although apt retries failed downloads. |
@@ -433,37 +456,54 @@ bazel test --config=kernel_preflight //mkosi/private:kernel_preflight_host_test
 
 ### Static bootstrap toolchain
 
-The Debian launcher and namespace runner must link fully static, using the first C/C++ toolchain that matches the platform selected by `@rules_mkosi//mkosi/toolchain:bootstrap_platform` (default: the current platform).
-If your own toolchain is registered first and cannot link static executables, select a platform that only a static-capable toolchain matches:
+The Debian launcher and namespace runner must link fully static.
+They are built for the platform selected by `@rules_mkosi//mkosi/toolchain:bootstrap_platform`; by default, that is a Linux x86-64 platform with the `llvm` module's `@llvm//constraints/libc:musl` and `@llvm//constraints/pie:off` constraints, while their runfiles keep the current platform.
+Their transition puts `@rules_mkosi//mkosi/toolchain/bootstrap_cc:all`, the `llvm` module's Linux x86-64 C/C++ toolchain, before every registered C/C++ toolchain with `--extra_toolchains`, so neither your registrations nor the order of your dependencies change it, and no registration is needed.
+It matches only Linux x86-64 platforms with `@llvm//constraints/libc:musl`, and only below the bootstrap executables.
+The transition also puts the platform selected by `@rules_mkosi//mkosi/toolchain:bootstrap_execution_platform` (default: the same static platform, `@rules_mkosi//mkosi/toolchain/bootstrap_cc:linux_x86_64_musl`) first in `--extra_execution_platforms`, so that the toolchain's own helper tools, which are built for the execution platform, link statically against musl too, without a host C/C++ compiler or the `llvm` module's glibc runtime.
+The first build compiles musl, libc++, and the compiler runtimes from source, once for the executables and once, optimized, for the helper tools.
+
+The compile and link actions below the bootstrap executables run on that execution platform.
+The default declares no `exec_properties`, so with remote execution they get only `--remote_default_exec_properties`.
+To keep the `exec_properties` of your own execution platform, select a Linux x86-64 child of it with the musl and non-PIE constraints:
 
 ```starlark
 # BUILD.bazel
 platform(
-    name = "bootstrap_musl",
+    name = "rbe_bootstrap",
+    parents = ["//:rbe"],
     constraint_values = [
-        "@platforms//cpu:x86_64",
-        "@platforms//os:linux",
-        "@zig_sdk//libc:musl",
+        "@llvm//constraints/libc:musl",
+        "@llvm//constraints/pie:off",
     ],
 )
-
-# MODULE.bazel
-register_toolchains("@zig_sdk//libc_aware/toolchain:linux_amd64_musl")
 ```
 
 ```console
 # .bazelrc
-common --@rules_mkosi//mkosi/toolchain:bootstrap_platform=//:bootstrap_musl
+common --@rules_mkosi//mkosi/toolchain:bootstrap_execution_platform=//:rbe_bootstrap
 ```
 
-The flag affects only the bootstrap executables.
-[`e2e/module_resolution/consumer_isolation`](e2e/module_resolution/consumer_isolation) is a working example.
+To select another bootstrap platform, give it the musl constraint, and `@llvm//constraints/pie:off` for executables without a dynamic section, which older `llvm` module versions otherwise link as static PIE; `parents = ["@rules_mkosi//mkosi/toolchain/bootstrap_cc:linux_x86_64_musl"]` inherits both:
+
+```console
+# .bazelrc
+common --@rules_mkosi//mkosi/toolchain:bootstrap_platform=//platforms:my_static_platform
+```
+
+Naming the `@llvm//constraints/...` labels in your own platforms, as in the remote-execution example, requires your own `bazel_dep(name = "llvm", version = "0.8.5")` or newer, since a module can only use the repositories of its direct dependencies; inheriting them through `parents` does not.
+The flags affect only the bootstrap executables.
+For a bootstrap platform without the musl constraint, the first registered C/C++ toolchain that matches it builds the executables and must link them statically.
+[`e2e/module_resolution/consumer_isolation`](e2e/module_resolution/consumer_isolation), with a first-priority glibc toolchain of another compiler and its own musl bootstrap platform, [`e2e/module_resolution/rules_cc_first`](e2e/module_resolution/rules_cc_first), with rules_cc's host toolchain ahead of rules_mkosi's registrations, and [`e2e/module_resolution/llvm_consumer`](e2e/module_resolution/llvm_consumer), which pins the `llvm` module and registers its toolchains for its own glibc targets, are working examples.
+[`e2e/module_resolution`](e2e/module_resolution/README.md) describes what each module-resolution fixture checks.
 
 ## Further reading
 
+- [Release example](e2e/smoke/example/README.md)
 - [A/B updates and two-stage releases](docs/sysupdate-ab.md)
 - [Secure Boot and offline signing](docs/secure-boot.md)
 - [Behavior catalog](docs/behavior-matrix.md)
+- [Physical hardware qualification](docs/hardware-qualification.md)
 - [Design records](docs/design/README.md)
 - [Contributing](CONTRIBUTING.md) and [end-to-end tests](e2e/README.md)
 

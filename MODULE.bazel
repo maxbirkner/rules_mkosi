@@ -18,20 +18,21 @@ bazel_dep(name = "rules_cc", version = "0.2.27")
 bazel_dep(name = "rules_python", version = "2.4.6")
 bazel_dep(name = "rules_shell", version = "0.8.0")
 bazel_dep(name = "rules_qemu", version = "0.3.0")
-bazel_dep(name = "hermetic_cc_toolchain", version = "4.3.0")
 
-hermetic_cc = use_extension(
-    "@hermetic_cc_toolchain//toolchain:ext.bzl",
-    "toolchains",
-)
-hermetic_cc.exec_platform(
-    arch = "amd64",
-    os = "linux",
-)
-use_repo(hermetic_cc, "zig_sdk")
+# The static bootstrap executables build with its Linux x86-64 C/C++ toolchain for musl. 0.8.5 is the oldest version
+# whose toolchain works with rules_cc 0.2.27.
+bazel_dep(name = "llvm", version = "0.8.5")
 
+# API reference generation and its drift check.
+bazel_dep(name = "bazel_lib", version = "3.2.2", dev_dependency = True)
+bazel_dep(name = "stardoc", version = "0.8.1", dev_dependency = True)
+
+# bootstrap_binary adds //mkosi/toolchain/bootstrap_cc:all to --extra_toolchains for the bootstrap executables, so it
+# needs no registration. This repository's own C and C++ targets build with the same LLVM C/C++ toolchain, for the
+# static musl host platform that .bazelrc selects.
 register_toolchains(
-    "@zig_sdk//toolchain:linux_amd64_musl",
+    "//mkosi/private:development_cc_toolchain",
+    dev_dependency = True,
 )
 
 qemu = use_extension("@rules_qemu//qemu/extension:qemu.bzl", "qemu")
@@ -71,6 +72,11 @@ register_toolchains(
     "@mkosi_toolchains//:qemu_linux_x86_64",
     "@mkosi_toolchains//:all",
 )
+
+# Fetched only for qemu_ovmf_boot_test(secure_boot = True).
+ovmf_secure_boot_repo = use_repo_rule("//mkosi/private:ovmf_secure_boot_repo.bzl", "ovmf_secure_boot_repo")
+
+ovmf_secure_boot_repo(name = "mkosi_ovmf_secure_boot")
 
 debian_tools = use_extension("//mkosi/debian:extensions.bzl", "debian_tools")
 debian_tools.toolchain()

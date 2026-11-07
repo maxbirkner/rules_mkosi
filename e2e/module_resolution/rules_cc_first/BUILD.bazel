@@ -1,0 +1,15 @@
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+
+# Uses no C/C++ toolchain, so analysing it must not fetch any repository of the llvm module.
+sh_test(
+    name = "plain_test",
+    srcs = ["plain_test.sh"],
+)
+
+# Resolves rules_cc's host toolchain, while rules_mkosi's bootstrap executables still resolve the llvm module's
+# toolchain.
+cc_library(
+    name = "consumer_cc",
+    srcs = ["consumer.c"],
+)

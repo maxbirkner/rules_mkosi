@@ -13,6 +13,7 @@ load("//mkosi/private:debian_snapshot_repo.bzl", "debian_snapshot_repo")
 load("//mkosi/private:debian_tools_repo.bzl", "debian_tools_repo")
 
 _toolchain = tag_class(
+    doc = "Requests the built-in Debian tools toolchain and snapshot; the extension creates them in any case.",
     attrs = {},
 )
 
@@ -21,7 +22,8 @@ _snapshot = tag_class(
 
 The repository named `name` provides `//:repository` with `DebianSnapshotInfo`
 for `mkosi_image(mode = "release", debian_snapshot = ...)`. Generate the lock
-with `bazel run @rules_mkosi//mkosi/debian:generate_lock`.
+with the `<name>.update` target of a `debian_lock` macro or with
+`bazel run @rules_mkosi//mkosi/debian:generate_lock`.
 """,
     attrs = {
         "lock": attr.label(
@@ -124,6 +126,10 @@ def _debian_tools_impl(module_ctx):
 
 debian_tools = module_extension(
     implementation = _debian_tools_impl,
+    doc = """Creates the pinned Debian 13 build-time userspace and Debian snapshot repositories.
+
+`@mkosi_debian_tools` holds the userspace that image actions run in, and `@mkosi_debian_snapshot//:repository` the
+built-in snapshot, a small `main`-only package set for images. Each `snapshot` tag adds a consumer-owned snapshot.""",
     tag_classes = {
         "snapshot": _snapshot,
         "toolchain": _toolchain,

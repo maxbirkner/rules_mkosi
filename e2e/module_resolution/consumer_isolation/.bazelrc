@@ -1,4 +1,4 @@
-# Build rules_mkosi's fully static bootstrap executables with the consumer's static-capable musl toolchain.
+# Select the consumer's own musl bootstrap platform instead of rules_mkosi's default.
 common --@rules_mkosi//mkosi/toolchain:bootstrap_platform=//:bootstrap_musl
 # Generate shell stage-one py_binary bootstraps, which the static Debian launcher cannot interpret.
 common --@rules_python//python/config_settings:bootstrap_impl=script

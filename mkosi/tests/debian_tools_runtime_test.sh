@@ -71,6 +71,7 @@ run_tool systemd-repart "systemd " /usr/bin/systemd-repart --version
 run_tool mkfs-ext4 "EXT2FS" /usr/sbin/mkfs.ext4 -V
 run_tool mkfs-fat "mkfs.fat" /usr/sbin/mkfs.fat --help
 run_tool mkfs-btrfs "btrfs-progs" /usr/sbin/mkfs.btrfs --version
+run_tool mkfs-erofs "mkfs.erofs" /usr/bin/mkfs.erofs --version
 run_tool sfdisk "sfdisk" /usr/sbin/sfdisk --version
 run_tool parted "parted" /usr/sbin/parted --version
 run_tool grub-install "grub-install" /usr/sbin/grub-install --version
@@ -98,11 +99,13 @@ runtime_output="$(
                 Groups:*) namespace_groups="$status_line" ;;
             esac
         done < /proc/self/status
+        # Shell reads of sysctl files stop after one byte, so cat reads it whole.
+        overflow_gid="$(cat /proc/sys/kernel/overflowgid)"
         for group in $namespace_groups
         do
             case "$group" in
-                Groups:) ;;
-                *) echo "supplementary group leaked: $group" >&2; exit 1 ;;
+                Groups:|0|"$overflow_gid") ;;
+                *) echo "supplementary group mapped: $group" >&2; exit 1 ;;
             esac
         done
         printf "groups=%s\n" "$namespace_groups"

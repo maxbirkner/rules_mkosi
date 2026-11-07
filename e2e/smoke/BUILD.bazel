@@ -1,6 +1,7 @@
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load(
     "@rules_mkosi//mkosi:defs.bzl",
+    "debian_lock",
     "managed_python_test",
     "mkosi_base",
     "mkosi_config_tree",
@@ -12,7 +13,15 @@ load(
     "qemu_ovmf_boot_test",
     "qemu_ovmf_smoke_test",
     "qemu_seabios_boot_test",
+    "secure_boot_ephemeral_test_fixture",
+    "secure_boot_import_response",
+    "secure_boot_signed_image",
+    "secure_boot_signing_manifest",
+    "secure_boot_signing_request",
+    "sysupdate_ephemeral_test_fixture",
+    "sysupdate_import_signature",
     "sysupdate_payload",
+    "sysupdate_signing_request",
     "sysupdate_transfers",
 )
 load("@rules_mkosi//mkosi/tests:behavior_targets.bzl", "behavior_targets")
@@ -24,6 +33,7 @@ load(
     ":public_api_test.bzl",
     "base_public_api_test",
     "boot_config_public_api_test",
+    "config_tree_public_api_test",
     "generated_payload_tree",
     "image_build_metadata_file",
     "image_manifest_file",
@@ -45,6 +55,23 @@ consumer_python(
     runtime = "@python_3_14//:files",
 )
 
+# BCR presubmit runners may lack user namespaces and access to snapshot.debian.org, so this suite selects the tests
+# that need neither. ci/bcr-presubmit.sh checks that they still pass under those limits.
+test_suite(
+    name = "stock_runner_tests",
+    tests = [
+        ":boot_launcher_contract_test",
+        ":external_root_package_tree_build_test",
+        ":immutable_config_tree_public_provider_test",
+        ":kernel_preflight_build_test",
+        ":mkosi_config_test",
+        ":mkosi_python_override_test",
+        ":mkosi_version_test",
+        ":rootfs_payload_public_api_test",
+        ":sysupdate_transfers_public_provider_test",
+    ],
+)
+
 behavior_targets(
     name = "behavior_consumer_targets",
     testonly = True,
@@ -54,15 +81,21 @@ behavior_targets(
         ":boot_launcher_contract_test",
         ":boot_preflight_contract_test",
         ":uefi_boot_config_public_provider_test",
+        "//example:debian_lock_test",
+        "//example:example_os_boot_test",
+        "//example:example_os_payload_build_test",
         ":bios_release_demo_build_test",
         ":bios_boot_test",
         ":consumer_snapshot_artifact_test",
+        ":consumer_debian_lock_test",
         ":consumer_snapshot_provider_test",
         ":debian_snapshot_public_provider_test",
         ":debian_tools_public_provider_test",
         ":demo_artifact_test",
         ":uefi_boot_test",
+        ":external_root_package_tree_build_test",
         ":image_public_provider_test",
+        ":immutable_config_tree_public_provider_test",
         ":mkosi_python_override_test",
         ":release_demo_artifact_test",
         ":release_demo_build_metadata_test",
@@ -72,10 +105,15 @@ behavior_targets(
         ":release_demo_partition_metadata_test",
         ":release_demo_reproducibility_test",
         ":release_demo_rootfs_payload_test",
+        ":secure_boot_lifecycle_test",
+        ":secure_boot_signed_binaries_test",
+        ":secure_boot_signed_image_test",
+        ":secure_boot_signing_manifest_test",
         ":sysupdate_base_public_provider_test",
         ":sysupdate_lifecycle_test",
         ":sysupdate_payload_public_provider_test",
         ":sysupdate_payload_test",
+        ":sysupdate_signed_payload_public_provider_test",
         ":sysupdate_string_version_payload_public_provider_test",
         ":sysupdate_transfers_public_provider_test",
         ":tree_demo_build_test",
@@ -268,9 +306,39 @@ mkosi_config_tree(
     src = "testdata/release-config",
 )
 
+# One assembled configuration whose image and default initrd share an executable generator.
 mkosi_config_tree(
     name = "immutable_release_config_tree",
-    src = "testdata/immutable-release-config",
+    srcs = glob(["testdata/immutable-release-config/**"]),
+    strip_prefix = "testdata/immutable-release-config",
+    trees = {
+        "mkosi.extra": ":shared_tree",
+        "mkosi.initrd.conf/mkosi.extra": ":shared_tree",
+    },
+)
+
+config_tree_public_api_test(
+    name = "immutable_config_tree_public_provider_test",
+    target_under_test = ":immutable_release_config_tree",
+)
+
+# local_path_override materialises @rules_mkosi as one link to its checkout; a file of its root package passes the
+# symlink check.
+mkosi_config_tree(
+    name = "external_root_package_tree",
+    srcs = ["@rules_mkosi//:LICENSE"],
+)
+
+build_test(
+    name = "external_root_package_tree_build_test",
+    targets = [":external_root_package_tree"],
+)
+
+mkosi_config_tree(
+    name = "shared_tree",
+    srcs = glob(["testdata/shared-tree/**"]),
+    executable_paths = ["usr/lib/systemd/system-generators/rules-mkosi-shared-tree"],
+    strip_prefix = "testdata/shared-tree",
 )
 
 mkosi_source_tree(
@@ -293,6 +361,8 @@ qemu_ovmf_boot_test(
         "-m",
         "2048M",
     ],
+    # The shared generator runs when the initrd starts, before it mounts the verity root.
+    progress_markers = ["rules-mkosi shared tree: initrd"],
     readiness_marker = "EXT4-fs (dm-0): mounted filesystem",
     stop_after_readiness = True,
 )
@@ -349,6 +419,12 @@ snapshot_public_api_test(
 snapshot_public_api_test(
     name = "debian_snapshot_second_consumer_test",
     target_under_test = "@mkosi_debian_snapshot//:repository",
+)
+
+debian_lock(
+    name = "consumer_debian_lock",
+    lock = "testdata/consumer-snapshot/debian.lock.json",
+    spec = "testdata/consumer-snapshot/debian.spec.json",
 )
 
 snapshot_public_api_test(
@@ -701,13 +777,18 @@ mkosi_config_tree(
 
 mkosi_config_tree(
     name = "sysupdate_config_tree",
-    src = "testdata/sysupdate-config",
+    srcs = glob(["testdata/sysupdate-config/**"]),
+    strip_prefix = "testdata/sysupdate-config",
+    trees = {"mkosi.repart": "//example:partitions"},
 )
 
+# Each release downloads the next one from the directory named after its own
+# version on the test's HTTP server, so release 1 sees only release 2.
 sysupdate_transfers(
     name = "sysupdate_transfers",
     boot_attempts = 1,
     image_id = "rules-mkosi-ab",
+    url = "http://10.0.2.100/after-%A",
 )
 
 mkosi_rootfs_payload(
@@ -730,6 +811,12 @@ mkosi_rootfs_payload(
 )
 
 mkosi_rootfs_payload(
+    name = "sysupdate_network",
+    src = "testdata/sysupdate-lifecycle/80-qemu-user.network",
+    destination = "/usr/lib/systemd/network/80-qemu-user.network",
+)
+
+mkosi_rootfs_payload(
     name = "sysupdate_failing_health_check",
     src = "testdata/sysupdate-lifecycle/rules-mkosi-ab-health.service",
     destination = "/usr/lib/systemd/system/rules-mkosi-ab-health.service",
@@ -748,13 +835,14 @@ genrule(
 mkosi_base(
     name = "sysupdate_base",
     config_tree = ":sysupdate_base_config_tree",
-    debian_snapshot = "@sysupdate_debian//:repository",
+    debian_snapshot = "@example_debian//:repository",
     release_seed = "00000000-0000-4000-8000-000000000017",
     release_source_date_epoch = 1755129600,
     rootfs_payloads = [
         ":sysupdate_lifecycle_driver",
         ":sysupdate_lifecycle_preset",
         ":sysupdate_lifecycle_service",
+        ":sysupdate_network",
         ":sysupdate_transfers",
     ],
 )
@@ -785,17 +873,262 @@ mkosi_base(
     )
 ]
 
+# Release 3 ships xz-compressed partitions, which systemd-sysupdate decompresses while writing the slots.
 [
     sysupdate_payload(
         name = "sysupdate_v{}_payload".format(version),
+        compression = compression,
         image = ":sysupdate_v" + version,
     )
-    for version in ("2", "3")
+    for version, compression in (
+        ("2", "none"),
+        ("3", "xz"),
+    )
 ]
+
+# One throwaway key signs the UKIs of releases 1 and 2 and the systemd-boot binary of release 1, as an external
+# signer would answer their signing requests.
+secure_boot_ephemeral_test_fixture(
+    name = "secure_boot_test_signer",
+    esp_paths = ["EFI/systemd/systemd-bootx64.efi"],
+    images = [
+        ":sysupdate_v1",
+        ":sysupdate_v2",
+    ],
+)
+
+[
+    secure_boot_signing_request(
+        name = "sysupdate_v{}_{}_signing_request".format(version, binary),
+        certificate = ":secure_boot_test_signer",
+        esp_path = esp_path,
+        image = ":sysupdate_v" + version,
+    )
+    for version, binary, esp_path in (
+        ("1", "uki", ""),
+        ("1", "systemd_boot", "EFI/systemd/systemd-bootx64.efi"),
+        ("2", "uki", ""),
+    )
+]
+
+[
+    secure_boot_import_response(
+        name = "sysupdate_v{}_signed_{}".format(version, binary),
+        request = ":sysupdate_v{}_{}_signing_request".format(version, binary),
+        signed_binary = ":secure_boot_test_signer",
+    )
+    for version, binary in (
+        ("1", "uki"),
+        ("1", "systemd_boot"),
+        ("2", "uki"),
+    )
+]
+
+py_test(
+    name = "secure_boot_signed_binaries_test",
+    srcs = ["secure_boot_signed_binaries_test.py"],
+    args = [
+        "$(rootpaths :sysupdate_v1_uki_signing_request)",
+        "--",
+        "$(rootpaths :sysupdate_v1_signed_uki)",
+        "--",
+        "$(rootpaths :sysupdate_v1_systemd_boot_signing_request)",
+        "--",
+        "$(rootpaths :sysupdate_v1_signed_systemd_boot)",
+    ],
+    data = [
+        ":sysupdate_v1_signed_systemd_boot",
+        ":sysupdate_v1_signed_uki",
+        ":sysupdate_v1_systemd_boot_signing_request",
+        ":sysupdate_v1_uki_signing_request",
+    ],
+    main = "secure_boot_signed_binaries_test.py",
+)
+
+# What an external signer reads: the requests of release 1 and the names of their signed binaries.
+secure_boot_signing_manifest(
+    name = "sysupdate_v1_signing_manifest",
+    requests = {
+        ":sysupdate_v1_systemd_boot_signing_request": "systemd-bootx64.efi",
+        ":sysupdate_v1_uki_signing_request": "uki.efi",
+    },
+)
+
+py_test(
+    name = "secure_boot_signing_manifest_test",
+    srcs = ["secure_boot_signing_manifest_test.py"],
+    args = [
+        "$(rootpath @rules_mkosi//mkosi:secure_boot_signer)",
+        "$(rootpaths :sysupdate_v1_signing_manifest)",
+        "--",
+        "$(rootpaths :secure_boot_test_signer)",
+    ],
+    data = [
+        ":secure_boot_test_signer",
+        ":sysupdate_v1_signing_manifest",
+        "@rules_mkosi//mkosi:secure_boot_signer",
+    ],
+    main = "secure_boot_signing_manifest_test.py",
+)
+
+# The installable disk image of release 1: signed systemd-boot and UKI, and keys that systemd-boot enrolls in Setup Mode.
+secure_boot_signed_image(
+    name = "sysupdate_v1_secure_boot",
+    auto_enroll_keys = [":secure_boot_test_signer"],
+    image = ":sysupdate_v1",
+    secure_boot_enroll = "force",
+    signed_binaries = [
+        ":sysupdate_v1_signed_systemd_boot",
+        ":sysupdate_v1_signed_uki",
+    ],
+)
+
+# What install tooling uploads: only the signed disk image.
+filegroup(
+    name = "sysupdate_v1_secure_boot_raw",
+    srcs = [":sysupdate_v1_secure_boot"],
+    output_group = "raw_image",
+)
+
+image_partition_metadata_file(
+    name = "sysupdate_v1_secure_boot_partition_metadata",
+    image = ":sysupdate_v1_secure_boot",
+)
+
+py_test(
+    name = "secure_boot_signed_image_test",
+    srcs = ["secure_boot_signed_image_test.py"],
+    args = [
+        "$(rootpaths :sysupdate_v1_secure_boot)",
+        "--",
+        "$(rootpaths :sysupdate_v1_signed_systemd_boot)",
+        "--",
+        "$(rootpaths :sysupdate_v1_signed_uki)",
+        "--",
+        "$(rootpaths :secure_boot_test_signer)",
+        "--",
+        "$(rootpaths :sysupdate_v1_secure_boot_raw)",
+        "--",
+        "$(rootpath :sysupdate_v1_secure_boot_partition_metadata)",
+        "$(rootpath @mkosi_debian_tools//:launcher)",
+    ],
+    data = [
+        ":secure_boot_test_signer",
+        ":sysupdate_v1_secure_boot",
+        ":sysupdate_v1_secure_boot_partition_metadata",
+        ":sysupdate_v1_secure_boot_raw",
+        ":sysupdate_v1_signed_systemd_boot",
+        ":sysupdate_v1_signed_uki",
+        "@mkosi_debian_tools//:launcher",
+    ],
+    main = "secure_boot_signed_image_test.py",
+)
+
+# Release 2 as an update whose UKI is signed by the db key that release 1 enrolls.
+sysupdate_payload(
+    name = "sysupdate_v2_signed_payload",
+    image = ":sysupdate_v2",
+    signed_uki = ":sysupdate_v2_signed_uki",
+)
+
+# One throwaway OpenPGP key signs the SHA256SUMS of every payload that the
+# lifecycle tests serve over HTTP, as an external signer would answer their
+# signing requests. The guests trust its certificate from the shared keyring.
+sysupdate_ephemeral_test_fixture(
+    name = "sysupdate_test_signer",
+    payloads = [
+        ":sysupdate_v2_payload",
+        ":sysupdate_v2_signed_payload",
+        ":sysupdate_v3_payload",
+    ],
+)
+
+filegroup(
+    name = "sysupdate_test_keyring",
+    srcs = [":sysupdate_test_signer"],
+    output_group = "keyring",
+)
+
+[
+    sysupdate_signing_request(
+        name = payload + "_signing_request",
+        payload = ":" + payload,
+        public_key = ":sysupdate_test_signer",
+    )
+    for payload in (
+        "sysupdate_v2_payload",
+        "sysupdate_v2_signed_payload",
+        "sysupdate_v3_payload",
+    )
+]
+
+[
+    sysupdate_import_signature(
+        name = payload + "_published",
+        request = ":{}_signing_request".format(payload),
+        signature = ":sysupdate_test_signer",
+    )
+    for payload in (
+        "sysupdate_v2_payload",
+        "sysupdate_v2_signed_payload",
+        "sysupdate_v3_payload",
+    )
+]
+
+# Boots the signed release 1 disk image with Secure Boot capable OVMF in Setup
+# Mode: systemd-boot enrolls the test PK, KEK and db and resets, and release 1
+# then runs with Secure Boot enabled. It updates to release 2, whose signed UKI
+# boots and is blessed, and then to release 3, whose unsigned UKI the firmware
+# must refuse to load. With Secure Boot enabled, systemd-stub still appends the
+# SMBIOS kernel-cmdline-extra string, and systemd still imports SMBIOS
+# credentials, here a drop-in that prints a marker; see docs/secure-boot.md.
+qemu_ovmf_boot_test(
+    name = "secure_boot_lifecycle_test",
+    timeout = "long",
+    allow_reboot = True,
+    boot_timeout_seconds = 780,
+    credentials = {
+        "systemd.unit-dropin.rules-mkosi-ab-lifecycle.service": (
+            "[Service]\nExecStartPre=/bin/echo rules-mkosi-ab: credential drop-in applied\n"
+        ),
+    },
+    http_shares = {
+        ":sysupdate_v2_signed_payload_published": "after-1",
+        ":sysupdate_v3_payload_published": "after-2",
+    },
+    image = ":sysupdate_v1_secure_boot",
+    machine_args = [
+        "-machine",
+        "q35",
+        "-m",
+        "2048M",
+        "-smbios",
+        "type=11,value=io.systemd.stub.kernel-cmdline-extra=rules_mkosi.cmdline_extra=1",
+    ],
+    progress_markers = [
+        "Custom Secure Boot keys successfully enrolled, rebooting the system now!",
+        "EFI stub: UEFI Secure Boot is enabled.",
+        "rules_mkosi.cmdline_extra=1",
+        "rules-mkosi-ab: credential drop-in applied",
+        "rules-mkosi-ab: running 1 from erofs with roothash ",
+        "rules-mkosi-ab: SecureBoot=1 SetupMode=0",
+        "rules-mkosi-ab: installed 2",
+        "EFI stub: UEFI Secure Boot is enabled.",
+        "rules-mkosi-ab: running 2 from erofs with roothash ",
+        "rules-mkosi-ab: SecureBoot=1 SetupMode=0",
+        "rules-mkosi-ab: 2 is blessed",
+        "rules-mkosi-ab: installed 3",
+    ],
+    read_only_shares = {":sysupdate_test_keyring": "keyring"},
+    # systemd-boot decrements the boot counter before LoadImage, which the firmware denies.
+    readiness_marker = "Error loading \\EFI\\Linux\\rules-mkosi-ab_3+0-1.efi: Access denied",
+    secure_boot = True,
+    stop_after_readiness = True,
+)
 
 base_public_api_test(
     name = "sysupdate_base_public_provider_test",
-    debian_snapshot = "@sysupdate_debian//:repository",
+    debian_snapshot = "@example_debian//:repository",
     target_under_test = ":sysupdate_base",
 )
 
@@ -816,6 +1149,14 @@ sysupdate_public_api_test(
     expected_version = "3",
     image = ":sysupdate_v3",
     target_under_test = ":sysupdate_v3_payload",
+)
+
+sysupdate_public_api_test(
+    name = "sysupdate_signed_payload_public_provider_test",
+    expect_signature = True,
+    expected_version = "3",
+    image = ":sysupdate_v3",
+    target_under_test = ":sysupdate_v3_payload_published",
 )
 
 image_partition_metadata_file(
@@ -853,15 +1194,20 @@ py_test(
     main = "sysupdate_payload_test.py",
 )
 
-# Boots release 1, applies release 2 with systemd-sysupdate from a read-only
-# share, reboots into it and waits for boot counting to bless it, then applies
-# release 3 whose health check fails and verifies that systemd-boot falls back
-# to release 2 after its single boot attempt.
+# Boots release 1, downloads release 2 with systemd-sysupdate over HTTP and
+# verifies its signed SHA256SUMS, reboots into it and waits for boot counting
+# to bless it, then installs release 3 from compressed files the same way; its
+# health check fails, and systemd-boot must fall back to release 2 after its
+# single boot attempt.
 qemu_ovmf_boot_test(
     name = "sysupdate_lifecycle_test",
     timeout = "long",
     allow_reboot = True,
     boot_timeout_seconds = 780,
+    http_shares = {
+        ":sysupdate_v2_payload_published": "after-1",
+        ":sysupdate_v3_payload_published": "after-2",
+    },
     image = ":sysupdate_v1",
     machine_args = [
         "-machine",
@@ -870,18 +1216,15 @@ qemu_ovmf_boot_test(
         "2048M",
     ],
     progress_markers = [
-        "rules-mkosi-ab: running 1 with roothash ",
+        "rules-mkosi-ab: running 1 from erofs with roothash ",
         "rules-mkosi-ab: installed 2",
-        "rules-mkosi-ab: running 2 with roothash ",
+        "rules-mkosi-ab: running 2 from erofs with roothash ",
         "rules-mkosi-ab: 2 is blessed",
         "rules-mkosi-ab: installed 3",
         "rules-mkosi-ab: health check failed",
-        "rules-mkosi-ab: running 2 with roothash ",
+        "rules-mkosi-ab: running 2 from erofs with roothash ",
     ],
-    read_only_shares = {
-        ":sysupdate_v2_payload": "payload-2",
-        ":sysupdate_v3_payload": "payload-3",
-    },
+    read_only_shares = {":sysupdate_test_keyring": "keyring"},
     readiness_marker = "rules-mkosi-ab: rolled back from 3 to 2",
     shutdown_timeout_seconds = 60,
 )

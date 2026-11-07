@@ -1,4 +1,5 @@
 load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test")
+load("@rules_python//python:defs.bzl", "py_binary")
 load("//mkosi:toolchain.bzl", "managed_python_tool")
 load("//mkosi:versions.bzl", "DEFAULT_PYTHON_VERSION")
 load(":c_options.bzl", "C_WARNINGS")
@@ -10,6 +11,7 @@ exports_files([
     "boot_test.py",
     "bootstrap_binary.bzl",
     "c_options.bzl",
+    "config_tree.bzl",
     "debian_control.py",
     "diagnostics.py",
     "file_hashing.py",
@@ -30,17 +32,27 @@ exports_files([
     "run_mkosi.py",
     "secure_boot.bzl",
     "secure_boot.py",
+    "efi_auth.py",
+    "esp_files.py",
+    "secure_boot_image.py",
+    "secure_boot_signer.py",
+    "launcher_tool.py",
     "sibling_loader.py",
     "image_identity.bzl",
     "image_version.py",
     "sysupdate.bzl",
     "sysupdate.py",
+    "sysupdate_signing.bzl",
+    "sysupdate_signing.py",
+    "openpgp.py",
+    "http_share.py",
     "stage_inputs.py",
     "write_bios_repart.py",
     "qemu_accelerator.bzl",
     "qemu_ovmf_validate.sh",
     "qemu_ovmf_smoke_test.bzl",
     "toolchains_repo.bzl",
+    "ovmf_secure_boot_repo.bzl",
     "debian_tools_repo.bzl",
     "debian_snapshot.bzl",
     "debian_snapshot_repo.bzl",
@@ -63,6 +75,29 @@ filegroup(
         "mkosi_runner/tree.py",
     ],
     visibility = ["//visibility:public"],
+)
+
+# Reference external signer for secure_boot_signing_manifest; public as //mkosi:secure_boot_signer.
+py_binary(
+    name = "secure_boot_signer",
+    srcs = ["secure_boot_signer.py"],
+    args = [
+        "--debian-tools",
+        "$(rlocationpath @mkosi_debian_tools//:launcher)",
+    ],
+    data = [
+        "efi_auth.py",
+        "esp_files.py",
+        "file_hashing.py",
+        "gpt_partitions.py",
+        "launcher_tool.py",
+        "secure_boot.py",
+        "sibling_loader.py",
+        "@mkosi_debian_tools//:launcher",
+    ],
+    python_version = DEFAULT_PYTHON_VERSION,
+    visibility = ["//mkosi:__pkg__"],
+    deps = ["@rules_python//python/runfiles"],
 )
 
 # Interpreter for managed_python_test, resolved for rules_mkosi's Python line.
@@ -130,4 +165,26 @@ cc_test(
     linkstatic = True,
     tags = ["requires_kernel_contract"],
     deps = [":kernel_preflight_lib"],
+)
+
+filegroup(
+    name = "bzl_srcs",
+    srcs = glob(["*.bzl"]),
+    visibility = ["//mkosi:__pkg__"],
+)
+
+# Registered only while rules_mkosi is the root module, so that its own C and C++ helpers and tests build with the
+# llvm module's C/C++ toolchain for every Linux x86-64 target, without fetching it for other builds.
+toolchain(
+    name = "development_cc_toolchain",
+    exec_compatible_with = [
+        "@platforms//cpu:x86_64",
+        "@platforms//os:linux",
+    ],
+    target_compatible_with = [
+        "@platforms//cpu:x86_64",
+        "@platforms//os:linux",
+    ],
+    toolchain = "@llvm//toolchain:linux_x86_64_cc_toolchain",
+    toolchain_type = "@bazel_tools//tools/cpp:toolchain_type",
 )

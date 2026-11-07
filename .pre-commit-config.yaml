@@ -1,7 +1,9 @@
+# Generated files must stay byte-identical to their generator's output.
 exclude: |
   (?x)^(
     MODULE\.bazel\.lock|
-    e2e/smoke/MODULE\.bazel\.lock
+    e2e/smoke/MODULE\.bazel\.lock|
+    docs/api/[^/]+\.md
   )$
 
 repos:
@@ -53,6 +55,12 @@ repos:
         entry: python3 ci/check_bazel_versions.py
         language: system
         always_run: true
+        pass_filenames: false
+      - id: hardware-qualification
+        name: check generated hardware qualification schemas and tables
+        entry: python3 ci/hardware_qualification_schemas.py
+        language: system
+        files: ^(ci/hardware_qualification_schemas\.py|docs/hardware-qualification.*)$
         pass_filenames: false
 
   - repo: https://github.com/keith/pre-commit-buildifier

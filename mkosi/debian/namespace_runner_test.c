@@ -7,6 +7,8 @@ int namespace_runner_main(int argc, char **argv);
 #include "mkosi/debian/namespace_runner.c"
 #undef main
 
+#include <sys/statvfs.h>
+
 static void must(bool condition, const char *message) {
   if (!condition) {
     fprintf(stderr, "test failure: %s\n", message);
@@ -160,9 +162,57 @@ static void test_pin_checks_validated_identity(void) {
   }
 }
 
+static void expect_mount_flags(const char *path, unsigned long expected,
+                               const char *message) {
+  static const unsigned long checked = ST_RDONLY | ST_NOSUID | ST_NODEV |
+                                       ST_NOEXEC | ST_NODIRATIME | ST_RELATIME;
+  struct statvfs status;
+  must(statvfs(path, &status) == 0 && (status.f_flag & checked) == expected,
+       message);
+}
+
+/*
+ * A nested user namespace locks the flags of the restricted tmpfs it inherits,
+ * as on a sandbox base such as a nosuid,nodev /dev/shm. Its strictatime cannot
+ * be read back with statvfs, so remounts must leave the atime flags alone.
+ */
+static void remount_keeps_locked_flags(const void *data) {
+  const char *path = data;
+  make_private_mount_namespace();
+  must(mount("tmpfs", path, "tmpfs",
+             MS_NOSUID | MS_NODEV | MS_NOEXEC | MS_STRICTATIME | MS_NODIRATIME,
+             "mode=700") == 0,
+       "mount restricted tmpfs");
+  map_current_identity(getuid(), getgid());
+  must(unshare(CLONE_NEWNS) == 0, "unshare locking mount namespace");
+  static const unsigned long restricted =
+      ST_NOSUID | ST_NODEV | ST_NOEXEC | ST_NODIRATIME;
+  remount_bind(path, true, "cannot make locked mount read-only");
+  expect_mount_flags(path, restricted | ST_RDONLY,
+                     "a read-only remount keeps the locked flags");
+  remount_bind(path, false, "cannot make locked mount writable");
+  expect_mount_flags(path, restricted,
+                     "a writable remount keeps the locked flags");
+}
+
+static void test_remount_keeps_locked_flags(void) {
+  char path[PATH_BUFFER_SIZE];
+  format_or_fail(path, sizeof(path), "test path is too long",
+                 "%s/namespace-runner-locked-%ld", test_directory(),
+                 (long)getpid());
+  must(mkdir(path, 0700) == 0, "create locked mount point");
+  child_result result = run_in_child(remount_keeps_locked_flags, path);
+  must(rmdir(path) == 0, "remove locked mount point");
+  if (!exited_with(&result, 0)) {
+    fprintf(stderr, "%s", result.output);
+    exit(1);
+  }
+}
+
 int main(void) {
   test_valid_identities_are_parsed();
   test_unusable_identities_fail_closed();
   test_pin_checks_validated_identity();
+  test_remount_keeps_locked_flags();
   return 0;
 }

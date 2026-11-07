@@ -71,7 +71,7 @@ def validate_registered_targets(matrix, manifest, scope):
     layers = {"consumer"} if scope == "consumer" else ROOT_LAYERS
     mapped = {mapping["target"] for row in matrix.values() for mapping in row["tests"] if mapping["layer"] in layers}
     if scope == "consumer":
-        registered = {target.replace("//:", "//e2e/smoke:", 1) for target in registered}
+        registered = {target.replace("//", "//e2e/smoke/", 1).replace("/:", ":", 1) for target in registered}
     missing = mapped - registered
     extra = registered - mapped
     if missing or extra:
@@ -99,12 +99,13 @@ class BehaviorMatrixTest(unittest.TestCase):
         for row in matrix.values():
             for mapping in row["tests"]:
                 target = mapping["target"]
+                in_consumer = target.startswith(("//e2e/smoke:", "//e2e/smoke/"))
                 if mapping["layer"] == "consumer":
-                    self.assertTrue(target.startswith("//e2e/smoke:"))
+                    self.assertTrue(in_consumer)
                 elif mapping["layer"] == "module-resolution":
                     self.assertTrue(target.startswith("//:e2e/module_resolution/"))
                 else:
-                    self.assertFalse(target.startswith("//e2e/smoke:"))
+                    self.assertFalse(in_consumer)
 
     def test_registered_labels_match_mappings(self):
         matrix = load_matrix(pathlib.Path(sys.argv[2]))

@@ -34,7 +34,7 @@ Exactly one of `config` (one file) and `config_tree` is required; release mode r
 <!-- behavior:BHV-IMAGE-IMMUTABLE -->
 Unsigned UKI and hash-only dm-verity are release-only, and verity requires the UKI.
 A `Verity=hash` repart definition without `SizeMinBytes=` or `Minimize=` is rejected.
-The verity projection checks split artifacts against the GPT and recomputes the complete hash tree, rejecting truncation, mutation, and nonzero padding.
+The verity projection checks split artifacts against the GPT and recomputes the complete hash tree, rejecting truncation, mutation, and nonzero padding; a minimized root may cover only the start of its partition if the rest is zero.
 Inactive `_empty` slots are excluded.
 
 <!-- behavior:BHV-IMAGE-SOURCES -->
@@ -54,13 +54,19 @@ A version requires `image_id` and uses letters, digits, and `.` only.
 Its `MkosiImageInfo` matches a one-stage release, and a second version reuses the cached base.
 
 <!-- behavior:BHV-SYSUPDATE-TRANSFERS -->
-`sysupdate_transfers` validates the image id, a non-negative `boot_attempts` (zero installs UKIs without a boot counter), and at least two `instances`, and installs root, verity, and UKI transfers that use `PathRelativeTo=explicit`, root-hash UUIDs, and protect the running version.
+`sysupdate_transfers` validates the image id, a non-negative `boot_attempts` (zero installs UKIs without a boot counter), and at least two `instances`, and installs root, verity, and UKI transfers that use `PathRelativeTo=explicit` or, with an `http://` or `https://` `url`, `url-file` sources with `Verify=yes`, root-hash UUIDs, accept plain or xz-compressed partition files, and protect the running version.
 
 <!-- behavior:BHV-TREE-SRC -->
 `mkosi_config_tree.src` and `mkosi_source_tree.src` each resolve to exactly one file or directory and produce their typed provider.
 
 <!-- behavior:BHV-TREE-EXECUTABLES -->
 Both tree rules accept normalized `executable_paths`, which staging preserves; escaping paths are rejected.
+
+<!-- behavior:BHV-TREE-ASSEMBLY -->
+`mkosi_config_tree` assembles `src`, `srcs` at their package-relative paths minus `strip_prefix`, and `trees` keyed by destination into one directory with one action; `src` alone is used as is.
+A tree may be shared by several destinations, such as `mkosi.extra` and `mkosi.initrd.conf/mkosi.extra`, and an `mkosi_config_tree` tree adds its `executable_paths`.
+Directories merge, and a symlink may point to a directory that its own tree contributes to a merge; traversal, absolute paths, files outside `strip_prefix` or the listing package, duplicate files, files colliding with directories, and unknown executables fail during analysis where paths are known, and otherwise before anything is staged.
+Source files that are, or lie below, a symlink in their package and source directories in `srcs` or `trees` fail before anything is staged.
 
 <!-- behavior:BHV-BOOT-IMAGE -->
 Both boot adapters require `MkosiImageInfo.raw_image`; the SeaBIOS adapter also requires `firmware = "bios"`.
@@ -88,6 +94,18 @@ The macro's `timeout` accepts `short`, `moderate`, and `long`, propagates to the
 `progress_markers` are nonempty, must appear in order before readiness, and cannot be combined with `expected_failure_marker`.
 `allow_reboot` keeps one QEMU process, its image snapshot, and firmware variables across reboots.
 `read_only_shares` exposes directories as read-only virtio-9p shares with unique 1 to 31 character tags.
+`http_shares` serves the files of targets at unique URL paths of `http://10.0.2.100/` on an otherwise isolated QEMU user network.
+
+<!-- behavior:BHV-BOOT-SECURE-BOOT -->
+`qemu_ovmf_boot_test(secure_boot = True)` boots Debian's Secure Boot capable OVMF with SMM and secure flash and an empty variable store, so the firmware starts in Setup Mode; the default keeps the toolchain's OVMF, and only Secure Boot tests download the firmware.
+The configuration rule rejects Secure Boot firmware code without its variable store.
+
+<!-- behavior:BHV-BOOT-CREDENTIALS -->
+`credentials` passes each systemd credential to the OVMF guest as an SMBIOS Type 11 `io.systemd.credential:<name>=<value>` string after the firmware arguments, sorted by name and with commas escaped for QEMU; names outside letters, digits and `._-@~+\`, such as empty names or names with `/`, `:`, `=`, `,` or spaces, fail during analysis, including some that systemd would accept.
+
+<!-- behavior:BHV-BOOT-COMMON-ATTRIBUTES -->
+Both boot macros apply `visibility`, `target_compatible_with`, and `exec_compatible_with` to the test and its `<name>_config` target, and `testonly` to the test.
+The configuration is always testonly, so testonly images boot without testonly on the macro; a test with `testonly = False` fails analysis.
 
 <!-- behavior:BHV-MANAGED-PYTHON -->
 `managed_python_test` requires one Python `src`, accepts optional `data`, and runs on the managed interpreter with isolated user-site state and an empty child `PATH`.
@@ -96,15 +114,28 @@ The macro's `timeout` accepts `short`, `moderate`, and `long`, propagates to the
 
 <!-- behavior:BHV-SECURE-BOOT-OFFLINE -->
 Secure Boot uses no key by default.
-Typed providers separate the unsigned UKI, a digest- and certificate-bound signing request, the externally signed UKI, and its verified import.
-Production keys never enter Bazel; the ephemeral test key stays inside one local, uncached action.
+Typed providers separate the unsigned binary (the UKI or a PE file read from the release image's ESP, such as systemd-boot), a digest-, path- and certificate-bound signing request, the externally signed binary, and its verified import.
+Production keys never enter Bazel; the ephemeral test key stays inside one uncached action that never runs remotely.
 Import checks the exact signer, the SHA-256 signature, and byte equivalence to the request; signed responses are not reproducible.
 
+<!-- behavior:BHV-SECURE-BOOT-IMAGE -->
+`secure_boot_signed_image` rewrites only the ESP of a copy of a UEFI release image: it replaces every copy of each requested unsigned binary with its verified signed binary, adds validated `.auth` files to `/loader/keys/auto/`, sets `secure-boot-enroll` in `loader.conf`, and writes a manifest of the keys, their certificate fingerprints and the signers to `/loader/rules_mkosi-secure-boot.json`.
+Its `raw_image` output group holds only the disk image.
+It rejects signed binaries without an unsigned copy, remaining unsigned PE files, missing PK, KEK or db files, malformed authenticated variables, and a db that does not trust the signer of every imported or already signed `*.efi` or boot entry binary on the ESP; the output is deterministic for the same inputs.
+
+<!-- behavior:BHV-SECURE-BOOT-SIGNER -->
+`secure_boot_signing_manifest` lists the execution-root-relative request, digest, unsigned binary and certificate paths of each request with a distinct signed file name, and rejects invalid or duplicate names.
+`@rules_mkosi//mkosi:secure_boot_signer` runs outside Bazel actions; it rejects malformed manifests and requests, substituted binaries, another certificate, and a key file holding another certificate before signing anything, and writes no signed binary whose signature does not verify with the requested certificate.
+
 <!-- behavior:BHV-SYSUPDATE-PAYLOAD -->
-`sysupdate_payload` requires a versioned image with an unsigned UKI and dm-verity, optionally substitutes a signed UKI bound to that image, names root and verity artifacts by their root-hash UUIDs, rejects mismatching GPT UUIDs, writes `SHA256SUMS`, and exposes `SysupdatePayloadInfo`.
+`sysupdate_payload` requires a versioned image with an unsigned UKI and dm-verity, optionally substitutes a signed UKI bound to that image, names root and verity artifacts by their root-hash UUIDs, trims them to the bytes that dm-verity covers, optionally compresses them deterministically with xz, rejects mismatching GPT UUIDs, writes `SHA256SUMS` of the shipped files, and exposes `SysupdatePayloadInfo`.
+
+<!-- behavior:BHV-SYSUPDATE-SIGNING -->
+`sysupdate_signing_request` binds the SHA-256 of an unsigned payload's `SHA256SUMS`, its files, and the fingerprint of exactly one public OpenPGP certificate, and rejects secret keys.
+`sysupdate_import_signature` accepts only exactly one detached signature that sqv verifies over that `SHA256SUMS` with that certificate, and returns the payload's `SysupdatePayloadInfo` with `signature`; `sysupdate_ephemeral_test_fixture` signs in one uncached, local action and outputs only public data.
 
 <!-- behavior:BHV-IMAGE-PROVIDER -->
-`MkosiImageInfo` has a fixed `format_version`, exposes every artifact role as `File` or `None`, keeps `image` as an alias of `raw_image`, projects each present artifact once through `DefaultInfo`, and exposes `firmware`, `image_id`, `image_version`, and `image_version_file`.
+`MkosiImageInfo` has a fixed `format_version`, exposes every artifact role as `File` or `None`, keeps `image` as an alias of `raw_image`, projects each present artifact once through `DefaultInfo` and `raw_image` alone through the `raw_image` output group, and exposes `firmware`, `image_id`, `image_version`, and `image_version_file`.
 
 <!-- behavior:BHV-TREE-PROVIDERS -->
 `MkosiConfigTreeInfo` and `MkosiSourceTreeInfo` expose `tree` and normalized `executable_paths`.
@@ -114,6 +145,7 @@ Import checks the exact signer, the SHA-256 signature, and byte equivalence to t
 
 <!-- behavior:BHV-SNAPSHOT-CONSUMER -->
 `//mkosi/debian:generate_lock` resolves a consumer specification into a deterministic multi-component lock.
+The lock records the digest of its normalized specification, so a `debian_lock` test fails without network access when the specification changed since the last `<name>.update`.
 `debian_tools.snapshot` turns it into a repository with a computed lock digest and rejects duplicate or reserved names.
 Release images install from the components selected by `Repositories=` and reject components absent from the snapshot.
 
@@ -139,10 +171,10 @@ Tracer images have no partition metadata.
 `mkosi_reproducibility_manifest` selects the raw image, build metadata, and partition metadata through `MkosiImageInfo` and embeds a normalized, content-addressed projection.
 
 <!-- behavior:BHV-CANONICAL-DIGEST -->
-The manifest's whole-image digest covers every byte except GPT disk and partition GUIDs and the checksums derived from them.
+The manifest's whole-image digest covers every byte except GPT disk and partition GUIDs and the checksums derived from them, and validates a versioned dm-verity image's A/B slot labels.
 
 <!-- behavior:BHV-REPRODUCIBILITY-INDEPENDENCE -->
-A one-stage release and a two-stage base and finalization are built twice in clean, uncached output roots, and their manifests and base digests must match.
+A one-stage release, a compressed erofs release with its update payload, and a two-stage base and finalization are built twice in clean, uncached output roots, and their manifests and digests must match.
 
 ## Actions, toolchains, and failures
 
@@ -153,8 +185,11 @@ An image target registers staging when needed, one `MkosiImage` action, and norm
 Release builds use only the authenticated snapshot, block the network, remove APT sources, reject host-dependent configuration, and record reproducibility and snapshot metadata.
 
 <!-- behavior:BHV-SYSUPDATE-LIFECYCLE -->
-A versioned UEFI image updates itself from a read-only payload into its `_empty` slots, boots the new release from its verity root, and blesses it at `boot-complete.target`.
+A versioned UEFI image updates itself from a read-only payload into its `_empty` slots, boots the new release from its compressed erofs verity root, and blesses it at `boot-complete.target`.
 A release whose health check fails falls back to the previous release.
+
+<!-- behavior:BHV-RELEASE-EXAMPLE -->
+The [release example](../e2e/smoke/example/README.md) builds a release image with UKI, dm-verity, an erofs root, A/B partitions, and transfers from a consumer-owned locked snapshot, together with its update payload, and boots it.
 
 <!-- behavior:BHV-TRACER-RUNTIME -->
 Tracer builds use the pinned mkosi and Debian tools with local execution and no caching, and produce a valid raw image.
@@ -169,6 +204,7 @@ The `mkosi` extension selects the default or one supported version, honors one r
 <!-- behavior:BHV-CONSUMER-ISOLATION -->
 rules_mkosi's Python 3.14 tools work regardless of the consumer's default Python version.
 The bootstrap executables follow the `bootstrap_platform` flag without changing consumer targets, including with a first-priority C/C++ toolchain that cannot link statically.
+rules_mkosi's static musl toolchain, the `llvm` module's C/C++ toolchain, matches only the bootstrap executables and outranks every registered C/C++ toolchain for them, including the consumer's own registration of the `llvm` module's toolchains, and the LLVM toolchain and runtime sources are downloaded only when one is built.
 
 <!-- behavior:BHV-ACTION-FAILURES -->
 Failures keep tool output and are classified as kernel capability, toolchain, network, assembly, or VM failures with one remediation.

@@ -35,7 +35,10 @@ and DefaultInfo contains every artifact that is not None. raw_image and build_me
 images add partition_metadata, and UEFI release images add their UKI, split dm-verity artifacts and metadata.
 """,
     fields = {
-        "build_metadata": "Normalized JSON metadata describing the build settings and output roles.",
+        "build_metadata": """JSON build metadata, schema mkosi-image-build-metadata-v3.
+
+It records the mode and the output roles, the snapshot and its lock digest when the image is built from
+debian_snapshot or base, and the seed and source date epoch of release images.""",
         "firmware": "Firmware tier: uefi or bios.",
         "format_version": "Contract version, currently mkosi-image-v3.",
         "image": "Deprecated alias for raw_image.",
@@ -45,15 +48,16 @@ images add partition_metadata, and UEFI release images add their UKI, split dm-v
 
 The content is letters, digits and '.', optionally followed by one newline. At most one of image_version and
 image_version_file is set.""",
-        "manifest": "mkosi JSON manifest of the installed packages when the rule sets manifest = True, or None.",
-        "partition_metadata": "Validated, normalized GPT partition metadata of a release image, or None.",
+        "manifest": """mkosi's JSON manifest of the installed packages, including those of a finalized base, when the rule
+sets manifest = True, or None.""",
+        "partition_metadata": "Validated, normalized GPT partition layout JSON of a release image, or None.",
         "raw_image": "The raw disk image.",
-        "root_hash": "ASCII dm-verity root hash, or None.",
-        "root_hash_image": "Split dm-verity hash partition, or None.",
-        "root_image": "Split root filesystem partition, or None.",
-        "uki": "The unsigned Unified Kernel Image, or None.",
-        "uki_metadata": "Normalized UKI section metadata, or None.",
-        "verity_metadata": "Normalized dm-verity linkage metadata, or None.",
+        "root_hash": "File with the lowercase hex dm-verity root hash when verity = \"hash\", or None.",
+        "root_hash_image": "Split dm-verity hash partition when verity = \"hash\", or None.",
+        "root_image": "Split root filesystem partition when verity = \"hash\", or None.",
+        "uki": "The unsigned Unified Kernel Image when unified_kernel_image = \"unsigned\", or None.",
+        "uki_metadata": "Normalized JSON metadata of the UKI's PE sections, or None.",
+        "verity_metadata": "Normalized JSON linking the root and hash partitions to root_hash, or None.",
     },
 )
 
@@ -113,21 +117,6 @@ def _tree_target_impl(ctx, info):
             is_generated = not files[0].is_source,
         ),
     ]
-
-mkosi_config_tree = rule(
-    implementation = lambda ctx: _tree_target_impl(ctx, MkosiConfigTreeInfo),
-    attrs = {
-        "executable_paths": attr.string_list(
-            doc = "Relative configuration-tree paths that must be executable.",
-        ),
-        "src": attr.label(
-            mandatory = True,
-            allow_files = True,
-            doc = "A configuration directory that contains mkosi.conf.",
-        ),
-    },
-    doc = "Marks a directory as an mkosi configuration tree.",
-)
 
 mkosi_source_tree = rule(
     implementation = lambda ctx: _tree_target_impl(ctx, MkosiSourceTreeInfo),
@@ -565,6 +554,7 @@ def _image_providers(settings, outputs):
             image = outputs.raw_image,
             **artifacts
         ),
+        OutputGroupInfo(raw_image = depset([outputs.raw_image])),
     ]
 
 def _mkosi_image_impl(ctx):
@@ -693,7 +683,8 @@ blocked. Release mode installs packages only from an authenticated debian_snapsh
 outputs may be cached; with base, it finalizes a cached mkosi_base for one version instead. Builds run locally and
 need the Linux namespace and mount capabilities of the host-kernel contract.
 
-Select outputs through MkosiImageInfo; DefaultInfo contains every produced artifact.
+Select outputs through MkosiImageInfo; DefaultInfo contains every produced artifact. The raw_image output group
+contains only the raw disk image, for `bazel build --output_groups=raw_image` or `filegroup(output_group = "raw_image")`.
 """,
     provides = [MkosiImageInfo],
     toolchains = MKOSI_BUILD_TOOLCHAINS,

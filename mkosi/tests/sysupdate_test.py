@@ -4,6 +4,7 @@ import contextlib
 import hashlib
 import io
 import json
+import lzma
 import os
 import pathlib
 import sys
@@ -29,8 +30,13 @@ class TransferTest(unittest.TestCase):
         transfers = sysupdate.transfers("os", boot_attempts=3, instances=2)
         self.assertEqual(["10-root.transfer", "20-root-verity.transfer", "90-uki.transfer"], sorted(transfers))
         for name, pattern, label, partition_type in (
-            ("10-root.transfer", "os_@v.root.@u.raw", "os_@v", "root-x86-64"),
-            ("20-root-verity.transfer", "os_@v.root-verity.@u.raw", "os_@v_verity", "root-x86-64-verity"),
+            ("10-root.transfer", "os_@v.root.@u.raw.xz os_@v.root.@u.raw", "os_@v", "root-x86-64"),
+            (
+                "20-root-verity.transfer",
+                "os_@v.root-verity.@u.raw.xz os_@v.root-verity.@u.raw",
+                "os_@v_verity",
+                "root-x86-64-verity",
+            ),
         ):
             with self.subTest(name=name):
                 content = transfers[name]
@@ -55,6 +61,24 @@ class TransferTest(unittest.TestCase):
                     },
                     _section(content, "Target"),
                 )
+
+    def test_url_transfers_download_signed_payloads(self):
+        transfers = sysupdate.transfers("os", boot_attempts=3, instances=2, url="https://updates.example/os-%A")
+        for name, pattern in (
+            ("10-root.transfer", "os_@v.root.@u.raw.xz os_@v.root.@u.raw"),
+            ("20-root-verity.transfer", "os_@v.root-verity.@u.raw.xz os_@v.root-verity.@u.raw"),
+            ("90-uki.transfer", "os_@v.efi"),
+        ):
+            with self.subTest(name=name):
+                self.assertEqual({"ProtectVersion": "%A", "Verify": "yes"}, _section(transfers[name], "Transfer"))
+                self.assertEqual(
+                    {"Type": "url-file", "Path": "https://updates.example/os-%A", "MatchPattern": pattern},
+                    _section(transfers[name], "Source"),
+                )
+        self.assertEqual(
+            _section(sysupdate.transfers("os", 3, 2)["90-uki.transfer"], "Target"),
+            _section(transfers["90-uki.transfer"], "Target"),
+        )
 
     def test_uki_transfer_enables_boot_counting(self):
         target = _section(sysupdate.transfers("os", boot_attempts=1, instances=3)["90-uki.transfer"], "Target")
@@ -94,8 +118,9 @@ class PayloadTest(unittest.TestCase):
         self.directory = tempfile.TemporaryDirectory()
         self.root = pathlib.Path(self.directory.name)
         self.root_image = self.root / "root.raw"
-        self.root_image.write_bytes(b"root" + bytes(3 * 1024 * 1024))
-        (self.root / "verity.raw").write_bytes(b"verity")
+        self.root_image.write_bytes(b"root".ljust(4096, b"\0") + bytes(3 * 1024 * 1024))
+        (self.root / "verity.raw").write_bytes(b"verity".ljust(8192, b"\0"))
+        self.write_verity_metadata(data_blocks=769, tree_size=4096)
         (self.root / "image.efi").write_bytes(b"uki")
         (self.root / "signed.efi").write_bytes(b"signed uki")
         (self.root / "roothash").write_text(ROOT_HASH.upper() + "\n")
@@ -116,8 +141,12 @@ class PayloadTest(unittest.TestCase):
         ]
         (self.root / "partitions.json").write_text(json.dumps({"partitions": partitions}))
 
+    def write_verity_metadata(self, data_blocks, tree_size):
+        metadata = {"data_block_size": 4096, "data_blocks": data_blocks, "tree_offset": 4096, "tree_size": tree_size}
+        (self.root / "verity.json").write_text(json.dumps(metadata))
+
     def write_signing_request(self, unsigned_uki):
-        request = {"unsigned_uki_sha256": hashlib.sha256(unsigned_uki).hexdigest()}
+        request = {"unsigned_sha256": hashlib.sha256(unsigned_uki).hexdigest()}
         (self.root / "request.json").write_text(json.dumps(request))
 
     def run_payload(self, *extra_args, version_args=("--image-version=7",)):
@@ -131,6 +160,7 @@ class PayloadTest(unittest.TestCase):
             "--partition-metadata={}".format(self.root / "partitions.json"),
             "--root-image={}".format(self.root_image),
             "--verity-image={}".format(self.root / "verity.raw"),
+            "--verity-metadata={}".format(self.root / "verity.json"),
             "--uki={}".format(self.root / "image.efi"),
             "--output={}".format(output),
             *extra_args,
@@ -145,21 +175,37 @@ class PayloadTest(unittest.TestCase):
             "--signing-request={}".format(self.root / "request.json"),
         ]
 
-    def test_payload_names_and_checksums(self):
-        output = self.run_payload()
-        root_name = "os_7.root.{}.raw".format(ROOT_UUID)
-        verity_name = "os_7.root-verity.{}.raw".format(VERITY_UUID)
-        self.assertEqual(
-            sorted(["SHA256SUMS", "os_7.efi", root_name, verity_name]),
-            sorted(path.name for path in output.iterdir()),
-        )
-        self.assertEqual(self.root_image.read_bytes(), (output / root_name).read_bytes())
+    def assert_read_only_files_with_checksums(self, output, suffix=""):
+        """Checks that output holds exactly the payload files and a SHA256SUMS of them, and returns their names."""
+        root_name = "os_7.root.{}.raw{}".format(ROOT_UUID, suffix)
+        verity_name = "os_7.root-verity.{}.raw{}".format(VERITY_UUID, suffix)
+        names = sorted(["os_7.efi", root_name, verity_name])
+        self.assertEqual(sorted([*names, "SHA256SUMS"]), sorted(path.name for path in output.iterdir()))
         self.assertEqual(0o444, (output / root_name).stat().st_mode & 0o777)
         expected = "".join(
-            "{}  {}\n".format(hashlib.sha256((output / name).read_bytes()).hexdigest(), name)
-            for name in sorted(["os_7.efi", root_name, verity_name])
+            "{}  {}\n".format(hashlib.sha256((output / name).read_bytes()).hexdigest(), name) for name in names
         )
         self.assertEqual(expected, (output / "SHA256SUMS").read_text())
+        return root_name, verity_name
+
+    def test_payload_names_and_checksums(self):
+        output = self.run_payload()
+        root_name, _ = self.assert_read_only_files_with_checksums(output)
+        self.assertEqual(self.root_image.read_bytes(), (output / root_name).read_bytes())
+
+    def test_xz_payload_compresses_partitions_and_lists_the_compressed_files(self):
+        self.write_verity_metadata(data_blocks=1, tree_size=0)
+        output = self.run_payload("--compression=xz")
+        root_name, verity_name = self.assert_read_only_files_with_checksums(output, ".xz")
+        self.assertEqual(self.root_image.read_bytes()[:4096], lzma.decompress((output / root_name).read_bytes()))
+        self.assertEqual(b"verity".ljust(4096, b"\0"), lzma.decompress((output / verity_name).read_bytes()))
+        self.assertEqual(b"uki", (output / "os_7.efi").read_bytes())
+
+    def test_xz_payload_is_deterministic(self):
+        first = {path.name: path.read_bytes() for path in self.run_payload("--compression=xz").iterdir()}
+        (self.root / "payload").rename(self.root / "first")
+        second = {path.name: path.read_bytes() for path in self.run_payload("--compression=xz").iterdir()}
+        self.assertEqual(first, second)
 
     def test_payload_version_from_file(self):
         (self.root / "version").write_text("7\n")
@@ -204,6 +250,23 @@ class PayloadTest(unittest.TestCase):
         copied = output / "os_7.root.{}.raw".format(ROOT_UUID)
         self.assertEqual(self.root_image.stat().st_size, copied.stat().st_size)
         self.assertLess(copied.stat().st_blocks * 512, os.path.getsize(copied))
+
+    def test_payload_holds_only_the_bytes_that_dm_verity_covers(self):
+        # A minimized read-only root fills only part of its slot, and its hash tree only part of the verity slot.
+        self.write_verity_metadata(data_blocks=1, tree_size=0)
+        output = self.run_payload()
+        root = (output / "os_7.root.{}.raw".format(ROOT_UUID)).read_bytes()
+        verity = (output / "os_7.root-verity.{}.raw".format(VERITY_UUID)).read_bytes()
+        self.assertEqual(self.root_image.read_bytes()[:4096], root)
+        self.assertEqual(b"verity".ljust(4096, b"\0"), verity)
+        self.assertIn(hashlib.sha256(root).hexdigest(), (output / "SHA256SUMS").read_text())
+
+    def test_root_shorter_than_its_verity_geometry_is_rejected(self):
+        self.write_verity_metadata(data_blocks=770, tree_size=4096)
+        with self.assertRaises(SystemExit) as raised:
+            self.run_payload()
+        self.assertIn("is shorter than its dm-verity geometry", str(raised.exception))
+        self.assertFalse((self.root / "payload").exists())
 
     def test_uuid_mismatch_is_rejected_without_partial_output(self):
         self.write_partitions(ROOT_UUID, "07e94c80-f82d-4648-aa81-0b38dd49832a")

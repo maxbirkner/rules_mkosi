@@ -74,6 +74,9 @@ def _load_runner():
 
 
 class MkosiContractTest(unittest.TestCase):
+    # Show every changed internal, which is the starting point of an mkosi upgrade.
+    maxDiff = None
+
     @classmethod
     def setUpClass(cls):
         package = _load_runner()
@@ -107,8 +110,31 @@ class MkosiContractTest(unittest.TestCase):
 
     def test_unsupported_mkosi_version_is_rejected(self):
         self.assertEqual(
-            ["mkosi 0 is not supported by release mode; supported mkosi versions: 27.1"],
+            [
+                "mkosi 0 is not supported by release mode; supported mkosi versions: 27.1",
+                "compared with the mkosi 27.1 contract:",
+            ],
             self.contract.violations(version="0"),
+        )
+
+    def test_unsupported_mkosi_version_lists_what_changed_since_the_newest_contract(self):
+        def parse_ini(path, only_sections=()):
+            yield from ()
+
+        older = dataclasses.replace(self._pinned(), patched=())
+        self._replace(self.contract, "CONTRACTS", {"9.1": older, **self.contract.CONTRACTS, "10": older})
+        self._replace(self.mkosi_config, "parse_ini", parse_ini)
+        self.assertEqual(
+            [
+                "mkosi 28 is not supported by release mode; supported mkosi versions: 9.1, 10, 27.1",
+                "compared with the mkosi 27.1 contract:",
+                "mkosi.config:parse_ini changed (source sha256 {}); _ConfigurationValidator.parse_ini replaces or "
+                "wraps it. Re-verify that {}".format(
+                    self.contract.source_sha256(parse_ini),
+                    next(p.recheck for p in self._pinned().patched if p.name == "mkosi.config:parse_ini"),
+                ),
+            ],
+            self.contract.violations(version="28"),
         )
 
     def test_changed_internal_fails_loudly_with_the_patch_to_review(self):
@@ -120,16 +146,33 @@ class MkosiContractTest(unittest.TestCase):
             self.contract.verify()
         message = str(raised.exception)
         self.assertIn("internals that rules_mkosi release mode patches differ", message)
-        self.assertIn("mkosi.config:parse_ini changed; _ConfigurationValidator.parse_ini replaces or wraps it", message)
+        self.assertIn(
+            "mkosi.config:parse_ini changed (source sha256 {}); _ConfigurationValidator.parse_ini replaces or wraps "
+            "it. Re-verify that it still yields (section, setting, value) for every setting".format(
+                self.contract.source_sha256(parse_ini)
+            ),
+            message,
+        )
+        self.assertIn("docs/mkosi-internals.md#upgrading-mkosi", message)
         self.assertIn("release_patches.py", message)
         self.assertIn("mkosi_contract.py", message)
 
+    def test_every_patch_names_its_replacement_and_what_to_reverify(self):
+        for patched in self._pinned().patched:
+            with self.subTest(name=patched.name):
+                replacement = self.release_patches
+                for part in patched.patch.split("."):
+                    replacement = getattr(replacement, part)
+                self.assertTrue(callable(replacement))
+                self.assertRegex(patched.recheck, r"^\S.*[^.]$")
+
     def test_removed_internal_is_reported(self):
         contract = dataclasses.replace(
-            self._pinned(), patched=(self.contract.Patched("mkosi.config:no_such_function", "_patch", "0"),)
+            self._pinned(),
+            patched=(self.contract.Patched("mkosi.config:no_such_function", "_patch", "0", "it still exists"),),
         )
         self.assertEqual(
-            ["mkosi.config:no_such_function no longer exists; _patch cannot patch it"],
+            ["mkosi.config:no_such_function no longer exists; _patch cannot patch it. Re-verify that it still exists"],
             self.contract.violations(contract=contract),
         )
 
@@ -210,16 +253,32 @@ class MkosiContractTest(unittest.TestCase):
             self.release_patches.activate_release_mode(None, settings, [], None)
         self.assertIs(original, self.mkosi_config.parse_config)
 
-    def test_local_mirror_repository_is_the_one_that_release_mode_rewrites(self):
-        from mkosi.distribution.debian import Installer
+    def test_apt_keeps_the_mirror_sources_of_the_sandbox_tree(self):
+        from mkosi.installer.apt import Apt, AptRepository
 
-        config = types.SimpleNamespace(
-            repositories=["contrib"], mirror=None, snapshot=None, local_mirror="file:///mirror", release="trixie"
-        )
-        repositories = list(Installer.repositories(types.SimpleNamespace(config=config)))
-        self.assertEqual(["file:///mirror"], [repository.url for repository in repositories])
-        # mkosi registers only main for a local mirror, which is why release mode lists the snapshot components.
-        self.assertEqual(("main",), repositories[0].components)
+        with tempfile.TemporaryDirectory() as directory:
+            sandbox_tree = pathlib.Path(directory)
+            sources = sandbox_tree / "etc/apt/sources.list.d/mkosi.sources"
+            sources.parent.mkdir(parents=True)
+            sources.write_text("URIs: file:///repository\n")
+            network = AptRepository(("deb",), "http://deb.debian.org/debian", "trixie", ("main",), None)
+            Apt.setup(types.SimpleNamespace(sandbox_tree=sandbox_tree), [network])
+            # mkosi documents that it writes mkosi.sources only if the sandbox tree does not provide it.
+            self.assertEqual("URIs: file:///repository\n", sources.read_text())
+
+    def test_first_parsed_configuration_selects_the_mirror_components(self):
+        written = []
+        mirror = types.SimpleNamespace(write_sources=lambda *arguments: written.append(arguments))
+        configuration = self.release_patches._MirrorConfiguration(mirror, ("main", "contrib", "non-free-firmware"))
+        image = types.SimpleNamespace(release="trixie", repositories=["contrib"])
+        configuration._original_parse_config = lambda *args, **kwargs: (None, None, [image])
+        configuration.parse_config([])
+        configuration.parse_config([])
+        self.assertEqual([("trixie", ("main", "contrib"))], written)
+        configuration = self.release_patches._MirrorConfiguration(mirror, ("main",))
+        configuration._original_parse_config = lambda *args, **kwargs: (None, None, [image])
+        with self.assertRaisesRegex(SystemExit, "absent from the Debian snapshot: contrib"):
+            configuration.parse_config([])
 
     def test_context_creates_the_repository_directory_that_release_mode_replaces(self):
         from mkosi.context import Context

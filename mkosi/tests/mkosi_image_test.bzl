@@ -7,7 +7,6 @@ load(
     "MkosiImageInfo",
     "MkosiQemuToolchainInfo",
     "QemuBootConfigInfo",
-    "SecureBootEphemeralTestFixtureInfo",
     "mkosi_config_tree",
     "mkosi_image",
     "mkosi_reproducibility_manifest",
@@ -16,7 +15,6 @@ load(
     "qemu_ovmf_boot_config",
     "qemu_ovmf_boot_test",
     "qemu_seabios_boot_config",
-    "secure_boot_ephemeral_test_fixture",
 )
 load(
     "//mkosi/debian:provenance.bzl",
@@ -57,6 +55,12 @@ _reproducibility_manifest_test = analysistest.make(
     _reproducibility_manifest_test_impl,
 )
 
+def _assert_raw_image_selectors(env, target):
+    """Asserts that the image alias and the raw_image output group select exactly MkosiImageInfo.raw_image."""
+    info = target[MkosiImageInfo]
+    asserts.equals(env, info.raw_image, info.image)
+    asserts.equals(env, [info.raw_image], target[OutputGroupInfo].raw_image.to_list())
+
 def _provider_test_impl(ctx):
     env = analysistest.begin(ctx)
     target = analysistest.target_under_test(env)
@@ -65,7 +69,7 @@ def _provider_test_impl(ctx):
     info = target[MkosiImageInfo]
     asserts.equals(env, "mkosi-image-v3", info.format_version)
     asserts.equals(env, ctx.attr.expected_output, info.raw_image.basename)
-    asserts.equals(env, info.raw_image, info.image)
+    _assert_raw_image_selectors(env, target)
     asserts.equals(env, None, info.manifest)
     asserts.equals(env, None, info.partition_metadata)
     asserts.equals(env, None, info.uki)
@@ -254,7 +258,7 @@ def _debian_tools_provider_test_impl(ctx):
     asserts.equals(env, "python", info.python.basename)
     asserts.true(env, info.launcher.executable != None)
     asserts.true(env, info.tree_files_to_run.executable == None)
-    asserts.equals(env, 14, len(info.required_components))
+    asserts.equals(env, 15, len(info.required_components))
     asserts.true(env, info.provenance.basename == "provenance.bzl")
     return analysistest.end(env)
 
@@ -344,27 +348,6 @@ def _manifest_test_impl(ctx):
     return analysistest.end(env)
 
 _manifest_test = analysistest.make(_manifest_test_impl)
-
-def _secure_boot_fixture_action_test_impl(ctx):
-    env = analysistest.begin(ctx)
-    target = analysistest.target_under_test(env)
-    actions = analysistest.target_actions(env)
-    asserts.equals(env, 1, len(actions))
-    action = actions[0]
-    asserts.equals(env, "SecureBootEphemeralFixture", action.mnemonic)
-    paths = [file.path for file in action.inputs.to_list()] + [file.path for file in action.outputs.to_list()] + action.argv
-    asserts.false(env, any([".key" in path or "private.pem" in path for path in paths]))
-    asserts.equals(
-        env,
-        ["secure_boot_ephemeral_fixture.certificate.pem", "secure_boot_ephemeral_fixture.signed.efi"],
-        sorted([file.basename for file in target[DefaultInfo].files.to_list()]),
-    )
-    fixture = target[SecureBootEphemeralTestFixtureInfo]
-    for requirement in ["local", "no-cache", "no-remote", "no-remote-cache", "no-remote-exec"]:
-        asserts.equals(env, "1", fixture.execution_requirements[requirement])
-    return analysistest.end(env)
-
-_secure_boot_fixture_action_test = analysistest.make(_secure_boot_fixture_action_test_impl)
 
 def _rootfs_payload_test_impl(ctx):
     env = analysistest.begin(ctx)
@@ -721,15 +704,6 @@ def mkosi_image_test_suite(name):
     Args:
       name: Name of the generated test suite.
     """
-    secure_boot_ephemeral_test_fixture(
-        name = "secure_boot_ephemeral_fixture",
-        unsigned_uki = "testdata/minimal.conf",
-        tags = ["manual"],
-    )
-    _secure_boot_fixture_action_test(
-        name = "secure_boot_fixture_action_test",
-        target_under_test = ":secure_boot_ephemeral_fixture",
-    )
     mkosi_image(
         name = "debian_subject",
         config = "testdata/minimal.conf",

@@ -12,52 +12,30 @@ import runpy
 import shutil
 import struct
 import subprocess
+import uuid
 from pathlib import Path
 
 _load_sibling = runpy.run_path(str(Path(__file__).with_name("sibling_loader.py")))["load_sibling"]
+efi_auth = _load_sibling(__file__, "efi_auth")
+esp_files = _load_sibling(__file__, "esp_files")
 file_hashing = _load_sibling(__file__, "file_hashing")
+launcher_tool = _load_sibling(__file__, "launcher_tool")
+run_tool = launcher_tool.run_tool
 
 
-REQUEST_FORMAT = "mkosi-secure-boot-signing-request-v2"
-SIGNED_FORMAT = "mkosi-secure-boot-signed-uki-v2"
+REQUEST_FORMAT = "mkosi-secure-boot-signing-request-v3"
+SIGNED_FORMAT = "mkosi-secure-boot-signed-binary-v3"
+UKI_CONTEXT = "uefi-secure-boot-uki"
+ESP_FILE_CONTEXT = "uefi-secure-boot-esp-file"
 ALGORITHM = "authenticode-sha256"
 OID_SIGNED_DATA = "1.2.840.113549.1.7.2"
 OID_SPC_INDIRECT_DATA = "1.3.6.1.4.1.311.2.1.4"
 OID_SHA256 = "2.16.840.1.101.3.4.2.1"
 OID_RSA = {"1.2.840.113549.1.1.1", "1.2.840.113549.1.1.11"}
-_counter = 0
+_SCRATCH_IDS = itertools.count(1)
 MAX_DER_BYTES = 16 * 1024 * 1024
 MAX_DER_DEPTH = 32
 MAX_DER_CHILDREN = 4096
-
-
-def _launcher(tool, arguments):
-    global _counter
-    if Path(tool).name != "launcher":
-        return [tool, *arguments], None
-    _counter += 1
-    cwd = os.getcwd()
-    env = dict(os.environ)
-    env["MKOSI_DEBIAN_TOOLS_SCRATCH"] = os.path.join(cwd, ".secure-boot-tool-{}-{}".format(os.getpid(), _counter))
-    return [
-        tool,
-        "--rw-bind",
-        "{}:/outputs/work".format(cwd),
-        arguments[0],
-    ] + [
-        value if value.startswith("-") or value.startswith("/") or "/" not in value else "/outputs/work/" + value
-        for value in arguments[1:]
-    ], env
-
-
-def run_tool(tool, *arguments, capture=False):
-    command, env = _launcher(tool, list(arguments))
-    try:
-        return subprocess.run(command, check=True, capture_output=capture, env=env)
-    finally:
-        # Each call extracts a full Debian tools root into its scratch directory.
-        if env:
-            shutil.rmtree(env["MKOSI_DEBIAN_TOOLS_SCRATCH"], ignore_errors=True)
 
 
 def isolated_certificate_der(data):
@@ -93,7 +71,7 @@ def certificate_pem(data):
 def _openssl_der(openssl, source):
     """Returns OpenSSL's DER re-encoding of the X.509 certificate in source."""
     result = run_tool(
-        openssl, "/usr/bin/openssl", "x509", "-inform", "DER", "-in", str(source), "-outform", "DER", capture=True
+        openssl, "/usr/bin/openssl", "x509", "-inform", "DER", "-in", source, "-outform", "DER", capture=True
     )
     canonical = result.stdout
     if not canonical or len(canonical) > MAX_DER_BYTES:
@@ -103,9 +81,7 @@ def _openssl_der(openssl, source):
 
 def canonical_certificate(openssl, der):
     """Validates one isolated DER object as X.509 with the declared OpenSSL."""
-    global _counter
-    _counter += 1
-    scratch = Path(".secure-boot-x509-{}-{}".format(os.getpid(), _counter))
+    scratch = Path(".secure-boot-x509-{}-{}".format(os.getpid(), next(_SCRATCH_IDS)))
     if scratch.exists():
         shutil.rmtree(scratch)
     scratch.mkdir(mode=0o700)
@@ -220,6 +196,21 @@ def parse_pe(data, signed):
         "sections": sections,
         "size_headers": size_headers,
     }
+
+
+def is_pe(data):
+    """Returns whether data has PE/COFF headers, signed or not."""
+    try:
+        _pe_optional_header(data)
+    except (ValueError, struct.error):
+        return False
+    return True
+
+
+def embedded_authenticode(data):
+    """Returns the DER PKCS#7 of the one Authenticode signature of a signed PE/COFF image; raises ValueError."""
+    layout = parse_pe(data, True)
+    return authenticode_payload(data, layout["certificate_offset"], layout["certificate_size"])
 
 
 def authenticode_payload(signed_data, certificate_offset, certificate_size):
@@ -377,7 +368,7 @@ def algorithm_oid(item):
     return der_oid(children[0])
 
 
-def _signed_data(payload):
+def parse_signed_data(payload):
     """Returns the SignedData fields of a DER PKCS#7 ContentInfo."""
     outer, end = der_read(payload)
     outer_children = outer.children()
@@ -431,24 +422,31 @@ def _check_signer_info(signer_infos):
 
 
 def authenticode_facts(payload):
-    signed = _signed_data(payload)
+    signed = parse_signed_data(payload)
     image_digest = _image_digest(signed[2])
     _check_signer_info(signed[-1])
     return image_digest.value
 
 
+def _context(esp_path):
+    return ESP_FILE_CONTEXT if esp_path else UKI_CONTEXT
+
+
 def create_request(args):
     if args.algorithm != ALGORITHM:
         raise ValueError("unsupported signing algorithm")
-    parse_pe(Path(args.unsigned_uki).read_bytes(), False)
+    if args.esp_path:
+        esp_files.validate_esp_path(args.esp_path)
+    parse_pe(Path(args.unsigned).read_bytes(), False)
     normalized_certificate = canonical_certificate(args.openssl, certificate_der(args.certificate))
     Path(args.certificate_output).write_bytes(normalized_certificate)
     document = {
         "certificate_sha256": hashlib.sha256(normalized_certificate).hexdigest(),
-        "context": "uefi-secure-boot-uki",
+        "context": _context(args.esp_path),
+        "esp_path": args.esp_path,
         "format_version": REQUEST_FORMAT,
         "signature_algorithm": ALGORITHM,
-        "unsigned_uki_sha256": file_hashing.sha256_file(args.unsigned_uki),
+        "unsigned_sha256": file_hashing.sha256_file(args.unsigned),
     }
     write_json(args.output, document)
     Path(args.digest_output).write_text(request_digest(document) + "\n")
@@ -457,37 +455,60 @@ def create_request(args):
 _REQUEST_FIELDS = {
     "certificate_sha256",
     "context",
+    "esp_path",
     "format_version",
     "signature_algorithm",
-    "unsigned_uki_sha256",
+    "unsigned_sha256",
 }
 
 
-def _load_request(args):
-    """Returns the signing request and its recorded digest after checking both against the unsigned UKI."""
-    request = json.loads(Path(args.request).read_text())
-    if set(request) != _REQUEST_FIELDS or request["format_version"] != REQUEST_FORMAT:
+def validate_request(request, recorded_request_digest):
+    """Raises ValueError unless request is a signing request document whose canonical digest is recorded."""
+    if not isinstance(request, dict) or set(request) != _REQUEST_FIELDS or request["format_version"] != REQUEST_FORMAT:
         raise ValueError("invalid signing request schema")
-    recorded_request_digest = Path(args.request_digest).read_text().strip()
     if recorded_request_digest != request_digest(request):
         raise ValueError("signing request digest does not match request")
-    if request["context"] != "uefi-secure-boot-uki" or request["signature_algorithm"] != ALGORITHM:
+    if request["context"] != _context(request["esp_path"]) or request["signature_algorithm"] != ALGORITHM:
         raise ValueError("wrong signing context or algorithm")
-    if file_hashing.sha256_file(args.unsigned_uki) != request["unsigned_uki_sha256"]:
-        raise ValueError("unsigned UKI no longer matches its request")
+
+
+def _load_request(args):
+    """Returns the signing request and its recorded digest after checking both against the unsigned binary."""
+    request = json.loads(Path(args.request).read_text())
+    recorded_request_digest = Path(args.request_digest).read_text().strip()
+    validate_request(request, recorded_request_digest)
+    if file_hashing.sha256_file(args.unsigned) != request["unsigned_sha256"]:
+        raise ValueError("unsigned binary no longer matches its request")
     return request, recorded_request_digest
 
 
-def _verify_embedded_digest(args):
-    """Returns the Authenticode payload of the signed UKI after checking it signs the requested image."""
-    unsigned_data = Path(args.unsigned_uki).read_bytes()
-    signed_data = Path(args.signed_uki).read_bytes()
+def verify_embedded_digest(unsigned_data, signed_data):
+    """Returns the Authenticode payload of signed_data after checking it signs exactly unsigned_data."""
     payload = prove_equivalence(unsigned_data, signed_data)
     embedded_digest = authenticode_facts(payload)
     computed_digest = authenticode_hash(signed_data, parse_pe(signed_data, True))
     if embedded_digest != computed_digest:
         raise ValueError("embedded Authenticode digest does not match imported PE")
     return payload
+
+
+def _select_signed(args):
+    """Returns the signed candidate that signs the requested binary and its Authenticode payload.
+
+    Production imports pass one candidate. An ephemeral test fixture signs several binaries with one key and passes
+    all of them; the first candidate that is the requested binary plus a valid embedded signature is selected.
+    """
+    unsigned_data = Path(args.unsigned).read_bytes()
+    errors = []
+    for candidate in args.signed:
+        signed_data = Path(candidate).read_bytes()
+        try:
+            return candidate, verify_embedded_digest(unsigned_data, signed_data)
+        except ValueError as error:
+            errors.append(str(error))
+    if len(errors) == 1:
+        raise ValueError(errors[0])
+    raise ValueError("none of the {} signed binaries is the requested binary: {}".format(len(errors), errors))
 
 
 def _verify_signer(args, payload, expected_certificate):
@@ -502,15 +523,15 @@ def _verify_signer(args, payload, expected_certificate):
         "-inform",
         "DER",
         "-in",
-        args.pkcs7,
+        Path(args.pkcs7),
         "-certfile",
-        args.expected_pem,
+        Path(args.expected_pem),
         "-nointern",
         "-noverify",
         "-signer",
-        args.verified_signer,
+        Path(args.verified_signer),
         "-out",
-        args.content,
+        Path(args.content),
     )
     verified_signer = canonical_certificate(args.openssl, certificate_der(args.verified_signer))
     if verified_signer != expected_certificate:
@@ -523,102 +544,164 @@ def verify(args):
     fingerprint = hashlib.sha256(expected_certificate).hexdigest()
     if fingerprint != request["certificate_sha256"]:
         raise ValueError("signer certificate does not match request")
-    payload = _verify_embedded_digest(args)
+    signed, payload = _select_signed(args)
     _verify_signer(args, payload, expected_certificate)
-    shutil.copyfile(args.signed_uki, args.output)
+    shutil.copyfile(signed, args.output)
     write_json(
         args.metadata,
         {
             "certificate_sha256": fingerprint,
+            "esp_path": request["esp_path"],
             "format_version": SIGNED_FORMAT,
             "request_digest": recorded_request_digest,
-            "signed_uki_sha256": file_hashing.sha256_file(args.signed_uki),
-            "unsigned_uki_sha256": request["unsigned_uki_sha256"],
+            "signed_sha256": file_hashing.sha256_file(signed),
+            "unsigned_sha256": request["unsigned_sha256"],
             "verification": "embedded-authenticode-sha256",
         },
     )
 
 
-def _sbsign(args, key, unsigned_uki, signed_uki):
+def extract(args):
+    """Copies one file from the EFI system partition of a release disk image."""
+    esp_files.validate_esp_path(args.esp_path)
+    scratch = Path(args.scratch)
+    scratch.mkdir(mode=0o700, parents=True, exist_ok=True)
+    esp_image = scratch / "esp.img"
+    try:
+        esp_files.extract_esp(args.image, args.partition_metadata, esp_image)
+        esp_files.extract_file(args.mtools, esp_image, args.esp_path, args.output)
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
+    parse_pe(Path(args.output).read_bytes(), False)
+
+
+def _sbsign(args, key, unsigned, signed):
     run_tool(
         args.sbsign,
         "/usr/lib/systemd/systemd-sbsign",
         "sign",
         "--private-key",
-        str(key),
+        key,
         "--certificate",
-        args.certificate,
+        Path(args.certificate),
         "--output",
-        signed_uki,
-        unsigned_uki,
+        Path(signed),
+        Path(unsigned),
     )
 
 
-def _create_ephemeral_signer(args, key):
+def _create_key_pair(openssl, key, certificate, common_name):
     run_tool(
-        args.openssl,
-        "/usr/bin/openssl",
-        "genpkey",
-        "-algorithm",
-        "RSA",
-        "-pkeyopt",
-        "rsa_keygen_bits:2048",
-        "-out",
-        str(key),
+        openssl, "/usr/bin/openssl", "genpkey", "-algorithm", "RSA", "-pkeyopt", "rsa_keygen_bits:2048", "-out", key
     )
     run_tool(
-        args.openssl,
+        openssl,
         "/usr/bin/openssl",
         "req",
         "-new",
         "-x509",
         "-key",
-        str(key),
+        key,
         "-out",
-        args.certificate,
+        Path(certificate),
         "-days",
         "1",
         "-subj",
-        "/CN=rules_mkosi ephemeral test signer/",
+        "/CN=rules_mkosi ephemeral test {}/".format(common_name),
     )
 
 
+def _detached_signed_data(openssl, scratch, signer, payload):
+    """Returns the DER PKCS#7 SignedData, without its ContentInfo, of a detached signature over payload."""
+    source = scratch / "payload.bin"
+    signature = scratch / "signature.der"
+    source.write_bytes(payload)
+    key, certificate = signer
+    run_tool(
+        openssl,
+        "/usr/bin/openssl",
+        "smime",
+        "-sign",
+        "-binary",
+        "-noattr",
+        "-md",
+        "sha256",
+        "-outform",
+        "DER",
+        "-signer",
+        certificate,
+        "-inkey",
+        key,
+        "-in",
+        source,
+        "-out",
+        signature,
+    )
+    content_info, _ = der_read(signature.read_bytes())
+    children = content_info.children()
+    if len(children) != 2 or der_oid(children[0]) != OID_SIGNED_DATA:
+        raise ValueError("OpenSSL did not produce PKCS#7 SignedData")
+    return children[1].value
+
+
+def _write_auto_enroll_keys(args, scratch, signers):
+    """Writes PK.auth (self-signed), KEK.auth (signed by PK) and db.auth (signed by KEK) to args.auto_enroll_dir."""
+    owner = uuid.UUID("00000000-0000-4000-8000-000000000157")
+    timestamp = efi_auth.efi_time(2026)
+    output = Path(args.auto_enroll_dir)
+    output.mkdir(parents=True, exist_ok=True)
+    for name, signer in (("PK", "PK"), ("KEK", "PK"), ("db", "KEK")):
+        data = efi_auth.signature_list(certificate_der(signers[name][1]), owner)
+        payload = efi_auth.signed_payload(name, timestamp, data)
+        signed_data = _detached_signed_data(args.openssl, scratch, signers[signer], payload)
+        (output / (name + ".auth")).write_bytes(efi_auth.auth_file(timestamp, signed_data, data))
+
+
 def ephemeral_fixture(args):
+    """Signs binaries with a new db key; with --auto-enroll-dir, also writes auto-enrollment files for new PK and KEK.
+
+    Every private key stays in the scratch directory, which is overwritten and removed before returning.
+    """
     scratch = Path(args.scratch)
     if scratch.exists():
         shutil.rmtree(scratch)
     scratch.mkdir(mode=0o700)
-    key = scratch / "ephemeral-private-key.pem"
+    signers = {"db": (scratch / "db-private-key.pem", Path(args.certificate))}
+    if args.auto_enroll_dir:
+        signers["PK"] = (scratch / "pk-private-key.pem", scratch / "pk.pem")
+        signers["KEK"] = (scratch / "kek-private-key.pem", scratch / "kek.pem")
     try:
-        _create_ephemeral_signer(args, key)
-        _sbsign(args, key, args.unsigned_uki, args.signed_uki)
-        if args.other_unsigned:
-            _sbsign(args, key, args.other_unsigned, args.other_signed)
+        for name, (key, certificate) in signers.items():
+            _create_key_pair(args.openssl, key, certificate, name)
+        for index, (unsigned, signed) in enumerate(args.sign):
+            # Sandboxed inputs are symlinks that the tools namespace cannot follow.
+            copy = scratch / "unsigned-{}.efi".format(index)
+            shutil.copyfile(unsigned, copy)
+            _sbsign(args, signers["db"][0], copy, signed)
+            copy.unlink()
+        if args.auto_enroll_dir:
+            _write_auto_enroll_keys(args, scratch, signers)
     finally:
-        if key.exists():
-            key.write_bytes(b"\0" * key.stat().st_size)
+        for key, _ in signers.values():
+            if key.exists():
+                key.write_bytes(b"\0" * key.stat().st_size)
         shutil.rmtree(scratch, ignore_errors=True)
 
 
-def main():
+def _parser():
     parser = argparse.ArgumentParser()
     commands = parser.add_subparsers(required=True)
     request = commands.add_parser("request")
-    request.add_argument("--openssl", required=True)
-    request.add_argument("--unsigned-uki", required=True)
-    request.add_argument("--certificate", required=True)
-    request.add_argument("--certificate-output", required=True)
-    request.add_argument("--algorithm", required=True)
-    request.add_argument("--output", required=True)
-    request.add_argument("--digest-output", required=True)
+    for name in ("openssl", "unsigned", "certificate", "certificate-output", "algorithm", "output", "digest-output"):
+        request.add_argument("--" + name, required=True)
+    request.add_argument("--esp-path", default="")
     request.set_defaults(function=create_request)
     verify_parser = commands.add_parser("verify")
     for name in (
         "openssl",
         "request",
         "request-digest",
-        "unsigned-uki",
-        "signed-uki",
+        "unsigned",
         "certificate",
         "expected-pem",
         "pkcs7",
@@ -628,21 +711,35 @@ def main():
         "metadata",
     ):
         verify_parser.add_argument("--" + name, required=True)
+    verify_parser.add_argument("--signed", action="append", required=True)
     verify_parser.set_defaults(function=verify)
+    extract_parser = commands.add_parser("extract")
+    for name in ("mtools", "image", "partition-metadata", "esp-path", "scratch", "output"):
+        extract_parser.add_argument("--" + name, required=True)
+    extract_parser.set_defaults(function=extract)
     fixture = commands.add_parser("ephemeral-fixture")
-    for name in ("openssl", "sbsign", "unsigned-uki", "certificate", "signed-uki", "scratch"):
+    for name in ("openssl", "sbsign", "certificate", "scratch"):
         fixture.add_argument("--" + name, required=True)
-    fixture.add_argument("--other-unsigned")
-    fixture.add_argument("--other-signed")
+    fixture.add_argument("--auto-enroll-dir")
+    fixture.add_argument("--sign", nargs=2, action="append", required=True, metavar=("UNSIGNED", "SIGNED"))
     fixture.set_defaults(function=ephemeral_fixture)
-    args = parser.parse_args()
+    return parser
+
+
+def report_errors(function, args):
+    """Calls function(args) and turns an invalid input or a failed tool into a SECURE_BOOT_INVALID exit."""
     try:
-        args.function(args)
-    except (OSError, ValueError, subprocess.CalledProcessError, json.JSONDecodeError) as error:
+        function(args)
+    except (OSError, ValueError, KeyError, subprocess.CalledProcessError, json.JSONDecodeError) as error:
         detail = getattr(error, "stderr", None)
         if isinstance(detail, bytes):
             detail = detail.decode(errors="replace")
         raise SystemExit("SECURE_BOOT_INVALID: {}".format(detail or error)) from error
+
+
+def main():
+    args = _parser().parse_args()
+    report_errors(args.function, args)
 
 
 if __name__ == "__main__":

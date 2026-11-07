@@ -831,6 +831,121 @@
       "component": "main",
       "dependencies": [
         {
+          "key": "gpgconf_2.4.7-21-p-b3_amd64",
+          "name": "gpgconf",
+          "version": "2.4.7-21+b3"
+        },
+        {
+          "key": "init-system-helpers_1.68_all",
+          "name": "init-system-helpers",
+          "version": "1.68"
+        },
+        {
+          "key": "libassuan9_3.0.2-2_amd64",
+          "name": "libassuan9",
+          "version": "3.0.2-2"
+        },
+        {
+          "key": "libbz2-1.0_1.0.8-6_amd64",
+          "name": "libbz2-1.0",
+          "version": "1.0.8-6"
+        },
+        {
+          "key": "libc6_2.41-12_amd64",
+          "name": "libc6",
+          "version": "2.41-12"
+        },
+        {
+          "key": "libgcrypt20_1.11.0-7_amd64",
+          "name": "libgcrypt20",
+          "version": "1.11.0-7"
+        },
+        {
+          "key": "libgpg-error0_1.51-4_amd64",
+          "name": "libgpg-error0",
+          "version": "1.51-4"
+        },
+        {
+          "key": "libksba8_1.6.7-2-p-b1_amd64",
+          "name": "libksba8",
+          "version": "1.6.7-2+b1"
+        },
+        {
+          "key": "libnpth0t64_1.8-3_amd64",
+          "name": "libnpth0t64",
+          "version": "1.8-3"
+        },
+        {
+          "key": "libreadline8t64_8.2-6_amd64",
+          "name": "libreadline8t64",
+          "version": "8.2-6"
+        },
+        {
+          "key": "libsqlite3-0_3.46.1-7_amd64",
+          "name": "libsqlite3-0",
+          "version": "3.46.1-7"
+        },
+        {
+          "key": "zlib1g_1-1.3.dfsg-p-really1.3.1-1-p-b1_amd64",
+          "name": "zlib1g",
+          "version": "1:1.3.dfsg+really1.3.1-1+b1"
+        }
+      ],
+      "filename": "pool/main/g/gnupg2/gpg_2.4.7-21+b3_amd64.deb",
+      "key": "gpg_2.4.7-21-p-b3_amd64",
+      "name": "gpg",
+      "sha256": "493c82831138bc5486e2e0fcea2be9a7e22bf7b0ec09fc8399abff2a93ce4103",
+      "size": 634152,
+      "urls": [
+        "https://snapshot.debian.org/archive/debian/20250814T000000Z/pool/main/g/gnupg2/gpg_2.4.7-21+b3_amd64.deb"
+      ],
+      "version": "2.4.7-21+b3"
+    },
+    {
+      "arch": "amd64",
+      "component": "main",
+      "dependencies": [
+        {
+          "key": "libassuan9_3.0.2-2_amd64",
+          "name": "libassuan9",
+          "version": "3.0.2-2"
+        },
+        {
+          "key": "libc6_2.41-12_amd64",
+          "name": "libc6",
+          "version": "2.41-12"
+        },
+        {
+          "key": "libgcrypt20_1.11.0-7_amd64",
+          "name": "libgcrypt20",
+          "version": "1.11.0-7"
+        },
+        {
+          "key": "libgpg-error0_1.51-4_amd64",
+          "name": "libgpg-error0",
+          "version": "1.51-4"
+        },
+        {
+          "key": "libreadline8t64_8.2-6_amd64",
+          "name": "libreadline8t64",
+          "version": "8.2-6"
+        }
+      ],
+      "filename": "pool/main/g/gnupg2/gpgconf_2.4.7-21+b3_amd64.deb",
+      "key": "gpgconf_2.4.7-21-p-b3_amd64",
+      "name": "gpgconf",
+      "sha256": "03a674af1e3bdf80d6cf5fd3866da3a7e23a101457f83483881d3b9db1ed70ea",
+      "size": 128696,
+      "urls": [
+        "https://snapshot.debian.org/archive/debian/20250814T000000Z/pool/main/g/gnupg2/gpgconf_2.4.7-21+b3_amd64.deb"
+      ],
+      "version": "2.4.7-21+b3"
+    },
+    {
+      "arch": "amd64",
+      "component": "main",
+      "dependencies": [
+        {
           "key": "libc6_2.41-12_amd64",
           "name": "libc6",
           "version": "2.41-12"
@@ -1194,6 +1309,31 @@
         "https://snapshot.debian.org/archive/debian/20250814T000000Z/pool/main/a/apt/libapt-pkg7.0_3.0.3_amd64.deb"
       ],
       "version": "3.0.3"
+    },
+    {
+      "arch": "amd64",
+      "component": "main",
+      "dependencies": [
+        {
+          "key": "libc6_2.41-12_amd64",
+          "name": "libc6",
+          "version": "2.41-12"
+        },
+        {
+          "key": "libgpg-error0_1.51-4_amd64",
+          "name": "libgpg-error0",
+          "version": "1.51-4"
+        }
+      ],
+      "filename": "pool/main/liba/libassuan/libassuan9_3.0.2-2_amd64.deb",
+      "key": "libassuan9_3.0.2-2_amd64",
+      "name": "libassuan9",
+      "sha256": "9d78ef8f016e7f24b5e20d1ce91939fe0f1f897e5f9059793201e930ded7eb8e",
+      "size": 61520,
+      "urls": [
+        "https://snapshot.debian.org/archive/debian/20250814T000000Z/pool/main/liba/libassuan/libassuan9_3.0.2-2_amd64.deb"
+      ],
+      "version": "3.0.2-2"
     },
     {
       "arch": "amd64",
@@ -1872,6 +2012,31 @@
           "key": "libc6_2.41-12_amd64",
           "name": "libc6",
           "version": "2.41-12"
+        },
+        {
+          "key": "libgpg-error0_1.51-4_amd64",
+          "name": "libgpg-error0",
+          "version": "1.51-4"
+        }
+      ],
+      "filename": "pool/main/libg/libgcrypt20/libgcrypt20_1.11.0-7_amd64.deb",
+      "key": "libgcrypt20_1.11.0-7_amd64",
+      "name": "libgcrypt20",
+      "sha256": "2e228206277d1262e76d5a78098f205edd80ee2c3ee1822ef42cdfdbb98620f9",
+      "size": 842936,
+      "urls": [
+        "https://snapshot.debian.org/archive/debian/20250814T000000Z/pool/main/libg/libgcrypt20/libgcrypt20_1.11.0-7_amd64.deb"
+      ],
+      "version": "1.11.0-7"
+    },
+    {
+      "arch": "amd64",
+      "component": "main",
+      "dependencies": [
+        {
+          "key": "libc6_2.41-12_amd64",
+          "name": "libc6",
+          "version": "2.41-12"
         }
       ],
       "filename": "pool/main/g/gmp/libgmp10_6.3.0+dfsg-3_amd64.deb",
@@ -1938,6 +2103,26 @@
         "https://snapshot.debian.org/archive/debian/20250814T000000Z/pool/main/g/gnutls28/libgnutls30t64_3.8.9-3_amd64.deb"
       ],
       "version": "3.8.9-3"
+    },
+    {
+      "arch": "amd64",
+      "component": "main",
+      "dependencies": [
+        {
+          "key": "libc6_2.41-12_amd64",
+          "name": "libc6",
+          "version": "2.41-12"
+        }
+      ],
+      "filename": "pool/main/libg/libgpg-error/libgpg-error0_1.51-4_amd64.deb",
+      "key": "libgpg-error0_1.51-4_amd64",
+      "name": "libgpg-error0",
+      "sha256": "22b95570fd41c113ef6f5651563b4d748292844baab1278a46eb940c1dec2322",
+      "size": 82108,
+      "urls": [
+        "https://snapshot.debian.org/archive/debian/20250814T000000Z/pool/main/libg/libgpg-error/libgpg-error0_1.51-4_amd64.deb"
+      ],
+      "version": "1.51-4"
     },
     {
       "arch": "amd64",
@@ -2213,6 +2398,31 @@
           "version": "2.41-12"
         },
         {
+          "key": "libgpg-error0_1.51-4_amd64",
+          "name": "libgpg-error0",
+          "version": "1.51-4"
+        }
+      ],
+      "filename": "pool/main/libk/libksba/libksba8_1.6.7-2+b1_amd64.deb",
+      "key": "libksba8_1.6.7-2-p-b1_amd64",
+      "name": "libksba8",
+      "sha256": "45bc1bfaf41a5e1136b1c1f58c495a950888da33a617de24202f3568e45b9572",
+      "size": 136048,
+      "urls": [
+        "https://snapshot.debian.org/archive/debian/20250814T000000Z/pool/main/libk/libksba/libksba8_1.6.7-2+b1_amd64.deb"
+      ],
+      "version": "1.6.7-2+b1"
+    },
+    {
+      "arch": "amd64",
+      "component": "main",
+      "dependencies": [
+        {
+          "key": "libc6_2.41-12_amd64",
+          "name": "libc6",
+          "version": "2.41-12"
+        },
+        {
           "key": "libsqlite3-0_3.46.1-7_amd64",
           "name": "libsqlite3-0",
           "version": "3.46.1-7"
@@ -2457,6 +2667,26 @@
         "https://snapshot.debian.org/archive/debian/20250814T000000Z/pool/main/n/nghttp3/libnghttp3-9_1.8.0-1_amd64.deb"
       ],
       "version": "1.8.0-1"
+    },
+    {
+      "arch": "amd64",
+      "component": "main",
+      "dependencies": [
+        {
+          "key": "libc6_2.41-12_amd64",
+          "name": "libc6",
+          "version": "2.41-12"
+        }
+      ],
+      "filename": "pool/main/n/npth/libnpth0t64_1.8-3_amd64.deb",
+      "key": "libnpth0t64_1.8-3_amd64",
+      "name": "libnpth0t64",
+      "sha256": "37d489976ef91ca0165a7789a7a7ac5923ee3cfadf316ac3e87582e15d0523d7",
+      "size": 23248,
+      "urls": [
+        "https://snapshot.debian.org/archive/debian/20250814T000000Z/pool/main/n/npth/libnpth0t64_1.8-3_amd64.deb"
+      ],
+      "version": "1.8-3"
     },
     {
       "arch": "amd64",
@@ -2717,6 +2947,36 @@
         "https://snapshot.debian.org/archive/debian/20250814T000000Z/pool/main/libp/libpsl/libpsl5t64_0.21.2-1.1+b1_amd64.deb"
       ],
       "version": "0.21.2-1.1+b1"
+    },
+    {
+      "arch": "amd64",
+      "component": "main",
+      "dependencies": [
+        {
+          "key": "libc6_2.41-12_amd64",
+          "name": "libc6",
+          "version": "2.41-12"
+        },
+        {
+          "key": "libtinfo6_6.5-p-20250216-2_amd64",
+          "name": "libtinfo6",
+          "version": "6.5+20250216-2"
+        },
+        {
+          "key": "readline-common_8.2-6_all",
+          "name": "readline-common",
+          "version": "8.2-6"
+        }
+      ],
+      "filename": "pool/main/r/readline/libreadline8t64_8.2-6_amd64.deb",
+      "key": "libreadline8t64_8.2-6_amd64",
+      "name": "libreadline8t64",
+      "sha256": "eeadf2b5e755c9f183883feea2d9b5b28560284275d5f54d3e55d0923b1d0967",
+      "size": 168832,
+      "urls": [
+        "https://snapshot.debian.org/archive/debian/20250814T000000Z/pool/main/r/readline/libreadline8t64_8.2-6_amd64.deb"
+      ],
+      "version": "8.2-6"
     },
     {
       "arch": "amd64",
@@ -4056,6 +4316,20 @@
       "version": "2:4.0.4-9"
     },
     {
+      "arch": "all",
+      "component": "main",
+      "dependencies": [],
+      "filename": "pool/main/r/readline/readline-common_8.2-6_all.deb",
+      "key": "readline-common_8.2-6_all",
+      "name": "readline-common",
+      "sha256": "f77e8aa0bf0de618f11cb0b21658a4ed60f177d63b3cf26d7fc3706b6d0eaaa9",
+      "size": 69360,
+      "urls": [
+        "https://snapshot.debian.org/archive/debian/20250814T000000Z/pool/main/r/readline/readline-common_8.2-6_all.deb"
+      ],
+      "version": "8.2-6"
+    },
+    {
       "arch": "amd64",
       "component": "main",
       "dependencies": [
@@ -4752,5 +5026,6 @@
     "snapshot": "20250814T000000Z",
     "snapshot_url": "https://snapshot.debian.org/archive/debian/20250814T000000Z"
   },
+  "spec_sha256": "6513225a65b8570b2adb7e8dac76ddc43f390fb2b10e47ff03f56c5044ad49ba",
   "version": 1
 }

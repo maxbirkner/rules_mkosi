@@ -2,8 +2,10 @@
 """Write systemd-sysupdate transfer definitions and matching A/B update payloads."""
 
 import argparse
+import functools
 import hashlib
 import json
+import lzma
 import os
 import runpy
 import shutil
@@ -17,17 +19,26 @@ file_hashing = _load_sibling(__file__, "file_hashing")
 _TRANSFER = """\
 [Transfer]
 ProtectVersion=%A
-Verify=no
+Verify={verify}
 
 [Source]
-Type=regular-file
-Path=/
-PathRelativeTo=explicit
-MatchPattern={source}
+{source}
+MatchPattern={pattern}
 
 [Target]
 {target}
 """
+
+# The directory is chosen at run time with --transfer-source=.
+_DIRECTORY_SOURCE = """\
+Type=regular-file
+Path=/
+PathRelativeTo=explicit"""
+
+# systemd-sysupdate downloads SHA256SUMS and, with Verify=yes, SHA256SUMS.gpg from Path, and then the matching files.
+_URL_SOURCE = """\
+Type=url-file
+Path={url}"""
 
 
 def root_name(image_id, version, partition_uuid):
@@ -71,20 +82,32 @@ def _uki_target(image_id, boot_attempts, instances):
     return target
 
 
-def transfers(image_id, boot_attempts, instances):
+def _compressed_or_plain(pattern):
+    """Returns source patterns that match a partition file with or without compression."""
+    return " ".join(pattern + suffix for suffix in sorted(COMPRESSION_SUFFIXES.values(), reverse=True))
+
+
+def transfers(image_id, boot_attempts, instances, url=None):
     """Returns transfer file names and contents for the root, verity and UKI resources.
 
-    File names sort so that both partitions are written before the UKI that references them.
+    File names sort so that both partitions are written before the UKI that references them, and partition sources
+    match every payload compression.
     systemd-sysupdate names a new UKI after the first target MatchPattern and gives it TriesLeft=3 unless
     configured otherwise, so boot counting is disabled by listing the counter-free pattern first.
+    Without url, the source is a directory; with url, an HTTP(S) directory whose SHA256SUMS must be signed.
     """
+    transfer = functools.partial(
+        _TRANSFER.format,
+        verify="yes" if url else "no",
+        source=_URL_SOURCE.format(url=url) if url else _DIRECTORY_SOURCE,
+    )
     partitions = (
         ("10-root.transfer", root_name, "", "root-x86-64"),
         ("20-root-verity.transfer", verity_name, "_verity", "root-x86-64-verity"),
     )
     result = {
-        name: _TRANSFER.format(
-            source=source_name(image_id, "@v", "@u"),
+        name: transfer(
+            pattern=_compressed_or_plain(source_name(image_id, "@v", "@u")),
             target=_PARTITION_TARGET.format(
                 label=image_id + "_@v" + label_suffix,
                 partition_type=partition_type,
@@ -93,8 +116,8 @@ def transfers(image_id, boot_attempts, instances):
         )
         for name, source_name, label_suffix, partition_type in partitions
     }
-    result["90-uki.transfer"] = _TRANSFER.format(
-        source=uki_name(image_id, "@v"),
+    result["90-uki.transfer"] = transfer(
+        pattern=uki_name(image_id, "@v"),
         target=_uki_target(image_id, boot_attempts, instances),
     )
     return result
@@ -118,20 +141,71 @@ def _populated(partitions, type_guid, label):
 _CHUNK_BYTES = 1024 * 1024
 _ZERO_CHUNK = bytes(_CHUNK_BYTES)
 
+# File name suffixes of the compressions that systemd-import and systemd-pull of systemd 257 decompress; zstd needs
+# systemd 258.
+COMPRESSION_SUFFIXES = {"none": "", "xz": ".xz"}
 
-def _copy(source, destination):
-    """Copies source to a new read-only file, keeping all-zero chunks sparse, and returns its SHA-256."""
+
+def _chunks(source, size):
+    """Yields the first size bytes, or all, of source."""
+    remaining = os.path.getsize(source) if size is None else size
+    with open(source, "rb") as src:
+        while remaining and (chunk := src.read(min(_CHUNK_BYTES, remaining))):
+            remaining -= len(chunk)
+            yield chunk
+    if remaining:
+        raise ValueError("{} is shorter than its dm-verity geometry".format(source))
+
+
+def _write_sparse(chunks, destination):
+    """Writes chunks and yields them, keeping all-zero chunks sparse."""
+    for chunk in chunks:
+        if chunk == _ZERO_CHUNK[: len(chunk)]:
+            destination.seek(len(chunk), os.SEEK_CUR)
+        else:
+            destination.write(chunk)
+        yield chunk
+    destination.truncate()
+
+
+def _write_xz(chunks, destination):
+    """Writes chunks as one xz stream and yields its bytes.
+
+    A single-threaded compressor with fixed settings makes the output a function of the input and the liblzma version.
+    """
+    compressor = lzma.LZMACompressor(format=lzma.FORMAT_XZ, check=lzma.CHECK_CRC64, preset=6)
+    for chunk in chunks:
+        compressed = compressor.compress(chunk)
+        destination.write(compressed)
+        yield compressed
+    compressed = compressor.flush()
+    destination.write(compressed)
+    yield compressed
+
+
+_WRITERS = {"none": _write_sparse, "xz": _write_xz}
+
+
+def _copy(source, destination, size=None, compression="none"):
+    """Copies the first size bytes, or all, of source to a new read-only file and returns the file's SHA-256."""
     digest = hashlib.sha256()
-    with open(source, "rb") as src, open(destination, "xb") as dst:
-        while chunk := src.read(_CHUNK_BYTES):
-            digest.update(chunk)
-            if chunk == _ZERO_CHUNK[: len(chunk)]:
-                dst.seek(len(chunk), os.SEEK_CUR)
-            else:
-                dst.write(chunk)
-        dst.truncate()
+    with open(destination, "xb") as dst:
+        for written in _WRITERS[compression](_chunks(source, size), dst):
+            digest.update(written)
     os.chmod(destination, 0o444)
     return digest.hexdigest()
+
+
+def verity_extents(verity_metadata):
+    """Returns the bytes of the root and verity partitions that dm-verity covers, from mkosi_image's metadata.
+
+    The root partition of an A/B slot may be larger than a minimized read-only file system, and the verity partition
+    larger than its hash tree; systemd-sysupdate writes a smaller file into the slot and dm-verity reads no further.
+    """
+    return (
+        verity_metadata["data_blocks"] * verity_metadata["data_block_size"],
+        verity_metadata["tree_offset"] + verity_metadata["tree_size"],
+    )
 
 
 def _release_uki(args):
@@ -140,7 +214,7 @@ def _release_uki(args):
         raise ValueError("--signed-uki and --signing-request must be given together")
     if args.signed_uki is None:
         return args.uki
-    requested = json.loads(Path(args.signing_request).read_text(encoding="utf-8"))["unsigned_uki_sha256"]
+    requested = json.loads(Path(args.signing_request).read_text(encoding="utf-8"))["unsigned_sha256"]
     actual = file_hashing.sha256_file(args.uki)
     if requested != actual:
         raise ValueError(
@@ -174,15 +248,16 @@ def payload(args):
     root_uuid, verity_uuid = verity_partition_uuids(root_hash)
     partitions = json.loads(Path(args.partition_metadata).read_text(encoding="utf-8"))["partitions"]
     _check_slot_uuids(partitions, "{}_{}".format(args.image_id, args.image_version), root_uuid, verity_uuid)
+    root_size, verity_size = verity_extents(json.loads(Path(args.verity_metadata).read_text(encoding="utf-8")))
     output = Path(args.output)
     output.mkdir(parents=True, exist_ok=True)
-    digests = {}
-    for name, source in (
-        (root_name(args.image_id, args.image_version, root_uuid), args.root_image),
-        (verity_name(args.image_id, args.image_version, verity_uuid), args.verity_image),
-        (uki_name(args.image_id, args.image_version), uki),
-    ):
-        digests[name] = _copy(source, output / name)
+    version, suffix, compression = args.image_version, COMPRESSION_SUFFIXES[args.compression], args.compression
+    files = (
+        (root_name(args.image_id, version, root_uuid) + suffix, args.root_image, root_size, compression),
+        (verity_name(args.image_id, version, verity_uuid) + suffix, args.verity_image, verity_size, compression),
+        (uki_name(args.image_id, version), uki, None, "none"),
+    )
+    digests = {name: _copy(source, output / name, size, method) for name, source, size, method in files}
     (output / "SHA256SUMS").write_text(
         "".join("{}  {}\n".format(digests[name], name) for name in sorted(digests)),
         encoding="ascii",
@@ -192,7 +267,7 @@ def payload(args):
 def write_transfers(args):
     output = Path(args.output)
     output.mkdir(parents=True, exist_ok=True)
-    for name, content in transfers(args.image_id, args.boot_attempts, args.instances).items():
+    for name, content in transfers(args.image_id, args.boot_attempts, args.instances, args.url).items():
         (output / name).write_text(content, encoding="ascii")
 
 
@@ -203,6 +278,7 @@ def main():
     transfer_parser.add_argument("--image-id", required=True)
     transfer_parser.add_argument("--boot-attempts", type=int, required=True)
     transfer_parser.add_argument("--instances", type=int, required=True)
+    transfer_parser.add_argument("--url")
     transfer_parser.add_argument("--output", required=True)
     transfer_parser.set_defaults(handler=write_transfers)
     payload_parser = commands.add_parser("payload")
@@ -214,9 +290,11 @@ def main():
     payload_parser.add_argument("--partition-metadata", required=True)
     payload_parser.add_argument("--root-image", required=True)
     payload_parser.add_argument("--verity-image", required=True)
+    payload_parser.add_argument("--verity-metadata", required=True)
     payload_parser.add_argument("--uki", required=True)
     payload_parser.add_argument("--signed-uki")
     payload_parser.add_argument("--signing-request")
+    payload_parser.add_argument("--compression", choices=sorted(COMPRESSION_SUFFIXES), default="none")
     payload_parser.add_argument("--output", required=True)
     payload_parser.set_defaults(handler=payload)
     args = parser.parse_args()

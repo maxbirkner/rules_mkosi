@@ -6,6 +6,7 @@ load(
     "DebianSnapshotInfo",
     "DebianToolsInfo",
     "MkosiBaseInfo",
+    "MkosiConfigTreeInfo",
     "MkosiImageInfo",
     "MkosiRootfsPayloadInfo",
     "QemuBootConfigInfo",
@@ -72,6 +73,7 @@ def _image_public_api_test_impl(ctx):
     asserts.equals(env, "mkosi-image-v3", info.format_version)
     asserts.equals(env, "demo.raw", info.raw_image.basename)
     asserts.equals(env, info.raw_image, info.image)
+    asserts.equals(env, [info.raw_image], target[OutputGroupInfo].raw_image.to_list())
     asserts.equals(env, None, info.manifest)
     asserts.false(env, hasattr(info, "root_hash_signature"), "root_hash_signature is not part of the API")
     asserts.equals(env, None, info.partition_metadata)
@@ -99,6 +101,17 @@ def _rootfs_payload_public_api_test_impl(ctx):
     return analysistest.end(env)
 
 rootfs_payload_public_api_test = analysistest.make(_rootfs_payload_public_api_test_impl)
+
+def _config_tree_public_api_test_impl(ctx):
+    env = analysistest.begin(ctx)
+    info = analysistest.target_under_test(env)[MkosiConfigTreeInfo]
+    generator = "mkosi.extra/usr/lib/systemd/system-generators/rules-mkosi-shared-tree"
+    asserts.equals(env, [generator, "mkosi.initrd.conf/" + generator], info.executable_paths)
+    asserts.true(env, info.is_generated)
+    asserts.true(env, info.tree.is_directory)
+    return analysistest.end(env)
+
+config_tree_public_api_test = analysistest.make(_config_tree_public_api_test_impl)
 
 def _boot_config_public_api_test_impl(ctx):
     env = analysistest.begin(ctx)
@@ -129,6 +142,7 @@ def _sysupdate_public_api_test_impl(ctx):
         asserts.equals(env, expected_version, image.image_version)
         asserts.equals(env, expected_version_file, info.image_version_file)
         asserts.equals(env, expected_version_file, image.image_version_file)
+        asserts.equals(env, ctx.attr.expect_signature, info.signature != None)
     else:
         info = target[MkosiRootfsPayloadInfo]
         asserts.equals(env, "/usr/lib/sysupdate.d", info.destination)
@@ -138,6 +152,7 @@ def _sysupdate_public_api_test_impl(ctx):
 sysupdate_public_api_test = analysistest.make(
     _sysupdate_public_api_test_impl,
     attrs = {
+        "expect_signature": attr.bool(),
         "expected_version": attr.string(),
         "expected_version_file": attr.label(allow_single_file = True),
         "image": attr.label(providers = [MkosiImageInfo]),

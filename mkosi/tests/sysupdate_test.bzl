@@ -5,14 +5,14 @@ load(
     "//mkosi:defs.bzl",
     "MkosiImageInfo",
     "MkosiRootfsPayloadInfo",
-    "SecureBootSignedUkiInfo",
+    "SecureBootSignedBinaryInfo",
     "SysupdatePayloadInfo",
     "mkosi_image",
     "qemu_ovmf_boot_config",
     "sysupdate_payload",
     "sysupdate_transfers",
 )
-load(":analysis_test_helpers.bzl", "argv_preamble", "option_value", "single_action")
+load(":analysis_test_helpers.bzl", "argv_preamble", "expected_failure_test", "option_value", "single_action")
 
 def _template_variables_impl(ctx):
     return [platform_common.TemplateVariableInfo(ctx.attr.variables)]
@@ -27,14 +27,16 @@ def _signed_uki_impl(ctx):
     signed_uki = ctx.actions.declare_file(ctx.label.name + ".signed.efi")
     ctx.actions.write(request, "{}")
     ctx.actions.write(signed_uki, "")
-    return [SecureBootSignedUkiInfo(
-        format_version = "mkosi-secure-boot-signed-uki-v2",
+    return [SecureBootSignedBinaryInfo(
+        certificate = request,
+        esp_path = ctx.attr.esp_path,
+        format_version = "mkosi-secure-boot-signed-binary-v3",
         request = request,
-        signed_uki = signed_uki,
+        signed_binary = signed_uki,
         verification_metadata = request,
     )]
 
-_signed_uki = rule(implementation = _signed_uki_impl)
+_signed_uki = rule(implementation = _signed_uki_impl, attrs = {"esp_path": attr.string()})
 
 def _image_identity_test_impl(ctx):
     env = analysistest.begin(ctx)
@@ -123,17 +125,6 @@ _image_version_file_identity_test = analysistest.make(
     attrs = {"version_file": attr.label(allow_single_file = True, mandatory = True)},
 )
 
-def _expected_failure_test_impl(ctx):
-    env = analysistest.begin(ctx)
-    asserts.expect_failure(env, ctx.attr.expected_error)
-    return analysistest.end(env)
-
-_expected_failure_test = analysistest.make(
-    _expected_failure_test_impl,
-    attrs = {"expected_error": attr.string(mandatory = True)},
-    expect_failure = True,
-)
-
 def _transfers_test_impl(ctx):
     env = analysistest.begin(ctx)
     target = analysistest.target_under_test(env)
@@ -164,17 +155,8 @@ _transfers_test = analysistest.make(
     },
 )
 
-def _payload_test_impl(ctx):
-    env = analysistest.begin(ctx)
-    target = analysistest.target_under_test(env)
-    info = target[SysupdatePayloadInfo]
-    asserts.equals(env, "rules-mkosi-ab", info.image_id)
-    asserts.true(env, info.directory.is_directory)
-    asserts.equals(env, [info.directory], target[DefaultInfo].files.to_list())
-    action = single_action(env, "MkosiSysupdatePayload")
+def _assert_payload_version(env, ctx, info, action):
     argv = action.argv
-    asserts.equals(env, "payload", argv[2])
-    asserts.equals(env, "rules-mkosi-ab", option_value(argv, "--image-id"))
     version_file = ctx.file.expected_version_file
     if version_file:
         asserts.equals(env, None, info.image_version)
@@ -188,12 +170,26 @@ def _payload_test_impl(ctx):
         asserts.equals(env, None, info.image_version_file)
         asserts.equals(env, "7", option_value(argv, "--image-version"))
         asserts.false(env, "--image-version-file" in argv)
+
+def _payload_test_impl(ctx):
+    env = analysistest.begin(ctx)
+    target = analysistest.target_under_test(env)
+    info = target[SysupdatePayloadInfo]
+    asserts.equals(env, "rules-mkosi-ab", info.image_id)
+    asserts.true(env, info.directory.is_directory)
+    asserts.equals(env, [info.directory], target[DefaultInfo].files.to_list())
+    action = single_action(env, "MkosiSysupdatePayload")
+    argv = action.argv
+    asserts.equals(env, "payload", argv[2])
+    asserts.equals(env, "rules-mkosi-ab", option_value(argv, "--image-id"))
+    _assert_payload_version(env, ctx, info, action)
     image = ctx.attr.image_name
     for option, basename in (
         ("--root-hash", image + ".roothash"),
         ("--partition-metadata", image + ".partitions.json"),
         ("--root-image", image + ".root.raw"),
         ("--verity-image", image + ".root-verity.raw"),
+        ("--verity-metadata", image + ".verity.json"),
         ("--uki", image + ".efi"),
     ):
         asserts.true(env, option_value(argv, option).endswith("/" + basename), option)
@@ -207,6 +203,7 @@ def _payload_test_impl(ctx):
             asserts.true(env, basename in [file.basename for file in action.inputs.to_list()], basename)
         else:
             asserts.false(env, option in argv, option)
+    asserts.equals(env, ctx.attr.expected_compression, option_value(argv, "--compression"))
     asserts.equals(env, info.directory.path, option_value(argv, "--output"))
     return analysistest.end(env)
 
@@ -214,6 +211,7 @@ _payload_test = analysistest.make(
     _payload_test_impl,
     attrs = {
         "expect_signed_uki": attr.bool(),
+        "expected_compression": attr.string(default = "none"),
         "expected_version_file": attr.label(allow_single_file = True),
         "image_name": attr.string(default = "versioned_release_subject"),
     },
@@ -246,7 +244,8 @@ _lifecycle_boot_config_test = analysistest.make(
     },
 )
 
-def _boot_config(name, **kwargs):
+def boot_config_subject(name, **kwargs):
+    """Declares a manual qemu_ovmf_boot_config subject with test defaults for the attributes that kwargs omit."""
     attrs = {
         "boot_timeout_seconds": 180,
         "diagnostic_bytes": 4096,
@@ -260,6 +259,41 @@ def _boot_config(name, **kwargs):
     }
     attrs.update(kwargs)
     qemu_ovmf_boot_config(name = name, **attrs)
+
+def _signed_esp_file_payload_test():
+    """Declares a test that sysupdate_payload rejects a signed ESP file as its UKI and returns its label."""
+    _signed_uki(
+        name = "signed_esp_file_subject",
+        esp_path = "EFI/systemd/systemd-bootx64.efi",
+        tags = ["manual"],
+    )
+    sysupdate_payload(
+        name = "invalid_signed_esp_file_payload_subject",
+        image = ":versioned_release_subject",
+        signed_uki = ":signed_esp_file_subject",
+        tags = ["manual"],
+    )
+    expected_failure_test(
+        name = "invalid_signed_esp_file_payload_test",
+        expected_error = "signed_uki must import a signed UKI, not the ESP file EFI/systemd/systemd-bootx64.efi",
+        target_under_test = ":invalid_signed_esp_file_payload_subject",
+    )
+    return ":invalid_signed_esp_file_payload_test"
+
+def _payload_variant_tests():
+    """Declares tests of compressed payloads and of a signed ESP file as UKI and returns their labels."""
+    sysupdate_payload(
+        name = "xz_payload_subject",
+        compression = "xz",
+        image = ":versioned_release_subject",
+        tags = ["manual"],
+    )
+    _payload_test(
+        name = "xz_payload_test",
+        expected_compression = "xz",
+        target_under_test = ":xz_payload_subject",
+    )
+    return [":xz_payload_test", _signed_esp_file_payload_test()]
 
 def sysupdate_test_suite(name):
     """Defines analysis tests for image identity, sysupdate rules and multi-boot lifecycle configuration.
@@ -355,7 +389,7 @@ def sysupdate_test_suite(name):
         verity = "hash",
         tags = ["manual"],
     )
-    _expected_failure_test(
+    expected_failure_test(
         name = "slot_label_too_long_release_test",
         expected_error = (
             "A/B verity partition label 'rules-mkosi-ab_20261103.12abcd_verity' is 37 characters, " +
@@ -445,7 +479,7 @@ def sysupdate_test_suite(name):
             tags = ["manual"],
             **kwargs
         )
-        _expected_failure_test(
+        expected_failure_test(
             name = "invalid_%s_test" % subject,
             expected_error = expected_error,
             target_under_test = ":invalid_%s_subject" % subject,
@@ -492,7 +526,7 @@ def sysupdate_test_suite(name):
             tags = ["manual"],
             **kwargs
         )
-        _expected_failure_test(
+        expected_failure_test(
             name = "invalid_transfers_%s_test" % subject,
             expected_error = expected_error,
             target_under_test = ":invalid_transfers_%s_subject" % subject,
@@ -534,7 +568,7 @@ def sysupdate_test_suite(name):
         image_name = "version_file_release_subject",
         target_under_test = ":version_file_payload_subject",
     )
-    tests += [":signed_payload_test", ":version_file_payload_test", ":versioned_payload_test"]
+    tests += [":signed_payload_test", ":version_file_payload_test", ":versioned_payload_test"] + _payload_variant_tests()
     for subject, image, expected_error in [
         ("unversioned", ":immutable_release_subject", "image must set image_id and image_version or image_version_file"),
         ("without_verity", ":versioned_plain_release_subject", "unified_kernel_image = 'unsigned' and verity = 'hash'"),
@@ -544,14 +578,14 @@ def sysupdate_test_suite(name):
             image = image,
             tags = ["manual"],
         )
-        _expected_failure_test(
+        expected_failure_test(
             name = "invalid_%s_payload_test" % subject,
             expected_error = expected_error,
             target_under_test = ":invalid_%s_payload_subject" % subject,
         )
         tests.append(":invalid_%s_payload_test" % subject)
 
-    _boot_config(
+    boot_config_subject(
         name = "lifecycle_boot_subject",
         allow_reboot = True,
         progress_markers = ["FIRST", "SECOND", "FIRST"],
@@ -589,8 +623,8 @@ def sysupdate_test_suite(name):
             "is used more than once",
         ),
     ]:
-        _boot_config(name = "invalid_%s_boot_subject" % subject, **kwargs)
-        _expected_failure_test(
+        boot_config_subject(name = "invalid_%s_boot_subject" % subject, **kwargs)
+        expected_failure_test(
             name = "invalid_%s_boot_test" % subject,
             expected_error = expected_error,
             target_under_test = ":invalid_%s_boot_subject" % subject,

@@ -18,9 +18,10 @@ link_graph() {
         --output=text "$@"
 }
 
+# Fails unless the link commands name the target triple $3 and never $4.
 require_link_toolchain() {
     case "$2" in
-        *"tools/$3"*) ;;
+        *"$3"*) ;;
         *)
             echo "$1 did not link with the $3 toolchain" >&2
             echo "$2" >&2
@@ -28,7 +29,7 @@ require_link_toolchain() {
             ;;
     esac
     case "$2" in
-        *"tools/$4"*)
+        *"$4"*)
             echo "$1 linked with the $4 toolchain" >&2
             echo "$2" >&2
             exit 1
@@ -53,15 +54,60 @@ case "$fixture" in
             esac
         done
         require_link_toolchain "selected bootstrap platform" "$graph" \
-            x86_64-linux-musl/ x86_64-linux-gnu
+            x86_64-linux-musl x86_64-linux-gnu
+        # rules_mkosi's static toolchain also outranks the consumer's first-registered glibc toolchain with the
+        # default bootstrap platform.
         graph="$(link_graph \
             --@rules_mkosi//mkosi/toolchain:bootstrap_platform=@rules_mkosi//mkosi/toolchain:inherit_platform \
             "$bootstrap_links")"
-        require_link_toolchain "inherited bootstrap platform" "$graph" \
-            x86_64-linux-gnu x86_64-linux-musl/
+        require_link_toolchain "default bootstrap platform" "$graph" \
+            x86_64-linux-musl x86_64-linux-gnu
         graph="$(link_graph 'mnemonic("CppLink", deps(@rules_mkosi//mkosi:kernel_preflight))')"
         require_link_toolchain "consumer target platform" "$graph" \
-            x86_64-linux-gnu x86_64-linux-musl/
+            x86_64-linux-gnu x86_64-linux-musl
+        ;;
+    llvm_consumer)
+        LOCKFILE_MODE="$lockfile_mode" "$root/../../../ci/check-lazy-toolchain-fetch.sh" \
+            --uses-llvm \
+            --consumer-cc-target //:consumer_cc \
+            --bootstrap-target @mkosi_debian_tools//:namespace_runner \
+            "$root" //:plain_test
+        # The consumer's registration of the same cc_toolchain links its own target dynamically against glibc,
+        # while rules_mkosi's bootstrap executable links statically against musl.
+        graph="$(link_graph 'mnemonic("CppLink", deps(//:consumer_cc))')"
+        require_link_toolchain "consumer target" "$graph" x86_64-linux-gnu x86_64-linux-musl
+        graph="$(link_graph \
+            'mnemonic("CppLink", filter(":namespace_runner_binary$", deps(@mkosi_debian_tools//:namespace_runner)))')"
+        require_link_toolchain "bootstrap executable" "$graph" x86_64-linux-musl x86_64-linux-gnu
+        "$bazel_command" --nosystem_rc --nohome_rc build --lockfile_mode="$lockfile_mode" \
+            //:consumer_cc @mkosi_debian_tools//:namespace_runner
+        execution_root="$("$bazel_command" --nosystem_rc --nohome_rc info --lockfile_mode="$lockfile_mode" \
+            execution_root)"
+        consumer="$("$bazel_command" --nosystem_rc --nohome_rc cquery --lockfile_mode="$lockfile_mode" \
+            --output=files //:consumer_cc)"
+        runner="$("$bazel_command" --nosystem_rc --nohome_rc cquery --lockfile_mode="$lockfile_mode" \
+            --output=files @mkosi_debian_tools//:namespace_runner)"
+        consumer_headers="$(readelf --program-headers --wide "$execution_root/$consumer")"
+        runner_headers="$(readelf --program-headers --wide "$execution_root/$runner")"
+        case "$consumer_headers" in
+            *INTERP*) ;;
+            *)
+                echo "consumer_cc is not dynamically linked" >&2
+                exit 1
+                ;;
+        esac
+        case "$runner_headers" in
+            *INTERP* | *DYNAMIC*)
+                echo "the namespace runner is not fully static" >&2
+                exit 1
+                ;;
+        esac
+        ;;
+    rules_cc_first)
+        LOCKFILE_MODE="$lockfile_mode" "$root/../../../ci/check-lazy-toolchain-fetch.sh" \
+            --consumer-cc-target //:consumer_cc \
+            --bootstrap-target @mkosi_debian_tools//:namespace_runner \
+            "$root" //:plain_test
         ;;
     default|explicit)
         definition="$("$bazel_command" --nosystem_rc --nohome_rc \

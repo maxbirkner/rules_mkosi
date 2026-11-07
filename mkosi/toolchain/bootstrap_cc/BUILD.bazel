@@ -1,0 +1,55 @@
+load("@bazel_skylib//rules:common_settings.bzl", "bool_setting")
+
+# C/C++ toolchain for rules_mkosi's statically linked bootstrap executables only, backed by the Linux x86-64 C/C++
+# toolchain of the llvm module, which builds musl and libc++ from source. bootstrap_binary puts it first in
+# --extra_toolchains, so it needs no registration, and Bazel fetches the LLVM toolchain and runtime sources only when it
+# builds a bootstrap executable with it.
+
+# Set only by the transition of bootstrap_binary, so that this toolchain never matches any other target. It also holds
+# in the execution configurations below a bootstrap executable, like --extra_toolchains.
+bool_setting(
+    name = "bootstrap_executable",
+    build_setting_default = False,
+    scope = "universal",
+    visibility = ["//mkosi:__subpackages__"],
+)
+
+config_setting(
+    name = "building_bootstrap_executable",
+    flag_values = {":bootstrap_executable": "True"},
+)
+
+# Default target platform of the bootstrap executables, and their default first execution platform. The llvm module's
+# C/C++ toolchain selects its C library and position-independent executable mode from the target platform: musl links
+# fully static executables, and without PIE they need no dynamic section, whatever the version of the llvm module
+# defaults to. As the execution platform, it makes the toolchain's own helper tools, such as its header parser, static
+# musl executables too. Public, so that consumers can inherit its constraints in their own bootstrap platforms.
+platform(
+    name = "linux_x86_64_musl",
+    constraint_values = [
+        "@llvm//constraints/libc:musl",
+        "@llvm//constraints/pie:off",
+        "@platforms//cpu:x86_64",
+        "@platforms//os:linux",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+# Matches only platforms with the musl constraint, such as the one above. It references the llvm module's cc_toolchain
+# by label and constrains nothing beyond @platforms and the llvm module itself, so declaring it downloads no compiler
+# or runtime.
+toolchain(
+    name = "linux_x86_64_musl_cc_toolchain",
+    exec_compatible_with = [
+        "@platforms//cpu:x86_64",
+        "@platforms//os:linux",
+    ],
+    target_compatible_with = [
+        "@llvm//constraints/libc:musl",
+        "@platforms//cpu:x86_64",
+        "@platforms//os:linux",
+    ],
+    target_settings = [":building_bootstrap_executable"],
+    toolchain = "@llvm//toolchain:linux_x86_64_cc_toolchain",
+    toolchain_type = "@bazel_tools//tools/cpp:toolchain_type",
+)

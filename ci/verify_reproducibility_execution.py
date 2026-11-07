@@ -1,35 +1,55 @@
 #!/usr/bin/python3
-"""Verify that a reproducibility build executed both subject actions."""
+"""Verify that a reproducibility build executed every subject action."""
 
 import pathlib
 import sys
 
 from execution_log import read_entries
 
-EXPECTED = {
-    ("MkosiImage", "//mkosi/tests:release_subject"),
-    (
-        "MkosiReproducibilityManifest",
-        "//mkosi/tests:release_reproducibility",
-    ),
-    ("MkosiBase", "//mkosi/tests:two_stage_base"),
-    ("MkosiImage", "//mkosi/tests:two_stage_release"),
-    (
-        "MkosiReproducibilityManifest",
-        "//mkosi/tests:two_stage_reproducibility",
-    ),
+_DEBIAN_TOOLS = "@@+debian_tools+mkosi_debian_tools//"
+
+SUBJECTS = {
+    "release": {
+        ("MkosiImage", "//mkosi/tests:release_subject"),
+        (
+            "MkosiReproducibilityManifest",
+            "//mkosi/tests:release_reproducibility",
+        ),
+        ("MkosiImage", "//mkosi/tests:erofs_release"),
+        (
+            "MkosiReproducibilityManifest",
+            "//mkosi/tests:erofs_release_reproducibility",
+        ),
+        ("MkosiSysupdatePayload", "//mkosi/tests:erofs_release_payload"),
+        ("MkosiBase", "//mkosi/tests:two_stage_base"),
+        ("MkosiImage", "//mkosi/tests:two_stage_release"),
+        (
+            "MkosiReproducibilityManifest",
+            "//mkosi/tests:two_stage_reproducibility",
+        ),
+    },
+    "bootstrap": {
+        ("BuildDebianToolsArchive", _DEBIAN_TOOLS + ":tree"),
+        ("CppCompile", _DEBIAN_TOOLS + ":launcher_binary"),
+        ("CppLink", _DEBIAN_TOOLS + ":launcher_binary"),
+        ("CppCompile", _DEBIAN_TOOLS + ":namespace_runner_binary"),
+        ("CppLink", _DEBIAN_TOOLS + ":namespace_runner_binary"),
+        ("CppCompile", "//mkosi/private:write_all"),
+        ("CppCompile", "@@rules_cc+//cc/runfiles:runfiles"),
+    },
 }
 
 
-def verify(path, build_name):
+def verify(path, build_name, subject="release"):
+    expected = SUBJECTS[subject]
     observed = {}
+    errors = []
     for entry in read_entries(path):
         key = (entry.get("mnemonic"), entry.get("targetLabel"))
-        if key in EXPECTED:
+        if key in expected:
             observed.setdefault(key, []).append(entry)
 
-    errors = []
-    for key in sorted(EXPECTED):
+    for key in sorted(expected):
         entries = observed.get(key, [])
         if len(entries) != 1:
             errors.append("{} {}: expected one execution, found {}".format(*key, len(entries)))
@@ -42,10 +62,10 @@ def verify(path, build_name):
                 "\n".join(errors),
             )
         )
-    print("{} independently executed every image, base, and projection action".format(build_name))
+    print("{} independently executed every {} action".format(build_name, subject))
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 3:
-        raise SystemExit("usage: verify_reproducibility_execution.py LOG BUILD_NAME")
-    verify(pathlib.Path(sys.argv[1]), sys.argv[2])
+    if len(sys.argv) not in (3, 4) or sys.argv[3:] not in ([], ["release"], ["bootstrap"]):
+        raise SystemExit("usage: verify_reproducibility_execution.py LOG BUILD_NAME [release|bootstrap]")
+    verify(pathlib.Path(sys.argv[1]), sys.argv[2], *sys.argv[3:])

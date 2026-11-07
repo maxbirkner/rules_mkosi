@@ -3,14 +3,15 @@ load("@rules_mkosi//mkosi:defs.bzl", "managed_python_test")
 load("@rules_python//python:defs.bzl", "py_test")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
 
-# Selected by .bazelrc for rules_mkosi's bootstrap executables. Only the consumer's libc-aware musl toolchain
-# matches this platform.
+# Selected by .bazelrc for rules_mkosi's bootstrap executables, which rules_mkosi's static musl toolchain builds for
+# it. Without PIE, they need no dynamic section.
 platform(
     name = "bootstrap_musl",
     constraint_values = [
+        "@llvm//constraints/libc:musl",
+        "@llvm//constraints/pie:off",
         "@platforms//cpu:x86_64",
         "@platforms//os:linux",
-        "@zig_sdk//libc:musl",
     ],
 )
 

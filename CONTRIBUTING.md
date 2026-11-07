@@ -6,14 +6,9 @@
 - [`prek`](https://prek.j178.dev/) 0.5 or newer.
 - Optional: [ShellCheck](https://www.shellcheck.net/) on `PATH`, so prek's actionlint hook also checks workflow `run:` scripts as CI does.
 - Host Python 3.11 or newer, only for the [`tools/bazel`](tools/README.md) wrapper.
-- A host that meets the [requirements](README.md#requirements), with the Bazel server started without supplementary groups:
-
-  ```console
-  bazel shutdown
-  ci/bin/group-free bazel test //...
-  ```
-
-- Optional: read-write access to `/dev/kvm` for faster boot tests, granted with a user ACL such as `sudo setfacl -m "u:$USER:rw" /dev/kvm` (`group-free` drops group membership).
+- A host that meets the [requirements](README.md#requirements).
+- Optional: read-write access to `/dev/kvm` for faster boot tests, for example through membership in the `kvm` group.
+  `ci/bin/group-free` drops group membership, so a server started through it needs a user ACL such as `sudo setfacl -m "u:$USER:rw" /dev/kvm` instead.
 
 ## Checks
 
@@ -22,12 +17,21 @@ prek run --all-files                 # Formatting, linting, spelling, secrets.
 prek install                         # Optional: run the same checks as Git hooks.
 bazel test //...                     # Root module; excludes e2e/.
 ci/regen-lockfiles.sh --check       # Committed lockfiles are current.
+bazel run //docs/api:update          # Regenerate the API reference in docs/api.
 (cd e2e/smoke && bazel test //...)   # Independent consumer module.
 e2e/module_resolution/test.sh consumer_isolation  # One module-resolution fixture.
+ci/check-lazy-toolchain-fetch.sh --bootstrap-target @mkosi_debian_tools//:namespace_runner . //ci:check_pr_title_test  # Registered toolchains fetch no heavy repository.
 ```
 
 Run Bazel from a module root, or use [`tools/bazel`](tools/README.md) from a subdirectory.
 See [`e2e/README.md`](e2e/README.md) for the consumer and module-resolution fixtures.
+
+### API reference
+
+`docs/api` is generated with Stardoc from the docstrings of the public Starlark API: `mkosi/defs.bzl` and the module extensions.
+`bazel test //docs/api:all`, part of `bazel test //...`, fails while the committed files differ from the generated ones; regenerate them with `bazel run //docs/api:update`.
+Document every public attribute, provider field, and macro argument with its meaning.
+A release also uploads the extracted documentation as `rules_mkosi-<tag>.docs.tar.gz`, which the Bazel Central Registry displays.
 
 ### Bazel versions and lockfiles
 
@@ -94,15 +98,16 @@ Tests read the expected values from `provenance.bzl`.
 
 ### mkosi versions
 
-Release mode patches mkosi internals in `mkosi/private/mkosi_runner/release_patches.py`.
+Release mode patches mkosi internals in `mkosi/private/mkosi_runner/release_patches.py`; [mkosi internals](docs/mkosi-internals.md) explains why each patch is needed.
 Adding or changing an entry in `mkosi/versions.bzl` requires reviewing those patches against the new mkosi and recording its contract in `mkosi/private/mkosi_runner/mkosi_contract.py`.
-`//mkosi/tests:mkosi_contract_test` lists every changed internal until then.
+Once the new version is the default, `//mkosi/tests:mkosi_contract_test` lists every internal that changed since the newest contract and what to re-verify; follow the [upgrade procedure](docs/mkosi-internals.md#upgrading-mkosi).
 
 ## Pull requests
 
 - Use [Conventional Commits](https://www.conventionalcommits.org/) for commit messages and pull request titles; the `PR title` check enforces the title, which becomes the squashed commit message.
 - Public API changes need analysis tests and consumer tests in `e2e/smoke`.
 - Releases follow Semantic Versioning, and release notes are generated from pull requests, so describe user-visible and compatibility changes in the title and description.
+  See [BCR publishing](.bcr/README.md) for cutting a release.
 - Every change to `main` goes through a pull request that passes the `CI conclusion` check.
 - Pull requests from contributors without write access need a review from someone with write access.
   Maintainers may bypass review only for their own changes, never to merge an unreviewed outside contribution.

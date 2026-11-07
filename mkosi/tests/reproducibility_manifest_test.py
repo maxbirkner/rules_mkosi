@@ -2,6 +2,7 @@
 
 import hashlib
 import importlib.util
+import json
 import os
 import pathlib
 import sys
@@ -144,6 +145,23 @@ class ProjectionTest(unittest.TestCase):
         partitions.write_text("{}")
         split.write_bytes(b"split artifact")
         return image, metadata, partitions, split
+
+    def test_versioned_verity_image_is_hashed_with_its_slot_label(self):
+        image, metadata, partitions, _ = self._minimal_projection_inputs()
+        cases = [
+            ({"artifacts": {"verity_metadata": True}, "image": {"id": "os", "version": "7"}}, "os_7"),
+            ({"artifacts": {"verity_metadata": False}, "image": {"id": "os", "version": "7"}}, None),
+            ({"artifacts": {"verity_metadata": True}, "image": {"id": "os", "version": None}}, None),
+            ({}, None),
+        ]
+        for build_metadata, slot_label in cases:
+            with self.subTest(slot_label=slot_label, build_metadata=build_metadata):
+                metadata.write_text(json.dumps(build_metadata))
+                with mock.patch.object(
+                    projection.partition_metadata, "canonical_image_sha256", return_value="a" * 64
+                ) as canonical:
+                    projection.project(image, metadata, partitions)
+                canonical.assert_called_once_with(image, slot_label)
 
     def test_rejects_descriptor_metadata_change_during_hashing(self):
         image, metadata, partitions, split = self._minimal_projection_inputs()

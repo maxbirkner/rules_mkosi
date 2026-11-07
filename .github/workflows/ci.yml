@@ -48,10 +48,15 @@ jobs:
         # suite's entries; the audit suite only reads the root suite's caches.
         # Bazelisk runs the root module through tools/bazel, which pins the
         # module-local .cache/bazel-disk, so only the consumer saves a disk cache.
+        # The root and audit suites keep the runner's supplementary groups, as a
+        # normally started Bazel server does; the consumer suite clears them.
+        # The consumer suite also sandboxes actions on a nosuid,nodev mount, like
+        # a /dev/shm sandbox base, whose locked flags the namespace runner keeps.
         include:
           - suite: root
             label: root suite
             module: .
+            server-groups: kept
             cache-save: true
             disk-cache: "false"
             external-cache: root
@@ -59,12 +64,15 @@ jobs:
           - suite: consumer
             label: consumer suite
             module: e2e/smoke
+            server-groups: cleared
+            restricted-sandbox: true
             cache-save: true
             disk-cache: consumer
             external-cache: consumer
             repository-cache: '["MODULE.bazel", "e2e/smoke/MODULE.bazel"]'
           - suite: audit
             module: ""
+            server-groups: kept
             cache-save: false
             disk-cache: "false"
             external-cache: root
@@ -72,6 +80,7 @@ jobs:
     env:
       DEFAULT_BAZEL_VERSION: ${{ needs.bazel-versions.outputs.default }}
       USE_BAZEL_VERSION: ${{ matrix.bazel }}
+      SERVER_GROUPS: ${{ matrix.server-groups }}
     steps:
       - name: Check out repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -103,32 +112,32 @@ jobs:
       - name: Enable KVM for QEMU boot tests
         if: matrix.module != ''
         run: |
-          # Bazel runs with an empty supplementary-group list, so membership in
-          # the kvm group cannot grant access; open the device to every user.
+          # A Bazel server without supplementary groups cannot use kvm group
+          # membership, so open the device to every user in every suite.
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' |
             sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
           sudo udevadm settle
           ls -l /dev/kvm
-          group-free sh -c ': <> /dev/kvm'
-          echo "The group-free Bazel identity can open /dev/kvm for reading and writing."
+          server-identity sh -c ': <> /dev/kvm'
+          echo "The Bazel server identity can open /dev/kvm for reading and writing."
 
       - name: Qualify host kernel
         run: |
           expected_bazel_version="bazel ${{ matrix.bazel }}"
-          test "$(group-free bazel --version)" = "$expected_bazel_version"
+          test "$(server-identity bazel --version)" = "$expected_bazel_version"
           (
             cd e2e/smoke
-            test "$(group-free bazel --version)" = "$expected_bazel_version"
+            test "$(server-identity bazel --version)" = "$expected_bazel_version"
           )
           preflight_configs=()
           if [ "$USE_BAZEL_VERSION" != "$DEFAULT_BAZEL_VERSION" ]; then
             preflight_configs=(--config=bazel9)
           fi
-          group-free bazel shutdown
+          server-identity bazel shutdown
           set -o pipefail
-          group-free bazel test --config=kernel_preflight \
+          server-identity bazel test --config=kernel_preflight \
             "${preflight_configs[@]}" //... 2>&1 | tee kernel-preflight.log
           grep -F "Executed 1 out of 1 test" kernel-preflight.log
           if grep -F "(cached)" kernel-preflight.log; then
@@ -151,11 +160,23 @@ jobs:
             bazel_configs=(--config=qualified)
             manifest_configs=(--config=manifest)
           fi
+          if [ "${{ matrix.restricted-sandbox }}" = "true" ]; then
+            # Disk-backed, because the consumer suite's parallel image actions
+            # do not fit into the runner's RAM-backed /dev/shm.
+            sandbox_base="$RUNNER_TEMP/restricted-sandbox"
+            mkdir "$sandbox_base"
+            sudo mount --bind "$sandbox_base" "$sandbox_base"
+            sudo mount -o remount,bind,nosuid,nodev "$sandbox_base"
+            findmnt --noheadings --output OPTIONS --mountpoint "$sandbox_base" |
+              grep -E '(^|,)nosuid(,|$)' | grep -E '(^|,)nodev(,|$)'
+            bazel_configs+=(--sandbox_base="$sandbox_base")
+            manifest_configs+=(--sandbox_base="$sandbox_base")
+          fi
           # The preflight server ran from the repository root, and every module
           # in this job shares the output base configured by setup-bazel.
-          group-free bazel shutdown
-          group-free bazel test "${bazel_configs[@]}" //...
-          group-free bazel test "${manifest_configs[@]}" //...
+          server-identity bazel shutdown
+          server-identity bazel test "${bazel_configs[@]}" //...
+          server-identity bazel test "${manifest_configs[@]}" //...
 
       - name: Verify the QEMU fallback from KVM to TCG
         if: matrix.suite == 'root'
@@ -165,23 +186,23 @@ jobs:
             version_configs=(--config=bazel9)
           fi
           target=//mkosi/tests:qemu_ovmf_smoke_test
-          testlogs="$(group-free bazel info "${version_configs[@]}" bazel-testlogs)"
+          testlogs="$(server-identity bazel info "${version_configs[@]}" bazel-testlogs)"
           test_log="$testlogs/mkosi/tests/qemu_ovmf_smoke_test/test.log"
           # The same test uses KVM while /dev/kvm is usable and TCG once it is hidden.
-          group-free bazel test --config=qualified_runtime "${version_configs[@]}" "$target"
+          server-identity bazel test --config=qualified_runtime "${version_configs[@]}" "$target"
           grep -Fx "QEMU accelerator: kvm" "$test_log"
-          group-free bazel test --config=kvm_unavailable "${version_configs[@]}" "$target"
+          server-identity bazel test --config=kvm_unavailable "${version_configs[@]}" "$target"
           grep -Fx "QEMU accelerator: tcg" "$test_log"
 
       - name: Verify release reproducibility
         if: matrix.suite == 'audit' && matrix.bazel == env.DEFAULT_BAZEL_VERSION
         run: |
-          group-free ./ci/verify-release-reproducibility.sh
+          server-identity ./ci/verify-release-reproducibility.sh
 
       - name: Verify two-stage base reuse
         if: matrix.suite == 'audit' && matrix.bazel == env.DEFAULT_BAZEL_VERSION
         run: |
-          group-free ./ci/verify-two-stage-cache.sh
+          server-identity ./ci/verify-two-stage-cache.sh
 
       - name: Surface retained boot evidence
         id: boot_evidence
@@ -202,7 +223,7 @@ jobs:
           has_bios_evidence=false
           has_tcg_evidence=false
           if ! testlogs="$(
-            group-free bazel info "${info_configs[@]}" bazel-testlogs
+            server-identity bazel info "${info_configs[@]}" bazel-testlogs
           )"; then
             echo "The $module Bazel testlogs path is unavailable."
           elif [ ! -d "$testlogs" ]; then
@@ -293,7 +314,7 @@ jobs:
             //mkosi/tests:release_subject
             //mkosi/tests:release_reproducibility
           )
-          group-free bazel build --config=qualified "${targets[@]}"
+          server-identity bazel build --config=qualified "${targets[@]}"
           while IFS= read -r output; do
             destination="$artifact_dir/$(basename "$output")"
             if [ -e "$destination" ]; then
@@ -302,7 +323,7 @@ jobs:
             fi
             cp --reflink=auto "$output" "$destination"
           done < <(
-            group-free bazel cquery --config=qualified --output=files \
+            server-identity bazel cquery --config=qualified --output=files \
               "set(${targets[*]})"
           )
           expected=(
@@ -342,7 +363,7 @@ jobs:
           else
             mode=off
           fi
-          graph="$(group-free bazel aquery --lockfile_mode="${mode}" --output=text \
+          graph="$(server-identity bazel aquery --lockfile_mode="${mode}" --output=text \
             'deps(@mkosi_debian_tools//:launcher)')"
           case "$graph" in
             *"/bin/bash"*|*"local_config_cc"*)
@@ -362,13 +383,13 @@ jobs:
             *"mkosi_pypi_314_click"*"/click/"*common.py*|*"mkosi_pypi_314_click"*"/click/"*core.py*) ;;
             *) echo "locked Click runtime is missing from Debian launcher runfiles" >&2; exit 1 ;;
           esac
-          image_graph="$(group-free bazel aquery --lockfile_mode="${mode}" --config=qualified --output=text \
+          image_graph="$(server-identity bazel aquery --lockfile_mode="${mode}" --config=qualified --output=text \
             'mnemonic("MkosiImage", //mkosi/tests:real_image)')"
           case "$image_graph" in
             *"python3"*"/mkosi/__main__.py"*) ;;
             *) echo "mkosi image action is not using the direct managed-Python entrypoint" >&2; exit 1 ;;
           esac
-          group-free bazel aquery --lockfile_mode="${mode}" --config=qualified --output=jsonproto \
+          server-identity bazel aquery --lockfile_mode="${mode}" --config=qualified --output=jsonproto \
             'mnemonic("MkosiImage", set(//mkosi/tests:real_image //mkosi/tests:release_subject))' \
             > image-aquery.json
           python3 ci/image_environment_validator.py image-aquery.json
@@ -383,7 +404,7 @@ jobs:
             *"ExecutionInfo: {block-network: 1, no-cache: 1, no-remote-exec: 1}"*) ;;
             *) echo "offline tracer image execution requirements are incomplete" >&2; exit 1 ;;
           esac
-          release_image_graph="$(group-free bazel aquery --lockfile_mode="${mode}" --config=qualified --output=text \
+          release_image_graph="$(server-identity bazel aquery --lockfile_mode="${mode}" --config=qualified --output=text \
             'mnemonic("MkosiImage", //mkosi/tests:release_subject)')"
           case "$release_image_graph" in
             *"repository_repository"*"--debian-snapshot-repository"*) ;;
@@ -403,196 +424,24 @@ jobs:
             *"--format=disk"*"--output-extension=raw"*"--compress-output=none"*"--split-artifacts="*) ;;
             *) echo "mkosi image output contract overrides are missing" >&2; exit 1 ;;
           esac
-          group-free bazel aquery --lockfile_mode="${mode}" --output=jsonproto \
+          server-identity bazel aquery --lockfile_mode="${mode}" --output=jsonproto \
             'deps(@mkosi_debian_tools//:launcher)' > debian-tools-aquery.json
-          python3 - debian-tools-aquery.json <<'PY'
-          import json
-          import sys
-          from ci.action_graph_validator import (
-              action_identity,
-              validate_action_environment,
-          )
-
-          graph = json.load(open(sys.argv[1], encoding="utf-8"))
-          archive = []
-          compilation = []
-          fragments = {
-              fragment["id"]: fragment for fragment in graph["pathFragments"]
-          }
-          artifacts = {
-              artifact["id"]: artifact for artifact in graph["artifacts"]
-          }
-          dep_sets = {
-              dep_set["id"]: dep_set for dep_set in graph["depSetOfFiles"]
-          }
-
-          def path(fragment_id):
-              parts = []
-              while fragment_id:
-                  fragment = fragments[fragment_id]
-                  parts.append(fragment["label"])
-                  fragment_id = fragment.get("parentId")
-              return "/".join(reversed(parts))
-
-          artifact_paths = {
-              artifact_id: path(artifact["pathFragmentId"])
-              for artifact_id, artifact in artifacts.items()
-          }
-
-          def input_paths(action):
-              paths = set()
-              for artifact_id in input_artifact_ids(action):
-                  paths.add(artifact_paths[artifact_id])
-              return paths
-
-          def input_artifact_ids(action):
-              artifacts = set()
-              seen = set()
-
-              def collect(dep_set_id):
-                  if dep_set_id in seen:
-                      return
-                  seen.add(dep_set_id)
-                  dep_set = dep_sets[dep_set_id]
-                  artifacts.update(dep_set.get("directArtifactIds", []))
-                  for child in dep_set.get("transitiveDepSetIds", []):
-                      collect(child)
-
-              for dep_set_id in action.get("inputDepSetIds", []):
-                  collect(dep_set_id)
-              return artifacts
-
-          def allowed_input(path):
-              if path.startswith(("bazel-out/", "mkosi/")):
-                  return True
-              if not path.startswith("external/"):
-                  return False
-              repository = path.split("/", 2)[1]
-              return repository.startswith(
-                  (
-                      "bazel_tools",
-                      "hermetic_cc_toolchain",
-                      "rules_cc~",
-                      "rules_cc+",
-                      "rules_python~",
-                      "rules_python+",
-                      "_main~debian_tools~",
-                      "+debian_tools+",
-                  )
-              )
-          compiler_tokens = (
-              "/bin/bash",
-              "/usr/bin/gcc",
-              "/usr/bin/clang",
-              "/usr/bin/ar",
-              "/usr/bin/ld",
-              "/usr/bin/strip",
-              "local_config_cc",
-          )
-          action_count = 0
-          strip_actions = 0
-          producers = {
-              artifact_id: action
-              for action in graph["actions"]
-              for artifact_id in action.get("outputIds", [])
-          }
-          visiting = set()
-          validated = set()
-
-          def validate_action(action):
-              try:
-                  action_id = action_identity(action)
-              except ValueError as error:
-                  raise SystemExit(str(error)) from error
-              if action_id in validated:
-                  return
-              if action_id in visiting:
-                  raise SystemExit("cycle in producing action graph")
-              visiting.add(action_id)
-              arguments = action.get("arguments", [])
-              inputs = input_paths(action)
-              if action["mnemonic"] == "CcStrip":
-                  if not arguments or arguments[0] != "/usr/bin/false":
-                      raise SystemExit("unexpected strip executable")
-              for token in arguments:
-                  if (
-                      token == "/usr/bin/false"
-                      and action["mnemonic"] == "CcStrip"
-                  ):
-                      continue
-                  if token.startswith("/") or any(
-                      bad in token for bad in compiler_tokens
-                  ):
-                      raise SystemExit(
-                          "host compiler or shell in structured action graph"
-                      )
-              try:
-                  validate_action_environment(action, inputs)
-              except ValueError as error:
-                  raise SystemExit(
-                      "host environment path in structured action graph: "
-                      + str(error)
-                  ) from error
-              for artifact_id in input_artifact_ids(action):
-                  path = artifact_paths[artifact_id]
-                  if path.startswith("bazel-out/"):
-                      if path.endswith(
-                          ("volatile-status.txt", "stable-status.txt")
-                      ):
-                          continue
-                      producer = producers.get(artifact_id)
-                      if producer is None:
-                          raise SystemExit(
-                              "unproduced bazel-out input: " + path
-                          )
-                      validate_action(producer)
-                  elif not allowed_input(path):
-                      raise SystemExit(
-                          "unexpected transitive tool/input roots: " + path
-                      )
-                  if any(bad in path for bad in compiler_tokens):
-                      raise SystemExit(
-                          "host compiler or shell in transitive input set"
-                      )
-              visiting.remove(action_id)
-              validated.add(action_id)
-
-          for action in graph["actions"]:
-              action_count += 1
-              arguments = action.get("arguments", [])
-              inputs = input_paths(action)
-              if action["mnemonic"] == "CcStrip":
-                  strip_actions += 1
-                  if not arguments or arguments[0] != "/usr/bin/false":
-                      raise SystemExit("unexpected strip executable")
-              if action["mnemonic"] == "BuildDebianToolsArchive":
-                  archive.append((arguments, inputs))
-              if action["mnemonic"] in ("CppCompile", "CppLink"):
-                  compilation.append((action["mnemonic"], arguments, inputs))
-              validate_action(action)
-          print("structured actions audited:", action_count)
-          print("CcStrip actions audited:", strip_actions,
-                "(toolchain no-op placeholder, execution checked separately)")
-          print("structured archive actions:", len(archive), [args[0][0] for args in archive if args[0]])
-          if len(archive) < 1 or any(
-              not args
-              or "mkosi_debian_python" not in args[0][0]
-              or not args[0][0].endswith("/python")
-              for args in archive
-          ):
-              raise SystemExit("archive action lacks complete static Python inputs")
-          if not any(
-              mnemonic in ("CppCompile", "CppLink") and args
-              for mnemonic, args, _ in compilation
-          ):
-              raise SystemExit("standard C++ toolchain actions are missing")
-          print("structured C++ toolchain actions:", len(compilation))
-          print("structured action graph: archive=static-python standard-cc=resolved")
-          PY
-          rm debian-tools-aquery.json
+          python3 ci/action_graph_validator.py debian-tools-aquery.json
+          # The same graph with an injected host shell and tar must fail the audit.
+          server-identity bazel aquery --lockfile_mode="${mode}" --output=jsonproto \
+            'deps(//ci:injected_host_helper)' > injected-aquery.json
+          if rejection="$(python3 ci/action_graph_validator.py injected-aquery.json 2>&1)"; then
+            echo "Debian tools graph audit accepted an injected host helper" >&2
+            exit 1
+          fi
+          case "$rejection" in
+            *"unmodeled action mnemonic: Genrule"*) echo "$rejection" ;;
+            *) echo "Debian tools graph audit failed for another reason: $rejection" >&2; exit 1 ;;
+          esac
+          rm debian-tools-aquery.json injected-aquery.json
           for target in launcher namespace_runner
           do
-            definition="$(group-free bazel cquery --lockfile_mode="${mode}" \
+            definition="$(server-identity bazel cquery --lockfile_mode="${mode}" \
               --output=build "@mkosi_debian_tools//:${target}")"
             case "$definition" in
               *"exec_compatible_with"*) ;;
@@ -616,7 +465,7 @@ jobs:
           if [ "$USE_BAZEL_VERSION" = "$DEFAULT_BAZEL_VERSION" ]; then
             mode=error
           fi
-          graph="$(group-free bazel --bazelrc=/dev/null aquery \
+          graph="$(server-identity bazel --bazelrc=/dev/null aquery \
             --lockfile_mode="${mode}" --output=text \
             'deps(@mkosi_debian_tools//:launcher)')"
           case "$graph" in
@@ -626,7 +475,7 @@ jobs:
               ;;
           esac
           case "$graph" in
-            *"hermetic_cc_toolchain"*) ;;
+            *"llvm-toolchain-minimal-"*) ;;
             *) echo "downstream no-RC graph lacks maintained C++ toolchain" >&2; exit 1 ;;
           esac
           echo "no-RC downstream launcher resolves maintained hermetic C++ toolchain"
@@ -638,7 +487,7 @@ jobs:
           if [ "$USE_BAZEL_VERSION" != "$DEFAULT_BAZEL_VERSION" ]; then
             mode=off
           fi
-          install_base="$(group-free bazel info --lockfile_mode="$mode" install_base)"
+          install_base="$(server-identity bazel info --lockfile_mode="$mode" install_base)"
           test -x "${install_base}/linux-sandbox"
           "${install_base}/linux-sandbox" /bin/true
 
@@ -709,6 +558,8 @@ jobs:
           - root_dependency
           - snapshot_name_conflict
           - consumer_isolation
+          - rules_cc_first
+          - llvm_consumer
     env:
       USE_BAZEL_VERSION: ${{ matrix.bazel }}
     steps:
@@ -740,7 +591,7 @@ jobs:
             "build --disk_cache=$fixture_root/.cache/bazel-disk" "$rc"
           git -C "$GITHUB_WORKSPACE" check-ignore -q "$rc"
           case "${{ matrix.fixture }}" in
-            default|explicit|consumer_isolation)
+            default|explicit|consumer_isolation|rules_cc_first|llvm_consumer)
               cache="$fixture_root/.cache/bazel-disk"
               test -d "$cache"
               test "$(realpath "$cache")" = "$cache"
@@ -751,6 +602,92 @@ jobs:
               ;;
           esac
           rm -rf "$fixture_root/.cache"
+
+  lazy-toolchain-fetch:
+    name: Lazy toolchain fetch ${{ matrix.bazel }} / ${{ matrix.module }}
+    needs: bazel-versions
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        bazel: ${{ fromJSON(needs.bazel-versions.outputs.tested) }}
+        module:
+          - root
+          - consumer
+        include:
+          - module: root
+            directory: .
+            # A plain sh_test, which resolves only the shell toolchain. The root module's own C/C++ targets use the
+            # llvm module's toolchain for its static musl host platform, like the bootstrap executables, so it has no
+            # consumer C/C++ target and fetches the llvm module itself.
+            target: //ci:check_pr_title_test
+            options: --uses-llvm --bootstrap-target @mkosi_debian_tools//:namespace_runner
+          - module: consumer
+            directory: e2e/smoke
+            # A plain py_binary, which resolves the Python and C/C++ toolchains.
+            target: //:payload_tree_generator
+            options: >-
+              --consumer-cc-target //consumer_cc
+              --bootstrap-target @mkosi_debian_tools//:namespace_runner
+    env:
+      DEFAULT_BAZEL_VERSION: ${{ needs.bazel-versions.outputs.default }}
+      USE_BAZEL_VERSION: ${{ matrix.bazel }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up Bazel
+        uses: bazel-contrib/setup-bazel@c5acdfb288317d0b5c0bbd7a396a3dc868bb0f86 # v0.19.0
+        with:
+          bazelisk-cache: true
+          bazelisk-version: 1.28.0
+          cache-save: ${{ github.event_name != 'pull_request' }}
+          repository-cache: true
+
+      - name: Analyse a target that uses no rules_mkosi toolchain
+        run: |
+          actual="$(bazel --version)"
+          echo "$actual"
+          test "$actual" = "bazel ${{ matrix.bazel }}"
+          if [ "${{ matrix.bazel }}" != "$DEFAULT_BAZEL_VERSION" ]; then
+            export LOCKFILE_MODE=off
+          fi
+          ci/check-lazy-toolchain-fetch.sh ${{ matrix.options }} ${{ matrix.directory }} ${{ matrix.target }}
+
+  bcr-presubmit:
+    name: BCR presubmit ${{ matrix.bazel }}
+    needs: bazel-versions
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        bazel: ${{ fromJSON(needs.bazel-versions.outputs.tested) }}
+    env:
+      USE_BAZEL_VERSION: ${{ matrix.bazel }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up Bazel
+        uses: bazel-contrib/setup-bazel@c5acdfb288317d0b5c0bbd7a396a3dc868bb0f86 # v0.19.0
+        with:
+          bazelisk-cache: true
+          bazelisk-version: 1.28.0
+          cache-save: ${{ github.event_name != 'pull_request' }}
+
+      - name: Run the stock-runner smoke tests from a source archive
+        env:
+          DEFAULT_BAZEL_VERSION: ${{ needs.bazel-versions.outputs.default }}
+        run: |
+          actual="$(bazel --version)"
+          echo "$actual"
+          test "$actual" = "bazel ${{ matrix.bazel }}"
+          # Mirror .bcr/presubmit.yml: only the default version checks the committed lockfile.
+          flags=()
+          if [ "${{ matrix.bazel }}" != "$DEFAULT_BAZEL_VERSION" ]; then
+            flags+=(--lockfile_mode=off)
+          fi
+          ci/bcr-presubmit.sh "$RUNNER_TEMP/bcr-presubmit" "${flags[@]}"
 
   lint:
     name: prek
@@ -791,56 +728,7 @@ jobs:
           repository-cache: true
 
       - name: Verify deterministic bootstrap binaries
-        run: |
-          output_a="$GITHUB_WORKSPACE/.ci-output-a"
-          output_b="$GITHUB_WORKSPACE/.ci-output-b"
-          execution_log="$GITHUB_WORKSPACE/.ci-execution-log.json"
-          rm -rf "$output_a" "$output_b"
-          rm -f "$execution_log"
-          group-free bazel --output_base="$output_a" build \
-            --config=deterministic \
-            --execution_log_json_file="$execution_log" \
-            //...
-          first_launcher="$(group-free bazel --output_base="$output_a" cquery \
-            --output=files @mkosi_debian_tools//:launcher | tail -n 1)"
-          first_runner="$(group-free bazel --output_base="$output_a" cquery \
-            --output=files @mkosi_debian_tools//:namespace_runner | tail -n 1)"
-          first_launcher_sha="$(sha256sum "$first_launcher" | cut -d' ' -f1)"
-          first_runner_sha="$(sha256sum "$first_runner" | cut -d' ' -f1)"
-          python3 - "$execution_log" <<'PY'
-          import json
-          import sys
-
-          decoder = json.JSONDecoder()
-          text = open(sys.argv[1], encoding="utf-8").read()
-          offset = 0
-          records = 0
-          while offset < len(text):
-              while offset < len(text) and text[offset].isspace():
-                  offset += 1
-              if offset == len(text):
-                  break
-              record, offset = decoder.raw_decode(text, offset)
-              records += 1
-              if "/usr/bin/false" in record.get("commandArgs", []):
-                  raise SystemExit("CcStrip placeholder was executed")
-          if records == 0:
-              raise SystemExit("uncached bootstrap execution log is empty")
-          print("uncached bootstrap execution records:", records)
-          print("CcStrip /usr/bin/false execution records: 0")
-          PY
-          group-free bazel --output_base="$output_b" build \
-            --config=deterministic \
-            //...
-          second_launcher="$(group-free bazel --output_base="$output_b" cquery \
-            --output=files @mkosi_debian_tools//:launcher | tail -n 1)"
-          second_runner="$(group-free bazel --output_base="$output_b" cquery \
-            --output=files @mkosi_debian_tools//:namespace_runner | tail -n 1)"
-          test "$first_launcher_sha" = "$(sha256sum "$second_launcher" | cut -d' ' -f1)"
-          test "$first_runner_sha" = "$(sha256sum "$second_runner" | cut -d' ' -f1)"
-          echo "clean rebuild launcher SHA: $first_launcher_sha"
-          echo "clean rebuild namespace runner SHA: $first_runner_sha"
-          sudo -n rm -rf "$output_a" "$output_b" "$execution_log"
+        run: group-free ./ci/verify-bootstrap-reproducibility.sh
 
   conclusion:
     name: CI conclusion
@@ -852,6 +740,8 @@ jobs:
       - test
       - namespace-contract
       - module-resolution
+      - lazy-toolchain-fetch
+      - bcr-presubmit
       - bootstrap-determinism
     runs-on: ubuntu-24.04
     steps:
@@ -859,11 +749,11 @@ jobs:
         env:
           RESULTS: ${{ join(needs.*.result, ' ') }}
         run: |-
-          # Keep this count in sync with the seven entries in `needs` above.
+          # Keep this count in sync with the nine entries in `needs` above.
           # shellcheck disable=SC2086 # Split the space-separated results into positional parameters.
           set -- $RESULTS
-          if [ "$#" -ne 7 ]; then
-            echo "expected seven required CI results, got $#" >&2
+          if [ "$#" -ne 9 ]; then
+            echo "expected nine required CI results, got $#" >&2
             exit 1
           fi
           for result; do

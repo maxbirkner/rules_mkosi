@@ -3,9 +3,9 @@
 load(":mkosi_image.bzl", "MkosiImageInfo")
 load(
     ":qemu_boot_test.bzl",
-    "BOOT_CONFIG_ATTRS",
     "QEMU_TOOLCHAIN_TYPE",
     "QemuBootConfigInfo",
+    "adapter_attrs",
     "boot_config",
     "boot_config_outputs",
     "boot_test",
@@ -38,28 +38,31 @@ def _qemu_seabios_boot_config_impl(ctx):
 
 qemu_seabios_boot_config = rule(
     implementation = _qemu_seabios_boot_config_impl,
-    attrs = BOOT_CONFIG_ATTRS,
+    doc = """Writes the configuration of a qemu_seabios_boot_test, which declares it as `<name>_config`.
+
+Use it directly only to inspect the validated deadlines through QemuBootConfigInfo.""",
+    attrs = adapter_attrs(
+        readiness_marker = "systemd[1]: Hostname set to <rules-mkosi-bios>.",
+        machine = "pc",
+        shutdown_timeout_seconds = 60,
+    ),
     provides = [QemuBootConfigInfo],
     toolchains = [QEMU_TOOLCHAIN_TYPE],
 )
 
-def qemu_seabios_boot_test(
-        name,
-        image,
-        readiness_marker = "systemd[1]: Hostname set to <rules-mkosi-bios>.",
-        shutdown_markers = ["systemd-shutdown[1]: Powering off.", "reboot: Power down"],
-        machine_args = ["-machine", "pc", "-m", "512M"],
-        accelerator = "auto",
-        boot_timeout_seconds = 180,
-        qmp_initialization_timeout_seconds = 15,
-        shutdown_timeout_seconds = 60,
-        diagnostic_bytes = 65536,
-        timeout = "moderate",
-        tags = []):
+def qemu_seabios_boot_test(name, image, timeout = "moderate", tags = [], **kwargs):
     """Boots a BIOS image with the pinned SeaBIOS and checks its serial lifecycle markers.
 
-    accelerator selects KVM with a TCG fallback (`auto`, the default) or
-    forces TCG (`tcg`).
+    The test waits for readiness_marker on the serial console and then for the guest to power off by itself.
+
+    Args:
+      name: Name of the test. The configuration target is `<name>_config`.
+      image: mkosi_image with `firmware = "bios"` to boot.
+      timeout: Bazel timeout category of the test, passed to the configuration as test_timeout.
+      tags: Tags of the test.
+      **kwargs: Further attributes of qemu_seabios_boot_config, such as readiness_marker. `testonly` applies to the
+        test; `visibility`, `target_compatible_with`, and `exec_compatible_with` apply to the test and its
+        configuration. The configuration is always testonly, so the image may be testonly.
     """
     boot_test(
         name = name,
@@ -67,12 +70,5 @@ def qemu_seabios_boot_test(
         timeout = timeout,
         tags = tags,
         image = image,
-        readiness_marker = readiness_marker,
-        shutdown_markers = shutdown_markers,
-        machine_args = machine_args,
-        accelerator = accelerator,
-        boot_timeout_seconds = boot_timeout_seconds,
-        qmp_initialization_timeout_seconds = qmp_initialization_timeout_seconds,
-        shutdown_timeout_seconds = shutdown_timeout_seconds,
-        diagnostic_bytes = diagnostic_bytes,
+        **kwargs
     )

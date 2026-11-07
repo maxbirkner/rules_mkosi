@@ -3,15 +3,19 @@ load("@rules_python//python:defs.bzl", "py_test")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
 load(
     "//mkosi:defs.bzl",
+    "mkosi_config_tree",
     "mkosi_image",
+    "mkosi_reproducibility_manifest",
     "mkosi_source_tree",
     "qemu_ovmf_boot_test",
     "qemu_ovmf_smoke_test",
     "qemu_seabios_boot_test",
+    "sysupdate_payload",
 )
 load("//mkosi:versions.bzl", "DEFAULT_PYTHON_VERSION")
 load("//mkosi/debian:toolchain.bzl", "debian_tools_launcher_probe", "debian_tools_preflight", "debian_tools_preflight_test")
 load(":behavior_targets.bzl", "behavior_targets")
+load(":config_tree_test.bzl", "config_tree_test_suite")
 load(":consumer_isolation_test.bzl", "consumer_isolation_test_suite")
 load(":debian_snapshot_test.bzl", "debian_snapshot_provider_test")
 load(":debian_tools_provenance.bzl", "DEBIAN_TOOLS_PROVENANCE_ENV")
@@ -34,23 +38,105 @@ load(
     "seabios_boot_config_test",
 )
 load(":runfiles_sh_test.bzl", "runfiles_sh_test")
+load(":secure_boot_test.bzl", "secure_boot_test_suite")
+load(":sysupdate_http_test.bzl", "sysupdate_http_test_suite")
 load(":sysupdate_test.bzl", "sysupdate_test_suite")
 
 py_test(
     name = "secure_boot_boundary_test",
     timeout = "long",
-    srcs = ["secure_boot_boundary_test.py"],
+    srcs = [
+        "secure_boot_boundary_test.py",
+        "secure_boot_fixtures.py",
+    ],
     args = [
         "$(rootpath //mkosi/private:secure_boot.py)",
         "$(rootpath @mkosi_debian_tools//:launcher)",
     ],
     data = [
+        "//mkosi/private:efi_auth.py",
+        "//mkosi/private:esp_files.py",
         "//mkosi/private:file_hashing.py",
+        "//mkosi/private:gpt_partitions.py",
+        "//mkosi/private:launcher_tool.py",
         "//mkosi/private:secure_boot.py",
         "//mkosi/private:sibling_loader.py",
         "@mkosi_debian_tools//:launcher",
     ],
     main = "secure_boot_boundary_test.py",
+)
+
+py_test(
+    name = "secure_boot_signer_test",
+    timeout = "long",
+    srcs = [
+        "secure_boot_fixtures.py",
+        "secure_boot_signer_test.py",
+    ],
+    args = [
+        "$(rootpath //mkosi/private:secure_boot_signer.py)",
+        "$(rootpath @mkosi_debian_tools//:launcher)",
+    ],
+    data = [
+        "//mkosi/private:efi_auth.py",
+        "//mkosi/private:esp_files.py",
+        "//mkosi/private:file_hashing.py",
+        "//mkosi/private:gpt_partitions.py",
+        "//mkosi/private:launcher_tool.py",
+        "//mkosi/private:secure_boot.py",
+        "//mkosi/private:secure_boot_signer.py",
+        "//mkosi/private:sibling_loader.py",
+        "@mkosi_debian_tools//:launcher",
+    ],
+    main = "secure_boot_signer_test.py",
+)
+
+py_test(
+    name = "sysupdate_signing_test",
+    timeout = "long",
+    srcs = [
+        "sysupdate_signing_test.py",
+        "//mkosi/private:openpgp.py",
+    ],
+    args = [
+        "$(rootpath //mkosi/private:sysupdate_signing.py)",
+        "$(rootpath @mkosi_debian_tools//:launcher)",
+    ],
+    data = [
+        "//mkosi/private:launcher_tool.py",
+        "//mkosi/private:openpgp.py",
+        "//mkosi/private:sibling_loader.py",
+        "//mkosi/private:sysupdate_signing.py",
+        "@mkosi_debian_tools//:launcher",
+    ],
+    main = "sysupdate_signing_test.py",
+)
+
+py_test(
+    name = "secure_boot_image_test",
+    timeout = "long",
+    srcs = [
+        "secure_boot_fixtures.py",
+        "secure_boot_image_test.py",
+    ],
+    args = [
+        "$(rootpath //mkosi/private:secure_boot.py)",
+        "$(rootpath //mkosi/private:secure_boot_image.py)",
+        "$(rootpath //mkosi/private:efi_auth.py)",
+        "$(rootpath @mkosi_debian_tools//:launcher)",
+    ],
+    data = [
+        "//mkosi/private:efi_auth.py",
+        "//mkosi/private:esp_files.py",
+        "//mkosi/private:file_hashing.py",
+        "//mkosi/private:gpt_partitions.py",
+        "//mkosi/private:launcher_tool.py",
+        "//mkosi/private:secure_boot.py",
+        "//mkosi/private:secure_boot_image.py",
+        "//mkosi/private:sibling_loader.py",
+        "@mkosi_debian_tools//:launcher",
+    ],
+    main = "secure_boot_image_test.py",
 )
 
 py_test(
@@ -142,6 +228,7 @@ behavior_targets(
     targets = [
         "//:e2e/module_resolution/consumer_isolation/MODULE.bazel",
         "//:e2e/module_resolution/nonroot_name/MODULE.bazel",
+        "//:e2e/module_resolution/rules_cc_first/MODULE.bazel",
         "//:e2e/module_resolution/snapshot_name_conflict/MODULE.bazel",
         "//ci:verify-release-reproducibility.sh",
         "//ci:verify-two-stage-cache.sh",
@@ -154,6 +241,8 @@ behavior_targets(
         ":boot_config_test",
         ":boot_lifecycle_test",
         ":seabios_boot_config_test",
+        ":config_tree_analysis_tests",
+        ":config_tree_artifact_test",
         ":conflicting_root_test",
         ":consumer_isolation_tests",
         ":debian_snapshot_artifact_test",
@@ -186,10 +275,14 @@ behavior_targets(
         ":root_dependency_test",
         ":run_mkosi_metadata_test",
         ":run_mkosi_option_spelling_test",
+        ":secure_boot_analysis_tests",
         ":secure_boot_boundary_test",
-        ":secure_boot_fixture_action_test",
+        ":secure_boot_image_test",
+        ":secure_boot_signer_test",
         ":snapshot_declaration_test",
         ":sysupdate_analysis_tests",
+        ":sysupdate_http_analysis_tests",
+        ":sysupdate_signing_test",
         ":sysupdate_test",
         ":unsupported_version_test",
         ":verity_metadata_test",
@@ -342,6 +435,7 @@ debian_tools_preflight_test(
         "mkfs.ext4",
         "mkfs.fat",
         "mkfs.btrfs",
+        "mkfs.erofs",
         "sfdisk",
         "parted",
         "grub-install",
@@ -416,6 +510,14 @@ runfiles_sh_test(
     tags = ["manifest"],
 )
 
+py_test(
+    name = "debian_tools_escaped_paths_test",
+    srcs = ["debian_tools_escaped_paths_test.py"],
+    args = ["$(rlocationpath @mkosi_debian_tools//:launcher)"],
+    data = ["@mkosi_debian_tools//:launcher"],
+    tags = ["manifest"],
+)
+
 runfiles_sh_test(
     name = "debian_tools_fd_swap_test",
     src = "debian_tools_fd_swap_test.sh",
@@ -435,7 +537,30 @@ mkosi_image_test_suite(name = "analysis_tests")
 
 sysupdate_test_suite(name = "sysupdate_analysis_tests")
 
+sysupdate_http_test_suite(
+    name = "sysupdate_http_analysis_tests",
+    payloads = [
+        ":versioned_payload_subject",
+        ":xz_payload_subject",
+    ],
+)
+
+secure_boot_test_suite(
+    name = "secure_boot_analysis_tests",
+    image = ":immutable_release_subject",
+)
+
 mkosi_base_test_suite(name = "mkosi_base_analysis_tests")
+
+config_tree_test_suite(name = "config_tree_analysis_tests")
+
+py_test(
+    name = "config_tree_artifact_test",
+    srcs = ["config_tree_artifact_test.py"],
+    args = ["$(rootpath :assembled_config_tree)"],
+    data = [":assembled_config_tree"],
+    main = "config_tree_artifact_test.py",
+)
 
 py_test(
     name = "sysupdate_test",
@@ -508,6 +633,7 @@ py_test(
     data = [
         "//mkosi/private:boot_test.py",
         "//mkosi/private:diagnostics.py",
+        "//mkosi/private:http_share.py",
         "//mkosi/private:sibling_loader.py",
     ],
     main = "boot_test_unit.py",
@@ -828,3 +954,38 @@ exports_files([
     "testdata/source-tree-two",
     "testdata/release.conf",
 ])
+
+mkosi_config_tree(
+    name = "erofs_release_config_tree",
+    src = "testdata/erofs-release-config",
+)
+
+# ci/verify-release-reproducibility.sh builds the compressed erofs root, its zero-padded split artifacts and the
+# trimmed update payload twice.
+mkosi_image(
+    name = "erofs_release",
+    config_tree = ":erofs_release_config_tree",
+    debian_snapshot = "@mkosi_debian_snapshot//:repository",
+    image_id = "rules-mkosi-erofs",
+    image_version = "1",
+    mode = "release",
+    release_seed = "00000000-0000-4000-8000-000000000009",
+    release_source_date_epoch = 0,
+    tags = ["manual"],
+    unified_kernel_image = "unsigned",
+    verity = "hash",
+)
+
+mkosi_reproducibility_manifest(
+    name = "erofs_release_reproducibility",
+    image = ":erofs_release",
+    tags = ["manual"],
+)
+
+# ci/verify-release-reproducibility.sh compares two independent builds of this payload, including its xz files.
+sysupdate_payload(
+    name = "erofs_release_payload",
+    compression = "xz",
+    image = ":erofs_release",
+    tags = ["manual"],
+)

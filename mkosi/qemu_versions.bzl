@@ -22,3 +22,12 @@ OVMF_INTEGRITY = "sha256-iuTS1zFhzCM19WddO4tu36BkIwFnl2SiRpQEiOo84g0="
 OVMF_CODE_SHA256 = "f891b100aecb131adff4c8504cd39cab07b709efeea9be415feb1864a408b2d5"
 OVMF_VARS_SHA256 = "5d2ac383371b408398accee7ec27c8c09ea5b74a0de0ceea6513388b15be5d1e"
 OVMF_SHELL_SHA256 = "045c497402920ae83c8f5f501b48debdeefe2c051c0b778c87b8168b9708f083"
+
+# Secure Boot capable OVMF (Secure Boot and SMM enabled) for qemu_ovmf_boot_test(secure_boot = True), from the Debian
+# 13 snapshot that the Debian tools use. Its OVMF_VARS_4M.fd is an empty variable store, so firmware starts in Setup Mode.
+OVMF_SECURE_BOOT_VERSION = "2025.02-8+deb13u1"
+OVMF_SECURE_BOOT_URLS = [
+    "https://snapshot.debian.org/archive/debian/20260912T080811Z/pool/main/e/edk2/ovmf_2025.02-8%2Bdeb13u1_all.deb",
+    "https://deb.debian.org/debian/pool/main/e/edk2/ovmf_2025.02-8%2Bdeb13u1_all.deb",
+]
+OVMF_SECURE_BOOT_SHA256 = "78e0d54df11fc77406cb7a0bc9a39e5bca6d1cbe06556b91d9a73491c52decdf"

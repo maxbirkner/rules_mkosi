@@ -16,7 +16,8 @@
   },
   "formatsNames": {
     "bash": [
-      "group-free"
+      "group-free",
+      "server-identity"
     ],
     "python": [
       "BUILD",

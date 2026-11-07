@@ -61,7 +61,7 @@ Externally signed artifacts are not claimed to be reproducible.
 
 Inspection tools, QEMU, and firmware are resolved as Bazel toolchains, never assumed on the runner.
 
-Remaining test work: power interruption tests outside ordinary BCR workers, and representative physical-hardware qualification.
+Remaining test work: power interruption tests outside ordinary BCR workers, and representative physical-hardware qualification runs following [hardware qualification](../hardware-qualification.md).
 
 ## CI
 
@@ -104,8 +104,12 @@ A release requires:
 5. A test module in the extracted source archive.
 6. A pull request to [`bazelbuild/bazel-central-registry`](https://github.com/bazelbuild/bazel-central-registry).
 
-The intended automation is [`bazel-contrib/.github` `release_ruleset`](https://github.com/bazel-contrib/.github) for stable archives and build-provenance attestations, `publish-to-bcr` for the registry pull request, and a draft GitHub release that is finalized after publishing.
-Release automation is not yet enabled: it needs a `BCR_PUBLISH_TOKEN`, a release-note policy, and immutable archive preparation, and untested automation would add more risk than readiness.
+A `vMAJOR.MINOR.PATCH` tag runs `.github/workflows/release.yml`: [`bazel-contrib/.github` `release_ruleset`](https://github.com/bazel-contrib/.github) builds and attests the archive with `release_prep.sh`, `publish-to-bcr` opens the registry pull request, and the draft GitHub release is published afterwards.
+Release notes are generated from pull request titles.
+The [`.bcr` README](../../.bcr/README.md) lists the maintainer setup and release steps.
+
+BCR runners cannot be assumed to provide user namespaces, a group-free Bazel server, or access to snapshot.debian.org, so the presubmit runs only the consumer tests that need none of them.
+Image builds and boot tests stay in this repository's CI.
 
 ## Hermeticity boundary
 

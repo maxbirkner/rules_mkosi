@@ -13,6 +13,9 @@ import unittest
 from types import SimpleNamespace
 from unittest import mock
 
+sys.path.insert(0, str(pathlib.Path(__file__).parent))
+import secure_boot_fixtures
+
 TOOL, DEBIAN_TOOLS = sys.argv[1:3]
 SPEC = importlib.util.spec_from_file_location("secure_boot", TOOL)
 assert SPEC is not None and SPEC.loader is not None
@@ -20,65 +23,25 @@ SECURE_BOOT = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(SECURE_BOOT)
 
 
-def minimal_pe(marker=b"requested UKI"):
-    data = bytearray(0x400)
-    data[:2] = b"MZ"
-    struct.pack_into("<I", data, 0x3C, 0x80)
-    data[0x80:0x84] = b"PE\0\0"
-    struct.pack_into("<HHIIIHH", data, 0x84, 0x8664, 1, 0, 0, 0, 0xF0, 0x22)
-    optional = 0x98
-    struct.pack_into("<H", data, optional, 0x20B)
-    struct.pack_into("<I", data, optional + 16, 0x1000)
-    struct.pack_into("<Q", data, optional + 24, 0x400000)
-    struct.pack_into("<II", data, optional + 32, 0x1000, 0x200)
-    struct.pack_into("<I", data, optional + 56, 0x2000)
-    struct.pack_into("<I", data, optional + 60, 0x200)
-    struct.pack_into("<H", data, optional + 68, 10)
-    struct.pack_into("<I", data, optional + 108, 16)
-    section = optional + 0xF0
-    data[section : section + 8] = b".linux\0\0"
-    struct.pack_into("<IIII", data, section + 8, 0x200, 0x1000, 0x200, 0x200)
-    data[0x200 : 0x200 + len(marker)] = marker
-    return bytes(data)
-
-
 class SecureBootBoundaryTest(unittest.TestCase):
     def setUp(self):
         self.work = pathlib.Path("secure-boot-boundary-work") / self._testMethodName
         self.work.mkdir(parents=True, exist_ok=True)
         self.unsigned = self.work / "unsigned.efi"
-        self.unsigned.write_bytes(minimal_pe())
+        self.unsigned.write_bytes(secure_boot_fixtures.minimal_pe())
         self.cert = self.work / "certificate.pem"
         self.signed = self.work / "signed.efi"
         self.other_unsigned = self.work / "same-layout-other.efi"
-        self.other_unsigned.write_bytes(minimal_pe(b"other payload"))
+        self.other_unsigned.write_bytes(secure_boot_fixtures.minimal_pe(b"other payload"))
         self.other_signed = self.work / "same-layout-other-signed.efi"
-        self.run_tool(
-            "ephemeral-fixture",
-            "--openssl",
-            DEBIAN_TOOLS,
-            "--sbsign",
-            DEBIAN_TOOLS,
-            "--unsigned-uki",
-            self.unsigned,
-            "--certificate",
-            self.cert,
-            "--signed-uki",
-            self.signed,
-            "--scratch",
-            self.work / "private-scratch",
-            "--other-unsigned",
-            self.other_unsigned,
-            "--other-signed",
-            self.other_signed,
-        )
+        self.sign(self.cert, "private-scratch", (self.unsigned, self.signed), (self.other_unsigned, self.other_signed))
         self.request = self.work / "request.json"
         self.request_digest = self.work / "request.sha256"
         self.run_tool(
             "request",
             "--openssl",
             DEBIAN_TOOLS,
-            "--unsigned-uki",
+            "--unsigned",
             self.unsigned,
             "--certificate",
             self.cert,
@@ -103,7 +66,22 @@ class SecureBootBoundaryTest(unittest.TestCase):
             self.fail(result.stderr)
         return result
 
-    def verify(self, signed=None, request=None, certificate=None):
+    def sign(self, certificate, scratch, *pairs):
+        """Signs each (unsigned, signed) pair with one new ephemeral key whose certificate is written to certificate."""
+        self.run_tool(
+            "ephemeral-fixture",
+            "--openssl",
+            DEBIAN_TOOLS,
+            "--sbsign",
+            DEBIAN_TOOLS,
+            "--certificate",
+            certificate,
+            "--scratch",
+            self.work / scratch,
+            *(argument for pair in pairs for argument in ("--sign", *pair)),
+        )
+
+    def verify(self, signed=None, request=None, certificate=None, request_digest=None):
         return self.run_tool(
             "verify",
             "--openssl",
@@ -111,11 +89,10 @@ class SecureBootBoundaryTest(unittest.TestCase):
             "--request",
             request or self.request,
             "--request-digest",
-            self.request_digest,
-            "--unsigned-uki",
+            request_digest or self.request_digest,
+            "--unsigned",
             self.unsigned,
-            "--signed-uki",
-            signed or self.signed,
+            *(argument for candidate in (signed or [self.signed]) for argument in ("--signed", candidate)),
             "--certificate",
             certificate or self.cert,
             "--expected-pem",
@@ -139,7 +116,100 @@ class SecureBootBoundaryTest(unittest.TestCase):
         self.assertEqual((self.work / "verified.efi").read_bytes(), self.signed.read_bytes())
 
     def test_tool_calls_remove_their_debian_tools_scratch(self):
-        self.assertEqual(sorted(pathlib.Path.cwd().glob(".secure-boot-tool-*")), [])
+        self.assertEqual(sorted(pathlib.Path.cwd().glob(".debian-tool-*")), [])
+
+    def test_fixture_candidates_select_the_requested_binary(self):
+        self.assertNotEqual(self.verify([self.other_signed]).returncode, 0)
+        result = self.verify([self.other_signed, self.signed])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.work / "verified.efi").read_bytes(), self.signed.read_bytes())
+        self.assertIn("none of the 2 signed binaries", self.verify([self.other_signed, self.other_signed]).stderr)
+
+    def test_esp_file_request_binds_its_path_and_context(self):
+        result = self.request_esp_file("EFI/systemd/systemd-bootx64.efi")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        document = json.loads(self.request_path.read_text())
+        self.assertEqual(document["context"], "uefi-secure-boot-esp-file")
+        self.assertEqual(document["esp_path"], "EFI/systemd/systemd-bootx64.efi")
+        self.assertEqual(document["unsigned_sha256"], hashlib.sha256(self.unsigned.read_bytes()).hexdigest())
+        self.assertEqual(self.verify(request=self.request_path).returncode, 0)
+        metadata = json.loads((self.work / "verification.json").read_text())
+        self.assertEqual(metadata["esp_path"], "EFI/systemd/systemd-bootx64.efi")
+        self.assertEqual(metadata["format_version"], "mkosi-secure-boot-signed-binary-v3")
+        for invalid in ("../BOOTX64.EFI", "/EFI/BOOT/BOOTX64.EFI", "EFI//BOOTX64.EFI", "EFI/.hidden"):
+            self.assertIn("ESP path", self.request_esp_file(invalid).stderr, invalid)
+
+    def test_request_schema_changes_are_rejected(self):
+        document = json.loads(self.request.read_text())
+        for name, change in {
+            "uki-context-for-esp-file": {"esp_path": "EFI/BOOT/BOOTX64.EFI"},
+            "esp-context-for-uki": {"context": "uefi-secure-boot-esp-file"},
+            "extra-field": {"comment": "extra"},
+        }.items():
+            altered = dict(document) | change
+            path = self.work / (name + ".json")
+            path.write_text(json.dumps(altered))
+            digest = self.work / (name + ".sha256")
+            digest.write_text(SECURE_BOOT.request_digest(altered) + "\n")
+            self.assertNotEqual(self.verify(request=path, request_digest=digest).returncode, 0, name)
+
+    def test_extract_copies_an_unsigned_pe_from_the_esp(self):
+        files = {"EFI/systemd/systemd-bootx64.efi": self.unsigned, "EFI/signed.efi": self.signed}
+        disk, metadata = secure_boot_fixtures.disk_with_esp(
+            SECURE_BOOT.launcher_tool.run_tool, DEBIAN_TOOLS, self.work, files
+        )
+        extracted = self.work / "extracted.efi"
+        result = self.extract(disk, metadata, "EFI/systemd/systemd-bootx64.efi", extracted)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(extracted.read_bytes(), self.unsigned.read_bytes())
+        self.assertIn("already signed", self.extract(disk, metadata, "EFI/signed.efi", self.work / "s.efi").stderr)
+        self.assertNotEqual(self.extract(disk, metadata, "EFI/missing.efi", self.work / "m.efi").returncode, 0)
+        metadata.write_text(json.dumps({"partitions": []}))
+        self.assertIn("exactly one EFI system partition", self.extract(disk, metadata, "EFI/x.efi", extracted).stderr)
+
+    def extract(self, disk, metadata, esp_path, output):
+        return self.run_tool(
+            "extract",
+            "--mtools",
+            DEBIAN_TOOLS,
+            "--image",
+            disk,
+            "--partition-metadata",
+            metadata,
+            "--esp-path",
+            esp_path,
+            "--scratch",
+            self.work / "extract-scratch",
+            "--output",
+            output,
+            check=False,
+        )
+
+    @property
+    def request_path(self):
+        return self.work / "esp-request.json"
+
+    def request_esp_file(self, esp_path):
+        return self.run_tool(
+            "request",
+            "--openssl",
+            DEBIAN_TOOLS,
+            "--unsigned",
+            self.unsigned,
+            "--esp-path",
+            esp_path,
+            "--certificate",
+            self.cert,
+            "--certificate-output",
+            self.work / "esp-certificate.der",
+            "--algorithm",
+            "authenticode-sha256",
+            "--output",
+            self.request_path,
+            "--digest-output",
+            self.request_digest,
+            check=False,
+        )
 
     def test_request_emits_canonical_der_certificate_and_matching_fingerprint(self):
         certificate = self.normalized_certificate.read_bytes()
@@ -178,12 +248,12 @@ class SecureBootBoundaryTest(unittest.TestCase):
     def test_arbitrary_and_tampered_bytes_are_rejected(self):
         arbitrary = self.work / "arbitrary.efi"
         arbitrary.write_bytes(b"detached signatures are insufficient")
-        self.assertNotEqual(self.verify(arbitrary).returncode, 0)
+        self.assertNotEqual(self.verify([arbitrary]).returncode, 0)
         tampered = self.work / "tampered.efi"
         data = bytearray(self.signed.read_bytes())
         data[0x210] ^= 1
         tampered.write_bytes(data)
-        self.assertIn("differs", self.verify(tampered).stderr)
+        self.assertIn("differs", self.verify([tampered]).stderr)
 
     def test_malformed_duplicate_and_trailing_certificate_tables_are_rejected(self):
         original = self.signed.read_bytes()
@@ -198,7 +268,7 @@ class SecureBootBoundaryTest(unittest.TestCase):
                 struct.pack_into("<I", candidate, self._directory_offset(candidate) + 4, certificate_size * 2)
             path = self.work / (name + ".efi")
             path.write_bytes(candidate)
-            self.assertNotEqual(self.verify(path).returncode, 0)
+            self.assertNotEqual(self.verify([path]).returncode, 0)
 
     def test_request_rejects_malformed_optional_headers_and_directories(self):
         for name, mutate in {
@@ -207,7 +277,7 @@ class SecureBootBoundaryTest(unittest.TestCase):
             "truncated-optional": lambda data: struct.pack_into("<H", data, 0x80 + 20, 112),
             "bad-headers": lambda data: struct.pack_into("<I", data, 0x98 + 60, 0x180),
         }.items():
-            candidate = bytearray(minimal_pe())
+            candidate = bytearray(secure_boot_fixtures.minimal_pe())
             mutate(candidate)
             path = self.work / (name + ".efi")
             path.write_bytes(candidate)
@@ -215,7 +285,7 @@ class SecureBootBoundaryTest(unittest.TestCase):
                 "request",
                 "--openssl",
                 DEBIAN_TOOLS,
-                "--unsigned-uki",
+                "--unsigned",
                 path,
                 "--certificate",
                 self.cert,
@@ -233,26 +303,12 @@ class SecureBootBoundaryTest(unittest.TestCase):
 
     def test_wrong_certificate_algorithm_request_and_different_uki_are_rejected(self):
         other_unsigned = self.work / "other.efi"
-        other_unsigned.write_bytes(minimal_pe(b"different valid UKI"))
+        other_unsigned.write_bytes(secure_boot_fixtures.minimal_pe(b"different valid UKI"))
         other_cert = self.work / "other.pem"
         other_signed = self.work / "other-signed.efi"
-        self.run_tool(
-            "ephemeral-fixture",
-            "--openssl",
-            DEBIAN_TOOLS,
-            "--sbsign",
-            DEBIAN_TOOLS,
-            "--unsigned-uki",
-            other_unsigned,
-            "--certificate",
-            other_cert,
-            "--signed-uki",
-            other_signed,
-            "--scratch",
-            self.work / "other-private",
-        )
+        self.sign(other_cert, "other-private", (other_unsigned, other_signed))
         self.assertIn("certificate", self.verify(certificate=other_cert).stderr)
-        self.assertNotEqual(self.verify(signed=other_signed).returncode, 0)
+        self.assertNotEqual(self.verify(signed=[other_signed]).returncode, 0)
         altered = self.work / "altered-request.json"
         document = json.loads(self.request.read_text())
         document["signature_algorithm"] = "authenticode-sha1"
@@ -261,21 +317,7 @@ class SecureBootBoundaryTest(unittest.TestCase):
 
     def test_certificate_bundles_duplicates_reversal_and_trailing_data_are_rejected(self):
         other_cert = self.work / "bundle-other.pem"
-        self.run_tool(
-            "ephemeral-fixture",
-            "--openssl",
-            DEBIAN_TOOLS,
-            "--sbsign",
-            DEBIAN_TOOLS,
-            "--unsigned-uki",
-            self.other_unsigned,
-            "--certificate",
-            other_cert,
-            "--signed-uki",
-            self.work / "bundle-other-signed.efi",
-            "--scratch",
-            self.work / "bundle-other-private",
-        )
+        self.sign(other_cert, "bundle-other-private", (self.other_unsigned, self.work / "bundle-other-signed.efi"))
         first = self.cert.read_bytes()
         second = other_cert.read_bytes()
         for name, certificate in {
@@ -290,7 +332,7 @@ class SecureBootBoundaryTest(unittest.TestCase):
                 "request",
                 "--openssl",
                 DEBIAN_TOOLS,
-                "--unsigned-uki",
+                "--unsigned",
                 self.unsigned,
                 "--certificate",
                 path,
@@ -317,7 +359,7 @@ class SecureBootBoundaryTest(unittest.TestCase):
                 "request",
                 "--openssl",
                 DEBIAN_TOOLS,
-                "--unsigned-uki",
+                "--unsigned",
                 self.unsigned,
                 "--certificate",
                 certificate,
@@ -337,7 +379,7 @@ class SecureBootBoundaryTest(unittest.TestCase):
             "request",
             "--openssl",
             DEBIAN_TOOLS,
-            "--unsigned-uki",
+            "--unsigned",
             self.unsigned,
             "--certificate",
             self.work / "normalized-certificate.der",
@@ -400,7 +442,7 @@ class SecureBootBoundaryTest(unittest.TestCase):
         original[target_offset : target_offset + target_size] = other[source_offset : source_offset + source_size]
         transplanted = self.work / "transplanted.efi"
         transplanted.write_bytes(original)
-        self.assertNotEqual(self.verify(transplanted).returncode, 0)
+        self.assertNotEqual(self.verify([transplanted]).returncode, 0)
 
     @staticmethod
     def _directory_offset(data):

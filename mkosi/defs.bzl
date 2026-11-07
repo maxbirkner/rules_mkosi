@@ -7,7 +7,9 @@ load(
     _qemu_ovmf_toolchain = "qemu_ovmf_toolchain",
 )
 load("//mkosi:toolchain.bzl", _MkosiToolchainInfo = "MkosiToolchainInfo")
+load("//mkosi/debian:debian_lock.bzl", _debian_lock = "debian_lock")
 load("//mkosi/debian:toolchain.bzl", _DebianToolsInfo = "DebianToolsInfo")
+load("//mkosi/private:config_tree.bzl", _mkosi_config_tree = "mkosi_config_tree")
 load(
     "//mkosi/private:debian_snapshot.bzl",
     _DebianSnapshotInfo = "DebianSnapshotInfo",
@@ -26,7 +28,6 @@ load(
     _MkosiRootfsPayloadInfo = "MkosiRootfsPayloadInfo",
     _MkosiSourceTreeInfo = "MkosiSourceTreeInfo",
     _mkosi_base = "mkosi_base",
-    _mkosi_config_tree = "mkosi_config_tree",
     _mkosi_image = "mkosi_image",
     _mkosi_reproducibility_manifest = "mkosi_reproducibility_manifest",
     _mkosi_rootfs_payload = "mkosi_rootfs_payload",
@@ -50,10 +51,12 @@ load(
 load(
     "//mkosi/private:secure_boot.bzl",
     _SecureBootEphemeralTestFixtureInfo = "SecureBootEphemeralTestFixtureInfo",
-    _SecureBootSignedUkiInfo = "SecureBootSignedUkiInfo",
+    _SecureBootSignedBinaryInfo = "SecureBootSignedBinaryInfo",
     _SecureBootSigningRequestInfo = "SecureBootSigningRequestInfo",
     _secure_boot_ephemeral_test_fixture = "secure_boot_ephemeral_test_fixture",
     _secure_boot_import_response = "secure_boot_import_response",
+    _secure_boot_signed_image = "secure_boot_signed_image",
+    _secure_boot_signing_manifest = "secure_boot_signing_manifest",
     _secure_boot_signing_request = "secure_boot_signing_request",
 )
 load(
@@ -61,6 +64,14 @@ load(
     _SysupdatePayloadInfo = "SysupdatePayloadInfo",
     _sysupdate_payload = "sysupdate_payload",
     _sysupdate_transfers = "sysupdate_transfers",
+)
+load(
+    "//mkosi/private:sysupdate_signing.bzl",
+    _SysupdateEphemeralTestFixtureInfo = "SysupdateEphemeralTestFixtureInfo",
+    _SysupdateSigningRequestInfo = "SysupdateSigningRequestInfo",
+    _sysupdate_ephemeral_test_fixture = "sysupdate_ephemeral_test_fixture",
+    _sysupdate_import_signature = "sysupdate_import_signature",
+    _sysupdate_signing_request = "sysupdate_signing_request",
 )
 
 MkosiImageInfo = _MkosiImageInfo
@@ -81,6 +92,7 @@ mkosi_image = _mkosi_image
 mkosi_base = _mkosi_base
 mkosi_reproducibility_manifest = _mkosi_reproducibility_manifest
 debian_snapshot = _debian_snapshot
+debian_lock = _debian_lock
 mkosi_config_tree = _mkosi_config_tree
 mkosi_source_tree = _mkosi_source_tree
 mkosi_rootfs_payload = _mkosi_rootfs_payload
@@ -93,11 +105,18 @@ managed_python_test = _managed_python_test
 qemu_executable = _qemu_executable
 qemu_ovmf_toolchain = _qemu_ovmf_toolchain
 SecureBootSigningRequestInfo = _SecureBootSigningRequestInfo
-SecureBootSignedUkiInfo = _SecureBootSignedUkiInfo
+SecureBootSignedBinaryInfo = _SecureBootSignedBinaryInfo
 SecureBootEphemeralTestFixtureInfo = _SecureBootEphemeralTestFixtureInfo
 secure_boot_signing_request = _secure_boot_signing_request
+secure_boot_signing_manifest = _secure_boot_signing_manifest
 secure_boot_import_response = _secure_boot_import_response
 secure_boot_ephemeral_test_fixture = _secure_boot_ephemeral_test_fixture
+secure_boot_signed_image = _secure_boot_signed_image
 SysupdatePayloadInfo = _SysupdatePayloadInfo
 sysupdate_payload = _sysupdate_payload
 sysupdate_transfers = _sysupdate_transfers
+SysupdateSigningRequestInfo = _SysupdateSigningRequestInfo
+SysupdateEphemeralTestFixtureInfo = _SysupdateEphemeralTestFixtureInfo
+sysupdate_signing_request = _sysupdate_signing_request
+sysupdate_import_signature = _sysupdate_import_signature
+sysupdate_ephemeral_test_fixture = _sysupdate_ephemeral_test_fixture

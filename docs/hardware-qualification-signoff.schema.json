@@ -1,0 +1,563 @@
+{
+  "$defs": {
+    "class_entry": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "failed"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "results": {
+                "minItems": 1
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "not-tested"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "results": {
+                "maxItems": 0
+              }
+            }
+          }
+        }
+      ],
+      "properties": {
+        "known_issues": {
+          "items": {
+            "format": "uri",
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "results": {
+          "items": {
+            "$ref": "#/$defs/result"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "status": {
+          "enum": [
+            "qualified",
+            "failed",
+            "not-tested"
+          ]
+        }
+      },
+      "required": [
+        "status",
+        "results"
+      ],
+      "type": "object"
+    },
+    "nonempty_string": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "result": {
+      "additionalProperties": false,
+      "properties": {
+        "asset": {
+          "$ref": "#/$defs/nonempty_string"
+        },
+        "secure_boot": {
+          "enum": [
+            "disabled",
+            "setup-mode",
+            "custom-keys",
+            "microsoft-factory-keys",
+            "not-applicable"
+          ]
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      },
+      "required": [
+        "asset",
+        "sha256",
+        "secure_boot"
+      ],
+      "type": "object"
+    },
+    "sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    }
+  },
+  "$id": "https://github.com/maxbirkner/rules_mkosi/blob/main/docs/hardware-qualification-signoff.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "The hardware classes that one rules_mkosi release claims, with their attached results; see docs/hardware-qualification.md.",
+  "properties": {
+    "classes": {
+      "additionalProperties": false,
+      "properties": {
+        "bios-csm": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/class_entry"
+            },
+            {
+              "properties": {
+                "results": {
+                  "items": {
+                    "properties": {
+                      "secure_boot": {
+                        "const": "not-applicable"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "status": {
+                    "const": "qualified"
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "results": {
+                    "allOf": [
+                      {
+                        "contains": {
+                          "properties": {
+                            "secure_boot": {
+                              "const": "not-applicable"
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "bios-legacy-only": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/class_entry"
+            },
+            {
+              "properties": {
+                "results": {
+                  "items": {
+                    "properties": {
+                      "secure_boot": {
+                        "const": "not-applicable"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "status": {
+                    "const": "qualified"
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "results": {
+                    "allOf": [
+                      {
+                        "contains": {
+                          "properties": {
+                            "secure_boot": {
+                              "const": "not-applicable"
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "uefi-embedded-headless": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/class_entry"
+            },
+            {
+              "properties": {
+                "results": {
+                  "items": {
+                    "properties": {
+                      "secure_boot": {
+                        "enum": [
+                          "setup-mode",
+                          "custom-keys"
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "status": {
+                    "const": "qualified"
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "results": {
+                    "allOf": [
+                      {
+                        "contains": {
+                          "properties": {
+                            "secure_boot": {
+                              "const": "setup-mode"
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "contains": {
+                          "properties": {
+                            "secure_boot": {
+                              "const": "custom-keys"
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "uefi-mobile-apu": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/class_entry"
+            },
+            {
+              "properties": {
+                "results": {
+                  "items": {
+                    "properties": {
+                      "secure_boot": {
+                        "enum": [
+                          "disabled",
+                          "setup-mode"
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "status": {
+                    "const": "qualified"
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "results": {
+                    "allOf": [
+                      {
+                        "contains": {
+                          "properties": {
+                            "secure_boot": {
+                              "const": "disabled"
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "contains": {
+                          "properties": {
+                            "secure_boot": {
+                              "const": "setup-mode"
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "uefi-modern-desktop": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/class_entry"
+            },
+            {
+              "properties": {
+                "results": {
+                  "items": {
+                    "properties": {
+                      "secure_boot": {
+                        "enum": [
+                          "disabled",
+                          "setup-mode",
+                          "custom-keys"
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "status": {
+                    "const": "qualified"
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "results": {
+                    "allOf": [
+                      {
+                        "contains": {
+                          "properties": {
+                            "secure_boot": {
+                              "const": "disabled"
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "contains": {
+                          "properties": {
+                            "secure_boot": {
+                              "const": "setup-mode"
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "contains": {
+                          "properties": {
+                            "secure_boot": {
+                              "const": "custom-keys"
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "uefi-older-generation": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/class_entry"
+            },
+            {
+              "properties": {
+                "results": {
+                  "items": {
+                    "properties": {
+                      "secure_boot": {
+                        "enum": [
+                          "disabled",
+                          "microsoft-factory-keys"
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "status": {
+                    "const": "qualified"
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "results": {
+                    "allOf": [
+                      {
+                        "contains": {
+                          "properties": {
+                            "secure_boot": {
+                              "const": "disabled"
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "contains": {
+                          "properties": {
+                            "secure_boot": {
+                              "const": "microsoft-factory-keys"
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "uefi-removable-usb": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/class_entry"
+            },
+            {
+              "properties": {
+                "results": {
+                  "items": {
+                    "properties": {
+                      "secure_boot": {
+                        "const": "disabled"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "status": {
+                    "const": "qualified"
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "results": {
+                    "allOf": [
+                      {
+                        "contains": {
+                          "properties": {
+                            "secure_boot": {
+                              "const": "disabled"
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "required": [
+        "uefi-modern-desktop",
+        "uefi-mobile-apu",
+        "uefi-embedded-headless",
+        "uefi-older-generation",
+        "uefi-removable-usb",
+        "bios-legacy-only",
+        "bios-csm"
+      ],
+      "type": "object"
+    },
+    "format_version": {
+      "const": "rules-mkosi-hardware-qualification-signoff-v1"
+    },
+    "release": {
+      "additionalProperties": false,
+      "properties": {
+        "archive_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "commit": {
+          "pattern": "^[0-9a-f]{40}$",
+          "type": "string"
+        },
+        "tag": {
+          "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "tag",
+        "commit",
+        "archive_sha256"
+      ],
+      "type": "object"
+    },
+    "signed_off_at": {
+      "format": "date-time",
+      "type": "string"
+    },
+    "signed_off_by": {
+      "$ref": "#/$defs/nonempty_string"
+    },
+    "vm_gates": {
+      "additionalProperties": false,
+      "properties": {
+        "ci_run": {
+          "format": "uri",
+          "type": "string"
+        },
+        "conclusion": {
+          "const": "success"
+        }
+      },
+      "required": [
+        "ci_run",
+        "conclusion"
+      ],
+      "type": "object"
+    }
+  },
+  "required": [
+    "format_version",
+    "release",
+    "vm_gates",
+    "classes",
+    "signed_off_by",
+    "signed_off_at"
+  ],
+  "title": "rules_mkosi hardware qualification sign-off",
+  "type": "object"
+}

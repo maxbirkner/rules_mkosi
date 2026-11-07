@@ -5,6 +5,7 @@ exports_files([
     "MODULE.bazel",
     "e2e/module_resolution/consumer_isolation/MODULE.bazel",
     "e2e/module_resolution/nonroot_name/MODULE.bazel",
+    "e2e/module_resolution/rules_cc_first/MODULE.bazel",
     "e2e/module_resolution/snapshot_name_conflict/MODULE.bazel",
 ])
 

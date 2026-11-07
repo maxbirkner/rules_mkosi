@@ -876,6 +876,66 @@
           "version": "2.41-12+deb13u4"
         },
         {
+          "key": "libdeflate0_1.23-2_amd64",
+          "name": "libdeflate0",
+          "version": "1.23-2"
+        },
+        {
+          "key": "liblz4-1_1.10.0-4_amd64",
+          "name": "liblz4-1",
+          "version": "1.10.0-4"
+        },
+        {
+          "key": "liblzma5_5.8.1-1-p-deb13u1_amd64",
+          "name": "liblzma5",
+          "version": "5.8.1-1+deb13u1"
+        },
+        {
+          "key": "libselinux1_3.8.1-1_amd64",
+          "name": "libselinux1",
+          "version": "3.8.1-1"
+        },
+        {
+          "key": "libuuid1_2.41.5-0-p-deb13u1_amd64",
+          "name": "libuuid1",
+          "version": "2.41.5-0+deb13u1"
+        },
+        {
+          "key": "libxxhash0_0.8.3-2_amd64",
+          "name": "libxxhash0",
+          "version": "0.8.3-2"
+        },
+        {
+          "key": "libzstd1_1.5.7-p-dfsg-1_amd64",
+          "name": "libzstd1",
+          "version": "1.5.7+dfsg-1"
+        },
+        {
+          "key": "zlib1g_1-1.3.dfsg-p-really1.3.1-1-p-b1_amd64",
+          "name": "zlib1g",
+          "version": "1:1.3.dfsg+really1.3.1-1+b1"
+        }
+      ],
+      "filename": "pool/main/e/erofs-utils/erofs-utils_1.8.6-1_amd64.deb",
+      "key": "erofs-utils_1.8.6-1_amd64",
+      "name": "erofs-utils",
+      "sha256": "81042b8c0c3eb63699aa7d0763dceedc675a747d9f5cfebf914b4160233f411e",
+      "size": 138944,
+      "urls": [
+        "https://snapshot.debian.org/archive/debian/20260912T080811Z/pool/main/e/erofs-utils/erofs-utils_1.8.6-1_amd64.deb"
+      ],
+      "version": "1.8.6-1"
+    },
+    {
+      "arch": "amd64",
+      "component": "main",
+      "dependencies": [
+        {
+          "key": "libc6_2.41-12-p-deb13u4_amd64",
+          "name": "libc6",
+          "version": "2.41-12+deb13u4"
+        },
+        {
           "key": "libfdisk1_2.41.5-0-p-deb13u1_amd64",
           "name": "libfdisk1",
           "version": "2.41.5-0+deb13u1"
@@ -2077,6 +2137,26 @@
         "https://snapshot.debian.org/archive/debian/20260912T080811Z/pool/main/c/cdebconf/libdebconfclient0_0.280_amd64.deb"
       ],
       "version": "0.280"
+    },
+    {
+      "arch": "amd64",
+      "component": "main",
+      "dependencies": [
+        {
+          "key": "libc6_2.41-12-p-deb13u4_amd64",
+          "name": "libc6",
+          "version": "2.41-12+deb13u4"
+        }
+      ],
+      "filename": "pool/main/libd/libdeflate/libdeflate0_1.23-2_amd64.deb",
+      "key": "libdeflate0_1.23-2_amd64",
+      "name": "libdeflate0",
+      "sha256": "5fe37fb79d53f5c91da6ba3ac4c1a8453e1f2b1ff0e0ea45189c5338bbfdbf82",
+      "size": 47344,
+      "urls": [
+        "https://snapshot.debian.org/archive/debian/20260912T080811Z/pool/main/libd/libdeflate/libdeflate0_1.23-2_amd64.deb"
+      ],
+      "version": "1.23-2"
     },
     {
       "arch": "amd64",

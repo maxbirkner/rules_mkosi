@@ -3,7 +3,8 @@
 mkosi has no supported options for the release constraints in release_patches.py, so release mode replaces mkosi
 functions in-process. Each supported mkosi version pins the source of every patched internal, the callers through
 which a patch takes effect, and the helpers and fields that the replacements use. A different mkosi then fails the
-release build with a list of the changed internals instead of silently building a different image.
+release build with a list of the changed internals and what to re-verify for each, instead of silently building a
+different image. docs/mkosi-internals.md explains each patch and the upgrade procedure.
 """
 
 import dataclasses
@@ -11,11 +12,13 @@ import dis
 import hashlib
 import importlib
 import inspect
+import re
 from dataclasses import dataclass
 
 _REVIEW = (
-    "Review mkosi/private/mkosi_runner/release_patches.py against this mkosi version, then update its contract in "
-    "mkosi/private/mkosi_runner/mkosi_contract.py."
+    "Follow docs/mkosi-internals.md#upgrading-mkosi: review each changed internal listed above against its upstream "
+    "diff and adapt its patch in mkosi/private/mkosi_runner/release_patches.py, then record the reviewed fingerprints "
+    "in the contract of this mkosi version in mkosi/private/mkosi_runner/mkosi_contract.py."
 )
 
 
@@ -27,6 +30,7 @@ class Patched:
         name: "module:qualified.name" of the internal.
         patch: The release_patches.py function that replaces or wraps it.
         sha256: SHA-256 of the internal's source in the reviewed mkosi version.
+        recheck: What the patch assumes about the internal, completing "Re-verify that ...", to check when it changes.
         callers: "module:qualified.name" of functions that must read the patched name from their module at call
             time, so that the patch takes effect.
     """
@@ -34,6 +38,7 @@ class Patched:
     name: str
     patch: str
     sha256: str
+    recheck: str
     callers: tuple[str, ...] = ()
 
 
@@ -59,35 +64,38 @@ CONTRACTS = {
     "27.1": Contract(
         patched=(
             Patched(
-                "mkosi.distribution.debian:Installer.repositories",
-                "_patch_repositories",
-                "ec554a20b6b024b2c9c759ba7fd7e901a80bb9612a091072fb5be48e11959998",
-            ),
-            Patched(
                 "mkosi.installer:PackageManager.mounts",
                 "_patch_mounts",
                 "6b90b94985733b28e30f66cd839fe92e0e6f28b87ed29bb152e65cc5ce5bf7bd",
+                "it still binds Context.repository read-write at /repository, which the patch makes read-only",
             ),
             Patched(
                 "mkosi.context:Context.__init__",
                 "_patch_context_repository",
                 "3a8b4a2472bb5c930e7ab43590effa2b206a6e970fb9e77bc1ec3d80e4c95512",
+                (
+                    "it reads Context.repository only to create the workspace repository directory, and caches no "
+                    "path derived from it, because the patch switches the property to the mirror only after it returns"
+                ),
             ),
             Patched(
                 "mkosi.context:Context.repository",
                 "_patch_context_repository",
                 "5828c766cc7063ff43957c152a97cc05a1cf91ff386bd9bd4af44c2a8120f7bc",
+                "it is still the host side of the /repository mount, to which the Debian bootstrap also maps deb paths",
             ),
             Patched(
                 "mkosi.config:parse_config",
-                "_ConfigurationValidator.parse_config",
+                "_FirstConfiguration.parse_config",
                 "8f949208698e7047d38a27eb1b07e6560994d7483743522f93411f97c90e0171",
+                "it still returns (args, tools, images) and its callers pass resources= by keyword",
                 callers=("mkosi.__main__:main",),
             ),
             Patched(
                 "mkosi.config:parse_ini",
                 "_ConfigurationValidator.parse_ini",
                 "8a0f255f47432ec48b271a7df1b4021bf5e2a1e85270f8525ae1c9abe43c5375",
+                "it still yields (section, setting, value) for every setting, including [Match] sections",
                 callers=(
                     "mkosi.config:ParseContext.match_config",
                     "mkosi.config:ParseContext.parse_config_one",
@@ -98,24 +106,28 @@ CONTRACTS = {
                 "mkosi.distribution.debian:install_apt_sources",
                 "_remove_apt_sources",
                 "f180a8169774fc63a5db16397030ff849244b51f1bfd9d3339727488f5e0253f",
+                "it is still the only function that writes APT sources into the image",
                 callers=("mkosi.distribution.debian:Installer.install_packages",),
             ),
             Patched(
                 "mkosi:install_sandbox_trees",
                 "_install_sandbox_trees",
                 "cf203faf5bd9cbb4939115a61590c46521472e41bb2b66f671b8d1177bb2b5e7",
+                "the replacement still mirrors it, except that it copies no host passwd, group or resolver files",
                 callers=("mkosi:run_sync_scripts", "mkosi:build_image", "mkosi:sync_repository_metadata"),
             ),
             Patched(
                 "mkosi:make_tar",
                 "deterministic_make_tar",
                 "939b475f25dcea19491ee4925fa93af5c487b0e1a7c0b59fcde5c44764237ab2",
+                "the replacement passes the same tar options, apart from adding --sort=name and omitting --sparse",
                 callers=("mkosi:build_image",),
             ),
             Patched(
                 "mkosi.manifest:Manifest.record_deb_packages",
                 "include_base_packages_in_manifest",
                 "39dadbf7082a59af18a2c3ee67059e5b648414f0bc38a3b9695e81822cbc14ea",
+                "it still omits base tree packages only by comparing their install time with _init_timestamp",
             ),
         ),
         inherited=(("mkosi.installer.apt:Apt", "mounts"),),
@@ -140,13 +152,13 @@ CONTRACTS = {
         fields={
             "mkosi.config:Config": (
                 "image",
+                "release",
                 "repositories",
                 "sandbox_trees",
                 "proxy_peer_certificate",
                 "proxy_client_certificate",
                 "proxy_client_key",
             ),
-            "mkosi.installer.apt:AptRepository": ("url", "components"),
             "mkosi.manifest:Manifest": ("_init_timestamp",),
         },
     ),
@@ -163,15 +175,22 @@ def mkosi_version():
 def violations(version=None, contract=None):
     """Returns descriptions of the differences between the importable mkosi and the contract of its version."""
     version = mkosi_version() if version is None else version
-    if contract is None:
-        if version not in CONTRACTS:
-            return [
-                "mkosi {} is not supported by release mode; supported mkosi versions: {}".format(
-                    version, ", ".join(sorted(CONTRACTS))
-                )
-            ]
-        contract = CONTRACTS[version]
     found = []
+    if contract is None:
+        if version in CONTRACTS:
+            contract = CONTRACTS[version]
+        else:
+            found.append(
+                "mkosi {} is not supported by release mode; supported mkosi versions: {}".format(
+                    version, ", ".join(sorted(CONTRACTS, key=_version_key))
+                )
+            )
+            if not CONTRACTS:
+                return found
+            # Comparing with the newest reviewed contract lists what changed, which is where an upgrade starts.
+            newest = max(CONTRACTS, key=_version_key)
+            found.append("compared with the mkosi {} contract:".format(newest))
+            contract = CONTRACTS[newest]
     for patched in contract.patched:
         found.extend(_patched_violations(patched))
     for owner, attribute in contract.inherited:
@@ -181,6 +200,10 @@ def violations(version=None, contract=None):
     for owner, names in contract.fields.items():
         found.extend(_field_violations(owner, names))
     return found
+
+
+def _version_key(version):
+    return tuple(int(number) for number in re.findall(r"\d+", version))
 
 
 def verify():
@@ -245,10 +268,19 @@ def _patched_violations(patched):
     try:
         value = resolve(patched.name)
     except LookupError:
-        return ["{} no longer exists; {} cannot patch it".format(patched.name, patched.patch)]
+        return [
+            "{} no longer exists; {} cannot patch it. Re-verify that {}".format(
+                patched.name, patched.patch, patched.recheck
+            )
+        ]
     found = []
-    if source_sha256(value) != patched.sha256:
-        found.append("{} changed; {} replaces or wraps it".format(patched.name, patched.patch))
+    actual = source_sha256(value)
+    if actual != patched.sha256:
+        found.append(
+            "{} changed (source sha256 {}); {} replaces or wraps it. Re-verify that {}".format(
+                patched.name, actual, patched.patch, patched.recheck
+            )
+        )
     attribute = patched.name.rpartition(".")[2].rpartition(":")[2]
     for caller in patched.callers:
         found.extend(_caller_violations(caller, attribute, patched))

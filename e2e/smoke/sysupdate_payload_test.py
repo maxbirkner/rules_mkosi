@@ -3,10 +3,20 @@
 import hashlib
 import json
 import pathlib
+import struct
 import sys
 
 ROOT = "4f68bce3-e8cd-4db1-96e7-fbcaf984b709"
 ROOT_VERITY = "2c7357ed-ebd2-46d9-aec1-23d437ec2bf5"
+EROFS_MAGIC = struct.pack("<I", 0xE0F5E1E2)
+
+
+def _check_minimized_erofs(path: pathlib.Path, slot_size: int) -> None:
+    """Checks that the payload holds an erofs file system, not padded to the size of its slot."""
+    with path.open("rb") as root:
+        root.seek(1024)
+        assert root.read(4) == EROFS_MAGIC, "{} is not an erofs file system".format(path.name)
+    assert 0 < path.stat().st_size < slot_size // 2, (path.stat().st_size, slot_size)
 
 
 def main() -> None:
@@ -40,7 +50,7 @@ def main() -> None:
         "rules-mkosi-ab_2.root-verity.{}.raw".format(verity["uuid"]),
     }
     assert {path.name for path in payload.iterdir()} == expected | {"SHA256SUMS"}
-    assert (payload / "rules-mkosi-ab_2.root.{}.raw".format(root["uuid"])).stat().st_size == root["size_bytes"]
+    _check_minimized_erofs(payload / "rules-mkosi-ab_2.root.{}.raw".format(root["uuid"]), root["size_bytes"])
     sums = {}
     for line in (payload / "SHA256SUMS").read_text(encoding="ascii").splitlines():
         digest, name = line.split("  ", 1)
