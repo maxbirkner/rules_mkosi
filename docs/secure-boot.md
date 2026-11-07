@@ -104,12 +104,18 @@ The reference signer runs outside Bazel actions, through `bazel run`, so the pri
 
 ```console
 bazel build //:signing_manifest
+manifest="$(realpath bazel-bin/signing_manifest.secure-boot-signing-manifest.json)"
 bazel run @rules_mkosi//mkosi:secure_boot_signer -- \
-  --manifest bazel-bin/signing_manifest.secure-boot-signing-manifest.json \
+  --manifest "$manifest" \
   --certificate keys/db.crt \
   --key "$XDG_RUNTIME_DIR/db.key" \
   --output-dir signed
 ```
+
+Resolve the manifest's path right after building it, before `bazel run`.
+`bazel run` builds the signer first and points the `bazel-bin` convenience symlink at the signer's configuration.
+That configuration differs from the manifest's if the build used options that change the output directory, such as `-c opt`, or if the root module's default Python version is not the one that rules_mkosi builds the signer with.
+`bazel-bin/signing_manifest.secure-boot-signing-manifest.json` then names a missing or stale manifest when the signer starts.
 
 `bazel run --script_path=sign.sh @rules_mkosi//mkosi:secure_boot_signer` writes a script that runs the signer later without Bazel, for example in a separate CI step.
 Relative paths are relative to the directory that `bazel run` was started in.
@@ -131,7 +137,12 @@ The signer warns if other users can access the key file.
 
 The signer uses the pinned `systemd-sbsign` of rules_mkosi's Debian tools by default, which runs in unprivileged user namespaces.
 Where those are blocked outside Bazel's sandbox, for example by AppArmor on Ubuntu 24.04 (`kernel.apparmor_restrict_unprivileged_userns=1`), pass a host signing tool with `--sbsign sbsign` (sbsigntools) or `--sbsign /usr/lib/systemd/systemd-sbsign`; the import verifies the result the same way.
-Temporary files, which are public, go to a directory under `--scratch` or `TMPDIR`.
+
+The signer signs in a temporary directory under `--scratch`, which defaults to Python's temporary directory (`TMPDIR`, or `/tmp` if it is unset), and removes it when it finishes or fails.
+For each request, the directory holds the certificate as PEM, the unsigned binary, and the signed binary, all of which are public; the binaries of every request stay there until all requests are signed.
+The private key is never written there: a host signing tool gets its path, and the pinned `systemd-sbsign` reads it through a read-only bind mount.
+While the pinned `systemd-sbsign` signs a request, the directory also holds an extracted copy of rules_mkosi's Debian tools, which runs from there.
+Pass `--scratch` if `TMPDIR` lacks room for these files or does not allow running programs, for example a small or `noexec` tmpfs; with the pinned `systemd-sbsign`, its path must not contain `:`.
 
 ### Feeding signed binaries back
 
@@ -323,6 +334,7 @@ With Secure Boot enabled, these ways behave differently in systemd 257:
 
 `secure_boot_lifecycle_test` checks both SMBIOS ways with Secure Boot enabled.
 `credentials` passes each entry as `io.systemd.credential:<name>=<value>` without restating `machine_args`.
+Do not escape commas or line breaks in values: the rule doubles each comma, which QEMU reads as one literal comma, and line breaks reach the guest, so a value can hold a unit drop-in.
 A `systemd.unit-dropin.<unit>` credential adds a drop-in to a unit ([systemd-debug-generator(8)][debug-generator]), so a test can start a readiness unit that the image does not enable:
 
 ```starlark

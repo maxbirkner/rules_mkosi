@@ -160,9 +160,10 @@ The image snapshot and the copied OVMF variables persist across reboots for the 
             doc = """systemd system credentials for the guest, keyed by credential name.
 
 Each becomes the SMBIOS Type 11 string `io.systemd.credential:<name>=<value>`, which systemd imports at boot, also
-with Secure Boot enabled. For example, `{"systemd.unit-dropin.multi-user.target": "[Unit]\\nWants=ready.service\\n"}`
-starts a readiness unit that the image does not enable; see docs/secure-boot.md. Names are letters, digits, and
-`._-@~+\\`.""",
+with Secure Boot enabled. Do not escape commas or line breaks in values: each comma is doubled, which QEMU reads as
+one literal comma, and line breaks reach the guest, so a value can hold a unit drop-in. For example,
+`{"systemd.unit-dropin.multi-user.target": "[Unit]\\nWants=ready.service\\n"}` starts a readiness unit that the image
+does not enable; see docs/secure-boot.md. Names are letters, digits, and `._-@~+\\`.""",
         ),
         "expected_failure_marker": attr.string(
             doc = "Exact serial marker that makes an intentionally failing boot pass before readiness.",
