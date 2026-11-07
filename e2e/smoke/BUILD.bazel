@@ -1011,7 +1011,7 @@ py_test(
         "--",
         "$(rootpath :sysupdate_v1_secure_boot_partition_metadata)",
         "$(rootpath @mkosi_debian_tools//:launcher)",
-        "$(rootpath @rules_mkosi//mkosi/tools:esp_manifest)",
+        "$(rootpath @rules_mkosi//mkosi:esp_manifest)",
     ],
     data = [
         ":secure_boot_test_signer",
@@ -1021,10 +1021,10 @@ py_test(
         ":sysupdate_v1_signed_systemd_boot",
         ":sysupdate_v1_signed_uki",
         "@mkosi_debian_tools//:launcher",
-        "@rules_mkosi//mkosi/tools:esp_manifest",
+        "@rules_mkosi//mkosi:esp_manifest",
     ],
     main = "secure_boot_signed_image_test.py",
-    deps = ["@rules_mkosi//mkosi/tools:esp_manifest_lib"],
+    deps = ["@rules_mkosi//mkosi:esp_manifest_lib"],
 )
 
 # Release 2 as an update whose UKI is signed by the db key that release 1 enrolls.

@@ -15,8 +15,9 @@ import unittest
 import uuid
 import zlib
 from pathlib import Path
+from unittest import mock
 
-import esp_manifest
+import rules_mkosi_esp_manifest as esp_manifest
 
 SCRIPT, LAUNCHER_TOOL, DEBIAN_TOOLS, SECURE_BOOT_IMAGE = (str(Path(path).absolute()) for path in sys.argv[1:5])
 launcher_tool = runpy.run_path(LAUNCHER_TOOL)
@@ -190,6 +191,40 @@ def _first_cluster(data, entry):
     return struct.unpack_from("<H", data, entry + 26)[0]
 
 
+def _fat16_chain(data, esp, first):
+    """Returns the clusters of the FAT16 chain that starts at first."""
+    chain = [first]
+    while (following := struct.unpack_from("<H", data, _fat16_entry(data, esp, chain[-1]))[0]) < 0xFFF8:
+        chain.append(following)
+    return chain
+
+
+def _fat16_cluster_offset(data, esp, cluster):
+    """Returns the offset of a FAT16 data cluster, after the FATs and the fixed root directory."""
+    sector, per_cluster, reserved, fats, root_entries = struct.unpack_from("<HBHBH", data, esp + 11)
+    fat_size = struct.unpack_from("<H", data, esp + 22)[0]
+    data_start = (reserved + fats * fat_size) * sector + root_entries * 32
+    return esp + data_start + (cluster - 2) * per_cluster * sector
+
+
+def _write_clusters(data, esp, chain, content):
+    """Writes content across the FAT16 clusters of chain, zero-padded to their size."""
+    size = struct.unpack_from("<H", data, esp + 11)[0] * data[esp + 13]
+    content = content.ljust(len(chain) * size, b"\0")
+    for index, cluster in enumerate(chain):
+        offset = _fat16_cluster_offset(data, esp, cluster)
+        data[offset : offset + size] = content[index * size : (index + 1) * size]
+
+
+def _long_name_slot(sequence, checksum, name=""):
+    units = name.encode("utf-16-le").ljust(26, b"\0")
+    return bytes([sequence]) + units[:10] + bytes([0x0F, 0, checksum]) + units[10:22] + bytes(2) + units[22:26]
+
+
+def _short_entry(name):
+    return name + bytes([0x20]) + bytes(20)
+
+
 class ScenarioTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -204,9 +239,9 @@ class ScenarioTest(unittest.TestCase):
     def test_a_file_is_fragmented(self):
         fragmented = []
         for name, disk in self.fixture.disks.items():
-            with open(disk, "rb") as image:
+            with open(disk, "rb") as file:
                 # The reader has no public API for cluster chains.
-                volume = esp_manifest._FatVolume(image, esp_manifest.find_esp(disk))
+                volume = esp_manifest._FatVolume(esp_manifest._Image(file), esp_manifest.find_esp(disk))
                 chain = volume._chain(volume.lookup(FRAGMENTED).cluster, FRAGMENTED)
             if any(cluster + 1 != following for cluster, following in itertools.pairwise(chain)):
                 fragmented.append(name)
@@ -311,7 +346,59 @@ class MalformedImageTest(unittest.TestCase):
             keys = _first_cluster(data, _entry(data, esp, b"KEYS       "))
             struct.pack_into("<H", data, _entry(data, esp, b"AUTO       ") + 26, keys)
 
-        self.assert_invalid(self.fixture.patched("directory-loop", loop), "loops back", esp_manifest.list_esp_files)
+        self.assert_invalid(self.fixture.patched("directory-loop", loop), "cross-linked", esp_manifest.list_esp_files)
+
+    def test_subdirectory_at_cluster_zero_is_rejected(self):
+        def to_root(data, esp):
+            struct.pack_into("<H", data, _entry(data, esp, b"AUTO       ") + 26, 0)
+
+        disk = self.fixture.patched("directory-at-zero", to_root)
+        self.assert_invalid(disk, "invalid cluster 0", esp_manifest.list_esp_files)
+
+    def test_directories_that_share_clusters_are_rejected(self):
+        def cross_link(data, esp):
+            keys = _first_cluster(data, _entry(data, esp, b"KEYS       "))
+            entries = _fat16_chain(data, esp, _first_cluster(data, _entry(data, esp, b"ENTRIES    ")))
+            self.assertGreater(len(entries), 1)
+            struct.pack_into("<H", data, _fat16_entry(data, esp, keys), entries[1])
+
+        disk = self.fixture.patched("cross-linked", cross_link)
+        self.assert_invalid(disk, "shares cluster .* cross-linked", esp_manifest.list_esp_files)
+
+    def test_walk_reads_at_most_the_esp_size_of_directories(self):
+        limits = esp_manifest._WalkLimits(4096)
+        limits.claim([2], 2048, "first")
+        with self.assertRaisesRegex(esp_manifest.InvalidImageError, "larger than the ESP"):
+            limits.claim([3, 4], 4096, "second")
+
+    def test_long_name_slot_runs_are_bounded(self):
+        """A directory of stray long name slots is parsed in linear time, and a slot count of 0 names nothing."""
+
+        def stray_slots(data, esp):
+            entry = _entry(data, esp, b"BIG     BIN")
+            data[entry + 11] = 0x10
+            struct.pack_into("<I", data, entry + 28, 0)
+            zero = b"ZERO    BIN"
+            content = _long_name_slot(1, 0) * 9000 + _short_entry(b"PLAIN   TXT")
+            content += _long_name_slot(0x40, esp_manifest._short_name_checksum(zero), "X") + _short_entry(zero)
+            _write_clusters(data, esp, _fat16_chain(data, esp, _first_cluster(data, entry)), content)
+
+        disk = self.fixture.patched("stray-slots", stray_slots)
+        with mock.patch.object(esp_manifest, "_long_name", wraps=esp_manifest._long_name) as long_name:
+            files = [file.path for file in esp_manifest.list_esp_files(disk)]
+        self.assertIn("big.bin/PLAIN.TXT", files)
+        self.assertIn("big.bin/ZERO.BIN", files)
+        self.assertLessEqual(max(len(call.args[0]) for call in long_name.call_args_list), 20)
+
+    def test_partition_array_outside_the_image_is_rejected(self):
+        for lba in (1, 1 << 40, 1 << 63, (1 << 64) - 1):
+
+            def move(data, _, lba=lba):
+                struct.pack_into("<QI", data, 512 + 72, lba, 128)
+                struct.pack_into("<I", data, 512 + 16, 0)
+                struct.pack_into("<I", data, 512 + 16, zlib.crc32(data[512 : 512 + 92]))
+
+            self.assert_invalid(self.fixture.patched("gpt-lba", move), "partition array at LBA {} ".format(lba))
 
     def test_corrupt_gpt_is_rejected(self):
         def corrupt(data, _):

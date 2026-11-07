@@ -96,19 +96,19 @@ py_test(
     timeout = "long",
     srcs = ["esp_manifest_test.py"],
     args = [
-        "$(rootpath //mkosi/tools:esp_manifest.py)",
+        "$(rootpath //mkosi:esp_manifest_lib)",
         "$(rootpath //mkosi/private:launcher_tool.py)",
         "$(rootpath @mkosi_debian_tools//:launcher)",
         "$(rootpath //mkosi/private:secure_boot_image.py)",
     ],
     data = [
+        "//mkosi:esp_manifest_lib",
         "//mkosi/private:launcher_tool.py",
         "//mkosi/private:secure_boot_image.py",
-        "//mkosi/tools:esp_manifest.py",
         "@mkosi_debian_tools//:launcher",
     ],
     main = "esp_manifest_test.py",
-    deps = ["//mkosi/tools:esp_manifest_lib"],
+    deps = ["//mkosi:esp_manifest_lib"],
 )
 
 py_test(

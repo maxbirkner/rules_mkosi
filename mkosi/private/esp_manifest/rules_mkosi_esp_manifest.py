@@ -6,9 +6,9 @@ an image before writing it. This module finds the ESP in the image's GPT and rea
 system itself, without mounting the image or needing mtools. It uses only the Python standard library, so it also runs
 as a plain script outside Bazel:
 
-    python3 esp_manifest.py os.raw                 # Prints the ESP manifest.
-    python3 esp_manifest.py --list os.raw          # Lists the files on the ESP.
-    python3 esp_manifest.py --extract EFI/BOOT/BOOTX64.EFI os.raw > BOOTX64.EFI
+    python3 rules_mkosi_esp_manifest.py os.raw         # Prints the ESP manifest.
+    python3 rules_mkosi_esp_manifest.py --list os.raw  # Lists the files on the ESP.
+    python3 rules_mkosi_esp_manifest.py --extract EFI/BOOT/BOOTX64.EFI os.raw > BOOTX64.EFI
 
 ESP paths are relative to the ESP's root and, as on FAT, case-insensitive. The exit status is 1 for an unreadable or
 malformed image or manifest, 2 for invalid arguments, and 3 when the ESP lacks the requested file, for example the
@@ -37,6 +37,8 @@ _ATTRIBUTE_VOLUME_LABEL = 0x08
 _ATTRIBUTE_DIRECTORY = 0x10
 _ATTRIBUTE_LONG_NAME = 0x0F
 _LAST_LONG_NAME_SLOT = 0x40
+# A long name has at most 255 UTF-16 code units, 13 per slot.
+_MAX_LONG_NAME_SLOTS = 20
 _DELETED = 0xE5
 # Like Linux and mtools, tell FAT32 apart by its zero 16-bit FAT size and FAT12 from FAT16 by the cluster count.
 _FAT12_CLUSTER_LIMIT = 4085
@@ -92,31 +94,39 @@ class _Geometry(NamedTuple):
     clusters: int
 
 
-def _read(image, offset, size, what):
-    """Returns size bytes at offset of image; raises InvalidImageError if the image ends before them."""
-    image.seek(offset)
-    data = image.read(size)
-    if len(data) != size:
-        raise InvalidImageError("{} at byte {} lies beyond the end of the image".format(what, offset))
-    return data
+class _Image:
+    """An open disk image file or block device that reads only within its size."""
+
+    def __init__(self, file):
+        self.file = file
+        self.size = file.seek(0, os.SEEK_END)
+
+    def read(self, offset, size, what):
+        """Returns size bytes at offset; raises InvalidImageError unless they lie within the image."""
+        if offset < 0 or size < 0 or offset + size > self.size:
+            raise InvalidImageError("{} at byte {} lies beyond the end of the image".format(what, offset))
+        self.file.seek(offset)
+        data = self.file.read(size)
+        if len(data) != size:
+            raise InvalidImageError("{} at byte {} is truncated".format(what, offset))
+        return data
 
 
 def _gpt_sector_size(image):
     """Returns the logical sector size of a GPT disk with a protective MBR."""
-    mbr = _read(image, 0, 512, "the protective MBR")
+    mbr = image.read(0, 512, "the protective MBR")
     types = [mbr[446 + 16 * index + 4] for index in range(4)]
     if mbr[510:512] != b"\x55\xaa" or 0xEE not in types:
         raise InvalidImageError("the image has no protective MBR, so it is not a GPT disk image")
     for sector_size in _GPT_SECTOR_SIZES:
-        image.seek(sector_size)
-        if image.read(8) == b"EFI PART":
+        if image.size >= 2 * sector_size and image.read(sector_size, 8, "the GPT header") == b"EFI PART":
             return sector_size
     raise InvalidImageError("the image has no GPT header at byte 512 or 4096")
 
 
 def _gpt_entries(image, sector_size):
     """Returns the partition entries of the primary GPT after checking the CRCs of its header and entry array."""
-    header = _read(image, sector_size, sector_size, "the GPT header")
+    header = image.read(sector_size, sector_size, "the GPT header")
     header_size, header_crc = struct.unpack_from("<II", header, 12)
     if not 92 <= header_size <= sector_size:
         raise InvalidImageError("the GPT header has an invalid size of {} bytes".format(header_size))
@@ -127,7 +137,10 @@ def _gpt_entries(image, sector_size):
         raise InvalidImageError(
             "the GPT has an invalid partition array of {} {}-byte entries".format(count, entry_size)
         )
-    array = _read(image, array_lba * sector_size, count * entry_size, "the GPT partition array")
+    array_offset = array_lba * sector_size
+    if array_lba < 2 or array_offset + count * entry_size > image.size:
+        raise InvalidImageError("the GPT partition array at LBA {} does not lie within the image".format(array_lba))
+    array = image.read(array_offset, count * entry_size, "the GPT partition array")
     if zlib.crc32(array) != array_crc:
         raise InvalidImageError("the GPT partition array's CRC does not match")
     return [array[start : start + entry_size] for start in range(0, len(array), entry_size)]
@@ -135,7 +148,6 @@ def _gpt_entries(image, sector_size):
 
 def _find_esp(image):
     sector_size = _gpt_sector_size(image)
-    image_size = image.seek(0, os.SEEK_END)
     esps = []
     for entry in _gpt_entries(image, sector_size):
         if uuid.UUID(bytes_le=entry[:16]) == ESP_TYPE_GUID:
@@ -144,7 +156,7 @@ def _find_esp(image):
     if len(esps) != 1:
         raise InvalidImageError("the GPT must hold exactly one EFI system partition, found {}".format(len(esps)))
     esp = esps[0]
-    if esp.offset < 2 * sector_size or esp.size <= 0 or esp.offset + esp.size > image_size:
+    if esp.offset < 2 * sector_size or esp.size <= 0 or esp.offset + esp.size > image.size:
         raise InvalidImageError("the EFI system partition does not lie within the image")
     return esp
 
@@ -217,6 +229,8 @@ def _long_name(slots, raw):
     if not slots:
         return None
     count = slots[0][0] & ~_LAST_LONG_NAME_SLOT
+    if not 1 <= count <= _MAX_LONG_NAME_SLOTS:
+        return None
     expected = [count | _LAST_LONG_NAME_SLOT, *range(count - 1, 0, -1)]
     checksum = _short_name_checksum(raw[:11])
     if [slot[0] for slot in slots] != expected or any(slot[13] != checksum for slot in slots):
@@ -229,12 +243,34 @@ def _fold(name):
     return name.upper()
 
 
+class _WalkLimits:
+    """The clusters that the directories of one walk use, and how many more directory bytes the walk may read."""
+
+    def __init__(self, budget):
+        self.claimed = set()
+        self.remaining = budget
+
+    def claim(self, chain, size, what):
+        """Records a directory of size bytes in chain; raises InvalidImageError if it is cross-linked or too large."""
+        shared = self.claimed.intersection(chain)
+        if shared:
+            raise InvalidImageError(
+                "{} shares cluster {} with another directory, so the ESP is cross-linked".format(what, min(shared))
+            )
+        self.claimed.update(chain)
+        # Every cluster is read at most once, so this limit only guards against a mistake in that reasoning.
+        self.remaining -= size
+        if self.remaining < 0:
+            raise InvalidImageError("the ESP's directories are larger than the ESP")
+
+
 class _FatVolume:
     """A read-only FAT12, FAT16 or FAT32 file system on a partition of an open disk image."""
 
     def __init__(self, image, partition):
         self.image = image
-        self.geometry = _geometry(_read(image, partition.offset, 512, "the ESP's boot sector"), partition)
+        self.partition = partition
+        self.geometry = _geometry(image.read(partition.offset, 512, "the ESP's boot sector"), partition)
         self.last_cluster = self.geometry.clusters + 1
         if self.geometry.fat32:
             self.bits = 32
@@ -242,7 +278,7 @@ class _FatVolume:
             self.bits = 12 if self.geometry.clusters < _FAT12_CLUSTER_LIMIT else 16
         if (self.last_cluster + 1) * self.bits > self.geometry.fat_size * 8:
             raise InvalidImageError("the ESP's FAT is too small for its {} clusters".format(self.geometry.clusters))
-        self.fat = _read(image, self.geometry.fat_offset, self.geometry.fat_size, "the ESP's FAT")
+        self.fat = image.read(self.geometry.fat_offset, self.geometry.fat_size, "the ESP's FAT")
 
     def _next_cluster(self, cluster):
         if self.bits == 12:
@@ -271,7 +307,7 @@ class _FatVolume:
     def _read_chain(self, chain, what):
         size = self.geometry.cluster_size
         offset = self.geometry.data_offset
-        return b"".join(_read(self.image, offset + (cluster - 2) * size, size, what) for cluster in chain)
+        return b"".join(self.image.read(offset + (cluster - 2) * size, size, what) for cluster in chain)
 
     def read_file(self, entry, what):
         """Returns the bytes of the regular file of a directory entry."""
@@ -286,14 +322,32 @@ class _FatVolume:
             )
         return self._read_chain(chain, what)[: entry.size]
 
-    def directory(self, cluster, what):
-        """Returns the entries of the directory at cluster, where cluster 0 is the root directory of FAT12 and FAT16."""
-        if cluster == 0 and not self.geometry.fat32:
-            return self._entries(_read(self.image, self.geometry.root_offset, self.geometry.root_size, what))
-        chain = self._chain(cluster, what)
-        if len(chain) * self.geometry.cluster_size > _MAX_DIRECTORY_BYTES:
+    def directory(self, cluster, what, limits=None):
+        """Returns the entries of the directory at cluster, or of the root directory if cluster is None.
+
+        A walk passes its _WalkLimits, which reject a directory that shares a cluster with another one.
+        """
+        if cluster is None and not self.geometry.fat32:
+            if limits:
+                limits.claim([], self.geometry.root_size, what)
+            return self._entries(self.image.read(self.geometry.root_offset, self.geometry.root_size, what))
+        chain = self._chain(self.geometry.root_cluster if cluster is None else cluster, what)
+        size = len(chain) * self.geometry.cluster_size
+        if size > _MAX_DIRECTORY_BYTES:
             raise InvalidImageError("{} has more than 65536 entries".format(what))
+        if limits:
+            limits.claim(chain, size, what)
         return self._entries(self._read_chain(chain, what))
+
+    @staticmethod
+    def _add_slot(slots, raw):
+        """Returns the long name slots before the next short entry, dropping runs longer than any long name."""
+        if raw[0] & _LAST_LONG_NAME_SLOT:
+            return [raw]
+        if len(slots) >= _MAX_LONG_NAME_SLOTS:
+            return []
+        slots.append(raw)
+        return slots
 
     def _entries(self, data):
         """Returns the files and subdirectories in the directory data, without the volume label, '.' and '..'."""
@@ -306,7 +360,7 @@ class _FatVolume:
             if raw[0] == _DELETED:
                 slots = []
             elif raw[11] & 0x3F == _ATTRIBUTE_LONG_NAME:
-                slots = [*slots, raw] if raw[0] & _LAST_LONG_NAME_SLOT == 0 else [raw]
+                slots = self._add_slot(slots, raw)
             else:
                 long_name, slots = _long_name(slots, raw), []
                 short_name = _short_name(raw)
@@ -323,15 +377,15 @@ class _FatVolume:
         components = [component for component in esp_path.split("/") if component]
         if not components:
             raise EspFileNotFoundError("the ESP path {!r} names no file".format(esp_path))
-        entry = _Entry("", "", _ATTRIBUTE_DIRECTORY, self.geometry.root_cluster, 0)
+        entry = None
         for index, component in enumerate(components):
-            if not entry.is_directory:
+            if entry is not None and not entry.is_directory:
                 raise EspFileNotFoundError("the ESP has no file {}: {} is a file".format(esp_path, entry.name))
             parent = "/".join(components[:index]) or "the root directory"
             folded = _fold(component)
             matches = [
                 found
-                for found in self.directory(entry.cluster, parent)
+                for found in self.directory(None if entry is None else entry.cluster, parent)
                 if folded in (_fold(found.name), _fold(found.short_name))
             ]
             if not matches:
@@ -340,16 +394,13 @@ class _FatVolume:
         return entry
 
     def walk(self):
-        """Returns every regular file on the ESP; raises InvalidImageError if a directory contains itself."""
+        """Returns every regular file on the ESP; raises InvalidImageError if two directories share a cluster."""
         files = []
-        pending = [("", self.geometry.root_cluster)]
-        visited = set()
+        pending = [("", None)]
+        limits = _WalkLimits(self.partition.size)
         while pending:
             prefix, cluster = pending.pop()
-            if cluster in visited:
-                raise InvalidImageError("the ESP directory {} loops back to a directory above it".format(prefix))
-            visited.add(cluster)
-            for entry in self.directory(cluster, prefix or "the root directory"):
+            for entry in self.directory(cluster, prefix.rstrip("/") or "the root directory", limits):
                 if entry.is_directory:
                     pending.append((prefix + entry.name + "/", entry.cluster))
                 else:
@@ -364,8 +415,8 @@ def find_esp(image_path: str | os.PathLike) -> Partition:
         InvalidImageError: if the image has no valid GPT, or the GPT does not hold exactly one ESP inside the image.
         OSError: if the image cannot be read.
     """
-    with open(image_path, "rb") as image:
-        return _find_esp(image)
+    with open(image_path, "rb") as file:
+        return _find_esp(_Image(file))
 
 
 def list_esp_files(image_path: str | os.PathLike) -> list[EspFile]:
@@ -375,7 +426,8 @@ def list_esp_files(image_path: str | os.PathLike) -> list[EspFile]:
         InvalidImageError: if the image, its GPT, or the ESP's FAT file system is malformed.
         OSError: if the image cannot be read.
     """
-    with open(image_path, "rb") as image:
+    with open(image_path, "rb") as file:
+        image = _Image(file)
         return _FatVolume(image, _find_esp(image)).walk()
 
 
@@ -387,7 +439,8 @@ def read_esp_file(image_path: str | os.PathLike, esp_path: str) -> bytes:
         InvalidImageError: if the image, its GPT, or the ESP's FAT file system is malformed.
         OSError: if the image cannot be read.
     """
-    with open(image_path, "rb") as image:
+    with open(image_path, "rb") as file:
+        image = _Image(file)
         volume = _FatVolume(image, _find_esp(image))
         entry = volume.lookup(esp_path)
         if entry.is_directory:

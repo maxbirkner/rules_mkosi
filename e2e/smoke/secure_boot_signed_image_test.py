@@ -10,7 +10,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-import esp_manifest
+import rules_mkosi_esp_manifest
 
 ESP_TYPE_GUID = "c12a7328-f81f-11d2-ba4b-00a0c93ec93b"
 ESP_MANIFEST = "loader/rules_mkosi-secure-boot.json"
@@ -93,14 +93,14 @@ class SignedImageTest(unittest.TestCase):
     def test_esp_manifest_reader_reads_what_mtools_reads(self):
         [image] = RAW_IMAGE
         expected = json.loads(_read_esp_file(image, PARTITION_METADATA, LAUNCHER, ESP_MANIFEST))
-        self.assertEqual(esp_manifest.read_esp_manifest(image), expected)
+        self.assertEqual(rules_mkosi_esp_manifest.read_esp_manifest(image), expected)
         printed = subprocess.run([ESP_MANIFEST_TOOL, image], capture_output=True, check=True)
         self.assertEqual(json.loads(printed.stdout), expected)
         listed = subprocess.run([ESP_MANIFEST_TOOL, "--list", image], capture_output=True, check=True)
         self.assertLessEqual(set(METADATA["changed_esp_paths"]), set(listed.stdout.decode().splitlines()))
         partitions = json.loads(Path(PARTITION_METADATA).read_text())["partitions"]
         [esp] = [partition for partition in partitions if partition["type_guid"] == ESP_TYPE_GUID]
-        self.assertEqual(esp_manifest.find_esp(image)[:2], (esp["start_bytes"], esp["size_bytes"]))
+        self.assertEqual(rules_mkosi_esp_manifest.find_esp(image)[:2], (esp["start_bytes"], esp["size_bytes"]))
 
 
 if __name__ == "__main__":
