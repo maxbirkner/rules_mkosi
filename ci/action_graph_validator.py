@@ -22,10 +22,13 @@ _HOST_TOOL_BASENAMES = {
     "strip",
 }
 _HERMETIC_PATH_ACTIONS = {
+    "CcStrip",
     "CppArchive",
     "CppCompile",
     "CppLink",
+    "CppTransitiveArchive",
     "PythonZipper",
+    "RunBinary",
 }
 
 
@@ -115,8 +118,9 @@ _INPUT_REPOSITORIES = (
     "+debian_tools+",
 )
 _STATUS_FILES = ("volatile-status.txt", "stable-status.txt")
-# An absolute path as the whole argument, a flag value such as --sysroot=/usr, a list item, or a short-flag suffix.
-_ABSOLUTE_PATH = re.compile(r"(?:^|[=:,]|^-[A-Za-z]+)/")
+# An absolute path as the whole argument, a flag value such as --sysroot=/usr, a list item, or the suffix of a short or
+# joined include flag such as -I/usr/include or -isystem/usr/include, but not a relative path such as -Iexternal/x.
+_ABSOLUTE_PATH = re.compile(r"(?:^|[=:,]|^-[A-Za-z]|^-i(?:dirafter|quote|sysroot|system))/")
 # Absolute paths that point no tool at the host, such as the llvm module's empty sysroot.
 _HERMETIC_ABSOLUTE_ARGUMENTS = frozenset({"--sysroot=/dev/null"})
 _HOST_TOKENS = (

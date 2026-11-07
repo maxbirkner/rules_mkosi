@@ -85,7 +85,7 @@ def _managed_actions():
     return [
         _action(
             "CppCompile",
-            [_COMPILER, "-c", "mkosi/debian/launcher_main.cc"],
+            [_COMPILER, "-Iexternal/llvm++llvm+llvm-project/libcxx/include", "-c", "mkosi/debian/launcher_main.cc"],
             [_COMPILER, "mkosi/debian/x.cc"],
             [_OBJECT],
         ),
@@ -150,6 +150,7 @@ class AuditTest(unittest.TestCase):
             ),
             ("host path in arguments", "CppCompile", [_COMPILER, "-I/usr/include"], [_COMPILER]),
             ("host path in arguments", "CppCompile", [_COMPILER, "--sysroot=/"], [_COMPILER]),
+            ("host path in arguments", "CppCompile", [_COMPILER, "-isystem/usr/include"], [_COMPILER]),
             ("host toolchain input", "CppLink", [_COMPILER], [_COMPILER, "external/local_config_cc/ld"]),
             ("unmanaged repository", "CppLink", [_COMPILER], [_COMPILER, "external/host_tools/tar"]),
             ("unproduced bazel-out input", "CppLink", [_COMPILER], [_COMPILER, "bazel-out/stale.o"]),
