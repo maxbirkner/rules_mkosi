@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import os
 import subprocess
 import sys
 import unittest
@@ -44,7 +45,8 @@ class SigningManifestTest(unittest.TestCase):
             certificate = _runfile(entry["certificate"]).read_bytes()
             self.assertEqual(request["certificate_sha256"], hashlib.sha256(certificate).hexdigest())
 
-    def test_reference_signer_validates_the_manifest_against_the_certificate(self):
+    def validate(self, *arguments, env=None):
+        """Runs the reference signer with --validate-only on the manifest and returns the completed process."""
         # The manifest's paths are relative to the execution root; map each bazel-out/<cfg>/bin to the runfiles.
         execroot = Path("signing-manifest-execroot").absolute()
         for entry in self.manifest["requests"]:
@@ -52,13 +54,37 @@ class SigningManifestTest(unittest.TestCase):
             configuration.mkdir(parents=True, exist_ok=True)
             if not (configuration / "bin").exists():
                 (configuration / "bin").symlink_to(Path.cwd())
-        result = subprocess.run(
-            [SIGNER, "--validate-only", "--manifest", MANIFEST, "--certificate", CERTIFICATE, "--execroot", execroot],
+        return subprocess.run(
+            [
+                SIGNER,
+                "--validate-only",
+                "--manifest",
+                MANIFEST,
+                "--certificate",
+                CERTIFICATE,
+                "--execroot",
+                execroot,
+                *arguments,
+            ],
             capture_output=True,
             text=True,
+            env=env,
         )
+
+    def test_reference_signer_validates_the_manifest_against_the_certificate(self):
+        result = self.validate()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(2, len([line for line in result.stdout.splitlines() if line.startswith("valid: ")]))
+
+    def test_reference_signer_rejects_a_signing_time_outside_the_certificate_validity(self):
+        environment = {key: value for key, value in os.environ.items() if key != "SOURCE_DATE_EPOCH"}
+        for name, arguments, source_date_epoch in (("option", ["--signing-time", "0"], None), ("epoch", [], "0")):
+            with self.subTest(name):
+                if source_date_epoch is not None:
+                    environment["SOURCE_DATE_EPOCH"] = source_date_epoch
+                result = self.validate(*arguments, env=environment)
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertIn("signing time 0 (1970-01-01 00:00:00 UTC) is outside the validity", result.stderr)
 
 
 if __name__ == "__main__":

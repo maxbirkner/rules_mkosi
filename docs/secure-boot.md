@@ -138,6 +138,30 @@ The signer warns if other users can access the key file.
 The signer uses the pinned `systemd-sbsign` of rules_mkosi's Debian tools by default, which runs in unprivileged user namespaces.
 Where those are blocked outside Bazel's sandbox, for example by AppArmor on Ubuntu 24.04 (`kernel.apparmor_restrict_unprivileged_userns=1`), pass a host signing tool with `--sbsign sbsign` (sbsigntools) or `--sbsign /usr/lib/systemd/systemd-sbsign`; the import verifies the result the same way.
 
+### Signing time
+
+OpenSSL, which both signing tools use, adds the current time as the `signingTime` attribute of each signature, so by default signing the same binaries twice gives different signed binaries.
+Pass `--signing-time` with a Unix time in seconds, or set `SOURCE_DATE_EPOCH`, to sign deterministically: the same manifest, key and signing time then give byte-identical signed binaries, and so identical signed disk images and checksums.
+`--signing-time` takes precedence over `SOURCE_DATE_EPOCH`; without either, the signer signs at the current time.
+
+```console
+bazel run @rules_mkosi//mkosi:secure_boot_signer -- \
+  --manifest "$manifest" \
+  --certificate keys/db.crt \
+  --key "$XDG_RUNTIME_DIR/db.key" \
+  --output-dir signed \
+  --signing-time "$(git log -1 --format=%ct)"
+```
+
+Use a time inside the certificate's validity, such as the commit time of the release.
+The signer rejects a signing time before the certificate's `notBefore` or after its `notAfter`, before signing anything, because such a signature claims a time at which the certificate was not valid.
+UEFI firmware ignores `signingTime`, so the choice does not affect booting.
+
+The signing tool runs with its clock stopped at the signing time by [libfaketime](https://github.com/wolfcw/libfaketime): the pinned `systemd-sbsign` with the libfaketime of rules_mkosi's Debian tools, and a host tool through the `faketime` command, which must then be on `PATH` (Debian and Ubuntu package `faketime`).
+The signer fails if a signature carries another `signingTime` than the requested one, for example because a statically linked tool ignored libfaketime.
+
+### Scratch directory
+
 The signer signs in a temporary directory under `--scratch`, which defaults to Python's temporary directory (`TMPDIR`, or `/tmp` if it is unset), and removes it when it finishes or fails.
 For each request, the directory holds the certificate as PEM, the unsigned binary, and the signed binary, all of which are public; the binaries of every request stay there until all requests are signed.
 The private key is never written there: a host signing tool gets its path, and the pinned `systemd-sbsign` reads it through a read-only bind mount.
@@ -412,7 +436,8 @@ A transport envelope around them does not replace the embedded Authenticode chec
 ## Reproducibility
 
 Unsigned images stay deterministic and cacheable.
-Signed binaries depend on the signer (timestamps, certificate rotation) and are not reproducible; reproducibility manifests cover the unsigned image.
+Signed binaries depend on the signer's key and certificate; reproducibility manifests cover the unsigned image.
+The reference signer signs reproducibly with a [signing time](#signing-time), so a rebuild of a release with the same key gives the same signed binaries.
 
 ## Scope
 
@@ -420,6 +445,6 @@ Secure Boot applies only to UEFI release images: their UKIs and the PE/COFF bina
 The dm-verity root hash is embedded in the unsigned UKI before the request is created.
 BIOS images cannot be signed.
 
-`secure_boot_ephemeral_test_fixture` signs the UKIs and `esp_paths` of `images` with a short-lived db key for tests, and writes `PK.auth`, `KEK.auth` and `db.auth` for short-lived PK and KEK keys.
+`secure_boot_ephemeral_test_fixture` signs the UKIs and `esp_paths` of `images` with a short-lived db key for tests, at the `notBefore` time of its certificate, and writes `PK.auth`, `KEK.auth` and `db.auth` for short-lived PK and KEK keys.
 Use it as the `certificate` of the requests, the `signed_binary` of the imports and the `auto_enroll_keys` of `secure_boot_signed_image`; each import selects the fixture's binary that matches its request.
 The keys never leave one uncached action that runs on the local machine, never remotely; never use them for production.

@@ -2,11 +2,13 @@
 
 import hashlib
 import json
+import os
 import pathlib
 import runpy
 import shutil
 import subprocess
 import sys
+import time
 import unittest
 from types import SimpleNamespace
 
@@ -33,6 +35,25 @@ def create_key_pair(name):
         capture=True,
     )
     return key, certificate
+
+
+def openssl_signing_times(signed):
+    """Returns the signingTime values that OpenSSL prints for the Authenticode signature of a signed binary."""
+    pkcs7 = WORK / (signed.name + ".p7")
+    pkcs7.write_bytes(SECURE_BOOT.embedded_authenticode(signed.read_bytes()))
+    try:
+        printed = SECURE_BOOT.run_tool(
+            DEBIAN_TOOLS, "/usr/bin/openssl", "pkcs7", "-print", "-noout", "-inform", "DER", "-in", pkcs7, capture=True
+        ).stdout.decode()
+    except subprocess.CalledProcessError as error:
+        raise AssertionError(error.stderr.decode()) from error
+    lines = printed.splitlines()
+    return [lines[index + 2].strip() for index, line in enumerate(lines) if "object: signingTime" in line]
+
+
+def openssl_time(seconds):
+    """Returns how OpenSSL prints a UTCTime of Unix time seconds."""
+    return "UTCTIME:" + time.strftime("%b %e %H:%M:%S %Y GMT", time.gmtime(seconds))
 
 
 def create_request(name, esp_path, certificate):
@@ -89,8 +110,9 @@ class SecureBootSignerTest(unittest.TestCase):
         manifest.write_text(json.dumps({"format_version": format_version, "requests": entries}))
         return manifest
 
-    def run_signer(self, *arguments, key=None, certificate=None):
-        signing = ["--key", key or self.key, "--output-dir", self.output, "--debian-tools", DEBIAN_TOOLS]
+    def run_signer(self, *arguments, key=None, certificate=None, output=None, env=None):
+        output = output or self.output
+        signing = ["--key", key or self.key, "--output-dir", output, "--debian-tools", DEBIAN_TOOLS]
         result = subprocess.run(
             [
                 sys.executable,
@@ -101,6 +123,7 @@ class SecureBootSignerTest(unittest.TestCase):
             ],
             capture_output=True,
             text=True,
+            env=env,
         )
         return result
 
@@ -139,6 +162,83 @@ class SecureBootSignerTest(unittest.TestCase):
         for entry in self.entries:
             self.assert_import_accepts(entry)
         self.assertNotIn("PRIVATE", result.stdout + result.stderr)
+
+    def test_signs_deterministically_at_the_signing_time_or_source_date_epoch(self):
+        not_before, _ = SECURE_BOOT.certificate_validity(SECURE_BOOT.certificate_der(self.certificate))
+        signing_time = not_before + 1
+        result = self.run_signer("--signing-time", str(signing_time))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        from_epoch = WORK / (self._testMethodName + "-source-date-epoch")
+        environment = dict(os.environ, SOURCE_DATE_EPOCH=str(signing_time))
+        result = self.run_signer(output=from_epoch, env=environment)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for entry in self.entries:
+            signed = self.output / entry["signed_name"]
+            self.assertEqual(signed.read_bytes(), (from_epoch / entry["signed_name"]).read_bytes())
+            self.assertEqual(openssl_signing_times(signed), [openssl_time(signing_time)])
+            self.assert_import_accepts(entry)
+
+    def test_signs_at_the_current_time_without_a_signing_time(self):
+        before = int(time.time())
+        result = self.run_signer(env={key: value for key, value in os.environ.items() if key != "SOURCE_DATE_EPOCH"})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        printed = openssl_signing_times(self.output / self.entries[0]["signed_name"])
+        self.assertIn(printed, [[openssl_time(moment)] for moment in range(before, int(time.time()) + 1)])
+
+    def test_rejects_invalid_signing_times(self):
+        not_before, not_after = SECURE_BOOT.certificate_validity(SECURE_BOOT.certificate_der(self.certificate))
+        inside = str(not_before)
+        for name, arguments, source_date_epoch, message in (
+            ("not a number", ["--signing-time", "yesterday"], None, "is not a Unix time in seconds"),
+            ("negative", ["--signing-time", "-1"], None, "is not a Unix time in seconds"),
+            ("after year 9999", ["--signing-time", "253402300800"], None, "is not a Unix time in seconds"),
+            ("malformed epoch", [], "1.5", "SOURCE_DATE_EPOCH: '1.5' is not a Unix time in seconds"),
+            ("before notBefore", ["--signing-time", str(not_before - 1)], None, "outside the validity"),
+            ("after notAfter", ["--signing-time", str(not_after + 1)], None, "outside the validity"),
+            ("epoch before notBefore", [], str(not_before - 1), "outside the validity"),
+            ("option before the epoch", ["--signing-time", str(not_before - 1)], inside, "outside the validity"),
+        ):
+            with self.subTest(name):
+                environment = {key: value for key, value in os.environ.items() if key != "SOURCE_DATE_EPOCH"}
+                if source_date_epoch is not None:
+                    environment["SOURCE_DATE_EPOCH"] = source_date_epoch
+                self.assert_rejected(message, "--validate-only", *arguments, env=environment)
+        result = self.run_signer("--validate-only", "--signing-time", inside)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_host_signing_tool_needs_faketime_for_a_signing_time(self):
+        empty = WORK / (self._testMethodName + "-path")
+        empty.mkdir()
+        self.assert_rejected(
+            "needs libfaketime's faketime on PATH with --sbsign",
+            *("--sbsign", sys.executable, "--signing-time", "0"),
+            env=dict(os.environ, PATH=str(empty.absolute())),
+        )
+
+    @unittest.skipUnless(shutil.which("sbsign"), "the host has no sbsigntools sbsign")
+    def test_rejects_a_signature_at_another_time_than_the_signing_time(self):
+        # A faketime that ignores the time it is given, as a static signing tool would ignore libfaketime.
+        bin_directory = WORK / (self._testMethodName + "-path")
+        bin_directory.mkdir()
+        faketime = bin_directory / "faketime"
+        faketime.write_text('#!/bin/sh\nshift 2\nexec "$@"\n')
+        faketime.chmod(0o755)
+        _, not_after = SECURE_BOOT.certificate_validity(SECURE_BOOT.certificate_der(self.certificate))
+        environment = dict(os.environ, PATH="{}:{}".format(bin_directory.absolute(), os.environ["PATH"]))
+        self.assert_rejected(
+            "the signing tool wrote the signingTime",
+            *("--sbsign", "sbsign", "--signing-time", str(not_after)),
+            env=environment,
+        )
+
+    @unittest.skipUnless(shutil.which("sbsign") and shutil.which("faketime"), "the host has no sbsign and faketime")
+    def test_host_sbsign_signs_at_the_signing_time(self):
+        not_before, _ = SECURE_BOOT.certificate_validity(SECURE_BOOT.certificate_der(self.certificate))
+        result = self.run_signer("--sbsign", "sbsign", "--signing-time", str(not_before))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            openssl_signing_times(self.output / self.entries[0]["signed_name"]), [openssl_time(not_before)]
+        )
 
     @unittest.skipUnless(shutil.which("sbsign"), "the host has no sbsigntools sbsign")
     def test_host_sbsign_output_is_accepted_by_the_import(self):

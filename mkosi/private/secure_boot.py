@@ -4,10 +4,13 @@
 import argparse
 import base64
 import binascii
+import calendar
+import datetime
 import hashlib
 import itertools
 import json
 import os
+import re
 import runpy
 import shutil
 import struct
@@ -36,6 +39,12 @@ _SCRATCH_IDS = itertools.count(1)
 MAX_DER_BYTES = 16 * 1024 * 1024
 MAX_DER_DEPTH = 32
 MAX_DER_CHILDREN = 4096
+SYSTEMD_SBSIGN = "/usr/lib/systemd/systemd-sbsign"
+LIBFAKETIME = "/usr/lib/x86_64-linux-gnu/faketime/libfaketime.so.1"
+_DER_TIMES = {
+    0x17: re.compile(rb"([0-9]{2})([0-9]{10})Z"),
+    0x18: re.compile(rb"([0-9]{4})([0-9]{10})Z"),
+}
 
 
 def isolated_certificate_der(data):
@@ -368,6 +377,59 @@ def algorithm_oid(item):
     return der_oid(children[0])
 
 
+def der_time(item):
+    """Returns the Unix time of a DER UTCTime or GeneralizedTime in whole seconds of UTC."""
+    pattern = _DER_TIMES.get(item.tag)
+    match = pattern.fullmatch(item.value) if pattern else None
+    if not match:
+        raise ValueError("expected a DER UTCTime or GeneralizedTime in whole seconds of UTC")
+    year = int(match[1])
+    if item.tag == 0x17:
+        # RFC 5280: UTCTime years 50 to 99 are 1950 to 1999, and 00 to 49 are 2000 to 2049.
+        year += 1900 if year >= 50 else 2000
+    moment = datetime.datetime.strptime("{:04d}{}".format(year, match[2].decode()), "%Y%m%d%H%M%S")
+    return calendar.timegm(moment.timetuple())
+
+
+def certificate_validity(certificate):
+    """Returns the notBefore and notAfter Unix times of a DER X.509 certificate."""
+    tbs = der_read(certificate)[0].children()[0].children()
+    if tbs and tbs[0].tag == 0xA0:
+        tbs = tbs[1:]
+    validity = tbs[3].children() if len(tbs) > 3 and tbs[3].tag == 0x30 else []
+    if len(validity) != 2:
+        raise ValueError("the certificate has no valid validity period")
+    return der_time(validity[0]), der_time(validity[1])
+
+
+def utc_time(seconds):
+    """Returns Unix time seconds as YYYY-MM-DD hh:mm:ss in UTC."""
+    return datetime.datetime.fromtimestamp(seconds, datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def faketime_variables(signing_time):
+    """Returns the variables with which libfaketime stops the wall clock of a program at signing_time, in Unix seconds.
+
+    libfaketime reads FAKETIME in the local time zone, which TZ sets to UTC. Monotonic clocks keep running, so that
+    timeouts still expire.
+    """
+    return {"FAKETIME": utc_time(signing_time), "FAKETIME_DONT_FAKE_MONOTONIC": "1", "TZ": "UTC0"}
+
+
+def sbsign_command(signing_time, *arguments):
+    """Returns the command that runs the pinned systemd-sbsign with arguments in the Debian tools.
+
+    systemd-sbsign signs with OpenSSL, which adds the current time as the signingTime attribute of the signature. With a
+    signing_time in Unix seconds, libfaketime stops the clock of systemd-sbsign at that time, so that the signature is
+    deterministic. The launcher runs tools with a fixed environment, so a shell in the tools root sets the variables.
+    """
+    if signing_time is None:
+        return [SYSTEMD_SBSIGN, *arguments]
+    variables = {"LD_PRELOAD": LIBFAKETIME, **faketime_variables(signing_time)}
+    assignments = ["{}={}".format(name, value) for name, value in variables.items()]
+    return ["/bin/sh", "-c", 'exec /usr/bin/env "$@"', "sh", *assignments, SYSTEMD_SBSIGN, *arguments]
+
+
 def parse_signed_data(payload):
     """Returns the SignedData fields of a DER PKCS#7 ContentInfo."""
     outer, end = der_read(payload)
@@ -575,18 +637,20 @@ def extract(args):
     parse_pe(Path(args.output).read_bytes(), False)
 
 
-def _sbsign(args, key, unsigned, signed):
+def _sbsign(args, key, unsigned, signed, signing_time):
     run_tool(
         args.sbsign,
-        "/usr/lib/systemd/systemd-sbsign",
-        "sign",
-        "--private-key",
-        key,
-        "--certificate",
-        Path(args.certificate),
-        "--output",
-        Path(signed),
-        Path(unsigned),
+        *sbsign_command(
+            signing_time,
+            "sign",
+            "--private-key",
+            key,
+            "--certificate",
+            Path(args.certificate),
+            "--output",
+            Path(signed),
+            Path(unsigned),
+        ),
     )
 
 
@@ -673,11 +737,13 @@ def ephemeral_fixture(args):
     try:
         for name, (key, certificate) in signers.items():
             _create_key_pair(args.openssl, key, certificate, name)
+        # Like a release signer, sign at a fixed time inside the certificate's validity.
+        signing_time = certificate_validity(certificate_der(args.certificate))[0]
         for index, (unsigned, signed) in enumerate(args.sign):
             # Sandboxed inputs are symlinks that the tools namespace cannot follow.
             copy = scratch / "unsigned-{}.efi".format(index)
             shutil.copyfile(unsigned, copy)
-            _sbsign(args, signers["db"][0], copy, signed)
+            _sbsign(args, signers["db"][0], copy, signed, signing_time)
             copy.unlink()
         if args.auto_enroll_dir:
             _write_auto_enroll_keys(args, scratch, signers)

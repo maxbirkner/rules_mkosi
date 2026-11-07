@@ -6,6 +6,9 @@ request of the manifest against the binary, the certificate and the key file it 
 signs each binary with the pinned systemd-sbsign of the Debian tools or a host signing tool, checks the signature
 without external tools, and writes the signed binaries under their manifest names. The private key is read in place by
 the signing tool; it is never copied or printed.
+
+With --signing-time, or SOURCE_DATE_EPOCH, the signing tool runs with its clock stopped at that time by libfaketime,
+so that the signingTime attribute of every signature, and therefore every signed binary, is deterministic.
 """
 
 import argparse
@@ -38,10 +41,12 @@ _ENTRY_FIELDS = {
 }
 _SIGNED_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+-]*")
 _PEM_CERTIFICATE = re.compile(rb"-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----", re.DOTALL)
-_SYSTEMD_SBSIGN = "/usr/lib/systemd/systemd-sbsign"
 _OID_RSA_ENCRYPTION = "1.2.840.113549.1.1.1"
 _OID_CONTENT_TYPE = "1.2.840.113549.1.9.3"
 _OID_MESSAGE_DIGEST = "1.2.840.113549.1.9.4"
+_OID_SIGNING_TIME = "1.2.840.113549.1.9.5"
+# 9999-12-31 23:59:59 UTC, the last second that a GeneralizedTime can hold.
+_MAX_SIGNING_TIME = 253402300799
 _SHA256_DIGEST_INFO = bytes.fromhex("3031300d060960864801650304020105000420")
 
 
@@ -158,7 +163,7 @@ def _certificate_key(certificate):
 
 
 def _signed_attributes_digest(attributes, content_digest):
-    """Returns the digest that the signature covers after checking the signed contentType and messageDigest."""
+    """Returns the digest that the signature covers and the signingTime, or None, after checking the attributes."""
     values = {}
     for attribute in attributes.children():
         oid, attribute_values = attribute.children()
@@ -169,11 +174,18 @@ def _signed_attributes_digest(attributes, content_digest):
     content_types = values.get(_OID_CONTENT_TYPE, [])
     if len(content_types) != 1 or secure_boot.der_oid(content_types[0][0]) != secure_boot.OID_SPC_INDIRECT_DATA:
         raise ValueError("the signed contentType is not SpcIndirectDataContent")
-    return hashlib.sha256(_encode_der(0x31, attributes.value)).digest()
+    signing_times = values.get(_OID_SIGNING_TIME, [])
+    if len(signing_times) > 1 or any(len(times) != 1 for times in signing_times):
+        raise ValueError("the signature has more than one signingTime")
+    signing_time = secure_boot.der_time(signing_times[0][0]) if signing_times else None
+    return hashlib.sha256(_encode_der(0x31, attributes.value)).digest(), signing_time
 
 
 def verify_signature(payload, certificate):
-    """Raises ValueError unless the one SignerInfo of payload names certificate and its RSA signature verifies."""
+    """Returns the signingTime of the one SignerInfo of payload, or None if it has none.
+
+    Raises ValueError unless the SignerInfo names certificate and its RSA signature verifies.
+    """
     signed = secure_boot.parse_signed_data(payload)
     content = signed[2].children()[1].children()[0]
     signer = signed[-1].children()[0].children()
@@ -183,8 +195,9 @@ def verify_signature(payload, certificate):
         raise ValueError("the signature does not name --certificate as its signer")
     # PKCS #7 version 1.5 digests the contents octets of SpcIndirectDataContent, without its tag and length.
     digest = hashlib.sha256(content.value).digest()
+    signing_time = None
     if signer[3].tag == 0xA0:
-        digest = _signed_attributes_digest(signer[3], digest)
+        digest, signing_time = _signed_attributes_digest(signer[3], digest)
     signature = signer[5 if signer[3].tag == 0xA0 else 4].value
     size = (modulus.bit_length() + 7) // 8
     suffix = b"\0" + _SHA256_DIGEST_INFO + digest
@@ -194,9 +207,25 @@ def verify_signature(payload, certificate):
         or pow(int.from_bytes(signature, "big"), exponent, modulus).to_bytes(size, "big") != expected
     ):
         raise ValueError("the signature does not verify with --certificate; is --key its private key?")
+    return signing_time
 
 
-def _run_debian_sbsign(launcher, key, work):
+def check_signing_time(certificate, signing_time):
+    """Raises ValueError unless signing_time, in Unix seconds, lies within the validity of the DER certificate."""
+    not_before, not_after = secure_boot.certificate_validity(certificate)
+    if not not_before <= signing_time <= not_after:
+        raise ValueError(
+            "signing time {} ({} UTC) is outside the validity of --certificate, {} to {} UTC; "
+            "sign at a time inside it, such as the commit time of the release".format(
+                signing_time,
+                secure_boot.utc_time(signing_time),
+                secure_boot.utc_time(not_before),
+                secure_boot.utc_time(not_after),
+            )
+        )
+
+
+def _run_debian_sbsign(launcher, key, work, signing_time):
     """Signs work/unsigned.efi with the pinned systemd-sbsign; the key is bind-mounted read-only, never copied."""
     tools_scratch = work.parent / (work.name + "-debian-tools")
     if ":" in str(key) or ":" in str(work):
@@ -207,12 +236,14 @@ def _run_debian_sbsign(launcher, key, work):
         "{}:/inputs/signing-key".format(key),
         "--rw-bind",
         "{}:/outputs/work".format(work),
-        _SYSTEMD_SBSIGN,
-        "sign",
-        "--private-key=/inputs/signing-key",
-        "--certificate=/outputs/work/certificate.pem",
-        "--output=/outputs/work/signed.efi",
-        "/outputs/work/unsigned.efi",
+        *secure_boot.sbsign_command(
+            signing_time,
+            "sign",
+            "--private-key=/inputs/signing-key",
+            "--certificate=/outputs/work/certificate.pem",
+            "--output=/outputs/work/signed.efi",
+            "/outputs/work/unsigned.efi",
+        ),
     ]
     try:
         subprocess.run(command, check=True, env=dict(os.environ, MKOSI_DEBIAN_TOOLS_SCRATCH=str(tools_scratch)))
@@ -225,13 +256,19 @@ def _run_debian_sbsign(launcher, key, work):
         shutil.rmtree(tools_scratch, ignore_errors=True)
 
 
-def _run_host_sbsign(sbsign, key, work):
-    """Signs work/unsigned.efi with a host systemd-sbsign or sbsigntools' sbsign."""
-    if Path(sbsign).name == "systemd-sbsign":
-        options = ["sign", "--private-key", key, "--certificate", work / "certificate.pem"]
+def _run_host_sbsign(args, work):
+    """Signs work/unsigned.efi with a host systemd-sbsign or sbsigntools' sbsign, under faketime at a signing time."""
+    if Path(args.sbsign).name == "systemd-sbsign":
+        options = ["sign", "--private-key", args.key, "--certificate", work / "certificate.pem"]
     else:
-        options = ["--key", key, "--cert", work / "certificate.pem"]
-    subprocess.run([sbsign, *options, "--output", work / "signed.efi", work / "unsigned.efi"], check=True)
+        options = ["--key", args.key, "--cert", work / "certificate.pem"]
+    command = [args.sbsign, *options, "--output", work / "signed.efi", work / "unsigned.efi"]
+    env = None
+    if args.signing_time is not None:
+        variables = secure_boot.faketime_variables(args.signing_time)
+        command = [args.faketime, "-f", variables["FAKETIME"], *command]
+        env = dict(os.environ, **variables)
+    subprocess.run(command, check=True, env=env)
 
 
 def sign_request(args, request, certificate, scratch):
@@ -240,12 +277,18 @@ def sign_request(args, request, certificate, scratch):
     (work / "certificate.pem").write_bytes(secure_boot.certificate_pem(certificate))
     (work / "unsigned.efi").write_bytes(request.unsigned_data)
     if args.sbsign:
-        _run_host_sbsign(args.sbsign, args.key, work)
+        _run_host_sbsign(args, work)
     else:
-        _run_debian_sbsign(args.debian_tools, args.key, work)
+        _run_debian_sbsign(args.debian_tools, args.key, work, args.signing_time)
     signed_data = (work / "signed.efi").read_bytes()
     payload = secure_boot.verify_embedded_digest(request.unsigned_data, signed_data)
-    verify_signature(payload, certificate)
+    signing_time = verify_signature(payload, certificate)
+    if args.signing_time is not None and signing_time not in (None, args.signing_time):
+        raise ValueError(
+            "{}: the signing tool wrote the signingTime {} instead of {}".format(
+                request.label, signing_time, args.signing_time
+            )
+        )
     return signed_data
 
 
@@ -278,6 +321,15 @@ def _runfile(value):
     return path
 
 
+def _signing_time(value):
+    """Returns a signing time given in Unix seconds."""
+    if not re.fullmatch(r"[0-9]+", value) or int(value) > _MAX_SIGNING_TIME:
+        raise argparse.ArgumentTypeError(
+            "{!r} is not a Unix time in seconds from 0 to {}".format(value, _MAX_SIGNING_TIME)
+        )
+    return int(value)
+
+
 def _parser():
     parser = argparse.ArgumentParser(
         prog="secure_boot_signer",
@@ -296,6 +348,14 @@ def _parser():
         "--sbsign", help="Host systemd-sbsign or sbsigntools sbsign to use instead of the pinned systemd-sbsign."
     )
     parser.add_argument("--scratch", type=_user_path, help="Parent of the temporary directory (default: TMPDIR).")
+    parser.add_argument(
+        "--signing-time",
+        type=_signing_time,
+        metavar="SECONDS",
+        help="Unix time to write as the signingTime of every signature, which makes signing deterministic; it must "
+        "lie within the certificate's validity, for example the commit time of the release (default: "
+        "SOURCE_DATE_EPOCH if it is set, else the current time). With --sbsign, faketime must be on PATH.",
+    )
     parser.add_argument("--validate-only", action="store_true", help="Validate the requests; do not sign.")
     parser.add_argument("--debian-tools", help=argparse.SUPPRESS)
     return parser
@@ -313,6 +373,18 @@ def _parse_arguments(argv):
         if not found:
             parser.error("--sbsign {} is not an executable".format(args.sbsign))
         args.sbsign = found
+    if args.signing_time is None and os.environ.get("SOURCE_DATE_EPOCH"):
+        try:
+            args.signing_time = _signing_time(os.environ["SOURCE_DATE_EPOCH"])
+        except argparse.ArgumentTypeError as error:
+            parser.error("SOURCE_DATE_EPOCH: {}".format(error))
+    if args.sbsign and args.signing_time is not None and not args.validate_only:
+        args.faketime = shutil.which("faketime")
+        if not args.faketime:
+            parser.error(
+                "a signing time from --signing-time or SOURCE_DATE_EPOCH needs libfaketime's faketime on PATH with "
+                "--sbsign; install it, or sign with the pinned systemd-sbsign"
+            )
     return args
 
 
@@ -321,6 +393,8 @@ def sign_manifest(args):
     certificate = secure_boot.certificate_der(args.certificate)
     execroot = args.execroot or find_execroot(args.manifest)
     requests = [validate_entry(execroot, entry, certificate) for entry in load_manifest(args.manifest)]
+    if args.signing_time is not None:
+        check_signing_time(certificate, args.signing_time)
     if args.validate_only:
         for request in requests:
             print("valid: {} -> {}".format(request.label, request.signed_name))
