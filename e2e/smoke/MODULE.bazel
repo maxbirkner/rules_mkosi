@@ -34,15 +34,6 @@ bazel_dep(
 
 bazel_dep(name = "rules_qemu", version = "0.3.0")
 
-# hermetic_cc_toolchain's extension only creates its repositories for a root module that uses it.
-bazel_dep(name = "hermetic_cc_toolchain", version = "4.3.0")
-
-hermetic_cc = use_extension(
-    "@hermetic_cc_toolchain//toolchain:ext.bzl",
-    "toolchains",
-)
-use_repo(hermetic_cc, "zig_sdk")
-
 python = use_extension("@rules_python//python/extensions:python.bzl", "python")
 python.defaults(python_version = "3.14")
 python.toolchain(python_version = "3.14")

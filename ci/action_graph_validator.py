@@ -10,7 +10,7 @@ import pathlib
 import re
 import sys
 
-_FIXED_ZIG_PATH = "/bin:/usr/bin:/usr/local/bin"
+_FIXED_TOOL_PATH = "/bin:/usr/bin:/usr/local/bin"
 _HOST_TOOL_BASENAMES = {
     "ar",
     "bash",
@@ -53,7 +53,7 @@ def validate_action_environment(action, input_paths):
         value = variable.get("value", "")
         if not value or value == "/proc/self/cwd":
             continue
-        if key == "PATH" and value == _FIXED_ZIG_PATH:
+        if key == "PATH" and value == _FIXED_TOOL_PATH:
             if mnemonic == "CcStrip" and arguments[:1] == ["/usr/bin/false"]:
                 continue
             if mnemonic not in _HERMETIC_PATH_ACTIONS or not arguments:
@@ -72,6 +72,7 @@ def validate_action_environment(action, input_paths):
 # Actions that Bazel performs itself without starting a process. Middleman is Bazel 8's name for Bazel 9's RunfilesTree.
 _IN_PROCESS_ACTIONS = frozenset(
     {
+        "CppModuleMap",
         "ExecutableSymlink",
         "FileWrite",
         "Middleman",
@@ -86,24 +87,43 @@ _IN_PROCESS_ACTIONS = frozenset(
         "UnresolvedSymlink",
     }
 )
-_ZIG_TOOLS = "external/hermetic_cc_toolchain++toolchains+zig_config/tools/"
+# The prebuilt clang, LLVM binutils, and helper tools of the llvm module, which also builds the musl, glibc stub, and
+# C++ runtimes from source with them.
+_LLVM_TOOLS = "external/llvm++"
 # The in-build executable that each process action must run, as a path prefix.
 _SPAWN_EXECUTABLES = {
+    "Action": _LLVM_TOOLS,
     "BuildDebianToolsArchive": "external/+debian_tools+mkosi_debian_python/python",
-    "CppArchive": _ZIG_TOOLS,
-    "CppCompile": _ZIG_TOOLS,
-    "CppLink": _ZIG_TOOLS,
+    "CcStage0Compile": _LLVM_TOOLS,
+    "CcStrip": _LLVM_TOOLS,
+    "CopyFile": "external/bazel_lib++toolchains+coreutils_linux_amd64/coreutils",
+    "CopyToDirectory": "external/bazel_lib++toolchains+copy_to_directory_linux_amd64/copy_to_directory",
+    "CppArchive": _LLVM_TOOLS,
+    "CppCompile": _LLVM_TOOLS,
+    "CppLink": _LLVM_TOOLS,
+    "CppTransitiveArchive": _LLVM_TOOLS,
     "PyCompile": "external/rules_python++python+python_3_",
     "PythonZipper": "external/bazel_tools/tools/zip/zipper/zipper",
+    "RunBinary": _LLVM_TOOLS,
 }
-# The static toolchain disables stripping, but Bazel still declares CcStrip with a placeholder executable. The
-# bootstrap-determinism CI job fails if a build ever executes it.
-_DISABLED_ACTIONS = {"CcStrip": "/usr/bin/false"}
+# The llvm module's glibc runtime, which the execution tools of its toolchain link against, copies its crt1.o with
+# bazel_skylib's copy_file, the only action that runs the host shell, with this fixed command.
+_GLIBC_RUNTIME_COPY = ["/bin/bash", "-c", 'cp -f "$1" "$2"', ""]
+_GLIBC_RUNTIME = "/external/llvm++glibc+"
 _REQUIRED_ACTIONS = ("BuildDebianToolsArchive", "CppCompile", "CppLink")
-_INPUT_REPOSITORIES = ("bazel_tools", "hermetic_cc_toolchain", "rules_cc+", "rules_python+", "+debian_tools+")
+_INPUT_REPOSITORIES = (
+    "bazel_lib++toolchains+",
+    "bazel_tools",
+    "llvm+",
+    "rules_cc+",
+    "rules_python+",
+    "+debian_tools+",
+)
 _STATUS_FILES = ("volatile-status.txt", "stable-status.txt")
 # An absolute path as the whole argument, a flag value such as --sysroot=/usr, a list item, or a short-flag suffix.
 _ABSOLUTE_PATH = re.compile(r"(?:^|[=:,]|^-[A-Za-z]+)/")
+# Absolute paths that point no tool at the host, such as the llvm module's empty sysroot.
+_HERMETIC_ABSOLUTE_ARGUMENTS = frozenset({"--sysroot=/dev/null"})
 _HOST_TOKENS = (
     "/bin/bash",
     "/usr/bin/gcc",
@@ -152,6 +172,18 @@ class ActionGraph:
         return artifacts
 
 
+def is_glibc_runtime_copy(action):
+    """Returns whether action is the fixed host-shell copy of the llvm module's glibc runtime between its outputs."""
+    arguments = action.get("arguments", [])
+    paths = arguments[len(_GLIBC_RUNTIME_COPY) :]
+    return (
+        action.get("mnemonic") == "CopyFile"
+        and arguments[: len(_GLIBC_RUNTIME_COPY)] == _GLIBC_RUNTIME_COPY
+        and len(paths) == 2
+        and all(path.startswith("bazel-out/") and _GLIBC_RUNTIME in path for path in paths)
+    )
+
+
 def validate_executable(action, input_paths):
     """Rejects an action whose mnemonic is not modeled or whose process is not its declared in-build executable."""
     mnemonic = action.get("mnemonic")
@@ -160,9 +192,7 @@ def validate_executable(action, input_paths):
         if arguments:
             raise ValueError(f"in-process action starts a process: {mnemonic} {arguments[0]}")
         return
-    if mnemonic in _DISABLED_ACTIONS:
-        if arguments[:1] != [_DISABLED_ACTIONS[mnemonic]]:
-            raise ValueError(f"disabled action has an unexpected executable: {mnemonic} {arguments[:1]}")
+    if is_glibc_runtime_copy(action):
         return
     if mnemonic not in _SPAWN_EXECUTABLES:
         raise ValueError(f"unmodeled action mnemonic: {mnemonic} {arguments[:1]}")
@@ -177,9 +207,11 @@ def validate_arguments(action):
     """Rejects absolute paths and host toolchain names in the arguments of an action."""
     mnemonic = action.get("mnemonic")
     arguments = action.get("arguments", [])
-    if mnemonic in _DISABLED_ACTIONS:
-        arguments = arguments[1:]
+    if is_glibc_runtime_copy(action):
+        arguments = arguments[len(_GLIBC_RUNTIME_COPY) :]
     for token in arguments:
+        if token in _HERMETIC_ABSOLUTE_ARGUMENTS:
+            continue
         if _ABSOLUTE_PATH.search(token) or any(host in token for host in _HOST_TOKENS):
             raise ValueError(f"host path in arguments: {mnemonic} {token}")
 

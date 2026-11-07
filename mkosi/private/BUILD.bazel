@@ -3,7 +3,6 @@ load("@rules_python//python:defs.bzl", "py_binary")
 load("//mkosi:toolchain.bzl", "managed_python_tool")
 load("//mkosi:versions.bzl", "DEFAULT_PYTHON_VERSION")
 load(":c_options.bzl", "C_WARNINGS")
-load(":zig_cc_toolchain.bzl", "zig_musl_cc_toolchain")
 
 package(default_visibility = ["//visibility:private"])
 
@@ -175,8 +174,17 @@ filegroup(
 )
 
 # Registered only while rules_mkosi is the root module, so that its own C and C++ helpers and tests build with the
-# toolchain of //mkosi/toolchain/bootstrap_cc for every target, without fetching the zig SDK for other builds.
-zig_musl_cc_toolchain(
+# llvm module's C/C++ toolchain for every Linux x86-64 target, without fetching it for other builds.
+toolchain(
     name = "development_cc_toolchain",
-    libc = "unconstrained",
+    exec_compatible_with = [
+        "@platforms//cpu:x86_64",
+        "@platforms//os:linux",
+    ],
+    target_compatible_with = [
+        "@platforms//cpu:x86_64",
+        "@platforms//os:linux",
+    ],
+    toolchain = "@llvm//toolchain:linux_x86_64_cc_toolchain",
+    toolchain_type = "@bazel_tools//tools/cpp:toolchain_type",
 )

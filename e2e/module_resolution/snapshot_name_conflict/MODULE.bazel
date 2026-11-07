@@ -6,14 +6,6 @@ local_path_override(
     path = "../../..",
 )
 
-bazel_dep(name = "hermetic_cc_toolchain", version = "4.3.0")
-
-hermetic_cc = use_extension(
-    "@hermetic_cc_toolchain//toolchain:ext.bzl",
-    "toolchains",
-)
-use_repo(hermetic_cc, "zig_sdk")
-
 debian_tools = use_extension("@rules_mkosi//mkosi/debian:extensions.bzl", "debian_tools")
 debian_tools.snapshot(
     name = "consumer_debian",

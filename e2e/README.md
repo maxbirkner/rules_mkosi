@@ -16,7 +16,7 @@ Its `MODULE.bazel` is a working example of the [consumer setup](../README.md#set
 | `uefi_boot_test`, `bios_boot_test` | Boot tests; `uefi_boot_test` always uses TCG. |
 | `mkosi_python_override_test` | A consumer-registered Python 3.14 toolchain replaces the default. |
 | `*_public_provider_test`, `*_metadata_test`, `*_artifact_test` | Provider fields and generated artifacts, selected only through public providers. |
-| `//consumer_cc:consumer_cc` | A C target of the consumer, which keeps the consumer's C/C++ toolchain; `ci/check-lazy-toolchain-fetch.sh` checks that it does not resolve rules_mkosi's static bootstrap toolchain or fetch the zig SDK. |
+| `//consumer_cc:consumer_cc` | A C target of the consumer, which keeps the consumer's C/C++ toolchain; `ci/check-lazy-toolchain-fetch.sh` checks that it does not resolve rules_mkosi's static bootstrap toolchain or fetch any repository of the `llvm` module. |
 | `stock_runner_tests` | The tests that need neither user namespaces nor snapshot.debian.org; the BCR presubmit runs only these (see [BCR publishing](../.bcr/README.md#presubmit)). |
 
 Run it from its directory:
@@ -46,5 +46,6 @@ e2e/module_resolution/test.sh <fixture>
 | `nonroot_name` | A dependency module cannot rename the toolchain. |
 | `root_dependency` | Different root and dependency versions fail. |
 | `snapshot_name_conflict` | Duplicate `debian_tools.snapshot` names fail. |
-| `consumer_isolation` | A consumer with Python 3.13 by default, the `script` bootstrap, and a first-priority glibc toolchain still gets Python 3.14 tools and fully static bootstrap executables from rules_mkosi's musl toolchains, both for its own platform and for a musl `bootstrap_platform`. |
-| `rules_cc_first` | A consumer that lists `rules_cc` before `rules_mkosi` and registers no toolchain: its C target resolves rules_cc's host toolchain without fetching the zig SDK, a plain `sh_test` fetches nothing heavy, and the namespace runner still resolves the zig toolchain (`ci/check-lazy-toolchain-fetch.sh`). |
+| `consumer_isolation` | A consumer with Python 3.13 by default, the `script` bootstrap, and a first-priority glibc toolchain of another compiler still gets Python 3.14 tools and fully static bootstrap executables from rules_mkosi's musl toolchain, both for the default and for its own musl `bootstrap_platform`. |
+| `rules_cc_first` | A consumer that lists `rules_cc` before `rules_mkosi` and registers no toolchain: its C target resolves rules_cc's host toolchain without fetching any `llvm` repository, a plain `sh_test` fetches nothing heavy, and the namespace runner still resolves the `llvm` module's musl toolchain (`ci/check-lazy-toolchain-fetch.sh`). |
+| `llvm_consumer` | A consumer that pins the `llvm` module with `single_version_override` and registers its toolchains: its C binary links dynamically against glibc with them and fetches no musl sources, a plain `sh_test` fetches nothing heavy, and the namespace runner links fully statically against musl with the same `cc_toolchain`. |

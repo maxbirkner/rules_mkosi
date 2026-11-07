@@ -10,14 +10,15 @@ toolchain_type(
     name = "debian_tools_toolchain_type",
 )
 
-# Target platform for rules_mkosi's statically linked bootstrap executables. The default keeps the current
-# platform; see //mkosi/private:bootstrap_binary.bzl.
+# Target platform for rules_mkosi's statically linked bootstrap executables. The default builds them for
+# //mkosi/toolchain/bootstrap_cc:linux_x86_64_musl and their runfiles for the current platform; see
+# //mkosi/private:bootstrap_binary.bzl.
 label_flag(
     name = "bootstrap_platform",
     build_setting_default = ":inherit_platform",
 )
 
-# Sentinel value of bootstrap_platform that keeps the current platform.
+# Sentinel value of bootstrap_platform that builds the runfiles of the bootstrap executables for the current platform.
 filegroup(
     name = "inherit_platform",
     srcs = [],

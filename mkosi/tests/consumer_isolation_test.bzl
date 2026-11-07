@@ -101,7 +101,7 @@ def _bootstrap_marker_test_impl(ctx):
 
 _BOOTSTRAP_MARKER_ATTRS = {"expected_platform": attr.string(mandatory = True)}
 
-_bootstrap_inherited_platform_test = analysistest.make(
+_bootstrap_default_platform_test = analysistest.make(
     _bootstrap_marker_test_impl,
     attrs = _BOOTSTRAP_MARKER_ATTRS,
     config_settings = {_PYTHON_BOOTSTRAP: "script"},
@@ -121,7 +121,7 @@ def _consumer_cc_toolchain_test_impl(ctx):
     names = [path.rsplit("/", 1)[-1] for path in _runfile_paths(analysistest.target_under_test(env))]
     asserts.true(
         env,
-        "bootstrap_probe.inherited.other.consumer_cc" in names,
+        "bootstrap_probe.current.other.consumer_cc" in names,
         "rules_mkosi's static C/C++ toolchains matched outside bootstrap_binary: {}".format(names),
     )
     return analysistest.end(env)
@@ -151,6 +151,13 @@ def _declare_bootstrap_probe_platform():
         constraint_values = [":bootstrap_probe_selected"],
     )
     native.config_setting(
+        name = "bootstrap_probe_default_platform",
+        constraint_values = [
+            "@llvm//constraints/libc:musl",
+            "@llvm//constraints/pie:off",
+        ],
+    )
+    native.config_setting(
         name = "bootstrap_probe_system_python",
         flag_values = {_PYTHON_BOOTSTRAP: "system_python"},
     )
@@ -160,8 +167,9 @@ def _declare_bootstrap_probe_tests():
     _bootstrap_probe(
         name = "bootstrap_probe",
         platform_marker = select({
+            ":bootstrap_probe_default_platform": "default",
             ":bootstrap_probe_platform_selected": "selected",
-            "//conditions:default": "inherited",
+            "//conditions:default": "current",
         }),
         python_bootstrap_marker = select({
             ":bootstrap_probe_system_python": "system_python",
@@ -178,9 +186,9 @@ def _declare_bootstrap_probe_tests():
         binary = ":bootstrap_probe",
         tags = ["manual"],
     )
-    _bootstrap_inherited_platform_test(
-        name = "bootstrap_inherited_platform_test",
-        expected_platform = "inherited",
+    _bootstrap_default_platform_test(
+        name = "bootstrap_default_platform_test",
+        expected_platform = "default",
         target_under_test = ":bootstrap_probe_subject",
     )
     _bootstrap_selected_platform_test(
@@ -224,7 +232,7 @@ def consumer_isolation_test_suite(name):
     native.test_suite(
         name = name,
         tests = [
-            ":bootstrap_inherited_platform_test",
+            ":bootstrap_default_platform_test",
             ":bootstrap_selected_platform_test",
             ":consumer_cc_toolchain_test",
             ":debian_launcher_python_line_test",

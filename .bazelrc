@@ -7,10 +7,6 @@ build --disk_cache=.cache/bazel-disk
 # Print failed test output immediately so local failures are actionable.
 test --test_output=errors
 
-# Under Bazel 9, protobuf's exec tools for Stardoc otherwise fail to link with the static bootstrap toolchain, because
-# its linker drops the upb sections that they reference.
-build:bazel9 --host_linkopt=-Wl,--no-gc-sections
-
 # Fail on warnings in rules_mkosi's own C and C++ helpers.
 import %workspace%/.bazelrc.warnings
 

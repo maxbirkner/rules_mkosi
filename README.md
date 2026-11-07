@@ -13,7 +13,7 @@ Bazel rules for building bootable Linux OS images with [mkosi](https://github.co
 | Requirement | Supported |
 | --- | --- |
 | Bazel | 8 and 9 (the current and previous LTS majors). The minimum is 8.8.2. |
-| Host | Linux x86-64. The static bootstrap toolchain uses hermetic_cc_toolchain's zig SDK for the Bazel host, but declares Linux x86-64 execution. |
+| Host | Linux x86-64. The static bootstrap toolchain uses the llvm module's Linux x86-64 LLVM toolchain. |
 | Execution platform | Linux x86-64, kernel 5.12 or newer, unprivileged user and mount namespaces under Bazel's Linux sandbox (see [host-kernel contract](docs/design/0004-host-kernel-contract.md)). |
 | Bazel server | Any unprivileged user; neither sudo nor a server without supplementary groups is needed (see [supplementary groups](#supplementary-groups)). |
 | Images | Debian 13 (trixie), amd64. |
@@ -44,12 +44,6 @@ Add to the root `MODULE.bazel`:
 bazel_dep(name = "rules_mkosi", version = "0.0.0")
 local_path_override(module_name = "rules_mkosi", path = "/path/to/rules_mkosi")
 
-# Static C/C++ toolchain for rules_mkosi's bootstrap executables. Its extension
-# creates its repositories only for a root module that uses it.
-bazel_dep(name = "hermetic_cc_toolchain", version = "4.3.0")
-hermetic_cc = use_extension("@hermetic_cc_toolchain//toolchain:ext.bzl", "toolchains")
-use_repo(hermetic_cc, "zig_sdk")
-
 # QEMU binaries used by the mkosi toolchain repository.
 bazel_dep(name = "rules_qemu", version = "0.3.0")
 qemu = use_extension("@rules_qemu//qemu/extension:qemu.bzl", "qemu")
@@ -73,9 +67,8 @@ use_repo(debian_tools, "mkosi_debian_snapshot")
 
 rules_mkosi registers its own mkosi, QEMU, and Debian tools toolchains.
 Registering them downloads nothing: mkosi, QEMU, the firmware, and the Debian userspace are fetched only when a target uses one of these toolchains.
-Its statically linked [bootstrap executables](#static-bootstrap-toolchain) use hermetic_cc_toolchain's zig musl C/C++ toolchain without any registration: your own C/C++ targets keep using your toolchains, and the zig SDK is downloaded only when a bootstrap executable is built.
-`hermetic_cc.exec_platform` is not needed for it.
-Do not register `@zig_sdk//toolchain:...` yourself unless you want it for your own targets; hermetic_cc_toolchain's toolchains download the zig SDK for every build, even of targets without C/C++.
+Its statically linked [bootstrap executables](#static-bootstrap-toolchain) use the musl C/C++ toolchain of the [`llvm` module](https://registry.bazel.build/modules/llvm) without any registration or module extension setup: your own C/C++ targets keep using your toolchains, and the LLVM toolchain and the musl and libc++ sources are downloaded only when a bootstrap executable is built.
+If you use the `llvm` module yourself, the bootstrap executables share its version, its `llvm.version(...)` choice, and your overrides of it.
 Unsupported or conflicting mkosi versions fail during module resolution, and only the root module may set the toolchain `name`.
 
 ### Supplementary groups
@@ -454,10 +447,12 @@ bazel test --config=kernel_preflight //mkosi/private:kernel_preflight_host_test
 ### Static bootstrap toolchain
 
 The Debian launcher and namespace runner must link fully static.
-They are built for the platform selected by `@rules_mkosi//mkosi/toolchain:bootstrap_platform` (default: the current platform).
-Their transition puts `@rules_mkosi//mkosi/toolchain/bootstrap_cc:all`, hermetic_cc_toolchain's zig musl toolchain, before every registered C/C++ toolchain with `--extra_toolchains`, so neither your registrations nor the order of your dependencies change it, and no registration is needed.
-These toolchains match Linux x86-64 platforms without a `@zig_sdk//libc` constraint or with `@zig_sdk//libc:musl`, and never match any other target.
-For any other bootstrap platform, the first registered C/C++ toolchain that matches it builds the executables and must link them statically:
+They are built for the platform selected by `@rules_mkosi//mkosi/toolchain:bootstrap_platform`; by default, that is a Linux x86-64 platform with the `llvm` module's `@llvm//constraints/libc:musl` and `@llvm//constraints/pie:off` constraints, while their runfiles keep the current platform.
+Their transition puts `@rules_mkosi//mkosi/toolchain/bootstrap_cc:all`, the `llvm` module's Linux x86-64 C/C++ toolchain, before every registered C/C++ toolchain with `--extra_toolchains`, so neither your registrations nor the order of your dependencies change it, and no registration is needed.
+It matches every Linux x86-64 platform below the bootstrap executables, including the execution platform of the toolchain's own helper tools, so no host C/C++ compiler is needed, and never matches any other target.
+The first build compiles musl, libc++, and the compiler runtimes from source, and, for those helper tools, the glibc stubs of the execution platform.
+
+To select another bootstrap platform, give it the musl constraint, and `@llvm//constraints/pie:off` for executables without a dynamic section, which older `llvm` module versions otherwise link as static PIE:
 
 ```console
 # .bazelrc
@@ -465,7 +460,8 @@ common --@rules_mkosi//mkosi/toolchain:bootstrap_platform=//platforms:my_static_
 ```
 
 The flag affects only the bootstrap executables.
-[`e2e/module_resolution/consumer_isolation`](e2e/module_resolution/consumer_isolation), with a first-priority glibc toolchain and a musl bootstrap platform, and [`e2e/module_resolution/rules_cc_first`](e2e/module_resolution/rules_cc_first), with rules_cc's host toolchain ahead of rules_mkosi's registrations, are working examples.
+For a bootstrap platform other than Linux x86-64, the first registered C/C++ toolchain that matches it builds the executables and must link them statically.
+[`e2e/module_resolution/consumer_isolation`](e2e/module_resolution/consumer_isolation), with a first-priority glibc toolchain of another compiler and its own musl bootstrap platform, [`e2e/module_resolution/rules_cc_first`](e2e/module_resolution/rules_cc_first), with rules_cc's host toolchain ahead of rules_mkosi's registrations, and [`e2e/module_resolution/llvm_consumer`](e2e/module_resolution/llvm_consumer), which pins the `llvm` module and registers its toolchains for its own glibc targets, are working examples.
 
 ## Further reading
 

@@ -475,7 +475,7 @@ jobs:
               ;;
           esac
           case "$graph" in
-            *"hermetic_cc_toolchain"*) ;;
+            *"llvm-toolchain-minimal-"*) ;;
             *) echo "downstream no-RC graph lacks maintained C++ toolchain" >&2; exit 1 ;;
           esac
           echo "no-RC downstream launcher resolves maintained hermetic C++ toolchain"
@@ -559,6 +559,7 @@ jobs:
           - snapshot_name_conflict
           - consumer_isolation
           - rules_cc_first
+          - llvm_consumer
     env:
       USE_BAZEL_VERSION: ${{ matrix.bazel }}
     steps:
@@ -590,7 +591,7 @@ jobs:
             "build --disk_cache=$fixture_root/.cache/bazel-disk" "$rc"
           git -C "$GITHUB_WORKSPACE" check-ignore -q "$rc"
           case "${{ matrix.fixture }}" in
-            default|explicit|consumer_isolation|rules_cc_first)
+            default|explicit|consumer_isolation|rules_cc_first|llvm_consumer)
               cache="$fixture_root/.cache/bazel-disk"
               test -d "$cache"
               test "$(realpath "$cache")" = "$cache"
@@ -617,7 +618,7 @@ jobs:
           - module: root
             directory: .
             # A plain sh_test, which resolves only the shell toolchain. The root module's own C/C++ targets use the
-            # zig toolchain, so it has no consumer C/C++ target.
+            # llvm module's toolchain, like the bootstrap executables, so it has no consumer C/C++ target.
             target: //ci:check_pr_title_test
             options: --bootstrap-target @mkosi_debian_tools//:namespace_runner
           - module: consumer

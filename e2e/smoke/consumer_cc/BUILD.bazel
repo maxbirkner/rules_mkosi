@@ -1,7 +1,7 @@
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 
 # An ordinary C target of the consumer. CI checks that it resolves the consumer's C/C++ toolchain rather than
-# rules_mkosi's static bootstrap toolchain, and that analysing it does not fetch the zig SDK.
+# rules_mkosi's static bootstrap toolchain, and that analysing it does not fetch any repository of the llvm module.
 cc_library(
     name = "consumer_cc",
     srcs = ["consumer.c"],
