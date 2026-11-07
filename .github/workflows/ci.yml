@@ -146,6 +146,13 @@ jobs:
           fi
           rm kernel-preflight.log
 
+      - name: Install host signing tools
+        if: matrix.suite == 'root'
+        run: |
+          # The reference signer's --sbsign tests use host sbsigntools (Debian package sbsigntool) and faketime.
+          sudo apt-get -o Acquire::Retries=5 update
+          sudo apt-get -o Acquire::Retries=5 install -y --no-install-recommends sbsigntool faketime
+
       - name: Run complete ${{ matrix.label }}
         id: qualification
         if: matrix.module != ''
@@ -177,6 +184,27 @@ jobs:
           server-identity bazel shutdown
           server-identity bazel test "${bazel_configs[@]}" //...
           server-identity bazel test "${manifest_configs[@]}" //...
+
+      - name: Verify the host signing tool tests ran
+        if: matrix.suite == 'root'
+        run: |
+          version_configs=()
+          if [ "$USE_BAZEL_VERSION" != "$DEFAULT_BAZEL_VERSION" ]; then
+            version_configs=(--config=bazel9)
+          fi
+          testlogs="$(server-identity bazel info "${version_configs[@]}" bazel-testlogs)"
+          test_log="$testlogs/mkosi/tests/secure_boot_signer_test/test.log"
+          for test in \
+            test_host_sbsign_output_is_accepted_by_the_import \
+            test_host_sbsign_signs_at_the_signing_time \
+            test_rejects_a_signature_at_another_time_than_the_signing_time; do
+            # The suite passed, so a test that did not skip ran successfully; tool output may follow its name.
+            line="$(grep -E "^$test " "$test_log")"
+            echo "$line"
+            case "$line" in
+              "" | *skipped*) exit 1 ;;
+            esac
+          done
 
       - name: Verify the QEMU fallback from KVM to TCG
         if: matrix.suite == 'root'

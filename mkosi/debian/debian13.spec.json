@@ -30,6 +30,7 @@
     "libtss2-tcti-device0t64",
     "libexpat1",
     "libfido2-1",
+    "libfaketime",
     "libc-bin",
     "libpython3.13-stdlib",
     "libpython3.13-minimal",

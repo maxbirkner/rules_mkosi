@@ -2283,6 +2283,26 @@
       "component": "main",
       "dependencies": [
         {
+          "key": "libc6_2.41-12-p-deb13u4_amd64",
+          "name": "libc6",
+          "version": "2.41-12+deb13u4"
+        }
+      ],
+      "filename": "pool/main/f/faketime/libfaketime_0.9.10+2024-06-05+gba9ed5b2-0.6_amd64.deb",
+      "key": "libfaketime_0.9.10-p-2024-06-05-p-gba9ed5b2-0.6_amd64",
+      "name": "libfaketime",
+      "sha256": "4ecb98d7f6149e4c297a5946c4fa231a1b794d203053962e295dd3a18a47f269",
+      "size": 48128,
+      "urls": [
+        "https://snapshot.debian.org/archive/debian/20260912T080811Z/pool/main/f/faketime/libfaketime_0.9.10+2024-06-05+gba9ed5b2-0.6_amd64.deb"
+      ],
+      "version": "0.9.10+2024-06-05+gba9ed5b2-0.6"
+    },
+    {
+      "arch": "amd64",
+      "component": "main",
+      "dependencies": [
+        {
           "key": "libblkid1_2.41.5-0-p-deb13u1_amd64",
           "name": "libblkid1",
           "version": "2.41.5-0+deb13u1"
@@ -5748,5 +5768,6 @@
     "snapshot": "20260912T080811Z",
     "snapshot_url": "https://snapshot.debian.org/archive/debian/20260912T080811Z"
   },
+  "spec_sha256": "6fdc59d0d31e7ed37eb1663b18b153c8148eedaa6f5fe8f08a8a6be97962141a",
   "version": 1
 }

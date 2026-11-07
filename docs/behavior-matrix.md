@@ -126,6 +126,7 @@ It rejects signed binaries without an unsigned copy, remaining unsigned PE files
 <!-- behavior:BHV-SECURE-BOOT-SIGNER -->
 `secure_boot_signing_manifest` lists the execution-root-relative request, digest, unsigned binary and certificate paths of each request with a distinct signed file name, and rejects invalid or duplicate names.
 `@rules_mkosi//mkosi:secure_boot_signer` runs outside Bazel actions; it rejects malformed manifests and requests, substituted binaries, another certificate, and a key file holding another certificate before signing anything, and writes no signed binary whose signature does not verify with the requested certificate.
+With `--signing-time` or `SOURCE_DATE_EPOCH`, it rejects a signing time outside the certificate's validity, writes that time as the `signingTime` of every signature, and gives byte-identical signed binaries for the same manifest, key and signing time.
 
 <!-- behavior:BHV-SECURE-BOOT-ESP-MANIFEST -->
 `@rules_mkosi//mkosi:esp_manifest` and the `rules_mkosi_esp_manifest` module of `@rules_mkosi//mkosi:esp_manifest_lib` read the ESP manifest and any other ESP file of a raw disk image with only the Python standard library, on FAT12, FAT16 and FAT32 file systems with 512- or 4096-byte sectors, long and case-insensitive names, and fragmented files.
