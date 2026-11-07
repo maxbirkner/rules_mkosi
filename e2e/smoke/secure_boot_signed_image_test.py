@@ -6,6 +6,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -29,7 +30,9 @@ def _read_esp_file(image, partition_metadata, launcher, esp_path):
     """Returns the bytes of esp_path on the ESP of image, read with the pinned mtools as install tooling could."""
     partitions = json.loads(Path(partition_metadata).read_text())["partitions"]
     [esp] = [partition for partition in partitions if partition["type_guid"] == ESP_TYPE_GUID]
-    environment = dict(os.environ, MKOSI_DEBIAN_TOOLS_SCRATCH=os.path.join(os.environ["TEST_TMPDIR"], "mtype"))
+    # The launcher needs a new scratch directory for every call.
+    scratch = os.path.join(tempfile.mkdtemp(dir=os.environ["TEST_TMPDIR"]), "mtype")
+    environment = dict(os.environ, MKOSI_DEBIAN_TOOLS_SCRATCH=scratch)
     image_path = "/inputs/image.raw@@{}".format(esp["start_bytes"])
     command = ["/usr/bin/mtype", "-i", image_path, "::/" + esp_path]
     result = subprocess.run(
