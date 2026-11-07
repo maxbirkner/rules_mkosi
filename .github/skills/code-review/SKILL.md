@@ -27,9 +27,11 @@ problems. Check:
 8. **Lockfiles:** generated with the Bazel version in `.bazelversion` and changed only when module
    resolution changed; they were not edited manually and CI never updates
    them. Bazel 9 compatibility commands may use lockfile mode off.
-9. **CI:** action references remain full commit SHAs, permissions remain
-   least-privilege, and the `CI conclusion` gate cannot pass after a required
-   job fails or is cancelled.
+9. **CI:** action references remain full commit SHAs, except the reusable
+   release builder workflows (`release_ruleset.yaml`, publish-to-bcr
+   `publish.yaml`), which stay on `vX.Y.Z` tags for BCR attestation
+   verification; permissions remain least-privilege, and the `CI conclusion`
+   gate cannot pass after a required job fails or is cancelled.
 10. **BCR:** the smoke module remains in release archives, runtime dependencies
     are not accidentally marked dev-only, and source archives remain stable.
 

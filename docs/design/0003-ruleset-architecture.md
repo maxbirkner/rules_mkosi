@@ -68,6 +68,7 @@ Remaining test work: power interruption tests outside ordinary BCR workers, and 
 GitHub Actions runs the root and consumer suites on the pinned Bazel versions in `ci/bazel_versions.json`, plus a weekly run that detects breakage from rolling releases.
 Bazel 8 validates the committed lockfiles strictly; Bazel 9 uses lockfile mode off and never rewrites them.
 Actions are pinned by commit SHA, permissions default to read-only, superseded branch builds are cancelled, and one conclusion job gates branch protection.
+The reusable release builder workflows are the exception: they are referenced by their `vX.Y.Z` tag, because release attestations name that ref as their builder and the BCR's slsa-verifier rejects a commit SHA there.
 
 CI runs `bazel test //...` with execution-policy configs rather than a hand-maintained test list.
 Tags are semantic (`requires-network`, `requires_kernel_contract`, `manifest`), and tests that need the host kernel run after an explicit preflight instead of being skipped.

@@ -14,7 +14,9 @@ jobs:
   release:
     name: Release
     # Builds the archive with release_prep.sh, attests it, and uploads both to a draft GitHub release.
-    uses: bazel-contrib/.github/.github/workflows/release_ruleset.yaml@1d798ff015ed0696433e01e2c3ccbb2abefadad7 # v7.7.0
+    # Referenced by tag, unlike other actions: the attestations name this ref as their builder, and the BCR presubmit's
+    # slsa-verifier accepts only a semver tag there, so a commit SHA fails verification.
+    uses: bazel-contrib/.github/.github/workflows/release_ruleset.yaml@v7.7.0
     permissions:
       attestations: write
       contents: write

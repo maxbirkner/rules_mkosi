@@ -31,7 +31,11 @@ Linux images with mkosi.
   compatibility commands may use lockfile mode off, but CI must never update
   committed lockfiles.
 - Keep GitHub Actions permissions minimal and pin third-party actions to full
-  commit SHAs with a version comment.
+  commit SHAs with a version comment. The exceptions are the reusable release
+  builder workflows (`bazel-contrib/.github` `release_ruleset.yaml` and
+  `bazel-contrib/publish-to-bcr` `publish.yaml`): reference them by their
+  `vX.Y.Z` tag, because the BCR's slsa-verifier rejects attestations whose
+  builder ref is a commit SHA.
 - Use `prek` as the only formatting and linting entry point. Do not duplicate
   individual formatter commands in documentation or CI.
 - Gitleaks configuration must extend the built-in rules unless a full

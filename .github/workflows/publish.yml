@@ -25,7 +25,9 @@ jobs:
   publish:
     name: Open BCR pull request
     # Generates the registry entry from the .bcr templates, attests it, and opens a pull request from the fork.
-    uses: bazel-contrib/publish-to-bcr/.github/workflows/publish.yaml@1ae09341a6014e9bea052879c42392ac6b8b632c # v1.7.0
+    # Referenced by tag, unlike other actions: the attestations name this ref as their builder, and the BCR presubmit's
+    # slsa-verifier accepts only a semver tag there, so a commit SHA fails verification.
+    uses: bazel-contrib/publish-to-bcr/.github/workflows/publish.yaml@v1.7.0
     permissions:
       attestations: write
       contents: write
