@@ -62,11 +62,6 @@ cc_binary(
         "@rules_mkosi//mkosi/debian:launcher_main.cc",
     ],
     copts = CXX_WARNINGS,
-    data = [
-        ":launcher_cli",
-        ":python",
-        ":python_runtime",
-    ],
     deps = ["@rules_cc//cc/runfiles"],
     features = ["fully_static_link"],
     linkopts = ["-static", "-Wl,--strip-debug", "-Wl,--build-id=none"],
@@ -83,6 +78,11 @@ cc_binary(
 bootstrap_binary(
     name = "launcher",
     binary = ":launcher_binary",
+    data = [
+        ":launcher_cli",
+        ":python",
+        ":python_runtime",
+    ],
     exec_compatible_with = [
         "@platforms//os:linux",
         "@platforms//cpu:x86_64",
