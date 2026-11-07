@@ -118,9 +118,13 @@ _INPUT_REPOSITORIES = (
     "+debian_tools+",
 )
 _STATUS_FILES = ("volatile-status.txt", "stable-status.txt")
-# An absolute path as the whole argument, a flag value such as --sysroot=/usr, a list item, or the suffix of a short or
-# joined include flag such as -I/usr/include or -isystem/usr/include, but not a relative path such as -Iexternal/x.
-_ABSOLUTE_PATH = re.compile(r"(?:^|[=:,]|^-[A-Za-z]|^-i(?:dirafter|quote|sysroot|system))/")
+# An absolute path as the whole argument, a flag value such as --sysroot=/usr, a list item, or the joined value of a
+# single-letter, include, or dependency-file flag such as -I/usr/include, -include/usr/x.h, or -MF/tmp/x.d, but not a
+# relative path such as -Iexternal/x or -MFbazel-out/x.d.
+_ABSOLUTE_PATH = re.compile(
+    r"(?:^|[=:,]|^-(?:[A-Za-z]|include|imacros|iprefix|iwithprefix(?:before)?|idirafter|iquote|isysroot|isystem"
+    r"|iframework|M[FTQJ]))/"
+)
 # Absolute paths that point no tool at the host, such as the llvm module's empty sysroot.
 _HERMETIC_ABSOLUTE_ARGUMENTS = frozenset({"--sysroot=/dev/null"})
 _HOST_TOKENS = (

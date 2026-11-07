@@ -85,7 +85,13 @@ def _managed_actions():
     return [
         _action(
             "CppCompile",
-            [_COMPILER, "-Iexternal/llvm++llvm+llvm-project/libcxx/include", "-c", "mkosi/debian/launcher_main.cc"],
+            [
+                _COMPILER,
+                "-Iexternal/llvm++llvm+llvm-project/libcxx/include",
+                "-MFbazel-out/k8-fastbuild/bin/_objs/launcher_main.d",
+                "-c",
+                "mkosi/debian/launcher_main.cc",
+            ],
             [_COMPILER, "mkosi/debian/x.cc"],
             [_OBJECT],
         ),
@@ -151,6 +157,10 @@ class AuditTest(unittest.TestCase):
             ("host path in arguments", "CppCompile", [_COMPILER, "-I/usr/include"], [_COMPILER]),
             ("host path in arguments", "CppCompile", [_COMPILER, "--sysroot=/"], [_COMPILER]),
             ("host path in arguments", "CppCompile", [_COMPILER, "-isystem/usr/include"], [_COMPILER]),
+            ("host path in arguments", "CppCompile", [_COMPILER, "-include/usr/include/stdio.h"], [_COMPILER]),
+            ("host path in arguments", "CppCompile", [_COMPILER, "-imacros/usr/include/x.h"], [_COMPILER]),
+            ("host path in arguments", "CppCompile", [_COMPILER, "-iwithprefixbefore/usr/include"], [_COMPILER]),
+            ("host path in arguments", "CppCompile", [_COMPILER, "-MF/tmp/launcher_main.d"], [_COMPILER]),
             ("host toolchain input", "CppLink", [_COMPILER], [_COMPILER, "external/local_config_cc/ld"]),
             ("unmanaged repository", "CppLink", [_COMPILER], [_COMPILER, "external/host_tools/tar"]),
             ("unproduced bazel-out input", "CppLink", [_COMPILER], [_COMPILER, "bazel-out/stale.o"]),
