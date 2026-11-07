@@ -13,7 +13,7 @@ Bazel rules for building bootable Linux OS images with [mkosi](https://github.co
 | Requirement | Supported |
 | --- | --- |
 | Bazel | 8 and 9 (the current and previous LTS majors). The minimum is 8.8.2. |
-| Host | Linux x86-64. The static bootstrap toolchain uses the llvm module's Linux x86-64 LLVM toolchain. |
+| Host | Linux x86-64. rules_mkosi builds its static bootstrap executables with the `llvm` module's LLVM toolchain for Linux x86-64 with musl, on a Linux x86-64 execution platform. |
 | Execution platform | Linux x86-64, kernel 5.12 or newer, unprivileged user and mount namespaces under Bazel's Linux sandbox (see [host-kernel contract](docs/design/0004-host-kernel-contract.md)). |
 | Bazel server | Any unprivileged user; neither sudo nor a server without supplementary groups is needed (see [supplementary groups](#supplementary-groups)). |
 | Images | Debian 13 (trixie), amd64. |
@@ -486,6 +486,7 @@ Naming the `@llvm//constraints/...` labels in your own platforms, as in the remo
 The flags affect only the bootstrap executables.
 For a bootstrap platform without the musl constraint, the first registered C/C++ toolchain that matches it builds the executables and must link them statically.
 [`e2e/module_resolution/consumer_isolation`](e2e/module_resolution/consumer_isolation), with a first-priority glibc toolchain of another compiler and its own musl bootstrap platform, [`e2e/module_resolution/rules_cc_first`](e2e/module_resolution/rules_cc_first), with rules_cc's host toolchain ahead of rules_mkosi's registrations, and [`e2e/module_resolution/llvm_consumer`](e2e/module_resolution/llvm_consumer), which pins the `llvm` module and registers its toolchains for its own glibc targets, are working examples.
+[`e2e/module_resolution`](e2e/module_resolution/README.md) describes what each module-resolution fixture checks.
 
 ## Further reading
 
