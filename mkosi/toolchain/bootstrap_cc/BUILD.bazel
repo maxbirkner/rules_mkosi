@@ -19,11 +19,11 @@ config_setting(
     flag_values = {":bootstrap_executable": "True"},
 )
 
-# Default target platform of the bootstrap executables, and their first execution platform. The llvm module's C/C++
-# toolchain selects its C library and position-independent executable mode from the target platform: musl links fully
-# static executables, and without PIE they need no dynamic section, whatever the version of the llvm module defaults
-# to. As the execution platform, it makes the toolchain's own helper tools, such as its header parser, static musl
-# executables too.
+# Default target platform of the bootstrap executables, and their default first execution platform. The llvm module's
+# C/C++ toolchain selects its C library and position-independent executable mode from the target platform: musl links
+# fully static executables, and without PIE they need no dynamic section, whatever the version of the llvm module
+# defaults to. As the execution platform, it makes the toolchain's own helper tools, such as its header parser, static
+# musl executables too. Public, so that consumers can inherit its constraints in their own bootstrap platforms.
 platform(
     name = "linux_x86_64_musl",
     constraint_values = [
@@ -32,7 +32,7 @@ platform(
         "@platforms//cpu:x86_64",
         "@platforms//os:linux",
     ],
-    visibility = ["//mkosi:__subpackages__"],
+    visibility = ["//visibility:public"],
 )
 
 # Matches only platforms with the musl constraint, such as the one above. It references the llvm module's cc_toolchain

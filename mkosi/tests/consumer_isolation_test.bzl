@@ -4,6 +4,7 @@ load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts")
 load("//mkosi:defs.bzl", "managed_python_test")
 load("//mkosi/private:bootstrap_binary.bzl", "bootstrap_binary")
 
+_BOOTSTRAP_EXECUTION_PLATFORM = str(Label("//mkosi/toolchain:bootstrap_execution_platform"))
 _BOOTSTRAP_PLATFORM = str(Label("//mkosi/toolchain:bootstrap_platform"))
 _PYTHON_BOOTSTRAP = str(Label("@rules_python//python/config_settings:bootstrap_impl"))
 _PYTHON_VERSION = str(Label("@rules_python//python/config_settings:python_version"))
@@ -76,18 +77,31 @@ def _bootstrap_probe_impl(ctx):
         ctx.attr.cc_toolchain_marker,
     ))
     ctx.actions.write(marker, "")
-    return [DefaultInfo(executable = executable, runfiles = ctx.runfiles(files = [marker]))]
+    files = [marker] + ctx.files.execution_probe
+    return [DefaultInfo(executable = executable, runfiles = ctx.runfiles(files = files))]
 
 _bootstrap_probe = rule(
     implementation = _bootstrap_probe_impl,
     executable = True,
     attrs = {
         "cc_toolchain_marker": attr.string(mandatory = True),
+        "execution_probe": attr.label(cfg = "exec", mandatory = True),
         "platform_marker": attr.string(mandatory = True),
         "python_bootstrap_marker": attr.string(mandatory = True),
     },
     doc = """Records the configured target platform, Python bootstrap, and whether rules_mkosi's static C/C++ toolchains
-match in a runfile name.""",
+match in a runfile name, with the runfile of an execution-configured probe that records the execution platform.""",
+)
+
+def _execution_probe_impl(ctx):
+    marker = ctx.actions.declare_file("{}.{}".format(ctx.label.name, ctx.attr.platform_marker))
+    ctx.actions.write(marker, "")
+    return [DefaultInfo(files = depset([marker]))]
+
+_execution_probe = rule(
+    implementation = _execution_probe_impl,
+    attrs = {"platform_marker": attr.string(mandatory = True)},
+    doc = "Records the platform that it is configured for, as the execution platform of its dependent, in a file name.",
 )
 
 def _bootstrap_marker_test_impl(ctx):
@@ -105,6 +119,24 @@ _bootstrap_default_platform_test = analysistest.make(
     _bootstrap_marker_test_impl,
     attrs = _BOOTSTRAP_MARKER_ATTRS,
     config_settings = {_PYTHON_BOOTSTRAP: "script"},
+)
+
+def _bootstrap_execution_platform_test_impl(ctx):
+    env = analysistest.begin(ctx)
+    expected = "bootstrap_execution_probe.{}".format(ctx.attr.expected_platform)
+    names = [path.rsplit("/", 1)[-1] for path in _runfile_paths(analysistest.target_under_test(env))]
+    asserts.true(env, expected in names, "expected runfile {} in {}".format(expected, names))
+    return analysistest.end(env)
+
+_bootstrap_default_execution_platform_test = analysistest.make(
+    _bootstrap_execution_platform_test_impl,
+    attrs = _BOOTSTRAP_MARKER_ATTRS,
+)
+
+_bootstrap_selected_execution_platform_test = analysistest.make(
+    _bootstrap_execution_platform_test_impl,
+    attrs = _BOOTSTRAP_MARKER_ATTRS,
+    config_settings = {_BOOTSTRAP_EXECUTION_PLATFORM: str(Label(":bootstrap_probe_execution_platform"))},
 )
 
 _bootstrap_selected_platform_test = analysistest.make(
@@ -166,10 +198,43 @@ def _declare_bootstrap_probe_platform():
         flag_values = {_PYTHON_BOOTSTRAP: "system_python"},
     )
 
-def _declare_bootstrap_probe_tests():
-    """Declares the bootstrap probe and tests of its configuration inside and outside bootstrap_binary."""
+def _declare_bootstrap_probe_execution_platform():
+    """Declares a consumer's execution platform for the bootstrap executables, such as one for remote execution.
+
+    It inherits the constraints of rules_mkosi's static platform and adds one that the execution probe records.
+    """
+    native.constraint_value(
+        name = "bootstrap_probe_execution_selected",
+        constraint_setting = ":bootstrap_probe_setting",
+    )
+    native.platform(
+        name = "bootstrap_probe_execution_platform",
+        parents = ["//mkosi/toolchain/bootstrap_cc:linux_x86_64_musl"],
+        constraint_values = [":bootstrap_probe_execution_selected"],
+    )
+    native.config_setting(
+        name = "bootstrap_probe_execution_platform_selected",
+        constraint_values = [
+            ":bootstrap_probe_execution_selected",
+            "@llvm//constraints/libc:musl",
+            "@llvm//constraints/pie:off",
+        ],
+    )
+
+def _declare_bootstrap_probes():
+    """Declares the bootstrap probe, its execution-configured probe, and the bootstrap_binary that wraps it."""
+    _execution_probe(
+        name = "bootstrap_execution_probe",
+        platform_marker = select({
+            ":bootstrap_probe_default_platform": "default",
+            ":bootstrap_probe_execution_platform_selected": "selected",
+            "//conditions:default": "other",
+        }),
+        tags = ["manual"],
+    )
     _bootstrap_probe(
         name = "bootstrap_probe",
+        execution_probe = ":bootstrap_execution_probe",
         platform_marker = select({
             ":bootstrap_probe_default_platform": "default",
             ":bootstrap_probe_platform_selected": "selected",
@@ -190,6 +255,13 @@ def _declare_bootstrap_probe_tests():
         binary = ":bootstrap_probe",
         tags = ["manual"],
     )
+
+def _declare_bootstrap_probe_tests():
+    """Declares tests of the bootstrap probe's configuration inside and outside bootstrap_binary.
+
+    Returns:
+      The labels of the declared tests.
+    """
     _bootstrap_default_platform_test(
         name = "bootstrap_default_platform_test",
         expected_platform = "default",
@@ -200,10 +272,27 @@ def _declare_bootstrap_probe_tests():
         expected_platform = "selected",
         target_under_test = ":bootstrap_probe_subject",
     )
+    _bootstrap_default_execution_platform_test(
+        name = "bootstrap_default_execution_platform_test",
+        expected_platform = "default",
+        target_under_test = ":bootstrap_probe_subject",
+    )
+    _bootstrap_selected_execution_platform_test(
+        name = "bootstrap_selected_execution_platform_test",
+        expected_platform = "selected",
+        target_under_test = ":bootstrap_probe_subject",
+    )
     _consumer_cc_toolchain_test(
         name = "consumer_cc_toolchain_test",
         target_under_test = ":bootstrap_probe",
     )
+    return [
+        ":bootstrap_default_execution_platform_test",
+        ":bootstrap_default_platform_test",
+        ":bootstrap_selected_execution_platform_test",
+        ":bootstrap_selected_platform_test",
+        ":consumer_cc_toolchain_test",
+    ]
 
 def consumer_isolation_test_suite(name):
     """Defines analysis tests for consumer-independent Python and bootstrap configuration.
@@ -231,14 +320,11 @@ def consumer_isolation_test_suite(name):
     )
 
     _declare_bootstrap_probe_platform()
-    _declare_bootstrap_probe_tests()
-
+    _declare_bootstrap_probe_execution_platform()
+    _declare_bootstrap_probes()
     native.test_suite(
         name = name,
-        tests = [
-            ":bootstrap_default_platform_test",
-            ":bootstrap_selected_platform_test",
-            ":consumer_cc_toolchain_test",
+        tests = _declare_bootstrap_probe_tests() + [
             ":debian_launcher_python_line_test",
             ":managed_python_line_test",
             ":mkosi_toolchain_python_line_test",

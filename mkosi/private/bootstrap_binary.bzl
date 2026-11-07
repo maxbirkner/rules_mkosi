@@ -5,10 +5,13 @@ _BOOTSTRAP_PLATFORM = str(Label("//mkosi/toolchain:bootstrap_platform"))
 _INHERIT_PLATFORM = Label("//mkosi/toolchain:inherit_platform")
 
 # Linux x86-64 musl platform for which the llvm module's C/C++ toolchain links fully static executables. With the default
-# bootstrap platform, the executable is built for it, while its data keeps the current platform. It is also the first
-# execution platform below the executable, so that the toolchain's own helper tools link statically against musl too,
-# instead of against the glibc runtime of the llvm module or with a host C/C++ compiler.
+# bootstrap platform, the executable is built for it, while its data keeps the current platform.
 _STATIC_PLATFORM = str(Label("//mkosi/toolchain/bootstrap_cc:linux_x86_64_musl"))
+
+# The first execution platform below the executable, by default the static platform, so that the toolchain's own helper
+# tools link statically against musl too, instead of against the glibc runtime of the llvm module or with a host C/C++
+# compiler. Consumers with remote execution select a musl child of their own execution platform.
+_BOOTSTRAP_EXECUTION_PLATFORM = str(Label("//mkosi/toolchain:bootstrap_execution_platform"))
 _EXTRA_EXECUTION_PLATFORMS = "//command_line_option:extra_execution_platforms"
 
 # Enables rules_mkosi's static C/C++ toolchain, which matches only bootstrap executables.
@@ -35,8 +38,9 @@ def _prepend_missing(values, value):
     return values if value in values else [value] + values
 
 def _select_executable_settings(settings, _attr):
+    execution_platform = str(settings[_BOOTSTRAP_EXECUTION_PLATFORM])
     return _select_bootstrap_settings(settings, True, [_STATIC_PLATFORM]) | {
-        _EXTRA_EXECUTION_PLATFORMS: _prepend_missing(settings[_EXTRA_EXECUTION_PLATFORMS], _STATIC_PLATFORM),
+        _EXTRA_EXECUTION_PLATFORMS: _prepend_missing(settings[_EXTRA_EXECUTION_PLATFORMS], execution_platform),
         _EXTRA_TOOLCHAINS: _prepend_missing(settings[_EXTRA_TOOLCHAINS], _BOOTSTRAP_CC_TOOLCHAINS),
     }
 
@@ -48,7 +52,7 @@ _TRANSITION_OUTPUTS = [_PLATFORMS, _PYTHON_BOOTSTRAP, _BOOTSTRAP_EXECUTABLE]
 
 _bootstrap_transition = transition(
     implementation = _select_executable_settings,
-    inputs = _TRANSITION_INPUTS + [_EXTRA_EXECUTION_PLATFORMS, _EXTRA_TOOLCHAINS],
+    inputs = _TRANSITION_INPUTS + [_BOOTSTRAP_EXECUTION_PLATFORM, _EXTRA_EXECUTION_PLATFORMS, _EXTRA_TOOLCHAINS],
     outputs = _TRANSITION_OUTPUTS + [_EXTRA_EXECUTION_PLATFORMS, _EXTRA_TOOLCHAINS],
 )
 
@@ -108,10 +112,11 @@ llvm module's musl and non-PIE constraints. Its transition sets
 `//mkosi/toolchain/bootstrap_cc:bootstrap_executable`, the only configuration in which the static musl toolchain of
 `//mkosi/toolchain/bootstrap_cc`, the llvm module's Linux x86-64 C/C++ toolchain, matches, and puts it first in
 `--extra_toolchains`, so it outranks every registered C/C++ toolchain whatever the consumer registers. It matches
-Linux x86-64 platforms with the `@llvm//constraints/libc:musl` constraint. The transition also puts that default
-platform first in `--extra_execution_platforms`, so that the llvm toolchain's own helper tools, which are built for the
-execution platform, link statically against musl too and no host C/C++ compiler is needed. For any other bootstrap
-platform selected with the flag below, the first registered toolchain that matches it builds `binary`:
+Linux x86-64 platforms with the `@llvm//constraints/libc:musl` constraint. The transition also puts
+`--@rules_mkosi//mkosi/toolchain:bootstrap_execution_platform`, by default that same platform, first in
+`--extra_execution_platforms`, so that the llvm toolchain's own helper tools, which are built for the execution
+platform, link statically against musl too and no host C/C++ compiler is needed. For any other bootstrap platform
+selected with the flag below, the first registered toolchain that matches it builds `binary`:
 
     common --@rules_mkosi//mkosi/toolchain:bootstrap_platform=//platforms:my_static_platform
 

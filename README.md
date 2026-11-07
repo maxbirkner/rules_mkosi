@@ -68,6 +68,7 @@ use_repo(debian_tools, "mkosi_debian_snapshot")
 rules_mkosi registers its own mkosi, QEMU, and Debian tools toolchains.
 Registering them downloads nothing: mkosi, QEMU, the firmware, and the Debian userspace are fetched only when a target uses one of these toolchains.
 Its statically linked [bootstrap executables](#static-bootstrap-toolchain) use the musl C/C++ toolchain of the [`llvm` module](https://registry.bazel.build/modules/llvm) without any registration or module extension setup: your own C/C++ targets keep using your toolchains, and the LLVM toolchain and the musl and libc++ sources are downloaded only when a bootstrap executable is built.
+Only [your own bootstrap or execution platforms](#static-bootstrap-toolchain) that name its constraints need a `bazel_dep` on `llvm`.
 If you use the `llvm` module yourself, the bootstrap executables share its version, its `llvm.version(...)` choice, and your overrides of it.
 Unsupported or conflicting mkosi versions fail during module resolution, and only the root module may set the toolchain `name`.
 
@@ -450,18 +451,39 @@ The Debian launcher and namespace runner must link fully static.
 They are built for the platform selected by `@rules_mkosi//mkosi/toolchain:bootstrap_platform`; by default, that is a Linux x86-64 platform with the `llvm` module's `@llvm//constraints/libc:musl` and `@llvm//constraints/pie:off` constraints, while their runfiles keep the current platform.
 Their transition puts `@rules_mkosi//mkosi/toolchain/bootstrap_cc:all`, the `llvm` module's Linux x86-64 C/C++ toolchain, before every registered C/C++ toolchain with `--extra_toolchains`, so neither your registrations nor the order of your dependencies change it, and no registration is needed.
 It matches only Linux x86-64 platforms with `@llvm//constraints/libc:musl`, and only below the bootstrap executables.
-The transition also puts the default bootstrap platform first in `--extra_execution_platforms`, so that the toolchain's own helper tools, which are built for the execution platform, link statically against musl too, without a host C/C++ compiler or the `llvm` module's glibc runtime.
-The compile and link actions below the bootstrap executables therefore run on that platform, which declares no `exec_properties`, so with remote execution they get only `--remote_default_exec_properties`.
+The transition also puts the platform selected by `@rules_mkosi//mkosi/toolchain:bootstrap_execution_platform` (default: the same static platform, `@rules_mkosi//mkosi/toolchain/bootstrap_cc:linux_x86_64_musl`) first in `--extra_execution_platforms`, so that the toolchain's own helper tools, which are built for the execution platform, link statically against musl too, without a host C/C++ compiler or the `llvm` module's glibc runtime.
 The first build compiles musl, libc++, and the compiler runtimes from source, once for the executables and once, optimized, for the helper tools.
 
-To select another bootstrap platform, give it the musl constraint, and `@llvm//constraints/pie:off` for executables without a dynamic section, which older `llvm` module versions otherwise link as static PIE:
+The compile and link actions below the bootstrap executables run on that execution platform.
+The default declares no `exec_properties`, so with remote execution they get only `--remote_default_exec_properties`.
+To keep the `exec_properties` of your own execution platform, select a Linux x86-64 child of it with the musl and non-PIE constraints:
+
+```starlark
+# BUILD.bazel
+platform(
+    name = "rbe_bootstrap",
+    parents = ["//:rbe"],
+    constraint_values = [
+        "@llvm//constraints/libc:musl",
+        "@llvm//constraints/pie:off",
+    ],
+)
+```
+
+```console
+# .bazelrc
+common --@rules_mkosi//mkosi/toolchain:bootstrap_execution_platform=//:rbe_bootstrap
+```
+
+To select another bootstrap platform, give it the musl constraint, and `@llvm//constraints/pie:off` for executables without a dynamic section, which older `llvm` module versions otherwise link as static PIE; `parents = ["@rules_mkosi//mkosi/toolchain/bootstrap_cc:linux_x86_64_musl"]` inherits both:
 
 ```console
 # .bazelrc
 common --@rules_mkosi//mkosi/toolchain:bootstrap_platform=//platforms:my_static_platform
 ```
 
-The flag affects only the bootstrap executables.
+Naming the `@llvm//constraints/...` labels in your own platforms, as in the remote-execution example, requires your own `bazel_dep(name = "llvm", version = "0.8.5")` or newer, since a module can only use the repositories of its direct dependencies; inheriting them through `parents` does not.
+The flags affect only the bootstrap executables.
 For a bootstrap platform without the musl constraint, the first registered C/C++ toolchain that matches it builds the executables and must link them statically.
 [`e2e/module_resolution/consumer_isolation`](e2e/module_resolution/consumer_isolation), with a first-priority glibc toolchain of another compiler and its own musl bootstrap platform, [`e2e/module_resolution/rules_cc_first`](e2e/module_resolution/rules_cc_first), with rules_cc's host toolchain ahead of rules_mkosi's registrations, and [`e2e/module_resolution/llvm_consumer`](e2e/module_resolution/llvm_consumer), which pins the `llvm` module and registers its toolchains for its own glibc targets, are working examples.
 

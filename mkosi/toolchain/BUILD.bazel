@@ -23,3 +23,11 @@ filegroup(
     name = "inherit_platform",
     srcs = [],
 )
+
+# First execution platform below rules_mkosi's bootstrap executables, so that the llvm toolchain's own helper tools are
+# static musl executables too. It must be a Linux x86-64 platform with the llvm module's musl and non-PIE constraints.
+# With remote execution, select a child of your execution platform that inherits its exec_properties; see the README.
+label_flag(
+    name = "bootstrap_execution_platform",
+    build_setting_default = "//mkosi/toolchain/bootstrap_cc:linux_x86_64_musl",
+)
