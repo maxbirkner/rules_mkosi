@@ -78,13 +78,17 @@ class SigningManifestTest(unittest.TestCase):
 
     def test_reference_signer_rejects_a_signing_time_outside_the_certificate_validity(self):
         environment = {key: value for key, value in os.environ.items() if key != "SOURCE_DATE_EPOCH"}
-        for name, arguments, source_date_epoch in (("option", ["--signing-time", "0"], None), ("epoch", [], "0")):
+        for name, arguments, source_date_epoch, source in (
+            ("option", ["--signing-time", "0"], None, ""),
+            ("epoch", [], "0", " (from SOURCE_DATE_EPOCH)"),
+        ):
             with self.subTest(name):
                 if source_date_epoch is not None:
                     environment["SOURCE_DATE_EPOCH"] = source_date_epoch
                 result = self.validate(*arguments, env=environment)
                 self.assertNotEqual(result.returncode, 0, result.stdout)
-                self.assertIn("signing time 0 (1970-01-01 00:00:00 UTC) is outside the validity", result.stderr)
+                message = "signing time 0 (1970-01-01 00:00:00 UTC){} is outside the validity".format(source)
+                self.assertIn(message, result.stderr)
 
 
 if __name__ == "__main__":

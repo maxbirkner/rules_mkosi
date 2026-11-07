@@ -188,15 +188,17 @@ class SecureBootSignerTest(unittest.TestCase):
     def test_rejects_invalid_signing_times(self):
         not_before, not_after = SECURE_BOOT.certificate_validity(SECURE_BOOT.certificate_der(self.certificate))
         inside = str(not_before)
+        early = ["--signing-time", str(not_before - 1)]
+        outside, from_epoch = "UTC) is outside the validity", "UTC) (from SOURCE_DATE_EPOCH) is outside the validity"
         for name, arguments, source_date_epoch, message in (
             ("not a number", ["--signing-time", "yesterday"], None, "is not a Unix time in seconds"),
             ("negative", ["--signing-time", "-1"], None, "is not a Unix time in seconds"),
             ("after year 9999", ["--signing-time", "253402300800"], None, "is not a Unix time in seconds"),
             ("malformed epoch", [], "1.5", "SOURCE_DATE_EPOCH: '1.5' is not a Unix time in seconds"),
-            ("before notBefore", ["--signing-time", str(not_before - 1)], None, "outside the validity"),
-            ("after notAfter", ["--signing-time", str(not_after + 1)], None, "outside the validity"),
-            ("epoch before notBefore", [], str(not_before - 1), "outside the validity"),
-            ("option before the epoch", ["--signing-time", str(not_before - 1)], inside, "outside the validity"),
+            ("before notBefore", early, None, outside),
+            ("after notAfter", ["--signing-time", str(not_after + 1)], None, outside),
+            ("epoch before notBefore", [], str(not_before - 1), from_epoch),
+            ("option before the epoch", early, inside, outside),
         ):
             with self.subTest(name):
                 environment = {key: value for key, value in os.environ.items() if key != "SOURCE_DATE_EPOCH"}

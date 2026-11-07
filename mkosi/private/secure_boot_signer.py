@@ -210,15 +210,19 @@ def verify_signature(payload, certificate):
     return signing_time
 
 
-def check_signing_time(certificate, signing_time):
-    """Raises ValueError unless signing_time, in Unix seconds, lies within the validity of the DER certificate."""
+def check_signing_time(certificate, signing_time, source="--signing-time"):
+    """Raises ValueError unless signing_time, in Unix seconds, lies within the validity of the DER certificate.
+
+    source names where the signing time came from, --signing-time or SOURCE_DATE_EPOCH.
+    """
     not_before, not_after = secure_boot.certificate_validity(certificate)
     if not not_before <= signing_time <= not_after:
         raise ValueError(
-            "signing time {} ({} UTC) is outside the validity of --certificate, {} to {} UTC; "
+            "signing time {} ({} UTC){} is outside the validity of --certificate, {} to {} UTC; "
             "sign at a time inside it, such as the commit time of the release".format(
                 signing_time,
                 secure_boot.utc_time(signing_time),
+                " (from SOURCE_DATE_EPOCH)" if source == "SOURCE_DATE_EPOCH" else "",
                 secure_boot.utc_time(not_before),
                 secure_boot.utc_time(not_after),
             )
@@ -373,7 +377,9 @@ def _parse_arguments(argv):
         if not found:
             parser.error("--sbsign {} is not an executable".format(args.sbsign))
         args.sbsign = found
+    args.signing_time_source = "--signing-time"
     if args.signing_time is None and os.environ.get("SOURCE_DATE_EPOCH"):
+        args.signing_time_source = "SOURCE_DATE_EPOCH"
         try:
             args.signing_time = _signing_time(os.environ["SOURCE_DATE_EPOCH"])
         except argparse.ArgumentTypeError as error:
@@ -394,7 +400,7 @@ def sign_manifest(args):
     execroot = args.execroot or find_execroot(args.manifest)
     requests = [validate_entry(execroot, entry, certificate) for entry in load_manifest(args.manifest)]
     if args.signing_time is not None:
-        check_signing_time(certificate, args.signing_time)
+        check_signing_time(certificate, args.signing_time, args.signing_time_source)
     if args.validate_only:
         for request in requests:
             print("valid: {} -> {}".format(request.label, request.signed_name))
