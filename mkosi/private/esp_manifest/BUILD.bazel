@@ -1,0 +1,22 @@
+load("@rules_python//python:defs.bzl", "py_binary", "py_library")
+load("//mkosi:versions.bzl", "DEFAULT_PYTHON_VERSION")
+
+# This package holds only the ESP manifest reader, so `imports = ["."]` puts no other module on sys.path.
+package(default_visibility = ["//visibility:private"])
+
+# Public as //mkosi:esp_manifest_lib; `import rules_mkosi_esp_manifest`.
+py_library(
+    name = "esp_manifest_lib",
+    srcs = ["rules_mkosi_esp_manifest.py"],
+    imports = ["."],
+    visibility = ["//mkosi:__pkg__"],
+)
+
+# Public as //mkosi:esp_manifest; see docs/secure-boot.md.
+py_binary(
+    name = "esp_manifest",
+    srcs = ["rules_mkosi_esp_manifest.py"],
+    main = "rules_mkosi_esp_manifest.py",
+    python_version = DEFAULT_PYTHON_VERSION,
+    visibility = ["//mkosi:__pkg__"],
+)

@@ -6,8 +6,11 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
+
+import rules_mkosi_esp_manifest
 
 ESP_TYPE_GUID = "c12a7328-f81f-11d2-ba4b-00a0c93ec93b"
 ESP_MANIFEST = "loader/rules_mkosi-secure-boot.json"
@@ -27,7 +30,9 @@ def _read_esp_file(image, partition_metadata, launcher, esp_path):
     """Returns the bytes of esp_path on the ESP of image, read with the pinned mtools as install tooling could."""
     partitions = json.loads(Path(partition_metadata).read_text())["partitions"]
     [esp] = [partition for partition in partitions if partition["type_guid"] == ESP_TYPE_GUID]
-    environment = dict(os.environ, MKOSI_DEBIAN_TOOLS_SCRATCH=os.path.join(os.environ["TEST_TMPDIR"], "mtype"))
+    # The launcher needs a new scratch directory for every call.
+    scratch = os.path.join(tempfile.mkdtemp(dir=os.environ["TEST_TMPDIR"]), "mtype")
+    environment = dict(os.environ, MKOSI_DEBIAN_TOOLS_SCRATCH=scratch)
     image_path = "/inputs/image.raw@@{}".format(esp["start_bytes"])
     command = ["/usr/bin/mtype", "-i", image_path, "::/" + esp_path]
     result = subprocess.run(
@@ -85,11 +90,23 @@ class SignedImageTest(unittest.TestCase):
         self.assertEqual(keys["db"]["esp_path"], "loader/keys/auto/db.auth")
         self.assertEqual({entry["signer_sha256"] for entry in manifest["replaced"]}, {db})
 
+    def test_esp_manifest_reader_reads_what_mtools_reads(self):
+        [image] = RAW_IMAGE
+        expected = json.loads(_read_esp_file(image, PARTITION_METADATA, LAUNCHER, ESP_MANIFEST))
+        self.assertEqual(rules_mkosi_esp_manifest.read_esp_manifest(image), expected)
+        printed = subprocess.run([ESP_MANIFEST_TOOL, image], capture_output=True, check=True)
+        self.assertEqual(json.loads(printed.stdout), expected)
+        listed = subprocess.run([ESP_MANIFEST_TOOL, "--list", image], capture_output=True, check=True)
+        self.assertLessEqual(set(METADATA["changed_esp_paths"]), set(listed.stdout.decode().splitlines()))
+        partitions = json.loads(Path(PARTITION_METADATA).read_text())["partitions"]
+        [esp] = [partition for partition in partitions if partition["type_guid"] == ESP_TYPE_GUID]
+        self.assertEqual(rules_mkosi_esp_manifest.find_esp(image)[:2], (esp["start_bytes"], esp["size_bytes"]))
+
 
 if __name__ == "__main__":
     IMAGE, SYSTEMD_BOOT, UKI, SIGNER, RAW_IMAGE, TOOLS = (
         group.split() for group in " ".join(sys.argv[1:]).split(" -- ")
     )
-    PARTITION_METADATA, LAUNCHER = TOOLS
+    PARTITION_METADATA, LAUNCHER, ESP_MANIFEST_TOOL = TOOLS
     METADATA = json.loads(Path(_one(IMAGE, ".secure-boot-image.json")).read_text())
     unittest.main(argv=[sys.argv[0]])

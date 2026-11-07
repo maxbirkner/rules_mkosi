@@ -240,7 +240,7 @@ Install tooling can check, before it writes an image, that the image enrolls key
 The same facts are available in two places:
 
 - `<name>.secure-boot-image.json`, the record in the `secure_boot_metadata` output group, with format `mkosi-secure-boot-signed-image-v2`.
-- `/loader/rules_mkosi-secure-boot.json` on the ESP of the disk image, with format `mkosi-secure-boot-esp-manifest-v1`, so tools can read it from an image file, or from a freshly written device before its first boot, with any FAT reader, such as `mtype -i os_installer.raw@@<ESP offset> ::/loader/rules_mkosi-secure-boot.json`.
+- `/loader/rules_mkosi-secure-boot.json` on the ESP of the disk image, with format `mkosi-secure-boot-esp-manifest-v1`, so tools can read it from an image file, or from a freshly written device before its first boot, with the [ESP manifest reader](#reading-the-esp-manifest-of-a-disk-image) or any other FAT reader.
   Every signed image has it; an image without keys has empty `auto_enroll_keys`.
 
 Both documents describe the image as built, and nothing updates the ESP manifest after the image is written:
@@ -263,6 +263,39 @@ An `auto_enroll_keys` object has `variable` (`PK`, `KEK`, `db` or `dbx`), `esp_p
 A `replaced` object has `esp_path`, `unsigned_sha256`, `signed_sha256`, and `signer_sha256`, the SHA-256 fingerprint of the DER certificate that signed the binary.
 Digests are lowercase hexadecimal; both documents are deterministic for the same inputs.
 A new major `format_version` marks incompatible changes; fields may be added without one.
+
+### Reading the ESP manifest of a disk image
+
+`@rules_mkosi//mkosi:esp_manifest` prints the ESP manifest of a raw disk image, so install tooling can check the image before it writes it to a device:
+
+```console
+bazel run @rules_mkosi//mkosi:esp_manifest -- os_installer.raw
+bazel run @rules_mkosi//mkosi:esp_manifest -- --list os_installer.raw
+bazel run @rules_mkosi//mkosi:esp_manifest -- --extract loader/loader.conf os_installer.raw
+```
+
+It finds the only EFI system partition in the GPT and reads its FAT12, FAT16 or FAT32 file system itself, with 512- or 4096-byte sectors, so it needs neither root privileges, a loop device, nor mtools.
+`--list` prints the path of every file on the ESP, and `--extract` writes the bytes of one file to standard output; paths are case-insensitive, as on FAT.
+The exit status is 3 when the ESP lacks the file, for example the manifest of an image that `secure_boot_signed_image` did not build, and 1 when the image or the manifest is malformed, including a manifest with another `format_version`.
+
+Python code in the build can depend on `@rules_mkosi//mkosi:esp_manifest_lib` instead:
+
+```python
+import rules_mkosi_esp_manifest
+
+manifest = rules_mkosi_esp_manifest.read_esp_manifest("os_installer.raw")
+trusted = {key["variable"]: key["x509_sha256"] for key in manifest["auto_enroll_keys"]}
+```
+
+`read_esp_manifest`, `read_esp_file`, `list_esp_files` and `find_esp` raise `EspFileNotFoundError` for a missing file and `InvalidImageError`, a `ValueError`, for a malformed image or manifest.
+
+The library's only file is also the tool's standalone script, which uses only the Python standard library.
+Install tooling that runs without Bazel can copy it and run it with any Python 3.10 or newer, for example on a freshly written device:
+
+```console
+script="$(bazel info output_base)/$(bazel cquery --output=files @rules_mkosi//mkosi:esp_manifest_lib)"
+python3 "$script" /dev/sdX
+```
 
 ### Auto-enrollment on first boot
 

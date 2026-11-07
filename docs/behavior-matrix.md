@@ -127,6 +127,10 @@ It rejects signed binaries without an unsigned copy, remaining unsigned PE files
 `secure_boot_signing_manifest` lists the execution-root-relative request, digest, unsigned binary and certificate paths of each request with a distinct signed file name, and rejects invalid or duplicate names.
 `@rules_mkosi//mkosi:secure_boot_signer` runs outside Bazel actions; it rejects malformed manifests and requests, substituted binaries, another certificate, and a key file holding another certificate before signing anything, and writes no signed binary whose signature does not verify with the requested certificate.
 
+<!-- behavior:BHV-SECURE-BOOT-ESP-MANIFEST -->
+`@rules_mkosi//mkosi:esp_manifest` and the `rules_mkosi_esp_manifest` module of `@rules_mkosi//mkosi:esp_manifest_lib` read the ESP manifest and any other ESP file of a raw disk image with only the Python standard library, on FAT12, FAT16 and FAT32 file systems with 512- or 4096-byte sectors, long and case-insensitive names, and fragmented files.
+They reject an image without one ESP in a valid GPT, reads outside the image, an invalid FAT, looping or broken cluster chains, file sizes that disagree with their chains, directories that share clusters, and manifests of another format, and report a missing file separately; runs of long name slots and directory reads are bounded, so hostile images cannot make them slow.
+
 <!-- behavior:BHV-SYSUPDATE-PAYLOAD -->
 `sysupdate_payload` requires a versioned image with an unsigned UKI and dm-verity, optionally substitutes a signed UKI bound to that image, names root and verity artifacts by their root-hash UUIDs, trims them to the bytes that dm-verity covers, optionally compresses them deterministically with xz, rejects mismatching GPT UUIDs, writes `SHA256SUMS` of the shipped files, and exposes `SysupdatePayloadInfo`.
 

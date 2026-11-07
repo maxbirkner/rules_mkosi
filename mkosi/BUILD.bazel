@@ -25,6 +25,20 @@ alias(
     visibility = ["//visibility:public"],
 )
 
+# Reads the ESP manifest and other ESP files of a raw disk image; see docs/secure-boot.md.
+alias(
+    name = "esp_manifest",
+    actual = "//mkosi/private/esp_manifest",
+    visibility = ["//visibility:public"],
+)
+
+# The same reader as the Python module rules_mkosi_esp_manifest, a standalone stdlib-only script.
+alias(
+    name = "esp_manifest_lib",
+    actual = "//mkosi/private/esp_manifest:esp_manifest_lib",
+    visibility = ["//visibility:public"],
+)
+
 # Every Starlark file that the public API loads, for Stardoc and for consumers that document their own macros.
 bzl_library(
     name = "bzl",

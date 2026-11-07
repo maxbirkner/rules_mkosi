@@ -92,6 +92,26 @@ py_test(
 )
 
 py_test(
+    name = "esp_manifest_test",
+    timeout = "long",
+    srcs = ["esp_manifest_test.py"],
+    args = [
+        "$(rootpath //mkosi:esp_manifest_lib)",
+        "$(rootpath //mkosi/private:launcher_tool.py)",
+        "$(rootpath @mkosi_debian_tools//:launcher)",
+        "$(rootpath //mkosi/private:secure_boot_image.py)",
+    ],
+    data = [
+        "//mkosi:esp_manifest_lib",
+        "//mkosi/private:launcher_tool.py",
+        "//mkosi/private:secure_boot_image.py",
+        "@mkosi_debian_tools//:launcher",
+    ],
+    main = "esp_manifest_test.py",
+    deps = ["//mkosi:esp_manifest_lib"],
+)
+
+py_test(
     name = "sysupdate_signing_test",
     timeout = "long",
     srcs = [
@@ -252,6 +272,7 @@ behavior_targets(
         ":debian_tools_runtime_test",
         ":default_version_test",
         ":diagnostic_contract_test",
+        ":esp_manifest_test",
         ":explicit_version_test",
         ":image_version_test",
         ":immutable_release_provider_test",

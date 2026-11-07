@@ -146,6 +146,8 @@ The [API reference](docs/api/defs.md), generated with Stardoc, documents every a
 
 Lower-level symbols used by the toolchain repositories and tests (`debian_snapshot`, `qemu_executable`, `qemu_ovmf_toolchain`, `qemu_ovmf_smoke_test`, the `*_boot_config` rules, `secure_boot_ephemeral_test_fixture`, and `sysupdate_ephemeral_test_fixture`) are exported but are not needed for normal use.
 
+`@rules_mkosi//mkosi:esp_manifest` checks a disk image before install tooling writes it to a device: it prints the ESP manifest of a `secure_boot_signed_image`, or lists and extracts other ESP files, without mounting the image; see [reading the ESP manifest](docs/secure-boot.md#reading-the-esp-manifest-of-a-disk-image).
+
 ## Building images
 
 `mkosi_image` takes exactly one of:
