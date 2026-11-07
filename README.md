@@ -44,12 +44,13 @@ bazel_dep(name = "rules_mkosi", version = "0.0.0")
 local_path_override(module_name = "rules_mkosi", path = "/path/to/rules_mkosi")
 
 # Static C/C++ toolchain for rules_mkosi's bootstrap executables. Its extension
-# reads only the root module's tags, so the root module must opt in.
+# creates its repositories only for a root module that uses it.
 bazel_dep(name = "hermetic_cc_toolchain", version = "4.3.0")
 hermetic_cc = use_extension("@hermetic_cc_toolchain//toolchain:ext.bzl", "toolchains")
-hermetic_cc.exec_platform(arch = "amd64", os = "linux")
 use_repo(hermetic_cc, "zig_sdk")
-register_toolchains("@zig_sdk//toolchain:linux_amd64_musl")
+# Recommended: takes precedence over the C/C++ toolchains that other
+# dependencies register, such as rules_cc's host toolchain.
+register_toolchains("@rules_mkosi//mkosi/toolchain/bootstrap_cc:all")
 
 # QEMU binaries used by the mkosi toolchain repository.
 bazel_dep(name = "rules_qemu", version = "0.3.0")
@@ -74,7 +75,9 @@ use_repo(debian_tools, "mkosi_debian_snapshot")
 
 rules_mkosi registers its own mkosi, QEMU, and Debian tools toolchains.
 Registering them downloads nothing: mkosi, QEMU, the firmware, and the Debian userspace are fetched only when a target uses one of these toolchains.
-The musl registration does not change the platform of your other targets.
+It also registers hermetic_cc_toolchain's zig musl C/C++ toolchain, but only for its statically linked [bootstrap executables](#static-bootstrap-toolchain): your own C/C++ targets keep using your toolchains, and the zig SDK is downloaded only when a bootstrap executable is built.
+`hermetic_cc.exec_platform` is not needed for it.
+Do not register `@zig_sdk//toolchain:...` yourself unless you want it for your own targets; hermetic_cc_toolchain's toolchains download the zig SDK for every build, even of targets without C/C++.
 Unsupported or conflicting mkosi versions fail during module resolution, and only the root module may set the toolchain `name`.
 
 ### Supplementary groups
@@ -453,6 +456,9 @@ bazel test --config=kernel_preflight //mkosi/private:kernel_preflight_host_test
 ### Static bootstrap toolchain
 
 The Debian launcher and namespace runner must link fully static, using the first C/C++ toolchain that matches the platform selected by `@rules_mkosi//mkosi/toolchain:bootstrap_platform` (default: the current platform).
+`@rules_mkosi//mkosi/toolchain/bootstrap_cc:all` provides hermetic_cc_toolchain's zig musl toolchain for them.
+It matches only these executables, for platforms without a `@zig_sdk//libc` constraint or with `@zig_sdk//libc:musl`.
+rules_mkosi registers it after the root module's toolchains and those of modules that precede it in the dependency graph; register it in your root `MODULE.bazel` to let it win over the other modules' toolchains.
 If your own toolchain is registered first and cannot link static executables, select a platform that only a static-capable toolchain matches:
 
 ```starlark
@@ -465,9 +471,6 @@ platform(
         "@zig_sdk//libc:musl",
     ],
 )
-
-# MODULE.bazel
-register_toolchains("@zig_sdk//libc_aware/toolchain:linux_amd64_musl")
 ```
 
 ```console

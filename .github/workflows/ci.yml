@@ -615,12 +615,17 @@ jobs:
         include:
           - module: root
             directory: .
-            # A plain cc_library, which resolves only the C/C++ toolchain.
-            target: //mkosi/private:write_all
+            # A plain sh_test, which resolves only the shell toolchain. The root module's own C/C++ targets use the
+            # zig toolchain, so it has no consumer C/C++ target.
+            target: //ci:check_pr_title_test
+            options: --bootstrap-target @mkosi_debian_tools//:namespace_runner
           - module: consumer
             directory: e2e/smoke
             # A plain py_binary, which resolves the Python and C/C++ toolchains.
             target: //:payload_tree_generator
+            options: >-
+              --consumer-cc-target //consumer_cc
+              --bootstrap-target @mkosi_debian_tools//:namespace_runner
     env:
       DEFAULT_BAZEL_VERSION: ${{ needs.bazel-versions.outputs.default }}
       USE_BAZEL_VERSION: ${{ matrix.bazel }}
@@ -644,7 +649,7 @@ jobs:
           if [ "${{ matrix.bazel }}" != "$DEFAULT_BAZEL_VERSION" ]; then
             export LOCKFILE_MODE=off
           fi
-          ci/check-lazy-toolchain-fetch.sh ${{ matrix.directory }} ${{ matrix.target }}
+          ci/check-lazy-toolchain-fetch.sh ${{ matrix.options }} ${{ matrix.directory }} ${{ matrix.target }}
 
   bcr-presubmit:
     name: BCR presubmit ${{ matrix.bazel }}

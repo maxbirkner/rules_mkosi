@@ -3,7 +3,7 @@ load("@rules_mkosi//mkosi:defs.bzl", "managed_python_test")
 load("@rules_python//python:defs.bzl", "py_test")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
 
-# Selected by .bazelrc for rules_mkosi's bootstrap executables. Only the consumer's libc-aware musl toolchain
+# Selected by .bazelrc for rules_mkosi's bootstrap executables. Only rules_mkosi's libc-aware musl toolchain
 # matches this platform.
 platform(
     name = "bootstrap_musl",

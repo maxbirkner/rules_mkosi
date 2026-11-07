@@ -69,10 +69,11 @@ _managed_python_line_test = analysistest.make(
 def _bootstrap_probe_impl(ctx):
     executable = ctx.actions.declare_file(ctx.label.name)
     ctx.actions.write(executable, "", is_executable = True)
-    marker = ctx.actions.declare_file("{}.{}.{}".format(
+    marker = ctx.actions.declare_file("{}.{}.{}.{}".format(
         ctx.label.name,
         ctx.attr.platform_marker,
         ctx.attr.python_bootstrap_marker,
+        ctx.attr.cc_toolchain_marker,
     ))
     ctx.actions.write(marker, "")
     return [DefaultInfo(executable = executable, runfiles = ctx.runfiles(files = [marker]))]
@@ -81,16 +82,18 @@ _bootstrap_probe = rule(
     implementation = _bootstrap_probe_impl,
     executable = True,
     attrs = {
+        "cc_toolchain_marker": attr.string(mandatory = True),
         "platform_marker": attr.string(mandatory = True),
         "python_bootstrap_marker": attr.string(mandatory = True),
     },
-    doc = "Records the configured target platform and Python bootstrap in a runfile name.",
+    doc = """Records the configured target platform, Python bootstrap, and whether rules_mkosi's static C/C++ toolchains
+match in a runfile name.""",
 )
 
 def _bootstrap_marker_test_impl(ctx):
     env = analysistest.begin(ctx)
     target = analysistest.target_under_test(env)
-    expected = "bootstrap_probe.{}.system_python".format(ctx.attr.expected_platform)
+    expected = "bootstrap_probe.{}.system_python.bootstrap_cc".format(ctx.attr.expected_platform)
     names = [path.rsplit("/", 1)[-1] for path in _runfile_paths(target)]
     asserts.true(env, expected in names, "expected runfile {} in {}".format(expected, names))
     asserts.equals(env, ctx.label.package, target[DefaultInfo].files_to_run.executable.owner.package)
@@ -112,6 +115,83 @@ _bootstrap_selected_platform_test = analysistest.make(
         _PYTHON_BOOTSTRAP: "script",
     },
 )
+
+def _consumer_cc_toolchain_test_impl(ctx):
+    env = analysistest.begin(ctx)
+    names = [path.rsplit("/", 1)[-1] for path in _runfile_paths(analysistest.target_under_test(env))]
+    asserts.true(
+        env,
+        "bootstrap_probe.inherited.other.consumer_cc" in names,
+        "rules_mkosi's static C/C++ toolchains matched outside bootstrap_binary: {}".format(names),
+    )
+    return analysistest.end(env)
+
+_consumer_cc_toolchain_test = analysistest.make(
+    _consumer_cc_toolchain_test_impl,
+    config_settings = {_PYTHON_BOOTSTRAP: "script"},
+)
+
+def _declare_bootstrap_probe_platform():
+    """Declares a target platform and config_settings that the bootstrap probe records."""
+    native.constraint_setting(name = "bootstrap_probe_setting")
+    native.constraint_value(
+        name = "bootstrap_probe_selected",
+        constraint_setting = ":bootstrap_probe_setting",
+    )
+    native.platform(
+        name = "bootstrap_probe_platform",
+        constraint_values = [
+            ":bootstrap_probe_selected",
+            "@platforms//cpu:x86_64",
+            "@platforms//os:linux",
+        ],
+    )
+    native.config_setting(
+        name = "bootstrap_probe_platform_selected",
+        constraint_values = [":bootstrap_probe_selected"],
+    )
+    native.config_setting(
+        name = "bootstrap_probe_system_python",
+        flag_values = {_PYTHON_BOOTSTRAP: "system_python"},
+    )
+
+def _declare_bootstrap_probe_tests():
+    """Declares the bootstrap probe and tests of its configuration inside and outside bootstrap_binary."""
+    _bootstrap_probe(
+        name = "bootstrap_probe",
+        platform_marker = select({
+            ":bootstrap_probe_platform_selected": "selected",
+            "//conditions:default": "inherited",
+        }),
+        python_bootstrap_marker = select({
+            ":bootstrap_probe_system_python": "system_python",
+            "//conditions:default": "other",
+        }),
+        cc_toolchain_marker = select({
+            "//mkosi/toolchain/bootstrap_cc:building_bootstrap_executable": "bootstrap_cc",
+            "//conditions:default": "consumer_cc",
+        }),
+        tags = ["manual"],
+    )
+    bootstrap_binary(
+        name = "bootstrap_probe_subject",
+        binary = ":bootstrap_probe",
+        tags = ["manual"],
+    )
+    _bootstrap_inherited_platform_test(
+        name = "bootstrap_inherited_platform_test",
+        expected_platform = "inherited",
+        target_under_test = ":bootstrap_probe_subject",
+    )
+    _bootstrap_selected_platform_test(
+        name = "bootstrap_selected_platform_test",
+        expected_platform = "selected",
+        target_under_test = ":bootstrap_probe_subject",
+    )
+    _consumer_cc_toolchain_test(
+        name = "consumer_cc_toolchain_test",
+        target_under_test = ":bootstrap_probe",
+    )
 
 def consumer_isolation_test_suite(name):
     """Defines analysis tests for consumer-independent Python and bootstrap configuration.
@@ -138,60 +218,15 @@ def consumer_isolation_test_suite(name):
         target_under_test = ":managed_python_line_subject",
     )
 
-    native.constraint_setting(name = "bootstrap_probe_setting")
-    native.constraint_value(
-        name = "bootstrap_probe_selected",
-        constraint_setting = ":bootstrap_probe_setting",
-    )
-    native.platform(
-        name = "bootstrap_probe_platform",
-        constraint_values = [
-            ":bootstrap_probe_selected",
-            "@platforms//cpu:x86_64",
-            "@platforms//os:linux",
-        ],
-    )
-    native.config_setting(
-        name = "bootstrap_probe_platform_selected",
-        constraint_values = [":bootstrap_probe_selected"],
-    )
-    native.config_setting(
-        name = "bootstrap_probe_system_python",
-        flag_values = {_PYTHON_BOOTSTRAP: "system_python"},
-    )
-    _bootstrap_probe(
-        name = "bootstrap_probe",
-        platform_marker = select({
-            ":bootstrap_probe_platform_selected": "selected",
-            "//conditions:default": "inherited",
-        }),
-        python_bootstrap_marker = select({
-            ":bootstrap_probe_system_python": "system_python",
-            "//conditions:default": "other",
-        }),
-        tags = ["manual"],
-    )
-    bootstrap_binary(
-        name = "bootstrap_probe_subject",
-        binary = ":bootstrap_probe",
-        tags = ["manual"],
-    )
-    _bootstrap_inherited_platform_test(
-        name = "bootstrap_inherited_platform_test",
-        expected_platform = "inherited",
-        target_under_test = ":bootstrap_probe_subject",
-    )
-    _bootstrap_selected_platform_test(
-        name = "bootstrap_selected_platform_test",
-        expected_platform = "selected",
-        target_under_test = ":bootstrap_probe_subject",
-    )
+    _declare_bootstrap_probe_platform()
+    _declare_bootstrap_probe_tests()
 
     native.test_suite(
         name = name,
         tests = [
             ":bootstrap_inherited_platform_test",
             ":bootstrap_selected_platform_test",
+            ":consumer_cc_toolchain_test",
             ":debian_launcher_python_line_test",
             ":managed_python_line_test",
             ":mkosi_toolchain_python_line_test",

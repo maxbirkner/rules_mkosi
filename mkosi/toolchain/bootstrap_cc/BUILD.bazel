@@ -1,0 +1,32 @@
+load("@bazel_skylib//rules:common_settings.bzl", "bool_setting")
+load("//mkosi/private:zig_cc_toolchain.bzl", "zig_musl_cc_toolchain")
+
+# C/C++ toolchains for rules_mkosi's statically linked bootstrap executables only, backed by hermetic_cc_toolchain's
+# zig musl toolchain. Registering them with `register_toolchains("@rules_mkosi//mkosi/toolchain/bootstrap_cc:all")`
+# downloads nothing; Bazel fetches the zig SDK only when it builds a bootstrap executable with them.
+
+# Set only by the transition of bootstrap_binary, so that these toolchains never match any other target.
+bool_setting(
+    name = "bootstrap_executable",
+    build_setting_default = False,
+    visibility = ["//mkosi:__subpackages__"],
+)
+
+config_setting(
+    name = "building_bootstrap_executable",
+    flag_values = {":bootstrap_executable": "True"},
+)
+
+# Matches bootstrap platforms without an explicit @zig_sdk//libc constraint, such as the default.
+zig_musl_cc_toolchain(
+    name = "linux_x86_64_musl",
+    libc = "unconstrained",
+    target_settings = [":building_bootstrap_executable"],
+)
+
+# Matches bootstrap platforms with the @zig_sdk//libc:musl constraint.
+zig_musl_cc_toolchain(
+    name = "libc_aware_linux_x86_64_musl",
+    libc = "musl",
+    target_settings = [":building_bootstrap_executable"],
+)
