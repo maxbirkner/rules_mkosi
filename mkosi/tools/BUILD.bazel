@@ -1,0 +1,21 @@
+load("@rules_python//python:defs.bzl", "py_binary", "py_library")
+load("//mkosi:versions.bzl", "DEFAULT_PYTHON_VERSION")
+
+package(default_visibility = ["//visibility:public"])
+
+# The standalone script, for install tooling that copies it next to an image or runs it with any Python 3.10+.
+exports_files(["esp_manifest.py"])
+
+# `import esp_manifest` reads the ESP manifest and other ESP files of a raw disk image; see docs/secure-boot.md.
+py_library(
+    name = "esp_manifest_lib",
+    srcs = ["esp_manifest.py"],
+    imports = ["."],
+)
+
+# `bazel run @rules_mkosi//mkosi/tools:esp_manifest -- [--list | --extract ESP_PATH] IMAGE`
+py_binary(
+    name = "esp_manifest",
+    srcs = ["esp_manifest.py"],
+    python_version = DEFAULT_PYTHON_VERSION,
+)
