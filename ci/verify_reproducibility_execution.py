@@ -39,9 +39,6 @@ SUBJECTS = {
     },
 }
 
-# Disabled toolchain actions, such as CcStrip, run this placeholder; a build must never execute it.
-_PLACEHOLDER = "/usr/bin/false"
-
 
 def verify(path, build_name, subject="release"):
     expected = SUBJECTS[subject]
@@ -51,8 +48,6 @@ def verify(path, build_name, subject="release"):
         key = (entry.get("mnemonic"), entry.get("targetLabel"))
         if key in expected:
             observed.setdefault(key, []).append(entry)
-        if _PLACEHOLDER in entry.get("commandArgs", []):
-            errors.append("{} {}: executed the disabled-action placeholder {}".format(*key, _PLACEHOLDER))
 
     for key in sorted(expected):
         entries = observed.get(key, [])

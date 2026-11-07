@@ -40,15 +40,15 @@ class ActionGraphValidatorTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "host-tool basename.*gcc"):
             validate_action_environment(self.action("gcc"), {"source.cc"})
 
-    def test_accepts_declared_hermetic_zig_tool(self):
-        executable = "external/hermetic_cc_toolchain++toolchains+zig_config/tools/x86_64-linux-musl/c++"
+    def test_accepts_declared_hermetic_compiler(self):
+        executable = _COMPILER
         validate_action_environment(
             self.action(executable),
             {executable, "source.cc"},
         )
 
     def test_accepts_declared_hermetic_archiver(self):
-        executable = "external/hermetic_cc_toolchain++toolchains+zig_config/tools/x86_64-linux-musl/ar"
+        executable = "external/llvm++llvm_toolchain_minimal+llvm-toolchain-minimal-linux-amd64/bin/llvm-ar"
         validate_action_environment(
             self.action(executable, mnemonic="CppArchive"),
             {executable, "source.cc"},
@@ -64,12 +64,14 @@ class ActionGraphValidatorTest(unittest.TestCase):
     def test_rejects_undeclared_executable(self):
         with self.assertRaisesRegex(ValueError, "not a declared input"):
             validate_action_environment(
-                self.action("external/zig/tools/c++"),
+                self.action("external/llvm/bin/clang++"),
                 {"source.cc"},
             )
 
 
-_COMPILER = "external/hermetic_cc_toolchain++toolchains+zig_config/tools/x86_64-linux-musl/c++"
+_COMPILER = "external/llvm++llvm_toolchain_minimal+llvm-toolchain-minimal-linux-amd64/bin/clang++"
+_COREUTILS = "external/bazel_lib++toolchains+coreutils_linux_amd64/coreutils"
+_MUSL_OBJECTS = "bazel-out/k8-fastbuild/bin/external/llvm+/runtimes/musl"
 _PYTHON = "external/+debian_tools+mkosi_debian_python/python"
 _OBJECT = "bazel-out/k8-fastbuild/bin/external/+debian_tools+mkosi_debian_tools/_objs/launcher_main.o"
 
@@ -83,13 +85,27 @@ def _managed_actions():
     return [
         _action(
             "CppCompile",
-            [_COMPILER, "-c", "mkosi/debian/launcher_main.cc"],
+            [
+                _COMPILER,
+                "-Iexternal/llvm++llvm+llvm-project/libcxx/include",
+                "-MFbazel-out/k8-fastbuild/bin/_objs/launcher_main.d",
+                "-c",
+                "mkosi/debian/launcher_main.cc",
+            ],
             [_COMPILER, "mkosi/debian/x.cc"],
             [_OBJECT],
         ),
         _action("CppLink", [_COMPILER, "-o", "launcher"], [_COMPILER, _OBJECT], ["bazel-out/launcher"]),
         _action("BuildDebianToolsArchive", [_PYTHON, "package_archive.py"], [_PYTHON], ["bazel-out/flat.tar"]),
-        _action("CcStrip", ["/usr/bin/false"], [], ["bazel-out/launcher.stripped"]),
+        _action("CcStrip", [_COMPILER, "-o", "launcher.stripped"], [_COMPILER], ["bazel-out/launcher.stripped"]),
+        _action("CppModuleMap", outputs=["bazel-out/launcher.cppmap"]),
+        _action("CcStage0Compile", [_COMPILER, "-c", "crt1.c"], [_COMPILER], [f"{_MUSL_OBJECTS}/crt1.o"]),
+        _action(
+            "CopyFile",
+            [_COREUTILS, "cp", f"{_MUSL_OBJECTS}/crt1.o", f"{_MUSL_OBJECTS}/crt/crt1.o"],
+            [_COREUTILS, f"{_MUSL_OBJECTS}/crt1.o"],
+            [f"{_MUSL_OBJECTS}/crt/crt1.o"],
+        ),
         _action("FileWrite", outputs=["bazel-out/launcher_config.json"]),
     ]
 
@@ -124,6 +140,7 @@ class AuditTest(unittest.TestCase):
         counts = audit(_graph(_managed_actions()))
         self.assertEqual(counts["CppCompile"], 1)
         self.assertEqual(counts["CcStrip"], 1)
+        self.assertEqual(counts["CopyFile"], 1)
 
     def test_rejects_injected_host_helpers(self):
         cases = [
@@ -131,8 +148,19 @@ class AuditTest(unittest.TestCase):
             ("unexpected executable for CppCompile", "CppCompile", ["/usr/bin/gcc"], ["/usr/bin/gcc"]),
             ("not a declared input: CppLink", "CppLink", [_COMPILER, "-o", "z"], [_OBJECT]),
             ("in-process action starts a process", "FileWrite", ["external/bazel_tools/sh"], []),
-            ("disabled action has an unexpected executable", "CcStrip", [_COMPILER], [_COMPILER]),
+            (
+                "unexpected executable for CopyFile",
+                "CopyFile",
+                ["/bin/bash", "-c", 'cp -f "$1" "$2"', "", "a", "b"],
+                [],
+            ),
             ("host path in arguments", "CppCompile", [_COMPILER, "-I/usr/include"], [_COMPILER]),
+            ("host path in arguments", "CppCompile", [_COMPILER, "--sysroot=/"], [_COMPILER]),
+            ("host path in arguments", "CppCompile", [_COMPILER, "-isystem/usr/include"], [_COMPILER]),
+            ("host path in arguments", "CppCompile", [_COMPILER, "-include/usr/include/stdio.h"], [_COMPILER]),
+            ("host path in arguments", "CppCompile", [_COMPILER, "-imacros/usr/include/x.h"], [_COMPILER]),
+            ("host path in arguments", "CppCompile", [_COMPILER, "-iwithprefixbefore/usr/include"], [_COMPILER]),
+            ("host path in arguments", "CppCompile", [_COMPILER, "-MF/tmp/launcher_main.d"], [_COMPILER]),
             ("host toolchain input", "CppLink", [_COMPILER], [_COMPILER, "external/local_config_cc/ld"]),
             ("unmanaged repository", "CppLink", [_COMPILER], [_COMPILER, "external/host_tools/tar"]),
             ("unproduced bazel-out input", "CppLink", [_COMPILER], [_COMPILER, "bazel-out/stale.o"]),

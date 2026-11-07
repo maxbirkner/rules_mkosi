@@ -21,7 +21,7 @@ class VerifyExecutionTest(unittest.TestCase):
     def write(self, entries):
         self.log.write_text("\n".join(json.dumps(entry) for entry in entries))
 
-    def write_subject(self, subject, cached_mnemonic=None, extra=()):
+    def write_subject(self, subject, cached_mnemonic=None):
         self.write(
             [
                 {
@@ -31,7 +31,6 @@ class VerifyExecutionTest(unittest.TestCase):
                 }
                 for mnemonic, label in verify_execution.SUBJECTS[subject]
             ]
-            + list(extra)
         )
 
     def test_accepts_independently_executed_named_actions(self):
@@ -61,12 +60,6 @@ class VerifyExecutionTest(unittest.TestCase):
             ]
         )
         with self.assertRaisesRegex(SystemExit, "BuildDebianToolsArchive .*: expected one execution, found 0"):
-            verify_execution.verify(self.log, "first", "bootstrap")
-
-    def test_rejects_executed_disabled_action_placeholder(self):
-        strip = {"mnemonic": "CcStrip", "targetLabel": "//x:y", "cacheHit": False, "commandArgs": ["/usr/bin/false"]}
-        self.write_subject("bootstrap", extra=[strip])
-        with self.assertRaisesRegex(SystemExit, "CcStrip //x:y: executed the disabled-action placeholder"):
             verify_execution.verify(self.log, "first", "bootstrap")
 
 

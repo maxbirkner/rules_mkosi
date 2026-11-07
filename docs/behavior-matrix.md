@@ -204,7 +204,7 @@ The `mkosi` extension selects the default or one supported version, honors one r
 <!-- behavior:BHV-CONSUMER-ISOLATION -->
 rules_mkosi's Python 3.14 tools work regardless of the consumer's default Python version.
 The bootstrap executables follow the `bootstrap_platform` flag without changing consumer targets, including with a first-priority C/C++ toolchain that cannot link statically.
-rules_mkosi's static zig musl toolchain matches only the bootstrap executables and outranks every registered C/C++ toolchain for them, and the zig SDK is downloaded only when one is built.
+rules_mkosi's static musl toolchain, the `llvm` module's C/C++ toolchain, matches only the bootstrap executables and outranks every registered C/C++ toolchain for them, including the consumer's own registration of the `llvm` module's toolchains, and the LLVM toolchain and runtime sources are downloaded only when one is built.
 
 <!-- behavior:BHV-ACTION-FAILURES -->
 Failures keep tool output and are classified as kernel capability, toolchain, network, assembly, or VM failures with one remediation.

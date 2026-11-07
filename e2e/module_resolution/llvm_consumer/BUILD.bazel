@@ -1,0 +1,15 @@
+load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+
+# Uses no C/C++ toolchain, so analysing it must not fetch the LLVM toolchain or runtime sources.
+sh_test(
+    name = "plain_test",
+    srcs = ["plain_test.sh"],
+)
+
+# Resolves the consumer's own registration of the llvm module's toolchains and links dynamically against glibc,
+# while rules_mkosi's bootstrap executables link statically against musl with the same cc_toolchain.
+cc_binary(
+    name = "consumer_cc",
+    srcs = ["consumer.c"],
+)
