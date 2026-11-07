@@ -1,0 +1,22 @@
+module(name = "mkosi_rules_cc_first")
+
+# Listed before rules_mkosi, rules_cc registers the host C/C++ toolchain ahead of every toolchain that rules_mkosi
+# registers. The consumer registers no toolchain itself.
+bazel_dep(name = "rules_cc", version = "0.2.27")
+bazel_dep(name = "rules_mkosi", version = "0.0.0")
+local_path_override(
+    module_name = "rules_mkosi",
+    path = "../../..",
+)
+
+bazel_dep(name = "rules_shell", version = "0.8.0")
+bazel_dep(name = "hermetic_cc_toolchain", version = "4.3.0")
+
+hermetic_cc = use_extension(
+    "@hermetic_cc_toolchain//toolchain:ext.bzl",
+    "toolchains",
+)
+use_repo(hermetic_cc, "zig_sdk")
+
+debian_tools = use_extension("@rules_mkosi//mkosi/debian:extensions.bzl", "debian_tools")
+use_repo(debian_tools, "mkosi_debian_tools")

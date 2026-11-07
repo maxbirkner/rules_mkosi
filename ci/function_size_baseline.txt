@@ -12,7 +12,6 @@ mkosi/tests/boot_test_unit.py:BootLifecycleTest._run 82
 mkosi/tests/boot_test_unit.py:BootLifecycleTest.test_accelerator_arguments_are_passed_and_selected_accelerator_is_recorded 47
 mkosi/tests/boot_test_unit.py:BootLifecycleTest.test_qmp_socket_stays_short_with_long_test_tmpdir 50
 mkosi/tests/boot_test_unit.py:BootLifecycleTest.test_success_exports_and_prints_actual_observed_evidence 66
-mkosi/tests/consumer_isolation_test.bzl:consumer_isolation_test_suite 84
 mkosi/tests/debian_snapshot_unit_test.py:DebianSnapshotUnitTest._arguments 61
 mkosi/tests/mkosi_base_test.bzl:_finalize_test_impl 51
 mkosi/tests/mkosi_base_test.bzl:mkosi_base_test_suite 119

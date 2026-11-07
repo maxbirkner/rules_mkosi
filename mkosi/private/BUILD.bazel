@@ -3,6 +3,7 @@ load("@rules_python//python:defs.bzl", "py_binary")
 load("//mkosi:toolchain.bzl", "managed_python_tool")
 load("//mkosi:versions.bzl", "DEFAULT_PYTHON_VERSION")
 load(":c_options.bzl", "C_WARNINGS")
+load(":zig_cc_toolchain.bzl", "zig_musl_cc_toolchain")
 
 package(default_visibility = ["//visibility:private"])
 
@@ -171,4 +172,11 @@ filegroup(
     name = "bzl_srcs",
     srcs = glob(["*.bzl"]),
     visibility = ["//mkosi:__pkg__"],
+)
+
+# Registered only while rules_mkosi is the root module, so that its own C and C++ helpers and tests build with the
+# toolchain of //mkosi/toolchain/bootstrap_cc for every target, without fetching the zig SDK for other builds.
+zig_musl_cc_toolchain(
+    name = "development_cc_toolchain",
+    libc = "unconstrained",
 )
