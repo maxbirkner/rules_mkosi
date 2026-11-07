@@ -2,17 +2,17 @@
 # Analyses targets that use no rules_mkosi toolchain in a fresh output base and fails if Bazel fetched a repository
 # that only an mkosi, QEMU, Debian tools, or static bootstrap C/C++ toolchain needs, such as the LLVM toolchain and the
 # musl runtime sources of the llvm module. Toolchain resolution loads every registered toolchain, so the repositories
-# that declare them must download nothing. Unless --consumer-uses-llvm is given, the llvm module itself must not be
-# fetched either; with it, for a consumer that registers the llvm module's toolchains itself, only the musl runtime
-# sources count as the static bootstrap toolchain's.
+# that declare them must download nothing. Unless --uses-llvm is given, the llvm module itself must not be
+# fetched either; with it, for a module that uses the llvm module itself, such as for its own toolchains or platforms,
+# only the musl runtime sources count as the static bootstrap toolchain's.
 #
 # With --consumer-cc-target, also fails if that C/C++ target of the consumer fetches the musl runtime of the static
-# bootstrap toolchain or, unless --consumer-uses-llvm is given, resolves the llvm module's toolchain or fetches any of
+# bootstrap toolchain or, unless --uses-llvm is given, resolves the llvm module's toolchain or fetches any of
 # its repositories. With --bootstrap-target, also fails unless that target, which builds a bootstrap executable, and
 # the execution tools that it needs resolve only the llvm module's toolchain and fetch its musl runtime, which shows
 # that the checks above can detect it.
 #
-# Usage: ci/check-lazy-toolchain-fetch.sh [--consumer-uses-llvm] [--consumer-cc-target LABEL]
+# Usage: ci/check-lazy-toolchain-fetch.sh [--uses-llvm] [--consumer-cc-target LABEL]
 #   [--bootstrap-target LABEL] MODULE_DIR TARGET...
 # LOCKFILE_MODE, when set, is passed as --lockfile_mode.
 set -euo pipefail
@@ -20,10 +20,10 @@ shopt -s nullglob
 
 consumer_cc_target=""
 bootstrap_target=""
-consumer_uses_llvm=false
+uses_llvm=false
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --consumer-uses-llvm) consumer_uses_llvm=true; shift ;;
+    --uses-llvm) uses_llvm=true; shift ;;
     --consumer-cc-target) consumer_cc_target="${2:?--consumer-cc-target needs a label}"; shift 2 ;;
     --bootstrap-target) bootstrap_target="${2:?--bootstrap-target needs a label}"; shift 2 ;;
     *) break ;;
@@ -55,8 +55,8 @@ heavy=(
   qemu_system_data_prebuilt_linux_amd64
   "$musl_runtime"
 )
-# A consumer's own registration of the llvm module's toolchains may load the LLVM sources and fetch the compiler.
-if [[ "$consumer_uses_llvm" == false ]]; then
+# A module's own registration of the llvm module's toolchains may load the LLVM sources and fetch the compiler.
+if [[ "$uses_llvm" == false ]]; then
   heavy+=(llvm-project llvm-toolchain-minimal-linux-amd64 toolchain-extra-prebuilts-linux-amd64)
 fi
 cc_toolchain_type="@bazel_tools//tools/cpp:toolchain_type"
@@ -133,7 +133,7 @@ check_lazy_fetch() {
       status=1
     fi
   done
-  if [[ "$consumer_uses_llvm" == false ]] && was_llvm_fetched; then
+  if [[ "$uses_llvm" == false ]] && was_llvm_fetched; then
     echo "the $llvm_module module was fetched for targets that use no rules_mkosi toolchain" >&2
     status=1
   fi
@@ -160,7 +160,7 @@ check_consumer_cc_target() {
     echo "$1 resolved no C/C++ toolchain" >&2
     return 1
   fi
-  if [[ "$consumer_uses_llvm" == false ]] && grep -qF -- "$llvm_cc_toolchain" <<<"$selected"; then
+  if [[ "$uses_llvm" == false ]] && grep -qF -- "$llvm_cc_toolchain" <<<"$selected"; then
     echo "$1 resolved rules_mkosi's static bootstrap toolchain instead of the consumer's own" >&2
     return 1
   fi
@@ -168,7 +168,7 @@ check_consumer_cc_target() {
     echo "@$musl_runtime was fetched for $1" >&2
     return 1
   fi
-  if [[ "$consumer_uses_llvm" == false ]] && was_llvm_fetched; then
+  if [[ "$uses_llvm" == false ]] && was_llvm_fetched; then
     echo "the $llvm_module module was fetched for $1" >&2
     return 1
   fi

@@ -87,12 +87,11 @@ _IN_PROCESS_ACTIONS = frozenset(
         "UnresolvedSymlink",
     }
 )
-# The prebuilt clang, LLVM binutils, and helper tools of the llvm module, which also builds the musl, glibc stub, and
-# C++ runtimes from source with them.
+# The prebuilt clang and LLVM binutils of the llvm module, which also builds the musl and C++ runtimes from source with
+# them.
 _LLVM_TOOLS = "external/llvm++"
 # The in-build executable that each process action must run, as a path prefix.
 _SPAWN_EXECUTABLES = {
-    "Action": _LLVM_TOOLS,
     "BuildDebianToolsArchive": "external/+debian_tools+mkosi_debian_python/python",
     "CcStage0Compile": _LLVM_TOOLS,
     "CcStrip": _LLVM_TOOLS,
@@ -106,10 +105,6 @@ _SPAWN_EXECUTABLES = {
     "PythonZipper": "external/bazel_tools/tools/zip/zipper/zipper",
     "RunBinary": _LLVM_TOOLS,
 }
-# The llvm module's glibc runtime, which the execution tools of its toolchain link against, copies its crt1.o with
-# bazel_skylib's copy_file, the only action that runs the host shell, with this fixed command.
-_GLIBC_RUNTIME_COPY = ["/bin/bash", "-c", 'cp -f "$1" "$2"', ""]
-_GLIBC_RUNTIME = "/external/llvm++glibc+"
 _REQUIRED_ACTIONS = ("BuildDebianToolsArchive", "CppCompile", "CppLink")
 _INPUT_REPOSITORIES = (
     "bazel_lib++toolchains+",
@@ -172,18 +167,6 @@ class ActionGraph:
         return artifacts
 
 
-def is_glibc_runtime_copy(action):
-    """Returns whether action is the fixed host-shell copy of the llvm module's glibc runtime between its outputs."""
-    arguments = action.get("arguments", [])
-    paths = arguments[len(_GLIBC_RUNTIME_COPY) :]
-    return (
-        action.get("mnemonic") == "CopyFile"
-        and arguments[: len(_GLIBC_RUNTIME_COPY)] == _GLIBC_RUNTIME_COPY
-        and len(paths) == 2
-        and all(path.startswith("bazel-out/") and _GLIBC_RUNTIME in path for path in paths)
-    )
-
-
 def validate_executable(action, input_paths):
     """Rejects an action whose mnemonic is not modeled or whose process is not its declared in-build executable."""
     mnemonic = action.get("mnemonic")
@@ -191,8 +174,6 @@ def validate_executable(action, input_paths):
     if mnemonic in _IN_PROCESS_ACTIONS:
         if arguments:
             raise ValueError(f"in-process action starts a process: {mnemonic} {arguments[0]}")
-        return
-    if is_glibc_runtime_copy(action):
         return
     if mnemonic not in _SPAWN_EXECUTABLES:
         raise ValueError(f"unmodeled action mnemonic: {mnemonic} {arguments[:1]}")
@@ -207,8 +188,6 @@ def validate_arguments(action):
     """Rejects absolute paths and host toolchain names in the arguments of an action."""
     mnemonic = action.get("mnemonic")
     arguments = action.get("arguments", [])
-    if is_glibc_runtime_copy(action):
-        arguments = arguments[len(_GLIBC_RUNTIME_COPY) :]
     for token in arguments:
         if token in _HERMETIC_ABSOLUTE_ARGUMENTS:
             continue

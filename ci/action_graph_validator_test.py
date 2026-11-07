@@ -70,8 +70,8 @@ class ActionGraphValidatorTest(unittest.TestCase):
 
 
 _COMPILER = "external/llvm++llvm_toolchain_minimal+llvm-toolchain-minimal-linux-amd64/bin/clang++"
-_GLIBC_OBJECTS = "bazel-out/k8-opt-exec/bin/external/llvm++glibc+glibc_x86_64-linux-gnu.2.28"
-_GLIBC_COPY = ["/bin/bash", "-c", 'cp -f "$1" "$2"', ""]
+_COREUTILS = "external/bazel_lib++toolchains+coreutils_linux_amd64/coreutils"
+_MUSL_OBJECTS = "bazel-out/k8-fastbuild/bin/external/llvm+/runtimes/musl"
 _PYTHON = "external/+debian_tools+mkosi_debian_python/python"
 _OBJECT = "bazel-out/k8-fastbuild/bin/external/+debian_tools+mkosi_debian_tools/_objs/launcher_main.o"
 
@@ -93,12 +93,12 @@ def _managed_actions():
         _action("BuildDebianToolsArchive", [_PYTHON, "package_archive.py"], [_PYTHON], ["bazel-out/flat.tar"]),
         _action("CcStrip", [_COMPILER, "-o", "launcher.stripped"], [_COMPILER], ["bazel-out/launcher.stripped"]),
         _action("CppModuleMap", outputs=["bazel-out/launcher.cppmap"]),
-        _action("CcStage0Compile", [_COMPILER, "-c", "start.S"], [_COMPILER], [f"{_GLIBC_OBJECTS}/Scrt1.o"]),
+        _action("CcStage0Compile", [_COMPILER, "-c", "crt1.c"], [_COMPILER], [f"{_MUSL_OBJECTS}/crt1.o"]),
         _action(
             "CopyFile",
-            [*_GLIBC_COPY, f"{_GLIBC_OBJECTS}/Scrt1.o", f"{_GLIBC_OBJECTS}/crt1.o"],
-            [f"{_GLIBC_OBJECTS}/Scrt1.o"],
-            [f"{_GLIBC_OBJECTS}/crt1.o"],
+            [_COREUTILS, "cp", f"{_MUSL_OBJECTS}/crt1.o", f"{_MUSL_OBJECTS}/crt/crt1.o"],
+            [_COREUTILS, f"{_MUSL_OBJECTS}/crt1.o"],
+            [f"{_MUSL_OBJECTS}/crt/crt1.o"],
         ),
         _action("FileWrite", outputs=["bazel-out/launcher_config.json"]),
     ]
@@ -142,8 +142,12 @@ class AuditTest(unittest.TestCase):
             ("unexpected executable for CppCompile", "CppCompile", ["/usr/bin/gcc"], ["/usr/bin/gcc"]),
             ("not a declared input: CppLink", "CppLink", [_COMPILER, "-o", "z"], [_OBJECT]),
             ("in-process action starts a process", "FileWrite", ["external/bazel_tools/sh"], []),
-            ("unexpected executable for CopyFile", "CopyFile", [*_GLIBC_COPY, "mkosi/a", "bazel-out/b"], []),
-            ("unexpected executable for CopyFile", "CopyFile", ["/bin/bash", "-c", "tar cf $2 $1", "", "a", "b"], []),
+            (
+                "unexpected executable for CopyFile",
+                "CopyFile",
+                ["/bin/bash", "-c", 'cp -f "$1" "$2"', "", "a", "b"],
+                [],
+            ),
             ("host path in arguments", "CppCompile", [_COMPILER, "-I/usr/include"], [_COMPILER]),
             ("host path in arguments", "CppCompile", [_COMPILER, "--sysroot=/"], [_COMPILER]),
             ("host toolchain input", "CppLink", [_COMPILER], [_COMPILER, "external/local_config_cc/ld"]),

@@ -19,9 +19,11 @@ config_setting(
     flag_values = {":bootstrap_executable": "True"},
 )
 
-# Default target platform of the bootstrap executables. The llvm module's C/C++ toolchain selects its C library and
-# position-independent executable mode from the target platform: musl links fully static executables, and without
-# PIE they need no dynamic section, whatever the version of the llvm module defaults to.
+# Default target platform of the bootstrap executables, and their first execution platform. The llvm module's C/C++
+# toolchain selects its C library and position-independent executable mode from the target platform: musl links fully
+# static executables, and without PIE they need no dynamic section, whatever the version of the llvm module defaults
+# to. As the execution platform, it makes the toolchain's own helper tools, such as its header parser, static musl
+# executables too.
 platform(
     name = "linux_x86_64_musl",
     constraint_values = [
@@ -33,17 +35,17 @@ platform(
     visibility = ["//mkosi:__subpackages__"],
 )
 
-# Builds every Linux x86-64 target of the bootstrap executables' configurations: the executables themselves for the
-# musl platform above, and the llvm module's own execution tools, such as its header parser, for the execution
-# platform, so that no host C/C++ compiler is needed. It references the llvm module's cc_toolchain by label and
-# constrains nothing beyond @platforms, so declaring it downloads nothing.
+# Matches only platforms with the musl constraint, such as the one above. It references the llvm module's cc_toolchain
+# by label and constrains nothing beyond @platforms and the llvm module itself, so declaring it downloads no compiler
+# or runtime.
 toolchain(
-    name = "linux_x86_64",
+    name = "linux_x86_64_musl_cc_toolchain",
     exec_compatible_with = [
         "@platforms//cpu:x86_64",
         "@platforms//os:linux",
     ],
     target_compatible_with = [
+        "@llvm//constraints/libc:musl",
         "@platforms//cpu:x86_64",
         "@platforms//os:linux",
     ],

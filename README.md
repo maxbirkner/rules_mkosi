@@ -449,8 +449,10 @@ bazel test --config=kernel_preflight //mkosi/private:kernel_preflight_host_test
 The Debian launcher and namespace runner must link fully static.
 They are built for the platform selected by `@rules_mkosi//mkosi/toolchain:bootstrap_platform`; by default, that is a Linux x86-64 platform with the `llvm` module's `@llvm//constraints/libc:musl` and `@llvm//constraints/pie:off` constraints, while their runfiles keep the current platform.
 Their transition puts `@rules_mkosi//mkosi/toolchain/bootstrap_cc:all`, the `llvm` module's Linux x86-64 C/C++ toolchain, before every registered C/C++ toolchain with `--extra_toolchains`, so neither your registrations nor the order of your dependencies change it, and no registration is needed.
-It matches every Linux x86-64 platform below the bootstrap executables, including the execution platform of the toolchain's own helper tools, so no host C/C++ compiler is needed, and never matches any other target.
-The first build compiles musl, libc++, and the compiler runtimes from source, and, for those helper tools, the glibc stubs of the execution platform.
+It matches only Linux x86-64 platforms with `@llvm//constraints/libc:musl`, and only below the bootstrap executables.
+The transition also puts the default bootstrap platform first in `--extra_execution_platforms`, so that the toolchain's own helper tools, which are built for the execution platform, link statically against musl too, without a host C/C++ compiler or the `llvm` module's glibc runtime.
+The compile and link actions below the bootstrap executables therefore run on that platform, which declares no `exec_properties`, so with remote execution they get only `--remote_default_exec_properties`.
+The first build compiles musl, libc++, and the compiler runtimes from source, once for the executables and once, optimized, for the helper tools.
 
 To select another bootstrap platform, give it the musl constraint, and `@llvm//constraints/pie:off` for executables without a dynamic section, which older `llvm` module versions otherwise link as static PIE:
 
@@ -460,7 +462,7 @@ common --@rules_mkosi//mkosi/toolchain:bootstrap_platform=//platforms:my_static_
 ```
 
 The flag affects only the bootstrap executables.
-For a bootstrap platform other than Linux x86-64, the first registered C/C++ toolchain that matches it builds the executables and must link them statically.
+For a bootstrap platform without the musl constraint, the first registered C/C++ toolchain that matches it builds the executables and must link them statically.
 [`e2e/module_resolution/consumer_isolation`](e2e/module_resolution/consumer_isolation), with a first-priority glibc toolchain of another compiler and its own musl bootstrap platform, [`e2e/module_resolution/rules_cc_first`](e2e/module_resolution/rules_cc_first), with rules_cc's host toolchain ahead of rules_mkosi's registrations, and [`e2e/module_resolution/llvm_consumer`](e2e/module_resolution/llvm_consumer), which pins the `llvm` module and registers its toolchains for its own glibc targets, are working examples.
 
 ## Further reading

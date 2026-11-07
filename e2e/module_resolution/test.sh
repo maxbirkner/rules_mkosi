@@ -68,7 +68,7 @@ case "$fixture" in
         ;;
     llvm_consumer)
         LOCKFILE_MODE="$lockfile_mode" "$root/../../../ci/check-lazy-toolchain-fetch.sh" \
-            --consumer-uses-llvm \
+            --uses-llvm \
             --consumer-cc-target //:consumer_cc \
             --bootstrap-target @mkosi_debian_tools//:namespace_runner \
             "$root" //:plain_test

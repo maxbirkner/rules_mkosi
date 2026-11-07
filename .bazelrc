@@ -7,6 +7,10 @@ build --disk_cache=.cache/bazel-disk
 # Print failed test output immediately so local failures are actionable.
 test --test_output=errors
 
+# Build this repository's own C and C++ targets and execution tools, like the bootstrap executables, as static musl
+# executables with the llvm module's toolchain, so that no glibc runtime or host compiler enters their action graphs.
+build --host_platform=//mkosi/toolchain/bootstrap_cc:linux_x86_64_musl
+
 # Fail on warnings in rules_mkosi's own C and C++ helpers.
 import %workspace%/.bazelrc.warnings
 

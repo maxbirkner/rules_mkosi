@@ -126,9 +126,13 @@ def _consumer_cc_toolchain_test_impl(ctx):
     )
     return analysistest.end(env)
 
+# The host platform rather than the static platform that this repository's .bazelrc selects as its host platform.
 _consumer_cc_toolchain_test = analysistest.make(
     _consumer_cc_toolchain_test_impl,
-    config_settings = {_PYTHON_BOOTSTRAP: "script"},
+    config_settings = {
+        "//command_line_option:platforms": str(Label("@platforms//host")),
+        _PYTHON_BOOTSTRAP: "script",
+    },
 )
 
 def _declare_bootstrap_probe_platform():

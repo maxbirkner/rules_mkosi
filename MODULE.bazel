@@ -28,7 +28,8 @@ bazel_dep(name = "bazel_lib", version = "3.2.2", dev_dependency = True)
 bazel_dep(name = "stardoc", version = "0.8.1", dev_dependency = True)
 
 # bootstrap_binary adds //mkosi/toolchain/bootstrap_cc:all to --extra_toolchains for the bootstrap executables, so it
-# needs no registration. This repository's own C and C++ targets build with the same LLVM C/C++ toolchain.
+# needs no registration. This repository's own C and C++ targets build with the same LLVM C/C++ toolchain, for the
+# static musl host platform that .bazelrc selects.
 register_toolchains(
     "//mkosi/private:development_cc_toolchain",
     dev_dependency = True,
