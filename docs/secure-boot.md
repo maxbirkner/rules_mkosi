@@ -114,7 +114,7 @@ bazel run @rules_mkosi//mkosi:secure_boot_signer -- \
 
 Resolve the manifest's path right after building it, before `bazel run`.
 `bazel run` builds the signer first and points the `bazel-bin` convenience symlink at the signer's configuration.
-That configuration differs from the manifest's if the build used other flags, such as `--//:signed`, or if the root module's default Python version is not the one that rules_mkosi builds the signer with.
+That configuration differs from the manifest's if the build used options that change the output directory, such as `-c opt`, or if the root module's default Python version is not the one that rules_mkosi builds the signer with.
 `bazel-bin/signing_manifest.secure-boot-signing-manifest.json` then names a missing or stale manifest when the signer starts.
 
 `bazel run --script_path=sign.sh @rules_mkosi//mkosi:secure_boot_signer` writes a script that runs the signer later without Bazel, for example in a separate CI step.
