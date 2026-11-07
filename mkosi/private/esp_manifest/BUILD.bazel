@@ -9,10 +9,7 @@ py_library(
     name = "esp_manifest_lib",
     srcs = ["rules_mkosi_esp_manifest.py"],
     imports = ["."],
-    visibility = [
-        "//mkosi:__pkg__",
-        "//mkosi/tests:__pkg__",
-    ],
+    visibility = ["//mkosi:__pkg__"],
 )
 
 # Public as //mkosi:esp_manifest; see docs/secure-boot.md.
