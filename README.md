@@ -41,7 +41,7 @@ rules_mkosi is published to the [Bazel Central Registry](https://registry.bazel.
 Add to the root `MODULE.bazel`, using the latest version from the [releases](https://github.com/maxbirkner/rules_mkosi/releases):
 
 ```starlark
-bazel_dep(name = "rules_mkosi", version = "0.0.1")
+bazel_dep(name = "rules_mkosi", version = "0.0.2")
 
 # QEMU binaries used by the mkosi toolchain repository.
 bazel_dep(name = "rules_qemu", version = "0.3.0")
