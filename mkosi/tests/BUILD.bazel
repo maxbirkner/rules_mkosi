@@ -213,6 +213,35 @@ py_test(
 )
 
 py_test(
+    name = "input_version_test",
+    srcs = [
+        "input_version_test.py",
+        "//mkosi/private:file_hashing.py",
+        "//mkosi/private:input_version.py",
+        "//mkosi/private:sibling_loader.py",
+    ],
+    main = "input_version_test.py",
+)
+
+py_test(
+    name = "input_version_artifact_test",
+    srcs = ["input_version_artifact_test.py"],
+    args = [
+        "$(rootpath :two_stage_input_version_image_version_file)",
+        "$(rootpath :two_stage_input_version_input_digest)",
+        "$(rootpath :two_stage_input_version_uki)",
+        "$(rootpath :two_stage_input_version_build_metadata)",
+    ],
+    data = [
+        ":two_stage_input_version_build_metadata",
+        ":two_stage_input_version_image_version_file",
+        ":two_stage_input_version_input_digest",
+        ":two_stage_input_version_uki",
+    ],
+    main = "input_version_artifact_test.py",
+)
+
+py_test(
     name = "verity_metadata_test",
     srcs = [
         "bounded_reads.py",
@@ -275,6 +304,8 @@ behavior_targets(
         ":esp_manifest_test",
         ":explicit_version_test",
         ":image_version_test",
+        ":input_version_artifact_test",
+        ":input_version_test",
         ":immutable_release_provider_test",
         ":mkosi_base_analysis_tests",
         ":mkosi_contract_test",

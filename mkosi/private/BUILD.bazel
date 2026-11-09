@@ -40,6 +40,8 @@ exports_files([
     "sibling_loader.py",
     "image_identity.bzl",
     "image_version.py",
+    "input_version.bzl",
+    "input_version.py",
     "sysupdate.bzl",
     "sysupdate.py",
     "sysupdate_signing.bzl",

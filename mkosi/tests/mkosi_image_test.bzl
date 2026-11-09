@@ -61,6 +61,13 @@ def _assert_raw_image_selectors(env, target):
     asserts.equals(env, info.raw_image, info.image)
     asserts.equals(env, [info.raw_image], target[OutputGroupInfo].raw_image.to_list())
 
+def _assert_no_version_files(env, target):
+    """Asserts that an image without a version file exposes none through MkosiImageInfo or its output group."""
+    info = target[MkosiImageInfo]
+    asserts.equals(env, None, info.image_version_file)
+    asserts.equals(env, None, info.input_digest)
+    asserts.equals(env, [], target[OutputGroupInfo].image_version.to_list())
+
 def _provider_test_impl(ctx):
     env = analysistest.begin(ctx)
     target = analysistest.target_under_test(env)
@@ -76,7 +83,7 @@ def _provider_test_impl(ctx):
     asserts.equals(env, "uefi", info.firmware)
     asserts.equals(env, None, info.image_id)
     asserts.equals(env, None, info.image_version)
-    asserts.equals(env, None, info.image_version_file)
+    _assert_no_version_files(env, target)
     asserts.equals(env, ctx.attr.expected_metadata, info.build_metadata.basename)
     asserts.equals(
         env,

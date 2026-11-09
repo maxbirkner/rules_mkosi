@@ -27,6 +27,12 @@ SUBJECTS = {
             "MkosiReproducibilityManifest",
             "//mkosi/tests:two_stage_reproducibility",
         ),
+        ("MkosiInputVersion", "//mkosi/tests:two_stage_input_version_release"),
+        ("MkosiImage", "//mkosi/tests:two_stage_input_version_release"),
+        (
+            "MkosiReproducibilityManifest",
+            "//mkosi/tests:two_stage_input_version_reproducibility",
+        ),
     },
     "bootstrap": {
         ("BuildDebianToolsArchive", _DEBIAN_TOOLS + ":tree"),

@@ -125,6 +125,76 @@ _finalize_test = analysistest.make(
     },
 )
 
+def _input_version_finalize_test_impl(ctx):
+    env = analysistest.begin(ctx)
+    info = analysistest.target_under_test(env)[MkosiImageInfo]
+    base = ctx.attr.base[MkosiBaseInfo]
+    version_action = single_action(env, "MkosiInputVersion")
+    asserts.equals(env, [info.image_version_file, info.input_digest], version_action.outputs.to_list())
+
+    # The version covers the base that the image finalizes.
+    hashed = version_action.inputs.to_list()
+    asserts.true(env, base.root_tree in hashed)
+    asserts.true(env, base.initrd in hashed)
+    image_action = single_action(env, "MkosiImage")
+    asserts.true(env, info.image_version_file in image_action.inputs.to_list())
+    asserts.equals(env, info.image_version_file.path, option_value(argv_preamble(image_action.argv), "--image-version-file"))
+    return analysistest.end(env)
+
+_input_version_finalize_test = analysistest.make(
+    _input_version_finalize_test_impl,
+    attrs = {"base": attr.label(providers = [MkosiBaseInfo], mandatory = True)},
+)
+
+def _image_field_file_impl(ctx):
+    """Selects one File field of MkosiImageInfo through the provider rather than a filename."""
+    file = getattr(ctx.attr.image[MkosiImageInfo], ctx.attr.field)
+    if file == None:
+        fail("image must provide MkosiImageInfo." + ctx.attr.field)
+    return [DefaultInfo(files = depset([file]))]
+
+_image_field_file = rule(
+    implementation = _image_field_file_impl,
+    attrs = {
+        "field": attr.string(mandatory = True),
+        "image": attr.label(providers = [MkosiImageInfo], mandatory = True),
+    },
+)
+
+def _input_version_fixtures():
+    """Declares a finalization of two_stage_base whose version is derived from its inputs.
+
+    ci/verify-release-reproducibility.sh builds its reproducibility manifest, which records the version, twice.
+    """
+    mkosi_image(
+        name = "two_stage_input_version_release",
+        base = ":two_stage_base",
+        config_tree = ":two_stage_config_tree",
+        image_id = "rules-mkosi-ab",
+        image_version_from_inputs = True,
+        mode = "release",
+        unified_kernel_image = "unsigned",
+        tags = ["manual"],
+    )
+    mkosi_reproducibility_manifest(
+        name = "two_stage_input_version_reproducibility",
+        image = ":two_stage_input_version_release",
+        tags = ["manual"],
+    )
+    for field in ("build_metadata", "image_version_file", "input_digest", "uki"):
+        _image_field_file(
+            name = "two_stage_input_version_" + field,
+            field = field,
+            image = ":two_stage_input_version_release",
+            tags = ["manual"],
+        )
+    _input_version_finalize_test(
+        name = "two_stage_input_version_finalize_test",
+        base = ":two_stage_base",
+        target_under_test = ":two_stage_input_version_release",
+    )
+    return [":two_stage_input_version_finalize_test"]
+
 def _expected_failure_test_impl(ctx):
     env = analysistest.begin(ctx)
     asserts.expect_failure(env, ctx.attr.expected_error)
@@ -197,7 +267,7 @@ def mkosi_base_test_suite(name):
         target_under_test = ":two_stage_release",
         version_file = ":two_stage_version",
     )
-    tests = [":two_stage_base_test", ":two_stage_finalize_test"]
+    tests = [":two_stage_base_test", ":two_stage_finalize_test"] + _input_version_fixtures()
 
     mkosi_source_tree(
         name = "two_stage_source_tree",

@@ -115,8 +115,8 @@ that collide with directories fail, at analysis time where the paths are known.
 load("@rules_mkosi//mkosi:defs.bzl", "mkosi_image")
 
 mkosi_image(<a href="#mkosi_image-name">name</a>, <a href="#mkosi_image-base">base</a>, <a href="#mkosi_image-config">config</a>, <a href="#mkosi_image-config_tree">config_tree</a>, <a href="#mkosi_image-debian_snapshot">debian_snapshot</a>, <a href="#mkosi_image-firmware">firmware</a>, <a href="#mkosi_image-image_id">image_id</a>, <a href="#mkosi_image-image_version">image_version</a>,
-            <a href="#mkosi_image-image_version_file">image_version_file</a>, <a href="#mkosi_image-manifest">manifest</a>, <a href="#mkosi_image-mode">mode</a>, <a href="#mkosi_image-release_seed">release_seed</a>, <a href="#mkosi_image-release_source_date_epoch">release_source_date_epoch</a>,
-            <a href="#mkosi_image-rootfs_payloads">rootfs_payloads</a>, <a href="#mkosi_image-source_trees">source_trees</a>, <a href="#mkosi_image-unified_kernel_image">unified_kernel_image</a>, <a href="#mkosi_image-verity">verity</a>)
+            <a href="#mkosi_image-image_version_file">image_version_file</a>, <a href="#mkosi_image-image_version_from_inputs">image_version_from_inputs</a>, <a href="#mkosi_image-manifest">manifest</a>, <a href="#mkosi_image-mode">mode</a>, <a href="#mkosi_image-release_seed">release_seed</a>,
+            <a href="#mkosi_image-release_source_date_epoch">release_source_date_epoch</a>, <a href="#mkosi_image-rootfs_payloads">rootfs_payloads</a>, <a href="#mkosi_image-source_trees">source_trees</a>, <a href="#mkosi_image-unified_kernel_image">unified_kernel_image</a>, <a href="#mkosi_image-verity">verity</a>)
 </pre>
 
 Builds a raw disk image with the pinned mkosi and Debian toolchains.
@@ -128,6 +128,7 @@ need the Linux namespace and mount capabilities of the host-kernel contract.
 
 Select outputs through MkosiImageInfo; DefaultInfo contains every produced artifact. The raw_image output group
 contains only the raw disk image, for `bazel build --output_groups=raw_image` or `filegroup(output_group = "raw_image")`.
+The image_version output group contains the image_version_file and input_digest of MkosiImageInfo that are set.
 
 **ATTRIBUTES**
 
@@ -143,6 +144,7 @@ contains only the raw disk image, for `bazel build --output_groups=raw_image` or
 | <a id="mkosi_image-image_id"></a>image_id |  os-release IMAGE_ID passed to mkosi as ImageId=, overriding the configuration.<br><br>Lowercase letters, digits, '.', '-' and '_' only. Make variables are expanded.   | String | optional |  `""`  |
 | <a id="mkosi_image-image_version"></a>image_version |  os-release IMAGE_VERSION passed to mkosi as ImageVersion=, overriding the configuration.<br><br>Requires image_id and excludes image_version_file. Letters, digits and '.' only, so that systemd-sysupdate can split '<image_id>_<image_version>' and '+'/'-' stay free for systemd-boot boot counting. Make variables are expanded, e.g. image_version = "$(OS_VERSION)" with a TemplateVariableInfo target in `toolchains`.<br><br>With verity = "hash", the populated root and verity partitions must be labelled '<image_id>_<image_version>' and '<image_id>_<image_version>_verity' (repart Label=%M_%A and Label=%M_%A_verity), and inactive A/B slots '_empty', as sysupdate_transfers and sysupdate_payload expect. The verity label must fit the 36-character GPT partition name limit.   | String | optional |  `""`  |
 | <a id="mkosi_image-image_version_file"></a>image_version_file |  File containing the os-release IMAGE_VERSION, for versions known only at execution time.<br><br>Use it for build-derived versions, such as a stamped genrule. Requires image_id and excludes image_version. The content must satisfy the image_version constraints, optionally followed by one newline; the actions that read the file enforce them. MkosiImageInfo then sets image_version_file instead of image_version.   | <a href="https://bazel.build/concepts/labels">Label</a> | optional |  `None`  |
+| <a id="mkosi_image-image_version_from_inputs"></a>image_version_from_inputs |  Derive the os-release IMAGE_VERSION from everything that the image build action reads.<br><br>A preceding action hashes the inputs of the action that builds the image: the configuration, rootfs payloads, base or Debian snapshot, and the files of the mkosi and Debian tools toolchains, together with its command line, environment and execution requirements. The version is the first 16 lowercase hex characters of that SHA-256, so an unchanged image keeps its version and any change to the build gets a new one. Input paths are part of the hash, so renaming or moving the target also changes the version.<br><br>Requires image_id and release mode and excludes image_version and image_version_file. With verity = "hash", image_id may have at most 12 characters so that '<image_id>_<version>_verity' fits a GPT partition name. MkosiImageInfo sets image_version_file to the version and input_digest to the full digest.<br><br>Such versions do not sort by build order: install releases by explicit version and manage the default boot entry, as docs/sysupdate-ab.md describes.   | Boolean | optional |  `False`  |
 | <a id="mkosi_image-manifest"></a>manifest |  Also output mkosi's JSON manifest of the installed packages as MkosiImageInfo.manifest.   | Boolean | optional |  `False`  |
 | <a id="mkosi_image-mode"></a>mode |  "tracer" (default) is never cached and installs packages from the network, or from debian_snapshot with the network blocked; "release" installs packages only from debian_snapshot or base with the network blocked and may be cached. Both run locally only.   | String | optional |  `"tracer"`  |
 | <a id="mkosi_image-release_seed"></a>release_seed |  Fixed UUID matching the configuration's resolved Seed=; required in release mode unless base is set.   | String | optional |  `""`  |
@@ -813,7 +815,7 @@ An mkosi configuration directory.
 load("@rules_mkosi//mkosi:defs.bzl", "MkosiImageInfo")
 
 MkosiImageInfo(<a href="#MkosiImageInfo-build_metadata">build_metadata</a>, <a href="#MkosiImageInfo-firmware">firmware</a>, <a href="#MkosiImageInfo-format_version">format_version</a>, <a href="#MkosiImageInfo-image">image</a>, <a href="#MkosiImageInfo-image_id">image_id</a>, <a href="#MkosiImageInfo-image_version">image_version</a>,
-               <a href="#MkosiImageInfo-image_version_file">image_version_file</a>, <a href="#MkosiImageInfo-manifest">manifest</a>, <a href="#MkosiImageInfo-partition_metadata">partition_metadata</a>, <a href="#MkosiImageInfo-raw_image">raw_image</a>, <a href="#MkosiImageInfo-root_hash">root_hash</a>,
+               <a href="#MkosiImageInfo-image_version_file">image_version_file</a>, <a href="#MkosiImageInfo-input_digest">input_digest</a>, <a href="#MkosiImageInfo-manifest">manifest</a>, <a href="#MkosiImageInfo-partition_metadata">partition_metadata</a>, <a href="#MkosiImageInfo-raw_image">raw_image</a>, <a href="#MkosiImageInfo-root_hash">root_hash</a>,
                <a href="#MkosiImageInfo-root_hash_image">root_hash_image</a>, <a href="#MkosiImageInfo-root_image">root_image</a>, <a href="#MkosiImageInfo-uki">uki</a>, <a href="#MkosiImageInfo-uki_metadata">uki_metadata</a>, <a href="#MkosiImageInfo-verity_metadata">verity_metadata</a>)
 </pre>
 
@@ -821,7 +823,8 @@ Outputs of mkosi_image.
 
 Select artifacts through these fields rather than DefaultInfo filenames. Every artifact field is a File or None,
 and DefaultInfo contains every artifact that is not None. raw_image and build_metadata are always set, release
-images add partition_metadata, and UEFI release images add their UKI, split dm-verity artifacts and metadata.
+images add partition_metadata, and UEFI release images add their UKI, split dm-verity artifacts and metadata. The
+version files image_version_file and input_digest are in the image_version output group instead of DefaultInfo.
 
 **FIELDS**
 
@@ -833,7 +836,8 @@ images add partition_metadata, and UEFI release images add their UKI, split dm-v
 | <a id="MkosiImageInfo-image"></a>image |  Deprecated alias for raw_image.    |
 | <a id="MkosiImageInfo-image_id"></a>image_id |  os-release IMAGE_ID set by the rule, or None.    |
 | <a id="MkosiImageInfo-image_version"></a>image_version |  os-release IMAGE_VERSION set by the rule during analysis, or None.    |
-| <a id="MkosiImageInfo-image_version_file"></a>image_version_file |  File holding the os-release IMAGE_VERSION set through image_version_file, or None.<br><br>The content is letters, digits and '.', optionally followed by one newline. At most one of image_version and image_version_file is set.    |
+| <a id="MkosiImageInfo-image_version_file"></a>image_version_file |  File holding the os-release IMAGE_VERSION set through image_version_file or derived with image_version_from_inputs, or None.<br><br>The content is letters, digits and '.', optionally followed by one newline. At most one of image_version and image_version_file is set. It is also in the image_version output group.    |
+| <a id="MkosiImageInfo-input_digest"></a>input_digest |  File with the full lowercase hex SHA-256, followed by one newline, from which image_version_from_inputs derived image_version_file, or None.<br><br>It is also in the image_version output group.    |
 | <a id="MkosiImageInfo-manifest"></a>manifest |  mkosi's JSON manifest of the installed packages, including those of a finalized base, when the rule sets manifest = True, or None.    |
 | <a id="MkosiImageInfo-partition_metadata"></a>partition_metadata |  Validated, normalized GPT partition layout JSON of a release image, or None.    |
 | <a id="MkosiImageInfo-raw_image"></a>raw_image |  The raw disk image.    |

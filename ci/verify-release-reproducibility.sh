@@ -36,6 +36,7 @@ targets=(
   //mkosi/tests:erofs_release_reproducibility
   //mkosi/tests:release_reproducibility
   //mkosi/tests:two_stage_base
+  //mkosi/tests:two_stage_input_version_reproducibility
   //mkosi/tests:two_stage_reproducibility
 )
 

@@ -443,6 +443,7 @@ _MKOSI_IMAGE_FIELDS = [
     "image_id",
     "image_version",
     "image_version_file",
+    "input_digest",
     "manifest",
     "partition_metadata",
     "root_hash",

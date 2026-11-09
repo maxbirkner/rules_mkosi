@@ -125,6 +125,85 @@ _image_version_file_identity_test = analysistest.make(
     attrs = {"version_file": attr.label(allow_single_file = True, mandatory = True)},
 )
 
+def _assert_hashes_image_action(env, version_action, image_action, version_file):
+    """Asserts that the version action hashes exactly the inputs, command line and environment of the image action."""
+    argv = version_action.argv
+
+    # Analysis tests see the expanded inputs param file between the last option and the command line.
+    hashed = {path: None for path in argv[argv.index("--digest-output") + 2:argv.index("--command-line")]}
+    version_inputs = version_action.inputs.to_list()
+    asserts.true(env, version_file in image_action.inputs.to_list())
+    asserts.false(env, version_file.path in hashed or version_file in version_inputs, "the version cannot hash itself")
+    for file in image_action.inputs.to_list():
+        # A Bazel 8 runfiles middleman is an internal placeholder for the tool runfiles, which tool_files lists.
+        if file != version_file and "/internal/_middlemen/" not in file.path:
+            asserts.true(env, file.path in hashed and file in version_inputs, "unhashed image input " + file.path)
+    asserts.equals(env, image_action.argv, argv[argv.index("--command-line") + 1:])
+    asserts.equals(env, image_action.env, json.decode(option_value(argv, "--environment-json")))
+    asserts.equals(
+        env,
+        {"block-network": "1", "no-remote-exec": "1"},
+        json.decode(option_value(argv, "--execution-requirements-json")),
+    )
+
+    # Toolchain files are hashed because they are inputs of the image action.
+    names = [path.split("/")[-1] for path in hashed]
+    for name in ("__main__.py", "run_mkosi.py", "release_patches.py", "kernel_preflight", "pefile.py"):
+        asserts.true(env, name in names, name)
+
+def _input_version_identity_test_impl(ctx):
+    env = analysistest.begin(ctx)
+    target = analysistest.target_under_test(env)
+    info = target[MkosiImageInfo]
+    asserts.equals(env, ctx.attr.expected_id, info.image_id)
+    asserts.equals(env, None, info.image_version)
+    version_file = info.image_version_file
+    asserts.equals(env, target.label.name + ".image-version", version_file.basename)
+    asserts.equals(env, target.label.name + ".input-digest", info.input_digest.basename)
+    asserts.equals(env, [version_file, info.input_digest], target[OutputGroupInfo].image_version.to_list())
+    asserts.false(env, version_file in target[DefaultInfo].files.to_list())
+
+    version_action = single_action(env, "MkosiInputVersion")
+    asserts.equals(env, [version_file, info.input_digest], version_action.outputs.to_list())
+    asserts.true(env, version_action.argv[1].endswith("/input_version.py"))
+    asserts.equals(env, version_file.path, option_value(version_action.argv, "--version-output"))
+    asserts.equals(env, info.input_digest.path, option_value(version_action.argv, "--digest-output"))
+    asserts.equals(env, "", version_action.env["PATH"])
+
+    image_action = single_action(env, "MkosiImage")
+    _assert_hashes_image_action(env, version_action, image_action, version_file)
+    preamble = argv_preamble(image_action.argv)
+    asserts.equals(env, version_file.path, option_value(preamble, "--image-version-file"))
+    asserts.equals(env, ctx.attr.expected_id, option_value(preamble, "--slot-label-image-id"))
+    asserts.false(env, any([argument.startswith("--image-version=") for argument in image_action.argv]))
+
+    partition_action = single_action(env, "MkosiPartitionMetadata")
+    asserts.equals(env, version_file.path, option_value(partition_action.argv, "--image-version-file"))
+    metadata_action = single_action(env, "MkosiBuildMetadata")
+    asserts.equals(env, version_file.path, option_value(metadata_action.argv, "--image-version-file"))
+    return analysistest.end(env)
+
+_input_version_identity_test = analysistest.make(
+    _input_version_identity_test_impl,
+    attrs = {"expected_id": attr.string(mandatory = True)},
+)
+
+def _input_version_payload_test_impl(ctx):
+    env = analysistest.begin(ctx)
+    info = analysistest.target_under_test(env)[SysupdatePayloadInfo]
+    image = ctx.attr.image[MkosiImageInfo]
+    asserts.equals(env, None, info.image_version)
+    asserts.equals(env, image.image_version_file, info.image_version_file)
+    action = single_action(env, "MkosiSysupdatePayload")
+    asserts.equals(env, image.image_version_file.path, option_value(action.argv, "--image-version-file"))
+    asserts.true(env, image.image_version_file in action.inputs.to_list())
+    return analysistest.end(env)
+
+_input_version_payload_test = analysistest.make(
+    _input_version_payload_test_impl,
+    attrs = {"image": attr.label(providers = [MkosiImageInfo], mandatory = True)},
+)
+
 def _transfers_test_impl(ctx):
     env = analysistest.begin(ctx)
     target = analysistest.target_under_test(env)
@@ -295,6 +374,71 @@ def _payload_variant_tests():
     )
     return [":xz_payload_test", _signed_esp_file_payload_test()]
 
+_INPUT_VERSION_CONFLICT = "image_version_from_inputs excludes image_version and image_version_file"
+
+def _input_version_failure_tests():
+    """Declares image_version_from_inputs subjects that fail analysis, and returns the test labels."""
+    tests = []
+    for subject, kwargs, expected_error in [
+        ("input_version_and_version", {"image_version": "7"}, _INPUT_VERSION_CONFLICT),
+        ("input_version_and_version_file", {"image_version_file": ":release_version_file"}, _INPUT_VERSION_CONFLICT),
+        ("input_version_without_id", {"image_id": ""}, "image_version_from_inputs requires image_id"),
+        ("input_version_tracer", {}, "image_version_from_inputs requires release mode"),
+    ]:
+        mkosi_image(
+            name = "invalid_%s_subject" % subject,
+            config = "testdata/minimal.conf",
+            tags = ["manual"],
+            **(dict(image_id = "rules", image_version_from_inputs = True) | kwargs)
+        )
+        expected_failure_test(
+            name = "invalid_%s_test" % subject,
+            expected_error = expected_error,
+            target_under_test = ":invalid_%s_subject" % subject,
+        )
+        tests.append(":invalid_%s_test" % subject)
+    return tests
+
+def _input_version_tests():
+    """Declares image_version_from_inputs subjects and their analysis tests, and returns the test labels."""
+
+    # 'rules-ab-max_<16 hex characters>_verity' fills the 36-character GPT partition name limit exactly.
+    for subject, image_id in (("input_version_release_subject", "rules-ab-max"), ("input_version_long_id_subject", "rules-ab-max1")):
+        mkosi_image(
+            name = subject,
+            config_tree = ":immutable_release_config_tree",
+            debian_snapshot = "@mkosi_debian_snapshot//:repository",
+            image_id = image_id,
+            image_version_from_inputs = True,
+            mode = "release",
+            release_seed = "00000000-0000-4000-8000-000000000007",
+            release_source_date_epoch = 0,
+            unified_kernel_image = "unsigned",
+            verity = "hash",
+            tags = ["manual"],
+        )
+    _input_version_identity_test(
+        name = "input_version_release_identity_test",
+        expected_id = "rules-ab-max",
+        target_under_test = ":input_version_release_subject",
+    )
+    expected_failure_test(
+        name = "input_version_long_id_test",
+        expected_error = "with verity = \"hash\" image_id may have at most 12 characters",
+        target_under_test = ":input_version_long_id_subject",
+    )
+    sysupdate_payload(name = "input_version_release_payload", image = ":input_version_release_subject", tags = ["manual"])
+    _input_version_payload_test(
+        name = "input_version_release_payload_test",
+        image = ":input_version_release_subject",
+        target_under_test = ":input_version_release_payload",
+    )
+    return [
+        ":input_version_long_id_test",
+        ":input_version_release_identity_test",
+        ":input_version_release_payload_test",
+    ] + _input_version_failure_tests()
+
 def sysupdate_test_suite(name):
     """Defines analysis tests for image identity, sysupdate rules and multi-boot lifecycle configuration.
 
@@ -303,7 +447,7 @@ def sysupdate_test_suite(name):
     Args:
       name: Name of the generated test suite.
     """
-    tests = []
+    tests = _input_version_tests()
 
     _template_variables(
         name = "os_release_variables",

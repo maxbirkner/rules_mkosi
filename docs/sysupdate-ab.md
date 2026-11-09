@@ -20,7 +20,7 @@ Requirements: `mode = "release"`, `unified_kernel_image = "unsigned"`, `verity =
 - `image_version`: letters, digits, and `.` only; requires `image_id`.
   `_` separates id and version in artifact names, and `+` and `-` are reserved for boot counting.
 - **Label limit:** GPT partition names hold 36 characters, and the longest label is `<image_id>_<image_version>_verity`, so `image_id` and the version together may use at most 28 characters.
-  Longer versions fail the build (at analysis for `image_version`, before mkosi starts for `image_version_file`).
+  Longer versions fail the build (at analysis for `image_version` and `image_version_from_inputs`, before mkosi starts for `image_version_file`).
   A stamped `<timestamp>.<hash>` version uses this budget quickly; keep `image_id` and the hash short.
 
 Both attributes expand Make variables, so a version can come from a build setting through a `TemplateVariableInfo` target in `toolchains`:
@@ -83,6 +83,46 @@ The content is validated like `image_version`; an empty file, for example when t
 
 Stable workspace status changes with every commit, so everything depending on the version rebuilds per commit.
 Use a two-stage release to avoid repeating package installation.
+
+### Versions derived from the inputs
+
+`image_version_from_inputs = True` names a release after its content, so that an unchanged image keeps its version across builds, commits and clean output bases, and devices can skip installing it, while any change to the image gets a new version.
+
+```starlark
+mkosi_image(
+    name = "os",
+    image_id = "my-os",
+    image_version_from_inputs = True,
+    # Other attributes as above, without image_version, image_version_file and toolchains.
+)
+```
+
+- A preceding action hashes everything that the action building the image reads: the configuration, `rootfs_payloads`, the base or Debian snapshot, and the files of the mkosi, Python and Debian tools toolchains, including the runner and its release patches, together with its command line, environment, and execution requirements.
+  Because the rule hashes the inputs of its own action, no input can be missing, and a ruleset or toolchain update that can change the image also changes the version.
+- Files are hashed by content and executable bit, with symlinks followed to their content as Bazel does for action inputs; directories are walked.
+  Paths are relative to the execution root, without the configuration name in `bazel-out/<config>/bin`, so the version does not depend on the sandbox, the output base, or `--compilation_mode`, but renaming or moving the target changes it.
+- The version is the first 16 lowercase hex characters (64 bits) of that SHA-256.
+  `MkosiImageInfo.image_version_file` and `SysupdatePayloadInfo.image_version_file` hold it as for `image_version_file`, `MkosiImageInfo.input_digest` holds the full digest, and the `image_version` output group contains both files.
+- It requires `image_id` and release mode, and excludes `image_version` and `image_version_file`.
+  With `verity = "hash"`, `image_id` may have at most 12 characters, to fit the [label limit](#image-identity).
+- Unlike a stamped version, the version changes only when the build's inputs do, so a new commit that does not touch the image rebuilds nothing.
+
+**Install by explicit version.**
+Content-derived versions do not sort by build order.
+systemd-sysupdate selects the newest available version by [version comparison](https://uapi-group.org/specifications/specs/version_format_specification/), and systemd-boot boots the newest entry by default, so with these versions both can pick an older release or skip a newer one.
+Name the release to install, try it once, and make it the default only after a healthy boot:
+
+```console
+# Install the release, then boot it once; a failed boot returns to the current default.
+/usr/lib/systemd/systemd-sysupdate --transfer-source=/path/to/payload update <version>
+bootctl set-oneshot my-os_<version>.efi
+systemctl reboot
+# After the release reached boot-complete.target:
+bootctl set-default my-os_<version>.efi
+```
+
+Boot entry identifiers omit the [boot counting](#boot-assessment-and-rollback) suffix.
+The transfers still protect the running version, and with the default two `instances` the inactive slot is replaced; with more instances, systemd-sysupdate removes the instance that sorts lowest, which need not be the oldest release.
 
 ## Two-stage releases
 
