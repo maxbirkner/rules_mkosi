@@ -115,8 +115,9 @@ that collide with directories fail, at analysis time where the paths are known.
 load("@rules_mkosi//mkosi:defs.bzl", "mkosi_image")
 
 mkosi_image(<a href="#mkosi_image-name">name</a>, <a href="#mkosi_image-base">base</a>, <a href="#mkosi_image-config">config</a>, <a href="#mkosi_image-config_tree">config_tree</a>, <a href="#mkosi_image-debian_snapshot">debian_snapshot</a>, <a href="#mkosi_image-firmware">firmware</a>, <a href="#mkosi_image-image_id">image_id</a>, <a href="#mkosi_image-image_version">image_version</a>,
-            <a href="#mkosi_image-image_version_file">image_version_file</a>, <a href="#mkosi_image-manifest">manifest</a>, <a href="#mkosi_image-mode">mode</a>, <a href="#mkosi_image-release_seed">release_seed</a>, <a href="#mkosi_image-release_source_date_epoch">release_source_date_epoch</a>,
-            <a href="#mkosi_image-rootfs_payloads">rootfs_payloads</a>, <a href="#mkosi_image-source_trees">source_trees</a>, <a href="#mkosi_image-unified_kernel_image">unified_kernel_image</a>, <a href="#mkosi_image-verity">verity</a>)
+            <a href="#mkosi_image-image_version_file">image_version_file</a>, <a href="#mkosi_image-image_version_from_inputs">image_version_from_inputs</a>, <a href="#mkosi_image-manifest">manifest</a>, <a href="#mkosi_image-mode">mode</a>, <a href="#mkosi_image-release_seed">release_seed</a>,
+            <a href="#mkosi_image-release_source_date_epoch">release_source_date_epoch</a>, <a href="#mkosi_image-rootfs_payloads">rootfs_payloads</a>, <a href="#mkosi_image-source_trees">source_trees</a>, <a href="#mkosi_image-unified_kernel_image">unified_kernel_image</a>, <a href="#mkosi_image-verity">verity</a>,
+            <a href="#mkosi_image-version_auto_enroll_keys">version_auto_enroll_keys</a>, <a href="#mkosi_image-version_inputs">version_inputs</a>, <a href="#mkosi_image-version_signing_certificates">version_signing_certificates</a>)
 </pre>
 
 Builds a raw disk image with the pinned mkosi and Debian toolchains.
@@ -128,6 +129,7 @@ need the Linux namespace and mount capabilities of the host-kernel contract.
 
 Select outputs through MkosiImageInfo; DefaultInfo contains every produced artifact. The raw_image output group
 contains only the raw disk image, for `bazel build --output_groups=raw_image` or `filegroup(output_group = "raw_image")`.
+The image_version output group contains the image_version_file and input_digest of MkosiImageInfo that are set.
 
 **ATTRIBUTES**
 
@@ -143,6 +145,7 @@ contains only the raw disk image, for `bazel build --output_groups=raw_image` or
 | <a id="mkosi_image-image_id"></a>image_id |  os-release IMAGE_ID passed to mkosi as ImageId=, overriding the configuration.<br><br>Lowercase letters, digits, '.', '-' and '_' only. Make variables are expanded.   | String | optional |  `""`  |
 | <a id="mkosi_image-image_version"></a>image_version |  os-release IMAGE_VERSION passed to mkosi as ImageVersion=, overriding the configuration.<br><br>Requires image_id and excludes image_version_file. Letters, digits and '.' only, so that systemd-sysupdate can split '<image_id>_<image_version>' and '+'/'-' stay free for systemd-boot boot counting. Make variables are expanded, e.g. image_version = "$(OS_VERSION)" with a TemplateVariableInfo target in `toolchains`.<br><br>With verity = "hash", the populated root and verity partitions must be labelled '<image_id>_<image_version>' and '<image_id>_<image_version>_verity' (repart Label=%M_%A and Label=%M_%A_verity), and inactive A/B slots '_empty', as sysupdate_transfers and sysupdate_payload expect. The verity label must fit the 36-character GPT partition name limit.   | String | optional |  `""`  |
 | <a id="mkosi_image-image_version_file"></a>image_version_file |  File containing the os-release IMAGE_VERSION, for versions known only at execution time.<br><br>Use it for build-derived versions, such as a stamped genrule. Requires image_id and excludes image_version. The content must satisfy the image_version constraints, optionally followed by one newline; the actions that read the file enforce them. MkosiImageInfo then sets image_version_file instead of image_version.   | <a href="https://bazel.build/concepts/labels">Label</a> | optional |  `None`  |
+| <a id="mkosi_image-image_version_from_inputs"></a>image_version_from_inputs |  Derive the os-release IMAGE_VERSION from everything that the image build action reads.<br><br>A preceding action hashes the inputs of the action that builds the image: the configuration, rootfs payloads, base or Debian snapshot, and the files of the mkosi and Debian tools toolchains, together with its command line, environment and execution requirements. It also hashes version_inputs and the ruleset scripts of sysupdate_payload and secure_boot_signed_image. The version is the first 16 lowercase hex characters of that SHA-256, so an unchanged image keeps its version and any change to the build gets a new one. Input paths are part of the hash, so renaming or moving the target also changes the version.<br><br>The version identifies the unsigned build and the declared signing material: signing happens after the version is fixed, so declare the signing certificates in version_signing_certificates and the Secure Boot keys in version_auto_enroll_keys. One version cannot tell differently signed artifacts of the same image apart, so build a separate mkosi_image for each variant that is signed with other certificates or keys, or not signed at all.<br><br>Requires image_id and release mode and excludes image_version and image_version_file. With verity = "hash", image_id may have at most 12 characters so that '<image_id>_<version>_verity' fits a GPT partition name. MkosiImageInfo sets image_version_file to the version and input_digest to the full digest.<br><br>Such versions do not sort by build order: install releases by explicit version and manage the default boot entry, as docs/sysupdate-ab.md describes.   | Boolean | optional |  `False`  |
 | <a id="mkosi_image-manifest"></a>manifest |  Also output mkosi's JSON manifest of the installed packages as MkosiImageInfo.manifest.   | Boolean | optional |  `False`  |
 | <a id="mkosi_image-mode"></a>mode |  "tracer" (default) is never cached and installs packages from the network, or from debian_snapshot with the network blocked; "release" installs packages only from debian_snapshot or base with the network blocked and may be cached. Both run locally only.   | String | optional |  `"tracer"`  |
 | <a id="mkosi_image-release_seed"></a>release_seed |  Fixed UUID matching the configuration's resolved Seed=; required in release mode unless base is set.   | String | optional |  `""`  |
@@ -151,6 +154,9 @@ contains only the raw disk image, for `bazel build --output_groups=raw_image` or
 | <a id="mkosi_image-source_trees"></a>source_trees |  mkosi_source_tree targets keyed by the normalized relative BuildSources= path, such as "src", at which their contents are staged.   | Dictionary: String -> Label | optional |  `{}`  |
 | <a id="mkosi_image-unified_kernel_image"></a>unified_kernel_image |  "none" (default) or "unsigned" to build an unsigned UKI. Requires release mode and uefi firmware; sign it with secure_boot_signing_request.   | String | optional |  `"none"`  |
 | <a id="mkosi_image-verity"></a>verity |  "none" (default) or "hash" to split the root into dm-verity data and hash partitions. Requires unified_kernel_image = "unsigned".   | String | optional |  `"none"`  |
+| <a id="mkosi_image-version_auto_enroll_keys"></a>version_auto_enroll_keys |  The auto_enroll_keys of every secure_boot_signed_image of this image, which a version derived with image_version_from_inputs covers; requires image_version_from_inputs.<br><br>secure_boot_signed_image fails unless its auto_enroll_keys are exactly these files, except keys of a secure_boot_ephemeral_test_fixture, whose throwaway keys change with every build. Rotating a key then gives a new version.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
+| <a id="mkosi_image-version_inputs"></a>version_inputs |  Other files that a version derived with image_version_from_inputs covers although the build does not read them; requires image_version_from_inputs.<br><br>Declare signing material in version_signing_certificates and version_auto_enroll_keys instead, which the consuming rules check. A sysupdate signing key needs no entry: the SHA256SUMS signature is not installed, and a public keyring that the image ships through rootfs_payloads is already a build input.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
+| <a id="mkosi_image-version_signing_certificates"></a>version_signing_certificates |  Certificate given to secure_boot_signing_request for each binary of this image that is signed, keyed by the request's esp_path: the empty string for the UKI, or an ESP path such as EFI/systemd/systemd-bootx64.efi. A version derived with image_version_from_inputs covers the certificates and their keys; requires image_version_from_inputs.<br><br>The version cannot distinguish consumers of one image, so the consumers must agree with this declaration exactly: sysupdate_payload fails unless it signs the UKI with the certificate declared for "", or is unsigned when none is declared, and secure_boot_signed_image fails unless its signed binaries use exactly the declared certificates. Binaries signed by a secure_boot_ephemeral_test_fixture are exempt, because its throwaway keys change with every build. Build a separate mkosi_image for each differently signed or unsigned variant.   | Dictionary: String -> Label | optional |  `{}`  |
 
 
 <a id="mkosi_reproducibility_manifest"></a>
@@ -457,8 +463,12 @@ image before it writes it. The manifest describes the image as built: boot count
 replace UKIs without updating it, and its keys are those offered for enrollment, not those that the firmware enrolled.
 
 Returns DefaultInfo with the disk image and its JSON metadata, the image's MkosiImageInfo with raw_image replaced by the
-signed disk image, and the output groups raw_image, with only the disk image, and secure_boot_metadata, with only the
-JSON metadata.
+signed disk image, and the output groups raw_image, with only the disk image, secure_boot_metadata, with only the
+JSON metadata, and image_version, with the image's version files as in mkosi_image.
+
+When the image derives its version with image_version_from_inputs, its version_signing_certificates must map exactly
+the ESP paths of the signed binaries to their certificates, and its version_auto_enroll_keys must be exactly the
+auto_enroll_keys, except material of a secure_boot_ephemeral_test_fixture.
 
 **ATTRIBUTES**
 
@@ -602,7 +612,7 @@ padded to its slot size.
 | <a id="sysupdate_payload-name"></a>name |  A unique name for this target.   | <a href="https://bazel.build/concepts/labels#target-names">Name</a> | required |  |
 | <a id="sysupdate_payload-compression"></a>compression |  Compression of the root and verity files: 'xz' appends '.xz' to their names.<br><br>systemd-sysupdate decompresses them while writing the slots; sysupdate_transfers accepts both forms. The UKI stays uncompressed.   | String | optional |  `"none"`  |
 | <a id="sysupdate_payload-image"></a>image |  Versioned UEFI release image with an unsigned UKI and dm-verity.   | <a href="https://bazel.build/concepts/labels">Label</a> | required |  |
-| <a id="sysupdate_payload-signed_uki"></a>signed_uki |  Externally signed replacement for the image's unsigned UKI, from secure_boot_import_response.<br><br>The build fails with SYSUPDATE_INVALID unless its signing request was created for this image's unsigned UKI.   | <a href="https://bazel.build/concepts/labels">Label</a> | optional |  `None`  |
+| <a id="sysupdate_payload-signed_uki"></a>signed_uki |  Externally signed replacement for the image's unsigned UKI, from secure_boot_import_response.<br><br>The build fails with SYSUPDATE_INVALID unless its signing request was created for this image's unsigned UKI. When the image derives its version with image_version_from_inputs, the certificate must be the one that its version_signing_certificates declare for the UKI (""), unless it comes from a secure_boot_ephemeral_test_fixture; without a declared UKI certificate, the payload must be unsigned.   | <a href="https://bazel.build/concepts/labels">Label</a> | optional |  `None`  |
 
 
 <a id="sysupdate_signing_request"></a>
@@ -813,15 +823,17 @@ An mkosi configuration directory.
 load("@rules_mkosi//mkosi:defs.bzl", "MkosiImageInfo")
 
 MkosiImageInfo(<a href="#MkosiImageInfo-build_metadata">build_metadata</a>, <a href="#MkosiImageInfo-firmware">firmware</a>, <a href="#MkosiImageInfo-format_version">format_version</a>, <a href="#MkosiImageInfo-image">image</a>, <a href="#MkosiImageInfo-image_id">image_id</a>, <a href="#MkosiImageInfo-image_version">image_version</a>,
-               <a href="#MkosiImageInfo-image_version_file">image_version_file</a>, <a href="#MkosiImageInfo-manifest">manifest</a>, <a href="#MkosiImageInfo-partition_metadata">partition_metadata</a>, <a href="#MkosiImageInfo-raw_image">raw_image</a>, <a href="#MkosiImageInfo-root_hash">root_hash</a>,
-               <a href="#MkosiImageInfo-root_hash_image">root_hash_image</a>, <a href="#MkosiImageInfo-root_image">root_image</a>, <a href="#MkosiImageInfo-uki">uki</a>, <a href="#MkosiImageInfo-uki_metadata">uki_metadata</a>, <a href="#MkosiImageInfo-verity_metadata">verity_metadata</a>)
+               <a href="#MkosiImageInfo-image_version_file">image_version_file</a>, <a href="#MkosiImageInfo-input_digest">input_digest</a>, <a href="#MkosiImageInfo-manifest">manifest</a>, <a href="#MkosiImageInfo-partition_metadata">partition_metadata</a>, <a href="#MkosiImageInfo-raw_image">raw_image</a>, <a href="#MkosiImageInfo-root_hash">root_hash</a>,
+               <a href="#MkosiImageInfo-root_hash_image">root_hash_image</a>, <a href="#MkosiImageInfo-root_image">root_image</a>, <a href="#MkosiImageInfo-uki">uki</a>, <a href="#MkosiImageInfo-uki_metadata">uki_metadata</a>, <a href="#MkosiImageInfo-verity_metadata">verity_metadata</a>,
+               <a href="#MkosiImageInfo-version_auto_enroll_keys">version_auto_enroll_keys</a>, <a href="#MkosiImageInfo-version_inputs">version_inputs</a>, <a href="#MkosiImageInfo-version_signing_certificates">version_signing_certificates</a>)
 </pre>
 
 Outputs of mkosi_image.
 
 Select artifacts through these fields rather than DefaultInfo filenames. Every artifact field is a File or None,
 and DefaultInfo contains every artifact that is not None. raw_image and build_metadata are always set, release
-images add partition_metadata, and UEFI release images add their UKI, split dm-verity artifacts and metadata.
+images add partition_metadata, and UEFI release images add their UKI, split dm-verity artifacts and metadata. The
+version files image_version_file and input_digest are in the image_version output group instead of DefaultInfo.
 
 **FIELDS**
 
@@ -833,7 +845,8 @@ images add partition_metadata, and UEFI release images add their UKI, split dm-v
 | <a id="MkosiImageInfo-image"></a>image |  Deprecated alias for raw_image.    |
 | <a id="MkosiImageInfo-image_id"></a>image_id |  os-release IMAGE_ID set by the rule, or None.    |
 | <a id="MkosiImageInfo-image_version"></a>image_version |  os-release IMAGE_VERSION set by the rule during analysis, or None.    |
-| <a id="MkosiImageInfo-image_version_file"></a>image_version_file |  File holding the os-release IMAGE_VERSION set through image_version_file, or None.<br><br>The content is letters, digits and '.', optionally followed by one newline. At most one of image_version and image_version_file is set.    |
+| <a id="MkosiImageInfo-image_version_file"></a>image_version_file |  File holding the os-release IMAGE_VERSION set through image_version_file or derived with image_version_from_inputs, or None.<br><br>The content is letters, digits and '.', optionally followed by one newline. At most one of image_version and image_version_file is set. It is also in the image_version output group.    |
+| <a id="MkosiImageInfo-input_digest"></a>input_digest |  File with the full lowercase hex SHA-256, followed by one newline, from which image_version_from_inputs derived image_version_file, or None.<br><br>It is also in the image_version output group.    |
 | <a id="MkosiImageInfo-manifest"></a>manifest |  mkosi's JSON manifest of the installed packages, including those of a finalized base, when the rule sets manifest = True, or None.    |
 | <a id="MkosiImageInfo-partition_metadata"></a>partition_metadata |  Validated, normalized GPT partition layout JSON of a release image, or None.    |
 | <a id="MkosiImageInfo-raw_image"></a>raw_image |  The raw disk image.    |
@@ -843,6 +856,9 @@ images add partition_metadata, and UEFI release images add their UKI, split dm-v
 | <a id="MkosiImageInfo-uki"></a>uki |  The unsigned Unified Kernel Image when unified_kernel_image = "unsigned", or None.    |
 | <a id="MkosiImageInfo-uki_metadata"></a>uki_metadata |  Normalized JSON metadata of the UKI's PE sections, or None.    |
 | <a id="MkosiImageInfo-verity_metadata"></a>verity_metadata |  Normalized JSON linking the root and hash partitions to root_hash, or None.    |
+| <a id="MkosiImageInfo-version_auto_enroll_keys"></a>version_auto_enroll_keys |  List of the files declared in version_auto_enroll_keys, or None without image_version_from_inputs.    |
+| <a id="MkosiImageInfo-version_inputs"></a>version_inputs |  List of the files declared in version_inputs, which a version derived with image_version_from_inputs covers in addition to the build, or None without image_version_from_inputs.    |
+| <a id="MkosiImageInfo-version_signing_certificates"></a>version_signing_certificates |  Dict from ESP path, or the empty string for the UKI, to the certificate File declared in version_signing_certificates, or None without image_version_from_inputs.    |
 
 
 <a id="MkosiQemuToolchainInfo"></a>
@@ -1055,8 +1071,8 @@ Public outputs from one action-private ephemeral signing operation.
 <pre>
 load("@rules_mkosi//mkosi:defs.bzl", "SecureBootSignedBinaryInfo")
 
-SecureBootSignedBinaryInfo(<a href="#SecureBootSignedBinaryInfo-certificate">certificate</a>, <a href="#SecureBootSignedBinaryInfo-esp_path">esp_path</a>, <a href="#SecureBootSignedBinaryInfo-format_version">format_version</a>, <a href="#SecureBootSignedBinaryInfo-request">request</a>, <a href="#SecureBootSignedBinaryInfo-signed_binary">signed_binary</a>,
-                           <a href="#SecureBootSignedBinaryInfo-verification_metadata">verification_metadata</a>)
+SecureBootSignedBinaryInfo(<a href="#SecureBootSignedBinaryInfo-certificate">certificate</a>, <a href="#SecureBootSignedBinaryInfo-certificate_source">certificate_source</a>, <a href="#SecureBootSignedBinaryInfo-esp_path">esp_path</a>, <a href="#SecureBootSignedBinaryInfo-format_version">format_version</a>, <a href="#SecureBootSignedBinaryInfo-request">request</a>,
+                           <a href="#SecureBootSignedBinaryInfo-signed_binary">signed_binary</a>, <a href="#SecureBootSignedBinaryInfo-verification_metadata">verification_metadata</a>)
 </pre>
 
 Authenticode-verified, firmware-consumable PE/COFF binary: a UKI or a boot binary from an image's ESP.
@@ -1066,6 +1082,7 @@ Authenticode-verified, firmware-consumable PE/COFF binary: a UKI or a boot binar
 | Name  | Description |
 | :------------- | :------------- |
 | <a id="SecureBootSignedBinaryInfo-certificate"></a>certificate |  DER certificate that signed the binary.    |
+| <a id="SecureBootSignedBinaryInfo-certificate_source"></a>certificate_source |  The certificate file given to secure_boot_signing_request, which version_signing_certificates of an image deriving its version must declare, or a private marker for a secure_boot_ephemeral_test_fixture.    |
 | <a id="SecureBootSignedBinaryInfo-esp_path"></a>esp_path |  ESP path of the binary, or the empty string for a UKI.    |
 | <a id="SecureBootSignedBinaryInfo-format_version"></a>format_version |  Provider schema, mkosi-secure-boot-signed-binary-v3.    |
 | <a id="SecureBootSignedBinaryInfo-request"></a>request |  Verified request.    |
@@ -1080,8 +1097,8 @@ Authenticode-verified, firmware-consumable PE/COFF binary: a UKI or a boot binar
 <pre>
 load("@rules_mkosi//mkosi:defs.bzl", "SecureBootSigningRequestInfo")
 
-SecureBootSigningRequestInfo(<a href="#SecureBootSigningRequestInfo-certificate">certificate</a>, <a href="#SecureBootSigningRequestInfo-esp_path">esp_path</a>, <a href="#SecureBootSigningRequestInfo-format_version">format_version</a>, <a href="#SecureBootSigningRequestInfo-request">request</a>, <a href="#SecureBootSigningRequestInfo-request_digest">request_digest</a>,
-                             <a href="#SecureBootSigningRequestInfo-signature_algorithm">signature_algorithm</a>, <a href="#SecureBootSigningRequestInfo-unsigned_binary">unsigned_binary</a>)
+SecureBootSigningRequestInfo(<a href="#SecureBootSigningRequestInfo-certificate">certificate</a>, <a href="#SecureBootSigningRequestInfo-certificate_source">certificate_source</a>, <a href="#SecureBootSigningRequestInfo-esp_path">esp_path</a>, <a href="#SecureBootSigningRequestInfo-format_version">format_version</a>, <a href="#SecureBootSigningRequestInfo-request">request</a>,
+                             <a href="#SecureBootSigningRequestInfo-request_digest">request_digest</a>, <a href="#SecureBootSigningRequestInfo-signature_algorithm">signature_algorithm</a>, <a href="#SecureBootSigningRequestInfo-unsigned_binary">unsigned_binary</a>)
 </pre>
 
 Typed immutable request for an external Secure Boot signer.
@@ -1091,6 +1108,7 @@ Typed immutable request for an external Secure Boot signer.
 | Name  | Description |
 | :------------- | :------------- |
 | <a id="SecureBootSigningRequestInfo-certificate"></a>certificate |  Expected public signer certificate.    |
+| <a id="SecureBootSigningRequestInfo-certificate_source"></a>certificate_source |  The certificate file given to the request, which version_signing_certificates of an image deriving its version must declare, or a private marker for a secure_boot_ephemeral_test_fixture.    |
 | <a id="SecureBootSigningRequestInfo-esp_path"></a>esp_path |  ESP path of the requested binary, or the empty string for the image's UKI.    |
 | <a id="SecureBootSigningRequestInfo-format_version"></a>format_version |  Request schema, mkosi-secure-boot-signing-request-v3.    |
 | <a id="SecureBootSigningRequestInfo-request"></a>request |  Canonical JSON request.    |

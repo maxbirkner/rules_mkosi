@@ -1,7 +1,13 @@
 """Rules and providers that build mkosi images."""
 
 load("//mkosi/private:debian_snapshot.bzl", "DebianSnapshotInfo")
-load("//mkosi/private:image_identity.bzl", "validate_image_id", "validate_image_version", "validate_slot_labels")
+load(
+    "//mkosi/private:image_identity.bzl",
+    "validate_image_id",
+    "validate_image_version",
+    "validate_input_version_slot_labels",
+    "validate_slot_labels",
+)
 load(
     ":image_metadata.bzl",
     "IMAGE_METADATA_ATTRS",
@@ -10,6 +16,7 @@ load(
     "project_verity_metadata",
     "write_build_metadata",
 )
+load(":input_version.bzl", "INPUT_VERSION_ATTRS", "derive_image_version")
 load(
     ":mkosi_action.bzl",
     "MKOSI_BUILD_ATTRS",
@@ -20,8 +27,10 @@ load(
     "add_release_arguments",
     "add_snapshot_arguments",
     "add_staging_arguments",
+    "mkosi_action",
     "mkosi_arguments",
     "mkosi_tool_inputs",
+    "register_mkosi_action",
     "run_mkosi",
 )
 load(":python_action.bzl", "MKOSI_TOOLCHAIN_TYPE", "run_python")
@@ -32,7 +41,8 @@ MkosiImageInfo = provider(
 
 Select artifacts through these fields rather than DefaultInfo filenames. Every artifact field is a File or None,
 and DefaultInfo contains every artifact that is not None. raw_image and build_metadata are always set, release
-images add partition_metadata, and UEFI release images add their UKI, split dm-verity artifacts and metadata.
+images add partition_metadata, and UEFI release images add their UKI, split dm-verity artifacts and metadata. The
+version files image_version_file and input_digest are in the image_version output group instead of DefaultInfo.
 """,
     fields = {
         "build_metadata": """JSON build metadata, schema mkosi-image-build-metadata-v3.
@@ -44,10 +54,15 @@ debian_snapshot or base, and the seed and source date epoch of release images.""
         "image": "Deprecated alias for raw_image.",
         "image_id": "os-release IMAGE_ID set by the rule, or None.",
         "image_version": "os-release IMAGE_VERSION set by the rule during analysis, or None.",
-        "image_version_file": """File holding the os-release IMAGE_VERSION set through image_version_file, or None.
+        "image_version_file": """File holding the os-release IMAGE_VERSION set through image_version_file or derived
+with image_version_from_inputs, or None.
 
 The content is letters, digits and '.', optionally followed by one newline. At most one of image_version and
-image_version_file is set.""",
+image_version_file is set. It is also in the image_version output group.""",
+        "input_digest": """File with the full lowercase hex SHA-256, followed by one newline, from which
+image_version_from_inputs derived image_version_file, or None.
+
+It is also in the image_version output group.""",
         "manifest": """mkosi's JSON manifest of the installed packages, including those of a finalized base, when the rule
 sets manifest = True, or None.""",
         "partition_metadata": "Validated, normalized GPT partition layout JSON of a release image, or None.",
@@ -58,6 +73,12 @@ sets manifest = True, or None.""",
         "uki": "The unsigned Unified Kernel Image when unified_kernel_image = \"unsigned\", or None.",
         "uki_metadata": "Normalized JSON metadata of the UKI's PE sections, or None.",
         "verity_metadata": "Normalized JSON linking the root and hash partitions to root_hash, or None.",
+        "version_auto_enroll_keys": """List of the files declared in version_auto_enroll_keys, or None without
+image_version_from_inputs.""",
+        "version_inputs": """List of the files declared in version_inputs, which a version derived with
+image_version_from_inputs covers in addition to the build, or None without image_version_from_inputs.""",
+        "version_signing_certificates": """Dict from ESP path, or the empty string for the UKI, to the certificate File
+declared in version_signing_certificates, or None without image_version_from_inputs.""",
     },
 )
 
@@ -324,7 +345,39 @@ def _release_source(ctx, modes):
         return None, _release_from_attrs(ctx)
     return None, None
 
-def _image_identity(ctx, verity):
+def _input_version_files(ctx, image_id, modes):
+    """Validates image_version_from_inputs and declares the derived version and digest files."""
+    if ctx.attr.image_version or ctx.attr.image_version_file:
+        fail("image_version_from_inputs excludes image_version and image_version_file")
+    if not image_id:
+        fail("image_version_from_inputs requires image_id")
+    if not modes.release_mode:
+        fail("image_version_from_inputs requires release mode")
+    if modes.verity:
+        validate_input_version_slot_labels(image_id)
+    return (
+        ctx.actions.declare_file(ctx.label.name + ".image-version"),
+        ctx.actions.declare_file(ctx.label.name + ".input-digest"),
+    )
+
+def _version_declarations(ctx):
+    """Returns the files and signing material that a derived version covers, or None without one."""
+    declared = ctx.attr.version_inputs or ctx.attr.version_signing_certificates or ctx.attr.version_auto_enroll_keys
+    if not ctx.attr.image_version_from_inputs:
+        if declared:
+            fail("version_inputs, version_signing_certificates and version_auto_enroll_keys require " +
+                 "image_version_from_inputs")
+        return None
+    return struct(
+        files = ctx.files.version_inputs,
+        signing_certificates = {
+            esp_path: _single_input(target, "version_signing_certificates")
+            for esp_path, target in ctx.attr.version_signing_certificates.items()
+        },
+        auto_enroll_keys = ctx.files.version_auto_enroll_keys,
+    )
+
+def _image_identity(ctx, modes):
     image_id = ctx.expand_make_variables("image_id", ctx.attr.image_id, {}) or None
     image_version = ctx.expand_make_variables("image_version", ctx.attr.image_version, {}) or None
     image_version_file = ctx.file.image_version_file
@@ -338,9 +391,18 @@ def _image_identity(ctx, verity):
         validate_image_id(image_id)
     if image_version:
         validate_image_version(image_version)
-        if verity:
+        if modes.verity:
             validate_slot_labels(image_id, image_version)
-    return struct(image_id = image_id, image_version = image_version, image_version_file = image_version_file)
+    input_digest = None
+    if ctx.attr.image_version_from_inputs:
+        image_version_file, input_digest = _input_version_files(ctx, image_id, modes)
+    return struct(
+        image_id = image_id,
+        image_version = image_version,
+        image_version_file = image_version_file,
+        input_digest = input_digest,
+        version_declarations = _version_declarations(ctx),
+    )
 
 def _config(ctx, release_mode):
     """Returns the configuration artifact and its MkosiConfigTreeInfo, or None for a single file."""
@@ -365,7 +427,7 @@ def _image_settings(ctx):
     """Validates the mkosi_image attributes and returns the resolved build settings."""
     modes = _output_modes(ctx)
     base, release = _release_source(ctx, modes)
-    identity = _image_identity(ctx, modes.verity)
+    identity = _image_identity(ctx, modes)
     config, config_info = _config(ctx, modes.release_mode)
     if modes.firmware == "bios" and release.snapshot.architecture != "amd64":
         fail("bios firmware requires an amd64 Debian snapshot")
@@ -381,6 +443,8 @@ def _image_settings(ctx):
         image_id = identity.image_id,
         image_version = identity.image_version,
         image_version_file = identity.image_version_file,
+        input_digest = identity.input_digest,
+        version_declarations = identity.version_declarations,
         manifest = ctx.attr.manifest,
         config = config,
         config_info = config_info,
@@ -503,11 +567,15 @@ def _image_arguments(ctx, settings, staging, image, bios_partition_definition):
     return arguments
 
 def _image_build_inputs(ctx, settings, staging, bios_partition_definition):
+    """Returns the inputs of the image build, except a version file derived from them."""
     base = settings.base
-    image_version_file = settings.image_version_file
+    version_inputs = []
+    if settings.image_version_file:
+        version_inputs = [ctx.file._image_version]
+        if not settings.input_digest:
+            version_inputs.append(settings.image_version_file)
     return (
-        [settings.config] + mkosi_tool_inputs(ctx) +
-        ([image_version_file, ctx.file._image_version] if image_version_file else []) +
+        [settings.config] + mkosi_tool_inputs(ctx) + version_inputs +
         ([bios_partition_definition] if bios_partition_definition else []) +
         ([base.root_tree, base.initrd] if base else []) +
         ([settings.snapshot.repository] if settings.snapshot and not base else []) +
@@ -517,15 +585,24 @@ def _image_build_inputs(ctx, settings, staging, bios_partition_definition):
 def _build_image(ctx, settings, staging, outputs):
     bios_partition_definition = _bios_partition_definition(ctx) if settings.firmware == "bios" else None
     built = [outputs.raw_image, outputs.manifest, outputs.uki, outputs.root_image, outputs.root_hash, outputs.root_hash_image]
-    run_mkosi(
+    action = mkosi_action(
         ctx,
         arguments = _image_arguments(ctx, settings, staging, outputs.raw_image, bios_partition_definition),
         inputs = _image_build_inputs(ctx, settings, staging, bios_partition_definition),
-        outputs = [output for output in built if output != None],
         release = settings.release,
         offline = settings.snapshot != None,
+    )
+    derived_version = []
+    if settings.input_digest:
+        derive_image_version(ctx, action, settings.image_version_file, settings.input_digest, settings.version_declarations)
+        derived_version = [settings.image_version_file]
+    register_mkosi_action(
+        ctx,
+        action,
+        outputs = [output for output in built if output != None],
         mnemonic = "MkosiImage",
         progress_message = "Building mkosi image %{label}",
+        extra_inputs = derived_version,
     )
 
 _ARTIFACT_FIELDS = [
@@ -543,6 +620,7 @@ _ARTIFACT_FIELDS = [
 
 def _image_providers(settings, outputs):
     artifacts = {field: getattr(outputs, field) for field in _ARTIFACT_FIELDS}
+    declarations = _version_declaration_fields(settings.version_declarations)
     return [
         DefaultInfo(files = depset([artifact for artifact in artifacts.values() if artifact != None])),
         MkosiImageInfo(
@@ -551,11 +629,22 @@ def _image_providers(settings, outputs):
             image_id = settings.image_id,
             image_version = settings.image_version,
             image_version_file = settings.image_version_file,
+            input_digest = settings.input_digest,
             image = outputs.raw_image,
-            **artifacts
+            **(artifacts | declarations)
         ),
-        OutputGroupInfo(raw_image = depset([outputs.raw_image])),
+        OutputGroupInfo(
+            image_version = depset([file for file in (settings.image_version_file, settings.input_digest) if file]),
+            raw_image = depset([outputs.raw_image]),
+        ),
     ]
+
+def _version_declaration_fields(declarations):
+    return {
+        "version_auto_enroll_keys": declarations.auto_enroll_keys if declarations else None,
+        "version_inputs": declarations.files if declarations else None,
+        "version_signing_certificates": declarations.signing_certificates if declarations else None,
+    }
 
 def _mkosi_image_impl(ctx):
     settings = _image_settings(ctx)
@@ -633,6 +722,29 @@ content must satisfy the image_version constraints, optionally followed by one n
 file enforce them. MkosiImageInfo then sets image_version_file instead of image_version.
 """,
         ),
+        "image_version_from_inputs": attr.bool(
+            doc = """Derive the os-release IMAGE_VERSION from everything that the image build action reads.
+
+A preceding action hashes the inputs of the action that builds the image: the configuration, rootfs payloads, base
+or Debian snapshot, and the files of the mkosi and Debian tools toolchains, together with its command line,
+environment and execution requirements. It also hashes version_inputs and the ruleset scripts of sysupdate_payload
+and secure_boot_signed_image. The version is the first 16 lowercase hex characters of that SHA-256, so an unchanged
+image keeps its version and any change to the build gets a new one. Input paths are part of the hash, so renaming or
+moving the target also changes the version.
+
+The version identifies the unsigned build and the declared signing material: signing happens after the version is
+fixed, so declare the signing certificates in version_signing_certificates and the Secure Boot keys in
+version_auto_enroll_keys. One version cannot tell differently signed artifacts of the same image apart, so build a
+separate mkosi_image for each variant that is signed with other certificates or keys, or not signed at all.
+
+Requires image_id and release mode and excludes image_version and image_version_file. With verity = "hash",
+image_id may have at most 12 characters so that '<image_id>_<version>_verity' fits a GPT partition name.
+MkosiImageInfo sets image_version_file to the version and input_digest to the full digest.
+
+Such versions do not sort by build order: install releases by explicit version and manage the default boot entry,
+as docs/sysupdate-ab.md describes.
+""",
+        ),
         "manifest": attr.bool(
             doc = "Also output mkosi's JSON manifest of the installed packages as MkosiImageInfo.manifest.",
         ),
@@ -670,12 +782,46 @@ sign it with secure_boot_signing_request.""",
             doc = """"none" (default) or "hash" to split the root into dm-verity data and hash partitions. Requires
 unified_kernel_image = "unsigned".""",
         ),
+        "version_auto_enroll_keys": attr.label_list(
+            allow_files = [".auth"],
+            doc = """The auto_enroll_keys of every secure_boot_signed_image of this image, which a version derived with
+image_version_from_inputs covers; requires image_version_from_inputs.
+
+secure_boot_signed_image fails unless its auto_enroll_keys are exactly these files, except keys of a
+secure_boot_ephemeral_test_fixture, whose throwaway keys change with every build. Rotating a key then gives a new
+version.
+""",
+        ),
+        "version_inputs": attr.label_list(
+            allow_files = True,
+            doc = """Other files that a version derived with image_version_from_inputs covers although the build does not
+read them; requires image_version_from_inputs.
+
+Declare signing material in version_signing_certificates and version_auto_enroll_keys instead, which the consuming
+rules check. A sysupdate signing key needs no entry: the SHA256SUMS signature is not installed, and a public keyring
+that the image ships through rootfs_payloads is already a build input.
+""",
+        ),
+        "version_signing_certificates": attr.string_keyed_label_dict(
+            allow_files = True,
+            doc = """Certificate given to secure_boot_signing_request for each binary of this image that is signed, keyed
+by the request's esp_path: the empty string for the UKI, or an ESP path such as EFI/systemd/systemd-bootx64.efi.
+A version derived with image_version_from_inputs covers the certificates and their keys; requires
+image_version_from_inputs.
+
+The version cannot distinguish consumers of one image, so the consumers must agree with this declaration exactly:
+sysupdate_payload fails unless it signs the UKI with the certificate declared for "", or is unsigned when none is
+declared, and secure_boot_signed_image fails unless its signed binaries use exactly the declared certificates. Binaries
+signed by a secure_boot_ephemeral_test_fixture are exempt, because its throwaway keys change with every build. Build
+a separate mkosi_image for each differently signed or unsigned variant.
+""",
+        ),
         "_write_bios_repart": attr.label(
             cfg = "exec",
             default = "//mkosi/private:write_bios_repart.py",
             allow_single_file = True,
         ),
-    } | MKOSI_BUILD_ATTRS | IMAGE_METADATA_ATTRS,
+    } | MKOSI_BUILD_ATTRS | IMAGE_METADATA_ATTRS | INPUT_VERSION_ATTRS,
     doc = """Builds a raw disk image with the pinned mkosi and Debian toolchains.
 
 Tracer mode is never cached and installs packages from the network, or from debian_snapshot with the network
@@ -685,6 +831,7 @@ need the Linux namespace and mount capabilities of the host-kernel contract.
 
 Select outputs through MkosiImageInfo; DefaultInfo contains every produced artifact. The raw_image output group
 contains only the raw disk image, for `bazel build --output_groups=raw_image` or `filegroup(output_group = "raw_image")`.
+The image_version output group contains the image_version_file and input_digest of MkosiImageInfo that are set.
 """,
     provides = [MkosiImageInfo],
     toolchains = MKOSI_BUILD_TOOLCHAINS,

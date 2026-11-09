@@ -50,6 +50,33 @@ def _mkosi_interpreter(ctx):
     mkosi = mkosi_toolchain_info(ctx)
     return python_interpreter(mkosi.python, mkosi.python_files_to_run, mkosi.python_runtime_files)
 
+def python_action(ctx, arguments, inputs, env = {}, transitive_inputs = None, tools = [], interpreter = None):
+    """Returns the executable, arguments, inputs, tools and environment of a Python script action.
+
+    Args:
+      ctx: Rule context; it must require the mkosi toolchain unless interpreter is set.
+      arguments: Interpreter arguments, starting with the script path.
+      inputs: Files read by the action, including the script.
+      env: Variables added to the isolated environment.
+      transitive_inputs: Input depsets; defaults to the interpreter runtime files.
+      tools: Additional FilesToRunProviders invoked by the script.
+      interpreter: python_interpreter to run; defaults to the managed mkosi toolchain interpreter.
+
+    Returns:
+      Struct with the ctx.actions.run arguments executable, arguments, inputs, tools and env.
+    """
+    python = _mkosi_interpreter(ctx) if interpreter == None else interpreter
+    return struct(
+        executable = python.executable,
+        arguments = python.options + arguments,
+        inputs = depset(
+            inputs,
+            transitive = [python.runtime_files] if transitive_inputs == None else transitive_inputs,
+        ),
+        tools = [python.files_to_run] + tools,
+        env = _ISOLATED_ENVIRONMENT | python.env | env,
+    )
+
 def run_python(
         ctx,
         arguments,
@@ -75,17 +102,14 @@ def run_python(
       interpreter: python_interpreter to run; defaults to the managed mkosi toolchain interpreter.
       **kwargs: Further ctx.actions.run arguments, such as progress_message.
     """
-    python = _mkosi_interpreter(ctx) if interpreter == None else interpreter
+    action = python_action(ctx, arguments, inputs, env, transitive_inputs, tools, interpreter)
     ctx.actions.run(
-        executable = python.executable,
-        arguments = python.options + arguments,
-        inputs = depset(
-            inputs,
-            transitive = [python.runtime_files] if transitive_inputs == None else transitive_inputs,
-        ),
-        tools = [python.files_to_run] + tools,
+        executable = action.executable,
+        arguments = action.arguments,
+        inputs = action.inputs,
+        tools = action.tools,
         outputs = outputs,
-        env = _ISOLATED_ENVIRONMENT | python.env | env,
+        env = action.env,
         mnemonic = mnemonic,
         **kwargs
     )

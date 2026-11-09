@@ -238,6 +238,7 @@ secure_boot_signed_image(
   Startable binaries are the `*.efi` files and the `linux` and `efi` files of `loader/entries/*.conf`; other files, such as a kernel that kernel-install left on the ESP, are not checked.
   For a shim chain, db must therefore also hold the vendor CA that signed the second stage, not only the CA that signed shim.
   It does not verify the PKCS#7 signatures of the `.auth` files, which the firmware checks during enrollment.
+- If the image derives its version with `image_version_from_inputs`, its `version_signing_certificates` must map exactly the signed binaries to their certificates and its `version_auto_enroll_keys` must be exactly the `auto_enroll_keys`, so that rotating them gives a new version; build a separate image for each differently signed variant. See [versions derived from the inputs](sysupdate-ab.md#versions-derived-from-the-inputs).
 - Only the files of the ESP change.
   The GPT, the other partitions, and the FAT volume ID, label and geometry stay as built, so the result is deterministic for the same signed inputs.
 - The ESP also gets `/loader/rules_mkosi-secure-boot.json`, an [ESP manifest](#image-metadata) of the signed binaries and the auto-enrollment keys, which systemd-boot ignores.

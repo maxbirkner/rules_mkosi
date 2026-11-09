@@ -3,7 +3,7 @@
 load("//mkosi/private:image_identity.bzl", "validate_image_id")
 load("//mkosi/private:mkosi_image.bzl", "MkosiImageInfo", "MkosiRootfsPayloadInfo")
 load("//mkosi/private:python_action.bzl", "MKOSI_TOOLCHAIN_TYPE", "run_python")
-load("//mkosi/private:secure_boot.bzl", "SecureBootSignedBinaryInfo")
+load("//mkosi/private:secure_boot.bzl", "SecureBootSignedBinaryInfo", "check_version_signing")
 
 SysupdatePayloadInfo = provider(
     doc = "A directory of versioned update artifacts accepted by sysupdate_transfers definitions.",
@@ -151,6 +151,8 @@ def _sysupdate_payload_impl(ctx):
         fail("image must set image_id and image_version or image_version_file")
     if None in (image.root_image, image.root_hash, image.root_hash_image, image.verity_metadata, image.uki):
         fail("image must use unified_kernel_image = 'unsigned' and verity = 'hash'")
+    signed = [ctx.attr.signed_uki[SecureBootSignedBinaryInfo]] if ctx.attr.signed_uki else []
+    check_version_signing(image, "sysupdate_payload " + str(ctx.label), signed, esp_paths = [""])
     output = ctx.actions.declare_directory(ctx.label.name)
     arguments, inputs = _payload_arguments(ctx, image, image_version_file, output)
     _run_sysupdate(ctx, arguments, inputs, output, "MkosiSysupdatePayload")
@@ -185,7 +187,10 @@ uncompressed.""",
             providers = [SecureBootSignedBinaryInfo],
             doc = """Externally signed replacement for the image's unsigned UKI, from secure_boot_import_response.
 
-The build fails with SYSUPDATE_INVALID unless its signing request was created for this image's unsigned UKI.""",
+The build fails with SYSUPDATE_INVALID unless its signing request was created for this image's unsigned UKI. When the
+image derives its version with image_version_from_inputs, the certificate must be the one that its
+version_signing_certificates declare for the UKI (""), unless it comes from a secure_boot_ephemeral_test_fixture;
+without a declared UKI certificate, the payload must be unsigned.""",
         ),
         "_image_version": _script("image_version.py"),
     } | _SCRIPT_ATTRS,

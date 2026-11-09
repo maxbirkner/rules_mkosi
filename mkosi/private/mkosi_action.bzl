@@ -1,6 +1,6 @@
 """mkosi command line and build action shared by mkosi_base and mkosi_image."""
 
-load(":python_action.bzl", "mkosi_toolchain_info", "run_python")
+load(":python_action.bzl", "mkosi_toolchain_info", "python_action")
 
 DEBIAN_TOOLS_TOOLCHAIN_TYPE = "//mkosi/toolchain:debian_tools_toolchain_type"
 
@@ -217,6 +217,66 @@ def _mkosi_environment(mkosi, release):
         })
     return environment
 
+def mkosi_action(ctx, arguments, inputs, release, offline):
+    """Describes an mkosi build action without registering it.
+
+    Args:
+      ctx: Rule context with MKOSI_BUILD_ATTRS and MKOSI_BUILD_TOOLCHAINS.
+      arguments: Args of the mkosi runner.
+      inputs: Files read by the build, including mkosi_tool_inputs.
+      release: Release struct of add_release_arguments, or None for a tracer build.
+      offline: Whether the build installs packages only from a Debian snapshot or a base, without network.
+
+    Returns:
+      Struct with the executable, arguments, inputs, tools, env and execution_requirements of the action, and
+      tool_files, the depset of every file that its tools read, including their runfiles.
+    """
+    mkosi = mkosi_toolchain_info(ctx)
+    kernel_preflight = ctx.attr._kernel_preflight[DefaultInfo]
+    action = python_action(
+        ctx,
+        arguments = [arguments],
+        inputs = inputs,
+        transitive_inputs = [mkosi.runfiles_files, mkosi.python_runtime_files],
+        tools = [kernel_preflight.files_to_run],
+        env = _mkosi_environment(mkosi, release),
+    )
+    return struct(
+        executable = action.executable,
+        arguments = action.arguments,
+        inputs = action.inputs,
+        tools = action.tools,
+        env = action.env,
+        execution_requirements = mkosi_execution_requirements(release != None, offline),
+        tool_files = depset(
+            [action.executable],
+            transitive = [mkosi.python_runtime_files, kernel_preflight.default_runfiles.files],
+        ),
+    )
+
+def register_mkosi_action(ctx, action, outputs, mnemonic, progress_message, extra_inputs = []):
+    """Registers an mkosi build action described by mkosi_action.
+
+    Args:
+      ctx: Rule context with MKOSI_BUILD_ATTRS and MKOSI_BUILD_TOOLCHAINS.
+      action: Struct returned by mkosi_action.
+      outputs: Files written by the build.
+      mnemonic: Action mnemonic.
+      progress_message: Action progress message.
+      extra_inputs: Files read by the build in addition to action.inputs.
+    """
+    ctx.actions.run(
+        executable = action.executable,
+        arguments = action.arguments,
+        inputs = depset(extra_inputs, transitive = [action.inputs]) if extra_inputs else action.inputs,
+        tools = action.tools,
+        outputs = outputs,
+        env = action.env,
+        execution_requirements = action.execution_requirements,
+        mnemonic = mnemonic,
+        progress_message = progress_message,
+    )
+
 def run_mkosi(ctx, arguments, inputs, outputs, release, offline, mnemonic, progress_message):
     """Registers an mkosi build action.
 
@@ -230,16 +290,4 @@ def run_mkosi(ctx, arguments, inputs, outputs, release, offline, mnemonic, progr
       mnemonic: Action mnemonic.
       progress_message: Action progress message.
     """
-    mkosi = mkosi_toolchain_info(ctx)
-    run_python(
-        ctx,
-        arguments = [arguments],
-        inputs = inputs,
-        transitive_inputs = [mkosi.runfiles_files, mkosi.python_runtime_files],
-        tools = [ctx.attr._kernel_preflight[DefaultInfo].files_to_run],
-        outputs = outputs,
-        env = _mkosi_environment(mkosi, release),
-        execution_requirements = mkosi_execution_requirements(release != None, offline),
-        mnemonic = mnemonic,
-        progress_message = progress_message,
-    )
+    register_mkosi_action(ctx, mkosi_action(ctx, arguments, inputs, release, offline), outputs, mnemonic, progress_message)

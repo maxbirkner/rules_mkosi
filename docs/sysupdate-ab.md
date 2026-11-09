@@ -20,7 +20,7 @@ Requirements: `mode = "release"`, `unified_kernel_image = "unsigned"`, `verity =
 - `image_version`: letters, digits, and `.` only; requires `image_id`.
   `_` separates id and version in artifact names, and `+` and `-` are reserved for boot counting.
 - **Label limit:** GPT partition names hold 36 characters, and the longest label is `<image_id>_<image_version>_verity`, so `image_id` and the version together may use at most 28 characters.
-  Longer versions fail the build (at analysis for `image_version`, before mkosi starts for `image_version_file`).
+  Longer versions fail the build (at analysis for `image_version` and `image_version_from_inputs`, before mkosi starts for `image_version_file`).
   A stamped `<timestamp>.<hash>` version uses this budget quickly; keep `image_id` and the hash short.
 
 Both attributes expand Make variables, so a version can come from a build setting through a `TemplateVariableInfo` target in `toolchains`:
@@ -83,6 +83,83 @@ The content is validated like `image_version`; an empty file, for example when t
 
 Stable workspace status changes with every commit, so everything depending on the version rebuilds per commit.
 Use a two-stage release to avoid repeating package installation.
+
+### Versions derived from the inputs
+
+`image_version_from_inputs = True` names a release after its content, so that an unchanged image keeps its version across builds, commits and clean output bases, and devices can skip installing it, while any change to the image gets a new version.
+
+```starlark
+mkosi_image(
+    name = "os",
+    image_id = "my-os",
+    image_version_from_inputs = True,
+    # Other attributes as above, without image_version, image_version_file and toolchains.
+)
+```
+
+**What the version covers.**
+The version identifies the unsigned build plus the files that you declare; it is fixed, and written into `os-release` and the UKI, before anything is signed.
+
+- Everything that the action building the image reads: the configuration, `rootfs_payloads`, the base or Debian snapshot, and the files of the mkosi, Python and Debian tools toolchains, including the runner and its release patches, together with its command line, environment, and execution requirements.
+  The rule hashes the inputs of its own build action, so a new build input, or a ruleset or toolchain update that can change the unsigned image, also changes the version.
+- The ruleset scripts of `sysupdate_payload` and `secure_boot_signed_image` and the Debian tools launcher that they run, so that a ruleset update that changes how an image becomes shipped files also changes the version.
+- The signing material declared in `version_signing_certificates` and `version_auto_enroll_keys`, and other files listed in `version_inputs`, none of which the build reads.
+  `version_signing_certificates` maps each signed binary, by the `esp_path` of its `secure_boot_signing_request` (`""` for the UKI), to the certificate given to that request; `version_auto_enroll_keys` lists the `auto_enroll_keys` of `secure_boot_signed_image`.
+  The version covers the files and which binary each certificate signs.
+  A sysupdate signing key needs no entry: the `SHA256SUMS` signature is not installed, and a public keyring that the image ships through `rootfs_payloads` is already a build input.
+
+It does not cover the signatures themselves, attributes of the consuming rules such as `secure_boot_enroll` or `compression`, or tools outside the ruleset, such as an external signer; change the image or a declared input when those change.
+
+**One version per signing variant.**
+Because the version is fixed before signing, it cannot tell different consumers of one image apart: a development- and a production-signed payload, a signed and an unsigned payload, or a payload signed with either of two certificates would all ship different bytes under the same version.
+So every consumer must agree exactly with the image's declaration, and analysis fails otherwise:
+
+- `sysupdate_payload` must sign the UKI with the certificate declared for `""`, or be unsigned when none is declared.
+- `secure_boot_signed_image` must sign exactly the declared binaries with their declared certificates, and enroll exactly `version_auto_enroll_keys`.
+- A signed binary whose provider lacks `certificate_source`, such as one built by a rule outside rules_mkosi, fails, because its signer is unknown.
+- Binaries and keys of a `secure_boot_ephemeral_test_fixture` are exempt, because its throwaway keys change with every build.
+
+The image's own `raw_image` and unsigned UKI cannot be checked; do not ship them from an image that declares signing material.
+Build a separate `mkosi_image` for each variant that is signed differently or not at all; its target name and declarations give it its own versions.
+
+```starlark
+mkosi_image(
+    name = "os",
+    image_id = "my-os",
+    image_version_from_inputs = True,
+    version_signing_certificates = {
+        "": ":db_certificate",
+        "EFI/systemd/systemd-bootx64.efi": ":db_certificate",
+    },
+    version_auto_enroll_keys = [":PK.auth", ":KEK.auth", ":db.auth"],
+    # Other attributes as above.
+)
+```
+
+- As when Bazel digests action inputs, files are hashed by content and executable bit with symlinks followed, artifacts declared as symlinks by their target text, and directories are walked.
+  Paths are relative to the execution root, without the configuration name in `bazel-out/<config>/bin`, so the version does not depend on the sandbox, the output base, or `--compilation_mode`, but renaming or moving the target changes it.
+- The version is the first 16 lowercase hex characters (64 bits) of that SHA-256.
+  `MkosiImageInfo.image_version_file` and `SysupdatePayloadInfo.image_version_file` hold it as for `image_version_file`, `MkosiImageInfo.input_digest` holds the full digest, `MkosiImageInfo.version_signing_certificates`, `version_auto_enroll_keys` and `version_inputs` hold the declarations, and the `image_version` output group of `mkosi_image` and `secure_boot_signed_image` contains the version and digest files.
+- It requires `image_id` and release mode, and excludes `image_version` and `image_version_file`; the three declaration attributes require it.
+  With `verity = "hash"`, `image_id` may have at most 12 characters, to fit the [label limit](#image-identity).
+- Unlike a stamped version, the version changes only when the covered files do, so a new commit that does not touch them rebuilds nothing.
+
+**Install by explicit version.**
+Content-derived versions do not sort by build order.
+systemd-sysupdate selects the newest available version by [version comparison](https://uapi-group.org/specifications/specs/version_format_specification/), and systemd-boot boots the newest entry by default, so with these versions both can pick an older release or skip a newer one.
+Name the release to install, try it once, and make it the default only after a healthy boot:
+
+```console
+# Install the release, then boot it once; a failed boot returns to the current default.
+/usr/lib/systemd/systemd-sysupdate --transfer-source=/path/to/payload update <version>
+bootctl set-oneshot my-os_<version>.efi
+systemctl reboot
+# After the release reached boot-complete.target:
+bootctl set-default my-os_<version>.efi
+```
+
+Boot entry identifiers omit the [boot counting](#boot-assessment-and-rollback) suffix.
+The transfers still protect the running version, and with the default two `instances` the inactive slot is replaced; with more instances, systemd-sysupdate removes the instance that sorts lowest, which need not be the oldest release.
 
 ## Two-stage releases
 

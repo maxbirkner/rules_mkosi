@@ -47,6 +47,9 @@ Inactive `_empty` slots are excluded.
 `image_id` and `image_version` expand Make variables, override `ImageId=` and `ImageVersion=`, and appear in `MkosiImageInfo` and the build metadata.
 A version requires `image_id` and uses letters, digits, and `.` only.
 `image_version_file` supplies the version at execution time with the same rule (plus one optional newline) and excludes `image_version`; it reaches mkosi, the slot-label check, the build metadata, and `sysupdate_payload`.
+`image_version_from_inputs` requires `image_id` and release mode, excludes both, and derives a 16-character lowercase hex version from the SHA-256 of the image build action's inputs, command line, environment, and execution requirements; with `verity = "hash"` it limits `image_id` to 12 characters, and the derived file reaches the same consumers as `image_version_file`.
+The hash also covers `version_inputs`, `version_signing_certificates` with the ESP path each certificate signs, and `version_auto_enroll_keys`, which the build does not read, and the ruleset scripts of `sysupdate_payload` and `secure_boot_signed_image`; the three attributes require `image_version_from_inputs`.
+A payload or Secure Boot signed image of such an image fails when a signed binary's provider lacks `certificate_source`, or unless its certificates per ESP path, including an unsigned UKI, and its auto-enrollment keys equal the declarations; material of an ephemeral test fixture, identified by a private marker, is exempt.
 
 <!-- behavior:BHV-IMAGE-BASE -->
 `mkosi_base` installs a release configuration's packages offline from its snapshot, exposes the root archive and default initrd through `MkosiBaseInfo`, requires a seed and non-negative epoch, rejects `ImageVersion=` and kernel modules initrd settings, and has no version input.
@@ -140,7 +143,7 @@ They reject an image without one ESP in a valid GPT, reads outside the image, an
 `sysupdate_import_signature` accepts only exactly one detached signature that sqv verifies over that `SHA256SUMS` with that certificate, and returns the payload's `SysupdatePayloadInfo` with `signature`; `sysupdate_ephemeral_test_fixture` signs in one uncached, local action and outputs only public data.
 
 <!-- behavior:BHV-IMAGE-PROVIDER -->
-`MkosiImageInfo` has a fixed `format_version`, exposes every artifact role as `File` or `None`, keeps `image` as an alias of `raw_image`, projects each present artifact once through `DefaultInfo` and `raw_image` alone through the `raw_image` output group, and exposes `firmware`, `image_id`, `image_version`, and `image_version_file`.
+`MkosiImageInfo` has a fixed `format_version`, exposes every artifact role as `File` or `None`, keeps `image` as an alias of `raw_image`, projects each present artifact once through `DefaultInfo` and `raw_image` alone through the `raw_image` output group, and exposes `firmware`, `image_id`, `image_version`, `image_version_file`, `input_digest`, `version_inputs`, `version_signing_certificates`, and `version_auto_enroll_keys`, with `image_version_file` and `input_digest` also in the `image_version` output group.
 
 <!-- behavior:BHV-TREE-PROVIDERS -->
 `MkosiConfigTreeInfo` and `MkosiSourceTreeInfo` expose `tree` and normalized `executable_paths`.
