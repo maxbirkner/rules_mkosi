@@ -135,8 +135,10 @@ def _assert_hashes_image_action(env, version_action, image_action, version_file)
     asserts.true(env, version_file in image_action.inputs.to_list())
     asserts.false(env, version_file.path in hashed or version_file in version_inputs, "the version cannot hash itself")
     for file in image_action.inputs.to_list():
-        # A Bazel 8 runfiles middleman is an internal placeholder for the tool runfiles, which tool_files lists.
-        if file != version_file and "/internal/_middlemen/" not in file.path:
+        # Bazel stands in for the runfiles of a tool with an internal input, a middleman in Bazel 8 and a runfiles
+        # tree in Bazel 9; tool_files lists the files of those runfiles.
+        internal = "/internal/_middlemen/" in file.path or file.path.endswith(".runfiles")
+        if file != version_file and not internal:
             asserts.true(env, file.path in hashed and file in version_inputs, "unhashed image input " + file.path)
     asserts.equals(env, image_action.argv, argv[argv.index("--command-line") + 1:])
     asserts.equals(env, image_action.env, json.decode(option_value(argv, "--environment-json")))
