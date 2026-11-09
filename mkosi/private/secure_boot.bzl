@@ -1,6 +1,5 @@
 """Offline Authenticode Secure Boot rules."""
 
-load("//mkosi/private:input_version.bzl", "check_version_inputs")
 load("//mkosi/private:mkosi_action.bzl", "mkosi_execution_requirements")
 load("//mkosi/private:mkosi_image.bzl", "MkosiImageInfo")
 load("//mkosi/private:python_action.bzl", "MKOSI_TOOLCHAIN_TYPE", "run_python")
@@ -9,8 +8,8 @@ SecureBootSigningRequestInfo = provider(
     doc = "Typed immutable request for an external Secure Boot signer.",
     fields = {
         "certificate": "Expected public signer certificate.",
-        "certificate_source": """The certificate file given to the request, or None for a
-secure_boot_ephemeral_test_fixture.""",
+        "certificate_source": """The certificate file given to the request, which version_signing_certificates
+of an image deriving its version must declare, or a private marker for a secure_boot_ephemeral_test_fixture.""",
         "esp_path": "ESP path of the requested binary, or the empty string for the image's UKI.",
         "format_version": "Request schema, mkosi-secure-boot-signing-request-v3.",
         "request": "Canonical JSON request.",
@@ -24,7 +23,8 @@ SecureBootSignedBinaryInfo = provider(
     doc = "Authenticode-verified, firmware-consumable PE/COFF binary: a UKI or a boot binary from an image's ESP.",
     fields = {
         "certificate": "DER certificate that signed the binary.",
-        "certificate_source": """The certificate file given to secure_boot_signing_request, or None for a
+        "certificate_source": """The certificate file given to secure_boot_signing_request, which
+version_signing_certificates of an image deriving its version must declare, or a private marker for a
 secure_boot_ephemeral_test_fixture.""",
         "esp_path": "ESP path of the binary, or the empty string for a UKI.",
         "format_version": "Provider schema, mkosi-secure-boot-signed-binary-v3.",
@@ -33,6 +33,12 @@ secure_boot_ephemeral_test_fixture.""",
         "verification_metadata": "Verification and equivalence metadata.",
     },
 )
+
+# Only secure_boot_ephemeral_test_fixture returns this provider, and only it sets _EPHEMERAL_CERTIFICATE as a
+# certificate_source. Their throwaway keys change with every build, so a derived version cannot cover them.
+_EphemeralFixtureMarkerInfo = provider(doc = "Marks outputs of secure_boot_ephemeral_test_fixture.", fields = [])
+
+_EPHEMERAL_CERTIFICATE = _EphemeralFixtureMarkerInfo()
 
 SecureBootEphemeralTestFixtureInfo = provider(
     doc = "Public outputs from one action-private ephemeral signing operation.",
@@ -166,7 +172,7 @@ def _request_impl(ctx):
         DefaultInfo(files = depset([request, request_digest, unsigned, normalized_certificate])),
         SecureBootSigningRequestInfo(
             certificate = normalized_certificate,
-            certificate_source = None if SecureBootEphemeralTestFixtureInfo in ctx.attr.certificate else certificate,
+            certificate_source = _EPHEMERAL_CERTIFICATE if _EphemeralFixtureMarkerInfo in ctx.attr.certificate else certificate,
             esp_path = ctx.attr.esp_path,
             format_version = "mkosi-secure-boot-signing-request-v3",
             request = request,
@@ -421,6 +427,7 @@ def _fixture_impl(ctx):
             execution_requirements = EPHEMERAL_EXECUTION_REQUIREMENTS,
             signed_binaries = signed,
         ),
+        _EphemeralFixtureMarkerInfo(),
     ]
 
 secure_boot_ephemeral_test_fixture = rule(
@@ -459,14 +466,73 @@ _MKOSI_IMAGE_FIELDS = [
     "uki",
     "uki_metadata",
     "verity_metadata",
+    "version_auto_enroll_keys",
     "version_inputs",
+    "version_signing_certificates",
 ]
 
-_AUTO_ENROLL_NAMES = ["PK.auth", "KEK.auth", "db.auth", "dbx.auth"]
+def _describe_certificates(certificates):
+    return ", ".join(["%s: %s" % (role or "UKI", file.short_path) for role, file in sorted(certificates.items())]) or "none"
 
-def _declared_auto_enroll_files(targets):
-    """Returns the .auth files of the targets that are not test fixtures, whose throwaway keys change every build."""
-    return [file for target in targets if SecureBootEphemeralTestFixtureInfo not in target for file in target.files.to_list()]
+def _signing_certificates(binaries, consumer):
+    """Returns the certificates of binaries by ESP path and the ESP paths that a test fixture signed.
+
+    Fails closed for a binary whose provider lacks certificate_source, because its signer is unknown.
+    """
+    certificates = {}
+    ephemeral = []
+    for binary in binaries:
+        source = getattr(binary, "certificate_source", None)
+        if source == None:
+            fail("%s: signed binary %s has no certificate_source, so the image's derived version cannot cover its signer" %
+                 (consumer, binary.signed_binary.short_path))
+        if source == _EPHEMERAL_CERTIFICATE:
+            ephemeral.append(binary.esp_path)
+        else:
+            certificates[binary.esp_path] = source
+    return certificates, ephemeral
+
+def _check_auto_enroll_keys(image, consumer, targets):
+    if [target for target in targets if _EphemeralFixtureMarkerInfo in target]:
+        return
+    keys = sorted([file.short_path for target in targets for file in target.files.to_list()])
+    declared = sorted([file.short_path for file in (getattr(image, "version_auto_enroll_keys", None) or [])])
+    if keys != declared:
+        fail(("%s enrolls the keys [%s], but the image's version_auto_enroll_keys are [%s]; a derived version must " +
+              "declare exactly the keys that its signed images ship") % (consumer, ", ".join(keys), ", ".join(declared)))
+
+def check_version_signing(image, consumer, binaries, esp_paths = None, auto_enroll_keys = None):
+    """Fails unless an image deriving its version declares exactly the signing material that consumer ships.
+
+    A version is fixed before signing and cannot tell differently signed artifacts of one image apart, so every
+    consumer must sign each binary with the certificate that version_signing_certificates declares for its ESP path,
+    and enroll exactly version_auto_enroll_keys. Material of a secure_boot_ephemeral_test_fixture is exempt. Images
+    with another kind of version pass.
+
+    Args:
+      image: MkosiImageInfo of the image.
+      consumer: Description of the consuming target for error messages.
+      binaries: SecureBootSignedBinaryInfo of the signed binaries that consumer ships.
+      esp_paths: ESP paths, "" for the UKI, of the binaries that consumer ships signed or unsigned, or None for all.
+      auto_enroll_keys: auto_enroll_keys targets that consumer ships, or None if it ships no keys.
+    """
+    if getattr(image, "input_digest", None) == None:
+        return
+    certificates, ephemeral = _signing_certificates(binaries, consumer)
+    declared = {
+        esp_path: file
+        for esp_path, file in (getattr(image, "version_signing_certificates", None) or {}).items()
+        if (esp_paths == None or esp_path in esp_paths) and esp_path not in ephemeral
+    }
+    if certificates != declared:
+        fail(("%s signs with [%s], but the image's version_signing_certificates declare [%s]; one derived version " +
+              "cannot tell differently signed or unsigned variants apart, so declare exactly the certificates of " +
+              "every consumer, and build a separate mkosi_image for each variant") %
+             (consumer, _describe_certificates(certificates), _describe_certificates(declared)))
+    if auto_enroll_keys != None:
+        _check_auto_enroll_keys(image, consumer, auto_enroll_keys)
+
+_AUTO_ENROLL_NAMES = ["PK.auth", "KEK.auth", "db.auth", "dbx.auth"]
 
 def _auto_enroll_files(targets):
     """Returns the .auth files of the targets or of test fixtures after checking their names."""
@@ -511,11 +577,7 @@ def _signed_image_impl(ctx):
     if not keys and ctx.attr.secure_boot_enroll != "if-safe":
         fail("secure_boot_enroll requires auto_enroll_keys")
     signed = [target[SecureBootSignedBinaryInfo] for target in ctx.attr.signed_binaries]
-    check_version_inputs(
-        image,
-        [getattr(binary, "certificate_source", None) for binary in signed] + _declared_auto_enroll_files(ctx.attr.auto_enroll_keys),
-        "secure_boot_signed_image " + str(ctx.label),
-    )
+    check_version_signing(image, "secure_boot_signed_image " + str(ctx.label), signed, auto_enroll_keys = ctx.attr.auto_enroll_keys)
     outputs = [
         ctx.actions.declare_file(ctx.label.name + ".raw"),
         ctx.actions.declare_file(ctx.label.name + ".secure-boot-image.json"),
@@ -594,8 +656,9 @@ Returns DefaultInfo with the disk image and its JSON metadata, the image's Mkosi
 signed disk image, and the output groups raw_image, with only the disk image, secure_boot_metadata, with only the
 JSON metadata, and image_version, with the image's version files as in mkosi_image.
 
-When the image derives its version with image_version_from_inputs, its version_inputs must list the certificate of
-every signed binary and the auto_enroll_keys, except those of a secure_boot_ephemeral_test_fixture.""",
+When the image derives its version with image_version_from_inputs, its version_signing_certificates must map exactly
+the ESP paths of the signed binaries to their certificates, and its version_auto_enroll_keys must be exactly the
+auto_enroll_keys, except material of a secure_boot_ephemeral_test_fixture.""",
     provides = [MkosiImageInfo],
     toolchains = [MKOSI_TOOLCHAIN_TYPE],
 )

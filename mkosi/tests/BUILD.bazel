@@ -41,6 +41,7 @@ load(":runfiles_sh_test.bzl", "runfiles_sh_test")
 load(":secure_boot_test.bzl", "secure_boot_test_suite")
 load(":sysupdate_http_test.bzl", "sysupdate_http_test_suite")
 load(":sysupdate_test.bzl", "sysupdate_test_suite")
+load(":version_signing_test.bzl", "version_signing_test_suite")
 
 py_test(
     name = "secure_boot_boundary_test",
@@ -338,6 +339,7 @@ behavior_targets(
         ":sysupdate_test",
         ":unsupported_version_test",
         ":verity_metadata_test",
+        ":version_signing_analysis_tests",
     ],
 )
 
@@ -588,6 +590,8 @@ snapshot_declaration_test(name = "snapshot_declaration_test")
 mkosi_image_test_suite(name = "analysis_tests")
 
 sysupdate_test_suite(name = "sysupdate_analysis_tests")
+
+version_signing_test_suite(name = "version_signing_analysis_tests")
 
 sysupdate_http_test_suite(
     name = "sysupdate_http_analysis_tests",

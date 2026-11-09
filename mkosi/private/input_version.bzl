@@ -60,28 +60,38 @@ def _artifact_tool_files(ctx):
     launcher = ctx.attr._artifact_launcher[DefaultInfo]
     return depset(ctx.files._artifact_tools, transitive = [launcher.files, launcher.default_runfiles.files])
 
-def derive_image_version(ctx, action, image_version_file, input_digest, version_inputs):
+def _declared_json(declarations):
+    """Returns the declared signing roles as JSON, so that the version also changes when a certificate changes role."""
+    return json.encode({
+        "auto_enroll_keys": sorted([file.path for file in declarations.auto_enroll_keys]),
+        "signing_certificates": {role: file.path for role, file in declarations.signing_certificates.items()},
+    })
+
+def derive_image_version(ctx, action, image_version_file, input_digest, declarations):
     """Registers the action that derives the image version from an mkosi build action.
 
     The derived action reads the same inputs depset as the build action, and the same Args objects form the command
     line that it hashes, so the version covers every input, toolchain file, argument and variable of the build by
-    construction. It also hashes version_inputs and the ruleset tools that turn the image into shipped artifacts. The
-    build action must read image_version_file in addition to action.inputs.
+    construction. It also hashes the declared version inputs and signing material, and the ruleset tools that turn the
+    image into shipped artifacts. The build action must read image_version_file in addition to action.inputs.
 
     Args:
       ctx: Rule context with INPUT_VERSION_ATTRS and IMAGE_METADATA_ATTRS.
       action: Struct returned by mkosi_action for the image build.
       image_version_file: Output file receiving the version and one newline.
       input_digest: Output file receiving the full lowercase hex SHA-256 and one newline.
-      version_inputs: Files that the version covers although the build does not read them.
+      declarations: Struct of the files, signing_certificates and auto_enroll_keys that the version covers although
+        the build does not read them.
     """
     options = ctx.actions.args()
     options.add(ctx.file._input_version)
     options.add("--environment-json", json.encode(action.env))
     options.add("--execution-requirements-json", json.encode(action.execution_requirements))
+    options.add("--declared-json", _declared_json(declarations))
     options.add("--version-output", image_version_file)
     options.add("--digest-output", input_digest)
-    hashed = depset(version_inputs, transitive = [action.inputs, action.tool_files, _artifact_tool_files(ctx)])
+    declared = declarations.files + declarations.signing_certificates.values() + declarations.auto_enroll_keys
+    hashed = depset(declared, transitive = [action.inputs, action.tool_files, _artifact_tool_files(ctx)])
     command_line = ctx.actions.args()
     command_line.add("--command-line")
     command_line.add(action.executable)
@@ -95,22 +105,3 @@ def derive_image_version(ctx, action, image_version_file, input_digest, version_
         mnemonic = "MkosiInputVersion",
         progress_message = "Deriving the image version of %{label} from its inputs",
     )
-
-def check_version_inputs(image, files, consumer):
-    """Fails unless a version derived from the image's inputs covers files that consumer ships with the image.
-
-    Signing certificates and Secure Boot keys change the shipped bytes after the version is fixed, so an image with
-    image_version_from_inputs must declare them in version_inputs. Images with another kind of version pass.
-
-    Args:
-      image: MkosiImageInfo of the image.
-      files: Files that consumer adds to the image's shipped bytes; None entries are ignored.
-      consumer: Description of the consuming rule and attribute for the error message.
-    """
-    if getattr(image, "input_digest", None) == None:
-        return
-    declared = getattr(image, "version_inputs", None) or []
-    missing = [file.short_path for file in files if file != None and file not in declared]
-    if missing:
-        fail(("%s changes the shipped bytes of an image whose version is derived from its inputs; add %s to the " +
-              "image's version_inputs so that a change gives a new version") % (consumer, ", ".join(missing)))

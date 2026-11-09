@@ -127,6 +127,20 @@ class InputVersionTest(unittest.TestCase):
         _write(self.execroot, certificate, "certificate 2\n")
         self.assertNotEqual(declared, self.digest(inputs=[*INPUTS, certificate]))
 
+    def test_declared_signing_roles_change_version(self):
+        uki = {"signing_certificates": {"": "certificates/db.crt"}}
+        boot_loader = {"signing_certificates": {"EFI/systemd/systemd-bootx64.efi": "certificates/db.crt"}}
+        declared = input_version.digest(INPUTS, COMMAND_LINE, ENVIRONMENT, REQUIREMENTS, declared=uki)
+        self.assertNotEqual(self.baseline, declared)
+        moved = input_version.digest(INPUTS, COMMAND_LINE, ENVIRONMENT, REQUIREMENTS, declared=boot_loader)
+        self.assertNotEqual(declared, moved)
+        opt = {"signing_certificates": {"": "bazel-out/k8-opt/bin/db.crt"}}
+        fastbuild = {"signing_certificates": {"": "bazel-out/k8-fastbuild/bin/db.crt"}}
+        self.assertEqual(
+            input_version.digest(INPUTS, COMMAND_LINE, ENVIRONMENT, REQUIREMENTS, declared=opt),
+            input_version.digest(INPUTS, COMMAND_LINE, ENVIRONMENT, REQUIREMENTS, declared=fastbuild),
+        )
+
     def test_command_line_environment_and_requirements_change_version(self):
         self.assertChanges(self.digest(command_line=[*COMMAND_LINE, "--image-id=other"]))
         self.assertChanges(self.digest(environment=ENVIRONMENT | {"SOURCE_DATE_EPOCH": "1"}))

@@ -1,6 +1,7 @@
 """Helpers for analysis tests that inspect registered actions and their command lines."""
 
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts")
+load("//mkosi/private:input_version.bzl", "ARTIFACT_TOOL_SCRIPTS")
 
 def single_action(env, mnemonic):
     """Returns the only action with mnemonic of the target under test, failing the test if there is not exactly one."""
@@ -13,6 +14,12 @@ def option_value(argv, option):
     if option not in argv:
         return None
     return argv[argv.index(option) + 1]
+
+def assert_artifact_tools_are_hashed(env, action):
+    """Asserts that every ruleset script that action reads is one that a version derived from inputs covers."""
+    for file in action.inputs.to_list():
+        if file.is_source and file.short_path.startswith("mkosi/private/"):
+            asserts.true(env, file.basename in ARTIFACT_TOOL_SCRIPTS, "unhashed artifact tool " + file.short_path)
 
 def argv_preamble(argv):
     """Returns the arguments before the first `--` separator in argv."""

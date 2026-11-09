@@ -103,24 +103,35 @@ The version identifies the unsigned build plus the files that you declare; it is
 - Everything that the action building the image reads: the configuration, `rootfs_payloads`, the base or Debian snapshot, and the files of the mkosi, Python and Debian tools toolchains, including the runner and its release patches, together with its command line, environment, and execution requirements.
   The rule hashes the inputs of its own build action, so a new build input, or a ruleset or toolchain update that can change the unsigned image, also changes the version.
 - The ruleset scripts of `sysupdate_payload` and `secure_boot_signed_image` and the Debian tools launcher that they run, so that a ruleset update that changes how an image becomes shipped files also changes the version.
-- The files listed in `version_inputs`, which the build does not read.
-  List there what changes the shipped bytes after the build: the certificates given to `secure_boot_signing_request`, and the `auto_enroll_keys` of `secure_boot_signed_image`.
-  `sysupdate_payload(signed_uki = ...)` and `secure_boot_signed_image` fail at analysis unless the image lists the certificates and keys that they add; those of a `secure_boot_ephemeral_test_fixture` are exempt, because their throwaway keys change with every build.
+- The signing material declared in `version_signing_certificates` and `version_auto_enroll_keys`, and other files listed in `version_inputs`, none of which the build reads.
+  `version_signing_certificates` maps each signed binary, by the `esp_path` of its `secure_boot_signing_request` (`""` for the UKI), to the certificate given to that request; `version_auto_enroll_keys` lists the `auto_enroll_keys` of `secure_boot_signed_image`.
+  The version covers the files and which binary each certificate signs.
   A sysupdate signing key needs no entry: the `SHA256SUMS` signature is not installed, and a public keyring that the image ships through `rootfs_payloads` is already a build input.
 
 It does not cover the signatures themselves, attributes of the consuming rules such as `secure_boot_enroll` or `compression`, or tools outside the ruleset, such as an external signer; change the image or a declared input when those change.
+
+**One version per signing variant.**
+Because the version is fixed before signing, it cannot tell different consumers of one image apart: a development- and a production-signed payload, a signed and an unsigned payload, or a payload signed with either of two certificates would all ship different bytes under the same version.
+So every consumer must agree exactly with the image's declaration, and analysis fails otherwise:
+
+- `sysupdate_payload` must sign the UKI with the certificate declared for `""`, or be unsigned when none is declared.
+- `secure_boot_signed_image` must sign exactly the declared binaries with their declared certificates, and enroll exactly `version_auto_enroll_keys`.
+- A signed binary whose provider lacks `certificate_source`, such as one built by a rule outside rules_mkosi, fails, because its signer is unknown.
+- Binaries and keys of a `secure_boot_ephemeral_test_fixture` are exempt, because its throwaway keys change with every build.
+
+The image's own `raw_image` and unsigned UKI cannot be checked; do not ship them from an image that declares signing material.
+Build a separate `mkosi_image` for each variant that is signed differently or not at all; its target name and declarations give it its own versions.
 
 ```starlark
 mkosi_image(
     name = "os",
     image_id = "my-os",
     image_version_from_inputs = True,
-    version_inputs = [
-        ":secure_boot_db_certificate",
-        ":PK.auth",
-        ":KEK.auth",
-        ":db.auth",
-    ],
+    version_signing_certificates = {
+        "": ":db_certificate",
+        "EFI/systemd/systemd-bootx64.efi": ":db_certificate",
+    },
+    version_auto_enroll_keys = [":PK.auth", ":KEK.auth", ":db.auth"],
     # Other attributes as above.
 )
 ```
@@ -128,8 +139,8 @@ mkosi_image(
 - As when Bazel digests action inputs, files are hashed by content and executable bit with symlinks followed, artifacts declared as symlinks by their target text, and directories are walked.
   Paths are relative to the execution root, without the configuration name in `bazel-out/<config>/bin`, so the version does not depend on the sandbox, the output base, or `--compilation_mode`, but renaming or moving the target changes it.
 - The version is the first 16 lowercase hex characters (64 bits) of that SHA-256.
-  `MkosiImageInfo.image_version_file` and `SysupdatePayloadInfo.image_version_file` hold it as for `image_version_file`, `MkosiImageInfo.input_digest` holds the full digest, `MkosiImageInfo.version_inputs` lists the declared files, and the `image_version` output group of `mkosi_image` and `secure_boot_signed_image` contains the version and digest files.
-- It requires `image_id` and release mode, and excludes `image_version` and `image_version_file`; `version_inputs` requires it.
+  `MkosiImageInfo.image_version_file` and `SysupdatePayloadInfo.image_version_file` hold it as for `image_version_file`, `MkosiImageInfo.input_digest` holds the full digest, `MkosiImageInfo.version_signing_certificates`, `version_auto_enroll_keys` and `version_inputs` hold the declarations, and the `image_version` output group of `mkosi_image` and `secure_boot_signed_image` contains the version and digest files.
+- It requires `image_id` and release mode, and excludes `image_version` and `image_version_file`; the three declaration attributes require it.
   With `verity = "hash"`, `image_id` may have at most 12 characters, to fit the [label limit](#image-identity).
 - Unlike a stamped version, the version changes only when the covered files do, so a new commit that does not touch them rebuilds nothing.
 

@@ -73,8 +73,12 @@ sets manifest = True, or None.""",
         "uki": "The unsigned Unified Kernel Image when unified_kernel_image = \"unsigned\", or None.",
         "uki_metadata": "Normalized JSON metadata of the UKI's PE sections, or None.",
         "verity_metadata": "Normalized JSON linking the root and hash partitions to root_hash, or None.",
+        "version_auto_enroll_keys": """List of the files declared in version_auto_enroll_keys, or None without
+image_version_from_inputs.""",
         "version_inputs": """List of the files declared in version_inputs, which a version derived with
 image_version_from_inputs covers in addition to the build, or None without image_version_from_inputs.""",
+        "version_signing_certificates": """Dict from ESP path, or the empty string for the UKI, to the certificate File
+declared in version_signing_certificates, or None without image_version_from_inputs.""",
     },
 )
 
@@ -356,6 +360,23 @@ def _input_version_files(ctx, image_id, modes):
         ctx.actions.declare_file(ctx.label.name + ".input-digest"),
     )
 
+def _version_declarations(ctx):
+    """Returns the files and signing material that a derived version covers, or None without one."""
+    declared = ctx.attr.version_inputs or ctx.attr.version_signing_certificates or ctx.attr.version_auto_enroll_keys
+    if not ctx.attr.image_version_from_inputs:
+        if declared:
+            fail("version_inputs, version_signing_certificates and version_auto_enroll_keys require " +
+                 "image_version_from_inputs")
+        return None
+    return struct(
+        files = ctx.files.version_inputs,
+        signing_certificates = {
+            esp_path: _single_input(target, "version_signing_certificates")
+            for esp_path, target in ctx.attr.version_signing_certificates.items()
+        },
+        auto_enroll_keys = ctx.files.version_auto_enroll_keys,
+    )
+
 def _image_identity(ctx, modes):
     image_id = ctx.expand_make_variables("image_id", ctx.attr.image_id, {}) or None
     image_version = ctx.expand_make_variables("image_version", ctx.attr.image_version, {}) or None
@@ -373,18 +394,14 @@ def _image_identity(ctx, modes):
         if modes.verity:
             validate_slot_labels(image_id, image_version)
     input_digest = None
-    version_inputs = None
     if ctx.attr.image_version_from_inputs:
         image_version_file, input_digest = _input_version_files(ctx, image_id, modes)
-        version_inputs = ctx.files.version_inputs
-    elif ctx.attr.version_inputs:
-        fail("version_inputs requires image_version_from_inputs")
     return struct(
         image_id = image_id,
         image_version = image_version,
         image_version_file = image_version_file,
         input_digest = input_digest,
-        version_inputs = version_inputs,
+        version_declarations = _version_declarations(ctx),
     )
 
 def _config(ctx, release_mode):
@@ -427,7 +444,7 @@ def _image_settings(ctx):
         image_version = identity.image_version,
         image_version_file = identity.image_version_file,
         input_digest = identity.input_digest,
-        version_inputs = identity.version_inputs,
+        version_declarations = identity.version_declarations,
         manifest = ctx.attr.manifest,
         config = config,
         config_info = config_info,
@@ -577,7 +594,7 @@ def _build_image(ctx, settings, staging, outputs):
     )
     derived_version = []
     if settings.input_digest:
-        derive_image_version(ctx, action, settings.image_version_file, settings.input_digest, settings.version_inputs)
+        derive_image_version(ctx, action, settings.image_version_file, settings.input_digest, settings.version_declarations)
         derived_version = [settings.image_version_file]
     register_mkosi_action(
         ctx,
@@ -603,6 +620,7 @@ _ARTIFACT_FIELDS = [
 
 def _image_providers(settings, outputs):
     artifacts = {field: getattr(outputs, field) for field in _ARTIFACT_FIELDS}
+    declarations = _version_declaration_fields(settings.version_declarations)
     return [
         DefaultInfo(files = depset([artifact for artifact in artifacts.values() if artifact != None])),
         MkosiImageInfo(
@@ -612,15 +630,21 @@ def _image_providers(settings, outputs):
             image_version = settings.image_version,
             image_version_file = settings.image_version_file,
             input_digest = settings.input_digest,
-            version_inputs = settings.version_inputs,
             image = outputs.raw_image,
-            **artifacts
+            **(artifacts | declarations)
         ),
         OutputGroupInfo(
             image_version = depset([file for file in (settings.image_version_file, settings.input_digest) if file]),
             raw_image = depset([outputs.raw_image]),
         ),
     ]
+
+def _version_declaration_fields(declarations):
+    return {
+        "version_auto_enroll_keys": declarations.auto_enroll_keys if declarations else None,
+        "version_inputs": declarations.files if declarations else None,
+        "version_signing_certificates": declarations.signing_certificates if declarations else None,
+    }
 
 def _mkosi_image_impl(ctx):
     settings = _image_settings(ctx)
@@ -708,8 +732,10 @@ and secure_boot_signed_image. The version is the first 16 lowercase hex characte
 image keeps its version and any change to the build gets a new one. Input paths are part of the hash, so renaming or
 moving the target also changes the version.
 
-The version identifies the unsigned build: signing happens after the version is fixed, so declare the signing
-certificates and Secure Boot keys in version_inputs.
+The version identifies the unsigned build and the declared signing material: signing happens after the version is
+fixed, so declare the signing certificates in version_signing_certificates and the Secure Boot keys in
+version_auto_enroll_keys. One version cannot tell differently signed artifacts of the same image apart, so build a
+separate mkosi_image for each variant that is signed with other certificates or keys, or not signed at all.
 
 Requires image_id and release mode and excludes image_version and image_version_file. With verity = "hash",
 image_id may have at most 12 characters so that '<image_id>_<version>_verity' fits a GPT partition name.
@@ -756,17 +782,38 @@ sign it with secure_boot_signing_request.""",
             doc = """"none" (default) or "hash" to split the root into dm-verity data and hash partitions. Requires
 unified_kernel_image = "unsigned".""",
         ),
+        "version_auto_enroll_keys": attr.label_list(
+            allow_files = [".auth"],
+            doc = """The auto_enroll_keys of every secure_boot_signed_image of this image, which a version derived with
+image_version_from_inputs covers; requires image_version_from_inputs.
+
+secure_boot_signed_image fails unless its auto_enroll_keys are exactly these files, except keys of a
+secure_boot_ephemeral_test_fixture, whose throwaway keys change with every build. Rotating a key then gives a new
+version.
+""",
+        ),
         "version_inputs": attr.label_list(
             allow_files = True,
-            doc = """Files that a version derived with image_version_from_inputs covers although the build does not read
-them; requires image_version_from_inputs.
+            doc = """Other files that a version derived with image_version_from_inputs covers although the build does not
+read them; requires image_version_from_inputs.
 
-List the inputs that change the shipped bytes after the build: the certificates given to secure_boot_signing_request
-for the UKI and ESP binaries and the auto_enroll_keys of secure_boot_signed_image. A changed certificate or key then
-gives a new version. sysupdate_payload(signed_uki = ...) and secure_boot_signed_image fail unless the image lists the
-certificates and keys that they add, except those of a secure_boot_ephemeral_test_fixture, whose throwaway keys change
-with every build. A sysupdate signing key needs no entry: the SHA256SUMS signature is not installed, and a public
-keyring that the image ships through rootfs_payloads is already a build input.
+Declare signing material in version_signing_certificates and version_auto_enroll_keys instead, which the consuming
+rules check. A sysupdate signing key needs no entry: the SHA256SUMS signature is not installed, and a public keyring
+that the image ships through rootfs_payloads is already a build input.
+""",
+        ),
+        "version_signing_certificates": attr.string_keyed_label_dict(
+            allow_files = True,
+            doc = """Certificate given to secure_boot_signing_request for each binary of this image that is signed, keyed
+by the request's esp_path: the empty string for the UKI, or an ESP path such as EFI/systemd/systemd-bootx64.efi.
+A version derived with image_version_from_inputs covers the certificates and their keys; requires
+image_version_from_inputs.
+
+The version cannot distinguish consumers of one image, so the consumers must agree with this declaration exactly:
+sysupdate_payload fails unless it signs the UKI with the certificate declared for "", or is unsigned when none is
+declared, and secure_boot_signed_image fails unless its signed binaries use exactly the declared certificates. Binaries
+signed by a secure_boot_ephemeral_test_fixture are exempt, because its throwaway keys change with every build. Build
+a separate mkosi_image for each differently signed or unsigned variant.
 """,
         ),
         "_write_bios_repart": attr.label(

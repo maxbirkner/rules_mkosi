@@ -77,10 +77,26 @@ def input_entries(paths, symlinks=()):
     return sorted(entries)
 
 
-def digest(paths, command_line, environment, execution_requirements, symlinks=()):
-    """Returns the lowercase hex SHA-256 of the canonical JSON description of an action."""
+def _stable_json(value):
+    """Returns value with stable_path applied to every string in it."""
+    if isinstance(value, str):
+        return stable_path(value)
+    if isinstance(value, list):
+        return [_stable_json(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _stable_json(item) for key, item in value.items()}
+    return value
+
+
+def digest(paths, command_line, environment, execution_requirements, symlinks=(), declared=None):
+    """Returns the lowercase hex SHA-256 of the canonical JSON description of an action.
+
+    declared describes inputs that the action does not read but the version covers, such as the roles of signing
+    certificates.
+    """
     document = {
         "command_line": [stable_path(argument) for argument in command_line],
+        "declared": _stable_json(declared or {}),
         "environment": {key: stable_path(value) for key, value in environment.items()},
         "execution_requirements": execution_requirements,
         "format_version": FORMAT_VERSION,
@@ -99,6 +115,7 @@ def _parse(argv):
     parser.add_argument("--symlinks-file", type=Path)
     parser.add_argument("--environment-json", required=True, type=json.loads)
     parser.add_argument("--execution-requirements-json", required=True, type=json.loads)
+    parser.add_argument("--declared-json", default={}, type=json.loads)
     parser.add_argument("--version-output", required=True, type=Path)
     parser.add_argument("--digest-output", required=True, type=Path)
     return parser.parse_args(argv[:split]), argv[split + 1 :]
@@ -110,7 +127,7 @@ def main(argv=None):
         paths = args.inputs_file.read_text(encoding="utf-8").splitlines()
         symlinks = args.symlinks_file.read_text(encoding="utf-8").splitlines() if args.symlinks_file else []
         environment, requirements = args.environment_json, args.execution_requirements_json
-        hex_digest = digest(paths, command_line, environment, requirements, symlinks)
+        hex_digest = digest(paths, command_line, environment, requirements, symlinks, args.declared_json)
     except (OSError, ValueError) as error:
         raise SystemExit("IMAGE_INPUT_VERSION_FAILED: {}".format(error)) from error
     args.digest_output.write_text(hex_digest + "\n", encoding="ascii")
