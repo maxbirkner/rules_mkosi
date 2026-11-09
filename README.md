@@ -37,12 +37,11 @@ Release builds fail if mkosi differs from the version rules_mkosi was verified w
 
 ## Setup
 
-rules_mkosi is not yet published to the Bazel Central Registry; use an override.
-Add to the root `MODULE.bazel`:
+rules_mkosi is published to the [Bazel Central Registry](https://registry.bazel.build/modules/rules_mkosi).
+Add to the root `MODULE.bazel`, using the latest version from the [releases](https://github.com/maxbirkner/rules_mkosi/releases):
 
 ```starlark
-bazel_dep(name = "rules_mkosi", version = "0.0.0")
-local_path_override(module_name = "rules_mkosi", path = "/path/to/rules_mkosi")
+bazel_dep(name = "rules_mkosi", version = "0.0.2")
 
 # QEMU binaries used by the mkosi toolchain repository.
 bazel_dep(name = "rules_qemu", version = "0.3.0")
@@ -71,6 +70,16 @@ Its statically linked [bootstrap executables](#static-bootstrap-toolchain) use t
 Only [your own bootstrap or execution platforms](#static-bootstrap-toolchain) that name its constraints need a `bazel_dep` on `llvm`.
 If you use the `llvm` module yourself, the bootstrap executables share its version, its `llvm.version(...)` choice, and your overrides of it.
 Unsupported or conflicting mkosi versions fail during module resolution, and only the root module may set the toolchain `name`.
+
+To use an unreleased commit, keep the `bazel_dep` and add an override:
+
+```starlark
+git_override(
+    module_name = "rules_mkosi",
+    commit = "<commit>",
+    remote = "https://github.com/maxbirkner/rules_mkosi.git",
+)
+```
 
 ### Supplementary groups
 
