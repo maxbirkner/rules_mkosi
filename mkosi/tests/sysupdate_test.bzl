@@ -9,9 +9,11 @@ load(
     "SysupdatePayloadInfo",
     "mkosi_image",
     "qemu_ovmf_boot_config",
+    "secure_boot_signed_image",
     "sysupdate_payload",
     "sysupdate_transfers",
 )
+load("//mkosi/private:input_version.bzl", "ARTIFACT_TOOL_SCRIPTS")
 load(":analysis_test_helpers.bzl", "argv_preamble", "expected_failure_test", "option_value", "single_action")
 
 def _template_variables_impl(ctx):
@@ -29,6 +31,7 @@ def _signed_uki_impl(ctx):
     ctx.actions.write(signed_uki, "")
     return [SecureBootSignedBinaryInfo(
         certificate = request,
+        certificate_source = ctx.file.certificate_source,
         esp_path = ctx.attr.esp_path,
         format_version = "mkosi-secure-boot-signed-binary-v3",
         request = request,
@@ -36,7 +39,16 @@ def _signed_uki_impl(ctx):
         verification_metadata = request,
     )]
 
-_signed_uki = rule(implementation = _signed_uki_impl, attrs = {"esp_path": attr.string()})
+_signed_uki = rule(
+    implementation = _signed_uki_impl,
+    attrs = {"certificate_source": attr.label(allow_single_file = True), "esp_path": attr.string()},
+)
+
+def _assert_artifact_tools_are_hashed(env, action):
+    """Asserts that every ruleset script that action reads is one that a derived image version covers."""
+    for file in action.inputs.to_list():
+        if file.is_source and file.short_path.startswith("mkosi/private/"):
+            asserts.true(env, file.basename in ARTIFACT_TOOL_SCRIPTS, "unhashed artifact tool " + file.short_path)
 
 def _image_identity_test_impl(ctx):
     env = analysistest.begin(ctx)
@@ -148,9 +160,10 @@ def _assert_hashes_image_action(env, version_action, image_action, version_file)
         json.decode(option_value(argv, "--execution-requirements-json")),
     )
 
-    # Toolchain files are hashed because they are inputs of the image action.
+    # Toolchain files are hashed because they are inputs of the image action; artifact tools are added.
     names = [path.split("/")[-1] for path in hashed]
-    for name in ("__main__.py", "run_mkosi.py", "release_patches.py", "kernel_preflight", "pefile.py"):
+    toolchain_files = ["__main__.py", "run_mkosi.py", "release_patches.py", "kernel_preflight", "pefile.py"]
+    for name in toolchain_files + ARTIFACT_TOOL_SCRIPTS:
         asserts.true(env, name in names, name)
 
 def _input_version_identity_test_impl(ctx):
@@ -199,6 +212,7 @@ def _input_version_payload_test_impl(ctx):
     action = single_action(env, "MkosiSysupdatePayload")
     asserts.equals(env, image.image_version_file.path, option_value(action.argv, "--image-version-file"))
     asserts.true(env, image.image_version_file in action.inputs.to_list())
+    _assert_artifact_tools_are_hashed(env, action)
     return analysistest.end(env)
 
 _input_version_payload_test = analysistest.make(
@@ -376,6 +390,132 @@ def _payload_variant_tests():
     )
     return [":xz_payload_test", _signed_esp_file_payload_test()]
 
+def _version_inputs_hashed_test_impl(ctx):
+    env = analysistest.begin(ctx)
+    info = analysistest.target_under_test(env)[MkosiImageInfo]
+    asserts.equals(env, ctx.files.expected, info.version_inputs)
+    argv = single_action(env, "MkosiInputVersion").argv
+    hashed = argv[argv.index("--digest-output") + 2:argv.index("--command-line")]
+    image_inputs = single_action(env, "MkosiImage").inputs.to_list()
+    for file in ctx.files.expected:
+        asserts.true(env, file.path in hashed, "unhashed version input " + file.path)
+        asserts.false(env, file in image_inputs, "the build must not read version input " + file.path)
+    return analysistest.end(env)
+
+_version_inputs_hashed_test = analysistest.make(
+    _version_inputs_hashed_test_impl,
+    attrs = {"expected": attr.label_list(allow_files = True, mandatory = True)},
+)
+
+def _version_inputs_signed_image_test_impl(ctx):
+    env = analysistest.begin(ctx)
+    target = analysistest.target_under_test(env)
+    signed = target[MkosiImageInfo]
+    image = ctx.attr.image[MkosiImageInfo]
+    for field in ("image_version_file", "input_digest", "version_inputs"):
+        asserts.equals(env, getattr(image, field), getattr(signed, field), field)
+    asserts.equals(env, [image.image_version_file, image.input_digest], target[OutputGroupInfo].image_version.to_list())
+    _assert_artifact_tools_are_hashed(env, single_action(env, "SecureBootSignedImage"))
+    return analysistest.end(env)
+
+_version_inputs_signed_image_test = analysistest.make(
+    _version_inputs_signed_image_test_impl,
+    attrs = {"image": attr.label(providers = [MkosiImageInfo], mandatory = True)},
+)
+
+_SIGNER = "testdata/secure-boot-inputs/signer.crt"
+_AUTO_ENROLL_KEYS = ["testdata/secure-boot-inputs/%s.auth" % name for name in ("PK", "KEK", "db")]
+_UNDECLARED = "to the image's version_inputs so that a change gives a new version"
+
+def _version_inputs_subjects():
+    """Declares images that derive their version from their inputs and signed UKIs that they may declare."""
+    for subject, version_inputs in (("version_inputs_signed", [_SIGNER] + _AUTO_ENROLL_KEYS), ("version_inputs_signer", [_SIGNER])):
+        mkosi_image(
+            name = subject + "_subject",
+            config_tree = ":immutable_release_config_tree",
+            debian_snapshot = "@mkosi_debian_snapshot//:repository",
+            image_id = "rules-ab-sig",
+            image_version_from_inputs = True,
+            mode = "release",
+            release_seed = "00000000-0000-4000-8000-000000000007",
+            release_source_date_epoch = 0,
+            unified_kernel_image = "unsigned",
+            verity = "hash",
+            version_inputs = version_inputs,
+            tags = ["manual"],
+        )
+    for subject, certificate in (("signer", _SIGNER), ("other_signer", "testdata/secure-boot-inputs/other.crt")):
+        _signed_uki(name = "version_inputs_%s_uki" % subject, certificate_source = certificate, tags = ["manual"])
+
+def _version_inputs_tests():
+    """Declares tests of version_inputs and of their coverage of signed artifacts, and returns the test labels."""
+    _version_inputs_subjects()
+    _version_inputs_hashed_test(
+        name = "version_inputs_hashed_test",
+        expected = [_SIGNER] + _AUTO_ENROLL_KEYS,
+        target_under_test = ":version_inputs_signed_subject",
+    )
+    sysupdate_payload(
+        name = "version_inputs_signed_payload",
+        image = ":version_inputs_signed_subject",
+        signed_uki = ":version_inputs_signer_uki",
+        tags = ["manual"],
+    )
+    _input_version_payload_test(
+        name = "version_inputs_signed_payload_test",
+        image = ":version_inputs_signed_subject",
+        target_under_test = ":version_inputs_signed_payload",
+    )
+    secure_boot_signed_image(
+        name = "version_inputs_signed_image",
+        auto_enroll_keys = _AUTO_ENROLL_KEYS,
+        image = ":version_inputs_signed_subject",
+        signed_binaries = [":version_inputs_signer_uki"],
+        tags = ["manual"],
+    )
+    _version_inputs_signed_image_test(
+        name = "version_inputs_signed_image_test",
+        image = ":version_inputs_signed_subject",
+        target_under_test = ":version_inputs_signed_image",
+    )
+    return [
+        ":version_inputs_hashed_test",
+        ":version_inputs_signed_image_test",
+        ":version_inputs_signed_payload_test",
+    ] + _version_inputs_failure_tests()
+
+def _version_inputs_failure_tests():
+    """Declares signed artifacts of images whose version_inputs miss their certificate or keys; returns the tests."""
+    for subject, image, signed_uki in (
+        ("other_certificate", ":version_inputs_signed_subject", ":version_inputs_other_signer_uki"),
+        ("undeclared_certificate", ":input_version_release_subject", ":version_inputs_signer_uki"),
+    ):
+        sysupdate_payload(name = "version_inputs_%s_payload" % subject, image = image, signed_uki = signed_uki, tags = ["manual"])
+        expected_failure_test(
+            name = "version_inputs_%s_test" % subject,
+            expected_error = "sysupdate_payload(signed_uki) changes the shipped bytes",
+            target_under_test = ":version_inputs_%s_payload" % subject,
+        )
+    secure_boot_signed_image(
+        name = "version_inputs_undeclared_keys_image",
+        auto_enroll_keys = _AUTO_ENROLL_KEYS,
+        image = ":version_inputs_signer_subject",
+        signed_binaries = [":version_inputs_signer_uki"],
+        tags = ["manual"],
+    )
+    expected_failure_test(
+        name = "version_inputs_undeclared_keys_test",
+        expected_error = "add mkosi/tests/testdata/secure-boot-inputs/PK.auth, " +
+                         "mkosi/tests/testdata/secure-boot-inputs/KEK.auth, " +
+                         "mkosi/tests/testdata/secure-boot-inputs/db.auth " + _UNDECLARED,
+        target_under_test = ":version_inputs_undeclared_keys_image",
+    )
+    return [
+        ":version_inputs_other_certificate_test",
+        ":version_inputs_undeclared_certificate_test",
+        ":version_inputs_undeclared_keys_test",
+    ]
+
 _INPUT_VERSION_CONFLICT = "image_version_from_inputs excludes image_version and image_version_file"
 
 def _input_version_failure_tests():
@@ -386,6 +526,11 @@ def _input_version_failure_tests():
         ("input_version_and_version_file", {"image_version_file": ":release_version_file"}, _INPUT_VERSION_CONFLICT),
         ("input_version_without_id", {"image_id": ""}, "image_version_from_inputs requires image_id"),
         ("input_version_tracer", {}, "image_version_from_inputs requires release mode"),
+        (
+            "version_inputs_without_input_version",
+            {"image_version_from_inputs": False, "version_inputs": [_SIGNER]},
+            "version_inputs requires image_version_from_inputs",
+        ),
     ]:
         mkosi_image(
             name = "invalid_%s_subject" % subject,
@@ -439,7 +584,7 @@ def _input_version_tests():
         ":input_version_long_id_test",
         ":input_version_release_identity_test",
         ":input_version_release_payload_test",
-    ] + _input_version_failure_tests()
+    ] + _input_version_failure_tests() + _version_inputs_tests()
 
 def sysupdate_test_suite(name):
     """Defines analysis tests for image identity, sysupdate rules and multi-boot lifecycle configuration.

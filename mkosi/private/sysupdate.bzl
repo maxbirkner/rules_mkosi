@@ -1,6 +1,7 @@
 """systemd-sysupdate A/B transfer definitions and update payloads for mkosi images."""
 
 load("//mkosi/private:image_identity.bzl", "validate_image_id")
+load("//mkosi/private:input_version.bzl", "check_version_inputs")
 load("//mkosi/private:mkosi_image.bzl", "MkosiImageInfo", "MkosiRootfsPayloadInfo")
 load("//mkosi/private:python_action.bzl", "MKOSI_TOOLCHAIN_TYPE", "run_python")
 load("//mkosi/private:secure_boot.bzl", "SecureBootSignedBinaryInfo")
@@ -136,6 +137,7 @@ def _payload_arguments(ctx, image, image_version_file, output):
         signed = ctx.attr.signed_uki[SecureBootSignedBinaryInfo]
         if signed.esp_path:
             fail("signed_uki must import a signed UKI, not the ESP file %s" % signed.esp_path)
+        check_version_inputs(image, [getattr(signed, "certificate_source", None)], "sysupdate_payload(signed_uki)")
         inputs += [signed.signed_binary, signed.request]
         arguments.add("--signed-uki", signed.signed_binary)
         arguments.add("--signing-request", signed.request)
@@ -185,7 +187,9 @@ uncompressed.""",
             providers = [SecureBootSignedBinaryInfo],
             doc = """Externally signed replacement for the image's unsigned UKI, from secure_boot_import_response.
 
-The build fails with SYSUPDATE_INVALID unless its signing request was created for this image's unsigned UKI.""",
+The build fails with SYSUPDATE_INVALID unless its signing request was created for this image's unsigned UKI. When the
+image derives its version with image_version_from_inputs, its version_inputs must list the signing certificate, unless
+it comes from a secure_boot_ephemeral_test_fixture.""",
         ),
         "_image_version": _script("image_version.py"),
     } | _SCRIPT_ATTRS,

@@ -50,6 +50,9 @@ class InputVersionTest(unittest.TestCase):
     def digest(self, inputs=INPUTS, command_line=COMMAND_LINE, environment=ENVIRONMENT, requirements=REQUIREMENTS):
         return input_version.digest(inputs, command_line, environment, requirements)
 
+    def digest_with_symlinks(self, symlinks):
+        return input_version.digest(INPUTS, COMMAND_LINE, ENVIRONMENT, REQUIREMENTS, symlinks)
+
     def assertChanges(self, digest=None):
         self.assertNotEqual(self.baseline, self.digest() if digest is None else digest)
 
@@ -116,6 +119,14 @@ class InputVersionTest(unittest.TestCase):
         _write(self.execroot, "external/+mkosi+mkosi_source/mkosi/patch.py", "")
         self.assertChanges(self.digest(inputs=[*INPUTS, "external/+mkosi+mkosi_source/mkosi/patch.py"]))
 
+    def test_declared_version_input_change_changes_version(self):
+        certificate = "certificates/db.crt"
+        _write(self.execroot, certificate, "certificate 1\n")
+        declared = self.digest(inputs=[*INPUTS, certificate])
+        self.assertNotEqual(self.baseline, declared)
+        _write(self.execroot, certificate, "certificate 2\n")
+        self.assertNotEqual(declared, self.digest(inputs=[*INPUTS, certificate]))
+
     def test_command_line_environment_and_requirements_change_version(self):
         self.assertChanges(self.digest(command_line=[*COMMAND_LINE, "--image-id=other"]))
         self.assertChanges(self.digest(environment=ENVIRONMENT | {"SOURCE_DATE_EPOCH": "1"}))
@@ -125,6 +136,22 @@ class InputVersionTest(unittest.TestCase):
         (self.execroot / PAYLOAD_TREE / "etc/missing").symlink_to("does-not-exist")
         with self.assertRaisesRegex(ValueError, "dangling symlink"):
             self.digest()
+
+    def test_declared_symlinks_are_identified_by_their_target_text(self):
+        link = "bazel-out/k8-fastbuild/bin/tool.venv/bin/python3"
+        (self.execroot / link).parent.mkdir(parents=True)
+        (self.execroot / link).symlink_to("../../tool.runfiles/python3")
+        declared = self.digest_with_symlinks([link])
+        self.assertNotEqual(self.baseline, declared)
+        (self.execroot / link).unlink()
+        (self.execroot / link).symlink_to("../../tool.runfiles/python4")
+        self.assertNotEqual(declared, self.digest_with_symlinks([link]))
+        other = Path(self._directory.name, "other-output-base", "execroot")
+        _populate(other)
+        (other / link.replace("k8-fastbuild", "k8-opt")).parent.mkdir(parents=True)
+        (other / link.replace("k8-fastbuild", "k8-opt")).symlink_to("../../tool.runfiles/python3")
+        os.chdir(other)
+        self.assertEqual(declared, self.digest_with_symlinks([link.replace("k8-fastbuild", "k8-opt")]))
 
     def test_symlink_cycle_is_rejected(self):
         (self.execroot / PAYLOAD_TREE / "etc/loop").symlink_to("..")

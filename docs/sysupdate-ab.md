@@ -97,15 +97,41 @@ mkosi_image(
 )
 ```
 
-- A preceding action hashes everything that the action building the image reads: the configuration, `rootfs_payloads`, the base or Debian snapshot, and the files of the mkosi, Python and Debian tools toolchains, including the runner and its release patches, together with its command line, environment, and execution requirements.
-  Because the rule hashes the inputs of its own action, no input can be missing, and a ruleset or toolchain update that can change the image also changes the version.
-- Files are hashed by content and executable bit, with symlinks followed to their content as Bazel does for action inputs; directories are walked.
+**What the version covers.**
+The version identifies the unsigned build plus the files that you declare; it is fixed, and written into `os-release` and the UKI, before anything is signed.
+
+- Everything that the action building the image reads: the configuration, `rootfs_payloads`, the base or Debian snapshot, and the files of the mkosi, Python and Debian tools toolchains, including the runner and its release patches, together with its command line, environment, and execution requirements.
+  The rule hashes the inputs of its own build action, so a new build input, or a ruleset or toolchain update that can change the unsigned image, also changes the version.
+- The ruleset scripts of `sysupdate_payload` and `secure_boot_signed_image` and the Debian tools launcher that they run, so that a ruleset update that changes how an image becomes shipped files also changes the version.
+- The files listed in `version_inputs`, which the build does not read.
+  List there what changes the shipped bytes after the build: the certificates given to `secure_boot_signing_request`, and the `auto_enroll_keys` of `secure_boot_signed_image`.
+  `sysupdate_payload(signed_uki = ...)` and `secure_boot_signed_image` fail at analysis unless the image lists the certificates and keys that they add; those of a `secure_boot_ephemeral_test_fixture` are exempt, because their throwaway keys change with every build.
+  A sysupdate signing key needs no entry: the `SHA256SUMS` signature is not installed, and a public keyring that the image ships through `rootfs_payloads` is already a build input.
+
+It does not cover the signatures themselves, attributes of the consuming rules such as `secure_boot_enroll` or `compression`, or tools outside the ruleset, such as an external signer; change the image or a declared input when those change.
+
+```starlark
+mkosi_image(
+    name = "os",
+    image_id = "my-os",
+    image_version_from_inputs = True,
+    version_inputs = [
+        ":secure_boot_db_certificate",
+        ":PK.auth",
+        ":KEK.auth",
+        ":db.auth",
+    ],
+    # Other attributes as above.
+)
+```
+
+- As when Bazel digests action inputs, files are hashed by content and executable bit with symlinks followed, artifacts declared as symlinks by their target text, and directories are walked.
   Paths are relative to the execution root, without the configuration name in `bazel-out/<config>/bin`, so the version does not depend on the sandbox, the output base, or `--compilation_mode`, but renaming or moving the target changes it.
 - The version is the first 16 lowercase hex characters (64 bits) of that SHA-256.
-  `MkosiImageInfo.image_version_file` and `SysupdatePayloadInfo.image_version_file` hold it as for `image_version_file`, `MkosiImageInfo.input_digest` holds the full digest, and the `image_version` output group contains both files.
-- It requires `image_id` and release mode, and excludes `image_version` and `image_version_file`.
+  `MkosiImageInfo.image_version_file` and `SysupdatePayloadInfo.image_version_file` hold it as for `image_version_file`, `MkosiImageInfo.input_digest` holds the full digest, `MkosiImageInfo.version_inputs` lists the declared files, and the `image_version` output group of `mkosi_image` and `secure_boot_signed_image` contains the version and digest files.
+- It requires `image_id` and release mode, and excludes `image_version` and `image_version_file`; `version_inputs` requires it.
   With `verity = "hash"`, `image_id` may have at most 12 characters, to fit the [label limit](#image-identity).
-- Unlike a stamped version, the version changes only when the build's inputs do, so a new commit that does not touch the image rebuilds nothing.
+- Unlike a stamped version, the version changes only when the covered files do, so a new commit that does not touch them rebuilds nothing.
 
 **Install by explicit version.**
 Content-derived versions do not sort by build order.

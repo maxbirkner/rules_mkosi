@@ -1,5 +1,6 @@
 """Offline Authenticode Secure Boot rules."""
 
+load("//mkosi/private:input_version.bzl", "check_version_inputs")
 load("//mkosi/private:mkosi_action.bzl", "mkosi_execution_requirements")
 load("//mkosi/private:mkosi_image.bzl", "MkosiImageInfo")
 load("//mkosi/private:python_action.bzl", "MKOSI_TOOLCHAIN_TYPE", "run_python")
@@ -8,6 +9,8 @@ SecureBootSigningRequestInfo = provider(
     doc = "Typed immutable request for an external Secure Boot signer.",
     fields = {
         "certificate": "Expected public signer certificate.",
+        "certificate_source": """The certificate file given to the request, or None for a
+secure_boot_ephemeral_test_fixture.""",
         "esp_path": "ESP path of the requested binary, or the empty string for the image's UKI.",
         "format_version": "Request schema, mkosi-secure-boot-signing-request-v3.",
         "request": "Canonical JSON request.",
@@ -21,6 +24,8 @@ SecureBootSignedBinaryInfo = provider(
     doc = "Authenticode-verified, firmware-consumable PE/COFF binary: a UKI or a boot binary from an image's ESP.",
     fields = {
         "certificate": "DER certificate that signed the binary.",
+        "certificate_source": """The certificate file given to secure_boot_signing_request, or None for a
+secure_boot_ephemeral_test_fixture.""",
         "esp_path": "ESP path of the binary, or the empty string for a UKI.",
         "format_version": "Provider schema, mkosi-secure-boot-signed-binary-v3.",
         "request": "Verified request.",
@@ -161,6 +166,7 @@ def _request_impl(ctx):
         DefaultInfo(files = depset([request, request_digest, unsigned, normalized_certificate])),
         SecureBootSigningRequestInfo(
             certificate = normalized_certificate,
+            certificate_source = None if SecureBootEphemeralTestFixtureInfo in ctx.attr.certificate else certificate,
             esp_path = ctx.attr.esp_path,
             format_version = "mkosi-secure-boot-signing-request-v3",
             request = request,
@@ -266,6 +272,7 @@ def _import_impl(ctx):
         DefaultInfo(files = depset([output, metadata])),
         SecureBootSignedBinaryInfo(
             certificate = request.certificate,
+            certificate_source = request.certificate_source,
             esp_path = request.esp_path,
             format_version = "mkosi-secure-boot-signed-binary-v3",
             request = request.request,
@@ -452,9 +459,14 @@ _MKOSI_IMAGE_FIELDS = [
     "uki",
     "uki_metadata",
     "verity_metadata",
+    "version_inputs",
 ]
 
 _AUTO_ENROLL_NAMES = ["PK.auth", "KEK.auth", "db.auth", "dbx.auth"]
+
+def _declared_auto_enroll_files(targets):
+    """Returns the .auth files of the targets that are not test fixtures, whose throwaway keys change every build."""
+    return [file for target in targets if SecureBootEphemeralTestFixtureInfo not in target for file in target.files.to_list()]
 
 def _auto_enroll_files(targets):
     """Returns the .auth files of the targets or of test fixtures after checking their names."""
@@ -499,6 +511,11 @@ def _signed_image_impl(ctx):
     if not keys and ctx.attr.secure_boot_enroll != "if-safe":
         fail("secure_boot_enroll requires auto_enroll_keys")
     signed = [target[SecureBootSignedBinaryInfo] for target in ctx.attr.signed_binaries]
+    check_version_inputs(
+        image,
+        [getattr(binary, "certificate_source", None) for binary in signed] + _declared_auto_enroll_files(ctx.attr.auto_enroll_keys),
+        "secure_boot_signed_image " + str(ctx.label),
+    )
     outputs = [
         ctx.actions.declare_file(ctx.label.name + ".raw"),
         ctx.actions.declare_file(ctx.label.name + ".secure-boot-image.json"),
@@ -519,7 +536,11 @@ def _signed_image_impl(ctx):
     return [
         DefaultInfo(files = depset(outputs)),
         MkosiImageInfo(image = outputs[0], raw_image = outputs[0], **fields),
-        OutputGroupInfo(raw_image = depset([outputs[0]]), secure_boot_metadata = depset([outputs[1]])),
+        OutputGroupInfo(
+            image_version = depset([file for file in (fields["image_version_file"], fields["input_digest"]) if file]),
+            raw_image = depset([outputs[0]]),
+            secure_boot_metadata = depset([outputs[1]]),
+        ),
     ]
 
 secure_boot_signed_image = rule(
@@ -570,8 +591,11 @@ image before it writes it. The manifest describes the image as built: boot count
 replace UKIs without updating it, and its keys are those offered for enrollment, not those that the firmware enrolled.
 
 Returns DefaultInfo with the disk image and its JSON metadata, the image's MkosiImageInfo with raw_image replaced by the
-signed disk image, and the output groups raw_image, with only the disk image, and secure_boot_metadata, with only the
-JSON metadata.""",
+signed disk image, and the output groups raw_image, with only the disk image, secure_boot_metadata, with only the
+JSON metadata, and image_version, with the image's version files as in mkosi_image.
+
+When the image derives its version with image_version_from_inputs, its version_inputs must list the certificate of
+every signed binary and the auto_enroll_keys, except those of a secure_boot_ephemeral_test_fixture.""",
     provides = [MkosiImageInfo],
     toolchains = [MKOSI_TOOLCHAIN_TYPE],
 )

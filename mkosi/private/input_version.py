@@ -3,9 +3,9 @@
 
 The digest covers the build action's command line, environment, execution requirements and every input file. Inputs
 are identified by their path relative to the execution root, with the configuration segment of bazel-out/<config>/bin
-removed, so that neither the sandbox, the output base nor the configuration name changes the version. Symlinks are
-followed to their content, as Bazel does when it digests inputs, and directories are walked. The version is the first
-VERSION_LENGTH hex characters of the digest.
+removed, so that neither the sandbox, the output base nor the configuration name changes the version. As when Bazel
+digests inputs, symlinks are followed to their content, except artifacts declared as symlinks, which are identified by
+their target text, and directories are walked. The version is the first VERSION_LENGTH hex characters of the digest.
 """
 
 import argparse
@@ -62,24 +62,29 @@ def _entries(path, name, ancestors):
     return [_file_entry(path, name)]
 
 
-def input_entries(paths):
-    """Returns the sorted [path, kind, sha256, executable] entries of the input files and directories.
+def input_entries(paths, symlinks=()):
+    """Returns the sorted [path, kind, digest, executable] entries of the input files, directories and symlinks.
+
+    paths are followed to their content. symlinks are artifacts that Bazel declared as symlinks and identifies by
+    their target text, which is recorded without following it.
 
     Raises:
         ValueError: An input is missing, a dangling symlink, a symlink cycle or a special file.
         OSError: An input cannot be read.
     """
-    return sorted(entry for path in paths for entry in _entries(path, stable_path(path), frozenset()))
+    entries = [entry for path in paths for entry in _entries(path, stable_path(path), frozenset())]
+    entries += [[stable_path(path), "symlink", stable_path(os.readlink(path)), False] for path in symlinks]
+    return sorted(entries)
 
 
-def digest(paths, command_line, environment, execution_requirements):
+def digest(paths, command_line, environment, execution_requirements, symlinks=()):
     """Returns the lowercase hex SHA-256 of the canonical JSON description of an action."""
     document = {
         "command_line": [stable_path(argument) for argument in command_line],
         "environment": {key: stable_path(value) for key, value in environment.items()},
         "execution_requirements": execution_requirements,
         "format_version": FORMAT_VERSION,
-        "inputs": input_entries(paths),
+        "inputs": input_entries(paths, symlinks),
     }
     encoded = json.dumps(document, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
     return hashlib.sha256(encoded.encode("ascii")).hexdigest()
@@ -91,6 +96,7 @@ def _parse(argv):
     split = argv.index(COMMAND_LINE_MARKER)
     parser = argparse.ArgumentParser()
     parser.add_argument("--inputs-file", required=True, type=Path)
+    parser.add_argument("--symlinks-file", type=Path)
     parser.add_argument("--environment-json", required=True, type=json.loads)
     parser.add_argument("--execution-requirements-json", required=True, type=json.loads)
     parser.add_argument("--version-output", required=True, type=Path)
@@ -102,7 +108,9 @@ def main(argv=None):
     args, command_line = _parse(sys.argv[1:] if argv is None else argv)
     try:
         paths = args.inputs_file.read_text(encoding="utf-8").splitlines()
-        hex_digest = digest(paths, command_line, args.environment_json, args.execution_requirements_json)
+        symlinks = args.symlinks_file.read_text(encoding="utf-8").splitlines() if args.symlinks_file else []
+        environment, requirements = args.environment_json, args.execution_requirements_json
+        hex_digest = digest(paths, command_line, environment, requirements, symlinks)
     except (OSError, ValueError) as error:
         raise SystemExit("IMAGE_INPUT_VERSION_FAILED: {}".format(error)) from error
     args.digest_output.write_text(hex_digest + "\n", encoding="ascii")

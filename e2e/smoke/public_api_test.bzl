@@ -89,6 +89,7 @@ def _image_public_api_test_impl(ctx):
     asserts.equals(env, None, info.image_version)
     asserts.equals(env, None, info.image_version_file)
     asserts.equals(env, None, info.input_digest)
+    asserts.equals(env, None, info.version_inputs)
     return analysistest.end(env)
 
 image_public_api_test = analysistest.make(_image_public_api_test_impl)
@@ -168,6 +169,7 @@ def _input_version_public_api_test_impl(ctx):
     asserts.equals(env, None, image.image_version)
     asserts.true(env, image.image_version_file != None)
     asserts.true(env, image.input_digest != None)
+    asserts.equals(env, [], image.version_inputs)
     asserts.equals(env, [image.image_version_file, image.input_digest], image_target[OutputGroupInfo].image_version.to_list())
     asserts.equals(env, image.image_id, payload.image_id)
     asserts.equals(env, None, payload.image_version)

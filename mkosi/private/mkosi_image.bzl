@@ -73,6 +73,8 @@ sets manifest = True, or None.""",
         "uki": "The unsigned Unified Kernel Image when unified_kernel_image = \"unsigned\", or None.",
         "uki_metadata": "Normalized JSON metadata of the UKI's PE sections, or None.",
         "verity_metadata": "Normalized JSON linking the root and hash partitions to root_hash, or None.",
+        "version_inputs": """List of the files declared in version_inputs, which a version derived with
+image_version_from_inputs covers in addition to the build, or None without image_version_from_inputs.""",
     },
 )
 
@@ -371,13 +373,18 @@ def _image_identity(ctx, modes):
         if modes.verity:
             validate_slot_labels(image_id, image_version)
     input_digest = None
+    version_inputs = None
     if ctx.attr.image_version_from_inputs:
         image_version_file, input_digest = _input_version_files(ctx, image_id, modes)
+        version_inputs = ctx.files.version_inputs
+    elif ctx.attr.version_inputs:
+        fail("version_inputs requires image_version_from_inputs")
     return struct(
         image_id = image_id,
         image_version = image_version,
         image_version_file = image_version_file,
         input_digest = input_digest,
+        version_inputs = version_inputs,
     )
 
 def _config(ctx, release_mode):
@@ -420,6 +427,7 @@ def _image_settings(ctx):
         image_version = identity.image_version,
         image_version_file = identity.image_version_file,
         input_digest = identity.input_digest,
+        version_inputs = identity.version_inputs,
         manifest = ctx.attr.manifest,
         config = config,
         config_info = config_info,
@@ -569,7 +577,7 @@ def _build_image(ctx, settings, staging, outputs):
     )
     derived_version = []
     if settings.input_digest:
-        derive_image_version(ctx, action, settings.image_version_file, settings.input_digest)
+        derive_image_version(ctx, action, settings.image_version_file, settings.input_digest, settings.version_inputs)
         derived_version = [settings.image_version_file]
     register_mkosi_action(
         ctx,
@@ -604,6 +612,7 @@ def _image_providers(settings, outputs):
             image_version = settings.image_version,
             image_version_file = settings.image_version_file,
             input_digest = settings.input_digest,
+            version_inputs = settings.version_inputs,
             image = outputs.raw_image,
             **artifacts
         ),
@@ -694,9 +703,13 @@ file enforce them. MkosiImageInfo then sets image_version_file instead of image_
 
 A preceding action hashes the inputs of the action that builds the image: the configuration, rootfs payloads, base
 or Debian snapshot, and the files of the mkosi and Debian tools toolchains, together with its command line,
-environment and execution requirements. The version is the first 16 lowercase hex characters of that SHA-256, so an
-unchanged image keeps its version and any change to the build gets a new one. Input paths are part of the hash, so
-renaming or moving the target also changes the version.
+environment and execution requirements. It also hashes version_inputs and the ruleset scripts of sysupdate_payload
+and secure_boot_signed_image. The version is the first 16 lowercase hex characters of that SHA-256, so an unchanged
+image keeps its version and any change to the build gets a new one. Input paths are part of the hash, so renaming or
+moving the target also changes the version.
+
+The version identifies the unsigned build: signing happens after the version is fixed, so declare the signing
+certificates and Secure Boot keys in version_inputs.
 
 Requires image_id and release mode and excludes image_version and image_version_file. With verity = "hash",
 image_id may have at most 12 characters so that '<image_id>_<version>_verity' fits a GPT partition name.
@@ -742,6 +755,19 @@ sign it with secure_boot_signing_request.""",
             default = "none",
             doc = """"none" (default) or "hash" to split the root into dm-verity data and hash partitions. Requires
 unified_kernel_image = "unsigned".""",
+        ),
+        "version_inputs": attr.label_list(
+            allow_files = True,
+            doc = """Files that a version derived with image_version_from_inputs covers although the build does not read
+them; requires image_version_from_inputs.
+
+List the inputs that change the shipped bytes after the build: the certificates given to secure_boot_signing_request
+for the UKI and ESP binaries and the auto_enroll_keys of secure_boot_signed_image. A changed certificate or key then
+gives a new version. sysupdate_payload(signed_uki = ...) and secure_boot_signed_image fail unless the image lists the
+certificates and keys that they add, except those of a secure_boot_ephemeral_test_fixture, whose throwaway keys change
+with every build. A sysupdate signing key needs no entry: the SHA256SUMS signature is not installed, and a public
+keyring that the image ships through rootfs_payloads is already a build input.
+""",
         ),
         "_write_bios_repart": attr.label(
             cfg = "exec",
