@@ -40,8 +40,8 @@ def _content_digest(file):
 def _byte_range(header, size):
     """Returns the inclusive (first, last) positions of a single-range Range header, or None for the whole file.
 
-    Raises _UnsatisfiableRange when the range selects no byte of the file. Malformed headers and headers with several
-    ranges select the whole file, which RFC 9110 permits.
+    Raises _UnsatisfiableRange when the range starts at or after the end of the file or is bytes=-0. A nonzero suffix of
+    an empty file, malformed headers, and headers with several ranges select the whole file, which RFC 9110 permits.
     """
     match = _SINGLE_RANGE.fullmatch(header.strip()) if header else None
     if not match or match.groups() == ("", ""):

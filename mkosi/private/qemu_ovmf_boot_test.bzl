@@ -176,8 +176,8 @@ The files of a directory appear at the top of its path. The guest gets a virtio 
 network, which reaches only this server; configure it with the static address 10.0.2.15/24 or DHCP.
 
 Successful file responses carry `Content-Digest: sha-256=:<base64>:` (RFC 9530) with the SHA-256 of the whole file,
-also for a byte range. A single byte range of a GET or HEAD request gets 206 Partial Content, or 416 if it selects no
-byte; several ranges get the whole file.""",
+also for a byte range. A single byte range of a GET or HEAD request gets 206 Partial Content, or 416 if it starts at
+or after the end of the file or is `bytes=-0`; several ranges get the whole file.""",
         ),
         "progress_markers": attr.string_list(
             doc = "Exact serial markers that must appear in this order before readiness_marker.",
