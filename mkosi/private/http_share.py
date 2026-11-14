@@ -20,7 +20,8 @@ import sys
 from http import HTTPStatus
 
 _CHUNK = 1 << 20
-_SINGLE_RANGE = re.compile(r"bytes=(\d*)-(\d*)", re.IGNORECASE)
+# Longer positions are malformed: they exceed any file, and Python refuses to convert integers of over 4300 digits.
+_SINGLE_RANGE = re.compile(r"bytes=(\d{0,19})-(\d{0,19})", re.IGNORECASE)
 
 
 class _UnsatisfiableRange(Exception):

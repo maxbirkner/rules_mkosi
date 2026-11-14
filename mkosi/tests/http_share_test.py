@@ -95,7 +95,14 @@ class HttpShareTest(unittest.TestCase):
                 self.assertEqual(b"", body)
 
     def test_multiple_and_malformed_ranges_return_the_whole_file(self):
-        for header in ("bytes=0-1,5-6", "bytes=9-3", "bytes=-", "bytes=a-b", "lines=0-1"):
+        for header in (
+            "bytes=0-1,5-6",
+            "bytes=9-3",
+            "bytes=-",
+            "bytes=a-b",
+            "lines=0-1",
+            "bytes={}-".format("9" * 5000),
+        ):
             with self.subTest(range=header):
                 status, headers, body = self._request("GET", "/root.raw", Range=header)
                 self.assertEqual(200, status)
