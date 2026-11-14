@@ -98,6 +98,7 @@ The macro's `timeout` accepts `short`, `moderate`, and `long`, propagates to the
 `allow_reboot` keeps one QEMU process, its image snapshot, and firmware variables across reboots.
 `read_only_shares` exposes directories as read-only virtio-9p shares with unique 1 to 31 character tags.
 `http_shares` serves the files of targets at unique URL paths of `http://10.0.2.100/` on an otherwise isolated QEMU user network.
+File responses carry the SHA-256 `Content-Digest` of the whole file and answer a single byte range with `206`, an unsatisfiable one with `416`, and several ranges with the whole file.
 
 <!-- behavior:BHV-BOOT-SECURE-BOOT -->
 `qemu_ovmf_boot_test(secure_boot = True)` boots Debian's Secure Boot capable OVMF with SMM and secure flash and an empty variable store, so the firmware starts in Setup Mode; the default keeps the toolchain's OVMF, and only Secure Boot tests download the firmware.

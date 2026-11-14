@@ -303,6 +303,7 @@ behavior_targets(
         ":default_version_test",
         ":diagnostic_contract_test",
         ":esp_manifest_test",
+        ":http_share_test",
         ":explicit_version_test",
         ":image_version_test",
         ":input_version_artifact_test",
@@ -693,6 +694,13 @@ py_test(
         "//mkosi/private:sibling_loader.py",
     ],
     main = "boot_test_unit.py",
+)
+
+py_test(
+    name = "http_share_test",
+    srcs = ["http_share_test.py"],
+    data = ["//mkosi/private:http_share.py"],
+    main = "http_share_test.py",
 )
 
 qemu_ovmf_smoke_test(

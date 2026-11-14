@@ -173,7 +173,11 @@ does not enable; see docs/secure-boot.md. Names are letters, digits, and `._-@~+
             doc = """Targets whose files the guest can download from http://10.0.2.100/<path>/, keyed to their path.
 
 The files of a directory appear at the top of its path. The guest gets a virtio network interface on QEMU's user
-network, which reaches only this server; configure it with the static address 10.0.2.15/24 or DHCP.""",
+network, which reaches only this server; configure it with the static address 10.0.2.15/24 or DHCP.
+
+File responses carry `Content-Digest: sha-256=:<base64>:` (RFC 9530) with the SHA-256 of the whole file, also for a
+byte range. A single byte range gets 206 Partial Content or, beyond the end of the file, 416; several ranges get the
+whole file.""",
         ),
         "progress_markers": attr.string_list(
             doc = "Exact serial markers that must appear in this order before readiness_marker.",
