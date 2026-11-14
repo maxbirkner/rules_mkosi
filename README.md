@@ -413,6 +413,9 @@ Further attributes set the shutdown markers, QEMU machine arguments, the acceler
 - `read_only_shares` maps directory targets to virtio-9p mount tags (1 to 31 characters) that the guest mounts with `mount -t 9p -o trans=virtio,ro <tag> <path>`;
 - `http_shares` maps targets to URL paths: the guest downloads their files, and the contents of their directories, from `http://10.0.2.100/<path>/` through a virtio network interface on QEMU's user network, which reaches nothing else.
   Give the guest the address `10.0.2.15/24`, statically or with DHCP.
+  Successful responses for files carry a `Content-Digest: sha-256=:<base64>:` header (RFC 9530) and `Accept-Ranges: bytes`, so updaters can verify downloads by digest and fetch parts of files one range per request.
+  A single byte range gets `206 Partial Content`, and a range that starts at or after the end of the file, or `bytes=-0`, gets `416` with `Content-Range: bytes */<size>`; a request for several ranges gets the whole file with `200`, which clients that require `multipart/byteranges`, such as zsync, reject.
+  `Content-Digest` always describes the whole file, also in a `206` response, and `HEAD` requests honor `Range` like `GET`.
 
 Firmware, serial, QEMU, and boot-evidence logs are written to the test's undeclared outputs.
 Membership in the `kvm` group grants KVM access.
