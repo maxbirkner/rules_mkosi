@@ -493,7 +493,7 @@ Its output group `keyring` holds a directory with the certificate as `import-pub
 
 `qemu_ovmf_boot_test(http_shares = {":os_payload_signed": "updates"})` serves the files of the target, and the contents of its directories, at `http://10.0.2.100/updates/` through a virtio network interface on QEMU's user network, which reaches nothing else; give the guest the address `10.0.2.15/24`.
 Every successful (`200` or `206`) file response carries `Content-Digest: sha-256=:<base64>:` (RFC 9530) with the SHA-256 of the whole file, also when it answers a byte range.
-A single `Range: bytes=<first>-<last>`, `bytes=<first>-`, or `bytes=-<suffix>` gets `206 Partial Content` with `Content-Range`, a range that selects no byte (one that starts at or after the end of the file, `bytes=-0`, or any range of an empty file) gets `416` with `Content-Range: bytes */<size>`, and a request for several ranges gets the whole file with `200`.
+A single `Range: bytes=<first>-<last>`, `bytes=<first>-`, or `bytes=-<suffix>` gets `206 Partial Content` with `Content-Range`, a range that selects no byte (one that starts at or after the end of the file, or `bytes=-0`) gets `416` with `Content-Range: bytes */<size>`, and a request for several ranges gets the whole file with `200`, which clients that require `multipart/byteranges`, such as zsync, reject.
 `HEAD` requests honor `Range` like `GET`.
 
 ## Output sizes and caches

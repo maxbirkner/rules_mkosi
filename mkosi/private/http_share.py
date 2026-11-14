@@ -48,9 +48,10 @@ def _byte_range(header, size):
         return None
     first, last = match.groups()
     if not first:
-        if int(last) == 0 or size == 0:
+        if int(last) == 0:
             raise _UnsatisfiableRange
-        return max(size - int(last), 0), size - 1
+        # RFC 9110 satisfies a nonzero suffix of an empty file, but a 206 response cannot describe zero bytes.
+        return (max(size - int(last), 0), size - 1) if size else None
     if last and int(last) < int(first):
         return None
     if int(first) >= size:

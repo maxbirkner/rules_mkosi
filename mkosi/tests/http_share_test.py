@@ -54,9 +54,11 @@ class HttpShareTest(unittest.TestCase):
                 self.assertEqual(body, received)
 
     def test_empty_file_has_the_digest_of_no_bytes(self):
-        status, headers, body = self._request("GET", "/empty")
-        self.assertEqual((200, b""), (status, body))
-        self.assertEqual("sha-256=:47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=:", headers["Content-Digest"])
+        for headers in ({}, {"Range": "bytes=-1"}):
+            with self.subTest(headers=headers):
+                status, received, body = self._request("GET", "/empty", **headers)
+                self.assertEqual((200, b""), (status, body))
+                self.assertEqual("sha-256=:47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=:", received["Content-Digest"])
 
     def test_single_ranges_return_partial_content(self):
         size = len(_CONTENT)
@@ -85,7 +87,6 @@ class HttpShareTest(unittest.TestCase):
             ("/root.raw", "bytes={}-{}".format(size + 1, size + 9), size),
             ("/root.raw", "bytes=-0", size),
             ("/empty", "bytes=0-", 0),
-            ("/empty", "bytes=-1", 0),
         ):
             with self.subTest(path=path, range=header):
                 status, headers, body = self._request("GET", path, Range=header)
