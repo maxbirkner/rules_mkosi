@@ -15,7 +15,7 @@ _SPEC.loader.exec_module(debian_launcher)
 
 
 class DebianLauncherCliTest(unittest.TestCase):
-    def test_help_is_a_successful_cli_operation(self):
+    def test_help_is_a_successful_cli_operation(self) -> None:
         result = CliRunner().invoke(debian_launcher.cli, ["--help"])
 
         self.assertEqual(0, result.exit_code)
@@ -23,19 +23,19 @@ class DebianLauncherCliTest(unittest.TestCase):
         self.assertIn("--validate-only", result.stdout)
         self.assertEqual("", result.stderr)
 
-    def test_unknown_tool_is_a_usage_error(self):
+    def test_unknown_tool_is_a_usage_error(self) -> None:
         result = CliRunner().invoke(debian_launcher.cli, ["/usr/bin/not-mapped"])
 
         self.assertEqual(2, result.exit_code)
         self.assertIn("unknown or unmapped Debian tool", result.stderr)
 
-    def test_missing_tool_is_a_usage_error(self):
+    def test_missing_tool_is_a_usage_error(self) -> None:
         result = CliRunner().invoke(debian_launcher.cli)
 
         self.assertEqual(2, result.exit_code)
         self.assertIn("Missing argument 'TOOL'", result.stderr)
 
-    def test_setup_error_keeps_the_launcher_contract(self):
+    def test_setup_error_keeps_the_launcher_contract(self) -> None:
         with mock.patch.object(
             debian_launcher,
             "_runtime_files",
@@ -49,7 +49,7 @@ class DebianLauncherCliTest(unittest.TestCase):
             result.stderr,
         )
 
-    def test_tool_arguments_and_nonzero_status_are_forwarded_exactly(self):
+    def test_tool_arguments_and_nonzero_status_are_forwarded_exactly(self) -> None:
         runtime = debian_launcher.RuntimeFiles(
             archive="tree.tar",
             archive_sha256="0" * 64,

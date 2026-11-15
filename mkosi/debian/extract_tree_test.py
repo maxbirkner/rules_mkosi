@@ -16,27 +16,27 @@ spec.loader.exec_module(extract_tree)
 
 
 class ExtractTreeSecurityTest(unittest.TestCase):
-    def setUp(self):
+    def setUp(self) -> None:
         self.directory = pathlib.Path(os.environ.get("TEST_TMPDIR", ".")) / ("extract-tree-security-%s" % os.getpid())
         shutil.rmtree(self.directory, ignore_errors=True)
         self.directory.mkdir(parents=True)
 
-    def tearDown(self):
+    def tearDown(self) -> None:
         shutil.rmtree(self.directory, ignore_errors=True)
 
-    def test_rejects_member_traversal(self):
+    def test_rejects_member_traversal(self) -> None:
         for name in ("../escape", "usr/../../escape", "/etc/passwd"):
             with self.assertRaises(ValueError):
                 extract_tree.member_path(name)
 
-    def test_rejects_symlink_escape(self):
+    def test_rejects_symlink_escape(self) -> None:
         with self.assertRaises(ValueError):
             extract_tree._link_target("usr/bin/tool", "../../../outside")
 
-    def test_allows_in_root_relative_link(self):
+    def test_allows_in_root_relative_link(self) -> None:
         self.assertEqual(extract_tree._link_target("usr/bin/sh", "../lib/sh"), "usr/lib/sh")
 
-    def test_preserves_debian_empty_directory_symlink_target(self):
+    def test_preserves_debian_empty_directory_symlink_target(self) -> None:
         target = tarfile.TarInfo("etc/systemd/user")
         target.type = tarfile.DIRTYPE
         target.mode = 0o755
@@ -58,7 +58,7 @@ class ExtractTreeSecurityTest(unittest.TestCase):
         self.assertTrue((root / "etc/xdg/systemd/user").exists())
         self.assertTrue((root / "etc/systemd/user/.rules_mkosi_empty_directory").is_file())
 
-    def test_preserves_empty_ssl_private_symlink_target(self):
+    def test_preserves_empty_ssl_private_symlink_target(self) -> None:
         target = tarfile.TarInfo("etc/ssl/private")
         target.type = tarfile.DIRTYPE
         target.mode = 0o700
@@ -76,7 +76,7 @@ class ExtractTreeSecurityTest(unittest.TestCase):
         self.assertEqual(os.readlink(root / "usr/lib/ssl/private"), "../../../etc/ssl/private")
         self.assertTrue((root / "etc/ssl/private/.rules_mkosi_empty_directory").is_file())
 
-    def test_rejects_symlink_parent_archive(self):
+    def test_rejects_symlink_parent_archive(self) -> None:
         archive = self.directory / "bad.tar"
         root = self.directory / "root"
         outside = self.directory / "outside"
