@@ -1,10 +1,13 @@
 """Reads files from the EFI system partition of a release disk image with the pinned mtools."""
 
 import json
+import os
 import re
 import runpy
 import shlex
+from collections.abc import Iterable, Mapping
 from pathlib import Path
+from typing import TypeAlias
 
 _load_sibling = runpy.run_path(str(Path(__file__).with_name("sibling_loader.py")))["load_sibling"]
 gpt = _load_sibling(__file__, "gpt_partitions")
@@ -13,8 +16,10 @@ launcher_tool = _load_sibling(__file__, "launcher_tool")
 _COMPONENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+-]*")
 _CHUNK = 1 << 20
 
+StrPath: TypeAlias = str | os.PathLike[str]
 
-def validate_esp_path(path):
+
+def validate_esp_path(path: str) -> str:
     """Returns path if it is a relative ESP file path such as EFI/systemd/systemd-bootx64.efi; raises ValueError."""
     components = path.split("/")
     if len(path) > 255 or not all(_COMPONENT.fullmatch(component) for component in components):
@@ -24,7 +29,7 @@ def validate_esp_path(path):
     return path
 
 
-def esp_extent(partition_metadata):
+def esp_extent(partition_metadata: StrPath) -> tuple[int, int]:
     """Returns the byte offset and size of the only EFI system partition in the partition metadata file."""
     partitions = json.loads(Path(partition_metadata).read_text(encoding="utf-8"))["partitions"]
     esps = [partition for partition in partitions if partition["type_guid"] == gpt.ESP]
@@ -33,7 +38,14 @@ def esp_extent(partition_metadata):
     return esps[0]["start_bytes"], esps[0]["size_bytes"]
 
 
-def copy_range(source, destination, offset, size, destination_offset=0, sparse=True):
+def copy_range(
+    source: StrPath,
+    destination: StrPath,
+    offset: int,
+    size: int,
+    destination_offset: int = 0,
+    sparse: bool = True,
+) -> None:
     """Copies size bytes at offset of source to destination_offset of destination.
 
     With sparse, zero blocks are skipped, which leaves holes in a new destination but keeps old bytes in an existing
@@ -53,7 +65,7 @@ def copy_range(source, destination, offset, size, destination_offset=0, sparse=T
         writer.truncate(max(writer.seek(0, 2), destination_offset + size))
 
 
-def extract_esp(image, partition_metadata, destination):
+def extract_esp(image: StrPath, partition_metadata: StrPath, destination: StrPath) -> int:
     """Copies the EFI system partition of image to the file destination and returns its offset in image."""
     offset, size = esp_extent(partition_metadata)
     Path(destination).unlink(missing_ok=True)
@@ -61,12 +73,12 @@ def extract_esp(image, partition_metadata, destination):
     return offset
 
 
-def extract_file(tool, esp_image, esp_path, output):
+def extract_file(tool: StrPath, esp_image: StrPath, esp_path: str, output: StrPath) -> None:
     """Copies the file at esp_path of the FAT file system esp_image to output."""
     launcher_tool.run_tool(tool, "/usr/bin/mcopy", "-n", "-i", Path(esp_image), "::/" + esp_path, Path(output))
 
 
-def run_script(tool, scratch, lines, environment):
+def run_script(tool: StrPath, scratch: StrPath, lines: Iterable[str], environment: Mapping[str, str]) -> None:
     """Runs shell lines, with environment exported, in the tools namespace in one call; paths are namespace paths."""
     script = Path(scratch) / "run.sh"
     exports = ["export {}={}".format(name, shlex.quote(value)) for name, value in sorted(environment.items())]
@@ -74,7 +86,7 @@ def run_script(tool, scratch, lines, environment):
     launcher_tool.run_tool(tool, "/bin/sh", script)
 
 
-def copy_tree_command(tool, esp_image, tree):
+def copy_tree_command(tool: StrPath, esp_image: StrPath, tree: StrPath) -> str:
     """Returns the shell line that copies every file and directory of the FAT file system esp_image into tree."""
     return "/bin/mkdir -p {tree} && /usr/bin/mcopy -s -p -m -n -i {image} '::*' {tree}/".format(
         image=shlex.quote(launcher_tool.namespace_path(tool, esp_image)),
@@ -82,7 +94,7 @@ def copy_tree_command(tool, esp_image, tree):
     )
 
 
-def tree_files(tree):
+def tree_files(tree: StrPath) -> list[str]:
     """Returns the ESP paths of the regular files below tree, sorted."""
     root = Path(tree)
     return sorted(str(path.relative_to(root)) for path in root.rglob("*") if path.is_file())

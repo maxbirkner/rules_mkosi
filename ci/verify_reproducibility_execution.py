@@ -3,6 +3,8 @@
 
 import pathlib
 import sys
+from collections.abc import Mapping
+from typing import Any
 
 from execution_log import read_entries
 
@@ -46,10 +48,10 @@ SUBJECTS = {
 }
 
 
-def verify(path, build_name, subject="release"):
+def verify(path: pathlib.Path, build_name: str, subject: str = "release") -> None:
     expected = SUBJECTS[subject]
-    observed = {}
-    errors = []
+    observed: dict[tuple[str, str], list[Mapping[str, Any]]] = {}
+    errors: list[str] = []
     for entry in read_entries(path):
         key = (entry.get("mnemonic"), entry.get("targetLabel"))
         if key in expected:

@@ -27,7 +27,7 @@ load(
 load("@rules_mkosi//mkosi/tests:behavior_targets.bzl", "behavior_targets")
 load("@rules_mkosi//mkosi/tests:debian_tools_provenance.bzl", "DEBIAN_TOOLS_PROVENANCE_ENV")
 load("@rules_mkosi//mkosi/tests:runfiles_sh_test.bzl", "runfiles_sh_test")
-load("@rules_python//python:defs.bzl", "py_binary", "py_runtime", "py_runtime_pair", "py_test")
+load("@rules_python//python:defs.bzl", "py_binary", "py_library", "py_runtime", "py_runtime_pair", "py_test")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
 load(
     ":public_api_test.bzl",
@@ -487,6 +487,12 @@ py_test(
         "@mkosi_debian_tools//:launcher",
     ],
     main = "consumer_snapshot_artifact_test.py",
+    deps = [":rootfs_debugfs"],
+)
+
+py_library(
+    name = "rootfs_debugfs",
+    srcs = ["rootfs_debugfs.py"],
 )
 
 image_public_api_test(
@@ -718,6 +724,7 @@ py_test(
         "@mkosi_debian_tools//:launcher",
     ],
     main = "rootfs_payload_artifact_test.py",
+    deps = [":rootfs_debugfs"],
 )
 
 runfiles_sh_test(

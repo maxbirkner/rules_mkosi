@@ -11,7 +11,7 @@ import json
 import pathlib
 import re
 import sys
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from typing import Any
 
 DOC = "docs/hardware-qualification.md"
@@ -332,12 +332,12 @@ def expected_payloads(hardware_class: HardwareClass, state: str) -> list[str]:
     return ["blessed", "rolled-back"] + (["refused"] if state in ENFORCING_STATES else [])
 
 
-def enum(values: Any) -> JSON:
+def enum(values: Iterable[str]) -> JSON:
     values = list(values)
     return {"const": values[0]} if len(values) == 1 else {"enum": values}
 
 
-def obj(properties: JSON, required: Any = (), **extra: Any) -> JSON:
+def obj(properties: JSON, required: Iterable[str] = (), **extra: object) -> JSON:
     result: JSON = {"type": "object", "additionalProperties": False, "properties": properties}
     if required:
         result["required"] = list(required)
@@ -345,11 +345,11 @@ def obj(properties: JSON, required: Any = (), **extra: Any) -> JSON:
     return result
 
 
-def array(items: JSON, **extra: Any) -> JSON:
+def array(items: JSON, **extra: object) -> JSON:
     return {"type": "array", "items": items, **extra}
 
 
-def when(**conditions: Any) -> JSON:
+def when(**conditions: Iterable[str]) -> JSON:
     """Matches records whose class, outcome, and firmware fields have the given values; `not_secure_boot` negates."""
     parts = []
     for key, values in conditions.items():
@@ -362,7 +362,7 @@ def when(**conditions: Any) -> JSON:
     return parts[0] if len(parts) == 1 else {"allOf": parts}
 
 
-def passed_checks(ids: Any) -> JSON:
+def passed_checks(ids: Iterable[str]) -> JSON:
     ids = list(ids)
     passed = {check: {"$ref": "#/$defs/passed_check"} for check in ids}
     return {"properties": {"checks": {"required": ids, "properties": passed}}}
@@ -716,7 +716,7 @@ def dump(schema: JSON) -> str:
     return json.dumps(schema, indent=2, sort_keys=True, ensure_ascii=True) + "\n"
 
 
-def code(values: Any) -> str:
+def code(values: Iterable[str]) -> str:
     return ", ".join(f"`{value}`" for value in values)
 
 

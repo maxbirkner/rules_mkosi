@@ -8,6 +8,7 @@ writes build metadata whose image version comes from such a file.
 
 import argparse
 import json
+import os
 from pathlib import Path
 
 VERSION_CHARACTERS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.")
@@ -16,7 +17,7 @@ VERSION_CHARACTERS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUV
 GPT_PARTITION_NAME_MAX = 36
 
 
-def validate_image_version(image_version):
+def validate_image_version(image_version: str) -> str:
     """Returns image_version, or raises ValueError unless it is non-empty and uses only letters, digits and '.'.
 
     systemd-sysupdate accepts only letters, digits and ".,_-+" in a version. '_' separates the image id from the
@@ -29,7 +30,7 @@ def validate_image_version(image_version):
     return image_version
 
 
-def validate_slot_labels(image_id, image_version):
+def validate_slot_labels(image_id: str, image_version: str) -> None:
     """Raises ValueError unless the A/B root and verity partition labels fit in a GPT partition name.
 
     The populated slots are labelled '<image_id>_<image_version>' and '<image_id>_<image_version>_verity'; the
@@ -46,7 +47,7 @@ def validate_slot_labels(image_id, image_version):
         )
 
 
-def read_image_version(path, slot_label_image_id=None):
+def read_image_version(path: str | os.PathLike[str], slot_label_image_id: str | None = None) -> str:
     """Returns the validated version stored in path, which may end with one newline.
 
     When slot_label_image_id is set, the version must also fit the A/B partition labels of that image id.
@@ -65,7 +66,9 @@ def read_image_version(path, slot_label_image_id=None):
         raise ValueError("invalid image_version_file {}: {}".format(path, error)) from None
 
 
-def write_build_metadata(metadata_json, image_version_file, output):
+def write_build_metadata(
+    metadata_json: str, image_version_file: str | os.PathLike[str], output: str | os.PathLike[str]
+) -> None:
     """Writes build metadata with image.version taken from image_version_file.
 
     The encoding matches Starlark's json.encode, which the rule uses when the version is known during analysis.
@@ -75,7 +78,7 @@ def write_build_metadata(metadata_json, image_version_file, output):
     Path(output).write_text(json.dumps(metadata, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser()
     commands = parser.add_subparsers(dest="command", required=True)
     metadata_parser = commands.add_parser("build-metadata")

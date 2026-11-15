@@ -11,11 +11,13 @@ import hashlib
 import hmac
 import os
 import uuid
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import replace
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeAlias
 
 from . import mkosi_contract, release_sandbox, tree
+from .mkosi_contract import MkosiConfig, MkosiObject
 from .release_validation import (
     ReleaseSettings,
     is_declared,
@@ -24,8 +26,19 @@ from .release_validation import (
     validate_release_configuration,
 )
 
+# mypy resolves `import mkosi` to this repository's mkosi/ directory, not to upstream mkosi, which is not installed, so
+# the uses of upstream mkosi's top-level functions below ignore attr-defined.
 
-def activate_release_mode(mirror, settings, allowed_paths, allowed_extra_tree):
+# The (args, tools, images) that mkosi.config.parse_config() returns.
+_ParsedConfig: TypeAlias = tuple[MkosiObject, MkosiObject, Sequence[MkosiConfig]]
+
+
+def activate_release_mode(
+    mirror: release_sandbox.SnapshotMirror | None,
+    settings: ReleaseSettings,
+    allowed_paths: Sequence[str],
+    allowed_extra_tree: Path | None,
+) -> None:
     """Patches mkosi for a release build of settings.stage.
 
     A finalize stage has no mirror: it installs no packages and reads only the declared base tree and initrd.
@@ -40,22 +53,22 @@ def activate_release_mode(mirror, settings, allowed_paths, allowed_extra_tree):
         _serve_mirror(mirror)
     _ConfigurationValidator(settings, allowed_paths, allowed_extra_tree, mirror).install()
     mkosi.distribution.debian.install_apt_sources = _remove_apt_sources
-    mkosi.install_sandbox_trees = _install_sandbox_trees
+    mkosi.install_sandbox_trees = _install_sandbox_trees  # type: ignore[attr-defined]
     if settings.stage == "base":
         # The base root crosses Bazel's cache as an archive, so its bytes must depend only on the tree.
-        mkosi.make_tar = deterministic_make_tar
+        mkosi.make_tar = deterministic_make_tar  # type: ignore[attr-defined]
     if settings.stage == "finalize":
         include_base_packages_in_manifest()
 
 
-def activate_snapshot_mirror(mirror, components):
+def activate_snapshot_mirror(mirror: release_sandbox.SnapshotMirror, components: Sequence[str]) -> None:
     """Patches mkosi so that a tracer build installs packages only from the Debian snapshot mirror."""
     mkosi_contract.verify()
     _serve_mirror(mirror)
     _MirrorConfiguration(mirror, components).install()
 
 
-def include_base_packages_in_manifest():
+def include_base_packages_in_manifest() -> None:
     """Lists the packages of the base tree in the manifest of a finalized image.
 
     With BaseTrees=, mkosi v27 omits packages installed before the build started from the manifest. Finalization
@@ -65,14 +78,14 @@ def include_base_packages_in_manifest():
 
     original = Manifest.record_deb_packages
 
-    def record_deb_packages(self):
+    def record_deb_packages(self: MkosiObject) -> None:
         self._init_timestamp = datetime.datetime.min
         original(self)
 
     Manifest.record_deb_packages = record_deb_packages
 
 
-def _serve_mirror(mirror):
+def _serve_mirror(mirror: release_sandbox.SnapshotMirror) -> None:
     """Mounts the snapshot mirror read-only at mkosi's stable in-sandbox repository path, /repository.
 
     mkosi maps the /repository paths of the debs that it bootstraps a Debian root from to Context.repository, so the
@@ -86,7 +99,9 @@ def _serve_mirror(mirror):
     _patch_context_repository(Context, directory)
 
 
-def _write_mirror_sources(mirror, images, components):
+def _write_mirror_sources(
+    mirror: release_sandbox.SnapshotMirror, images: Sequence[MkosiConfig], components: Sequence[str]
+) -> None:
     """Lists the mirror in APT sources for the suite and the Repositories= of the parsed images.
 
     The sources list main plus the components requested through Repositories=, each of which must be present in the
@@ -98,10 +113,10 @@ def _write_mirror_sources(mirror, images, components):
     mirror.write_sources(config.release, release_apt_components(config.repositories, components))
 
 
-def _patch_mounts(package_manager, mirror):
+def _patch_mounts(package_manager: type[Any], mirror: str) -> None:
     original = package_manager.mounts.__func__
 
-    def mounts(cls, context):
+    def mounts(cls: type[Any], context: MkosiObject) -> list[str | os.PathLike[str]]:
         options = original(cls, context)
         repository = _find_bind(options, "--bind", mirror, "/repository")
         if repository is None:
@@ -112,7 +127,7 @@ def _patch_mounts(package_manager, mirror):
     package_manager.mounts = classmethod(mounts)
 
 
-def _find_bind(options, kind, source, destination):
+def _find_bind(options: Sequence[str | os.PathLike[str]], kind: str, source: str, destination: str) -> int | None:
     for index in range(len(options) - 2):
         if (
             options[index] == kind
@@ -123,15 +138,15 @@ def _find_bind(options, kind, source, destination):
     return None
 
 
-def _patch_context_repository(context_class, mirror):
+def _patch_context_repository(context_class: type[Any], mirror: str) -> None:
     original_init = context_class.__init__
 
-    def init(self, *args, **kwargs):
+    def init(self: MkosiObject, *args: MkosiObject, **kwargs: MkosiObject) -> None:
         original_init(self, *args, **kwargs)
         self._rules_mkosi_release_mirror = True
 
     # Context.__init__ creates the workspace repository directory, so the mirror replaces it only afterwards.
-    def repository(self):
+    def repository(self: MkosiObject) -> Path:
         if not getattr(self, "_rules_mkosi_release_mirror", False):
             return self.workspace / "repository"
         return Path(mirror)
@@ -143,7 +158,7 @@ def _patch_context_repository(context_class, mirror):
 class _FirstConfiguration:
     """Wraps mkosi's parse_config to act once on the first configuration that it parses for the requested image."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         import mkosi.config
 
         self._config_module = mkosi.config
@@ -151,10 +166,10 @@ class _FirstConfiguration:
         self._pending = True
         self._depth = 0
 
-    def install(self):
+    def install(self) -> None:
         self._config_module.parse_config = self.parse_config
 
-    def parse_config(self, *args, **kwargs):
+    def parse_config(self, *args: MkosiObject, **kwargs: MkosiObject) -> _ParsedConfig:
         # mkosi parses its bundled mkosi-initrd configuration separately; that pinned resource is not caller input.
         primary = "mkosi-initrd" not in os.fspath(kwargs.get("resources", "/"))
         self._depth += 1
@@ -167,19 +182,19 @@ class _FirstConfiguration:
             self._pending = False
         return parsed
 
-    def _resolved(self, parsed):
+    def _resolved(self, parsed: _ParsedConfig) -> _ParsedConfig:
         raise NotImplementedError
 
 
 class _MirrorConfiguration(_FirstConfiguration):
     """Serves the Debian snapshot mirror with the components that the parsed configuration requests."""
 
-    def __init__(self, mirror, components):
+    def __init__(self, mirror: release_sandbox.SnapshotMirror, components: Sequence[str]) -> None:
         super().__init__()
         self._mirror = mirror
         self._components = components
 
-    def _resolved(self, parsed):
+    def _resolved(self, parsed: _ParsedConfig) -> _ParsedConfig:
         _write_mirror_sources(self._mirror, parsed[2], self._components)
         return parsed
 
@@ -190,7 +205,13 @@ class _ConfigurationValidator(_FirstConfiguration):
     A release stage that installs packages also serves the Debian snapshot mirror for the validated configuration.
     """
 
-    def __init__(self, settings, allowed_paths, allowed_extra_tree, mirror=None):
+    def __init__(
+        self,
+        settings: ReleaseSettings,
+        allowed_paths: Sequence[str],
+        allowed_extra_tree: Path | None,
+        mirror: release_sandbox.SnapshotMirror | None = None,
+    ) -> None:
         super().__init__()
         self._original_parse_ini = self._config_module.parse_ini
         self._settings = settings
@@ -199,11 +220,11 @@ class _ConfigurationValidator(_FirstConfiguration):
         self._declared_roots = tuple(Path(path).resolve() for path in allowed_paths)
         self._mirror = mirror
 
-    def install(self):
+    def install(self) -> None:
         super().install()
         self._config_module.parse_ini = self.parse_ini
 
-    def _resolved(self, parsed):
+    def _resolved(self, parsed: _ParsedConfig) -> _ParsedConfig:
         images = tuple(_without_proxy_certificates(config) for config in parsed[2])
         images = with_release_ext4_hash_seed(images, self._settings)
         validate_release_configuration(
@@ -216,7 +237,7 @@ class _ConfigurationValidator(_FirstConfiguration):
             _write_mirror_sources(self._mirror, images, self._settings.components)
         return (parsed[0], parsed[1], images)
 
-    def parse_ini(self, *args, **kwargs):
+    def parse_ini(self, *args: MkosiObject, **kwargs: MkosiObject) -> Iterator[tuple[str, str, str]]:
         path = Path(args[0]).resolve() if args else None
         declared = path is not None and is_declared(path, self._declared_roots)
         for section, setting, value in self._original_parse_ini(*args, **kwargs):
@@ -225,7 +246,7 @@ class _ConfigurationValidator(_FirstConfiguration):
             yield section, setting, value
 
 
-def _without_proxy_certificates(config):
+def _without_proxy_certificates(config: MkosiConfig) -> MkosiConfig:
     # mkosi defaults ProxyPeerCertificate= to a host CA bundle; a release build uses no proxy, so it needs none.
     return replace(config, proxy_peer_certificate=None, proxy_client_certificate=None, proxy_client_key=None)
 
@@ -244,7 +265,7 @@ def derive_ext4_hash_seed(seed: uuid.UUID) -> uuid.UUID:
     return uuid.UUID(bytes=digest[:16], version=4)
 
 
-def with_derived_ext4_hash_seed(config: Any, seed: uuid.UUID) -> Any:
+def with_derived_ext4_hash_seed(config: MkosiConfig, seed: uuid.UUID) -> MkosiConfig:
     """Returns config with mkfs.ext4 options that pin the ext4 directory hash seed, unless it sets its own options."""
     if EXT4_MKFS_OPTIONS_VARIABLE in config.environment:
         return config
@@ -252,7 +273,7 @@ def with_derived_ext4_hash_seed(config: Any, seed: uuid.UUID) -> Any:
     return replace(config, environment={**config.environment, EXT4_MKFS_OPTIONS_VARIABLE: options})
 
 
-def with_release_ext4_hash_seed(images: tuple[Any, ...], settings: ReleaseSettings) -> tuple[Any, ...]:
+def with_release_ext4_hash_seed(images: tuple[MkosiConfig, ...], settings: ReleaseSettings) -> tuple[MkosiConfig, ...]:
     """Returns images with a derived ext4 hash seed if the release stage formats partitions.
 
     A base stage only archives its root, so its configuration stays unchanged.
@@ -263,7 +284,7 @@ def with_release_ext4_hash_seed(images: tuple[Any, ...], settings: ReleaseSettin
     return tuple(with_derived_ext4_hash_seed(config, seed) for config in images)
 
 
-def _remove_apt_sources(context, repositories):
+def _remove_apt_sources(context: MkosiObject, repositories: Sequence[MkosiObject]) -> None:
     """Leaves the image without APT sources, because the release mirror exists only during the build."""
     del repositories
     apt = context.root / "etc/apt"
@@ -286,7 +307,7 @@ _SANDBOX_DIRECTORIES = (
 _SANDBOX_PLACEHOLDER_FILES = ("etc/shadow", "etc/gshadow", "etc/ld.so.cache")
 
 
-def _install_sandbox_trees(config, dst):
+def _install_sandbox_trees(config: MkosiConfig, dst: Path) -> None:
     """Mirrors mkosi v27's install_sandbox_trees, but copies no host files and resolves host names only locally."""
     (dst / "etc").mkdir(exist_ok=True)
     _install_crypto_policy(config, dst)
@@ -304,31 +325,31 @@ def _install_sandbox_trees(config, dst):
         (dst / filename).touch(exist_ok=True)
 
 
-def _install_crypto_policy(config, dst):
+def _install_crypto_policy(config: MkosiConfig, dst: Path) -> None:
     import mkosi
 
     policy = config.tools() / "usr/share/crypto-policies/back-ends/DEFAULT"
     if policy.exists():
         (dst / "etc/crypto-policies").mkdir(exist_ok=True)
-        mkosi.copy_tree(policy, dst / "etc/crypto-policies/back-ends", sandbox=config.sandbox)
+        mkosi.copy_tree(policy, dst / "etc/crypto-policies/back-ends", sandbox=config.sandbox)  # type: ignore[attr-defined]
 
 
-def _install_configured_sandbox_trees(config, dst):
+def _install_configured_sandbox_trees(config: MkosiConfig, dst: Path) -> None:
     import mkosi
 
     if config.sandbox_trees:
-        with mkosi.complete_step("Copying in sandbox trees…"):
+        with mkosi.complete_step("Copying in sandbox trees…"):  # type: ignore[attr-defined]
             for sandbox_tree in config.sandbox_trees:
-                mkosi.install_tree(config, sandbox_tree.source, dst, target=sandbox_tree.target, preserve=False)
+                mkosi.install_tree(config, sandbox_tree.source, dst, target=sandbox_tree.target, preserve=False)  # type: ignore[attr-defined]
 
 
-def _link_tools_static(config, dst):
+def _link_tools_static(config: MkosiConfig, dst: Path) -> None:
     (dst / "etc/static").unlink(missing_ok=True)
     if (config.tools() / "etc/static").is_symlink():
         (dst / "etc/static").symlink_to((config.tools() / "etc/static").readlink())
 
 
-def deterministic_make_tar(src, dst, *, sandbox=None):
+def deterministic_make_tar(src: Path, dst: Path, *, sandbox: Callable[..., MkosiObject] | None = None) -> None:
     """Archives a root like mkosi v27's make_tar, but with a reproducible member order.
 
     mkosi's archive follows directory order, which depends on the file system. Sorting by name and not probing for
@@ -348,7 +369,7 @@ def deterministic_make_tar(src, dst, *, sandbox=None):
         )
 
 
-def tar_command(root, excludes, uid):
+def tar_command(root: str, excludes: Sequence[str], uid: int) -> list[str]:
     ownership = ["--owner=root:0", "--group=root:0"] if uid != 0 else []
     return [
         "tar",

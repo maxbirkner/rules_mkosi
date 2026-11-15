@@ -13,7 +13,15 @@ import hashlib
 import importlib
 import inspect
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
+from types import CodeType
+from typing import Any, TypeAlias
+
+# Upstream mkosi is not installed for mypy (see mypy.ini), so the release mode modules annotate its objects with these
+# aliases of Any: MkosiConfig for a parsed image configuration, MkosiObject for any other mkosi value.
+MkosiConfig: TypeAlias = Any
+MkosiObject: TypeAlias = Any
 
 _REVIEW = (
     "Follow docs/mkosi-internals.md#upgrading-mkosi: review each changed internal listed above against its upstream "
@@ -165,17 +173,17 @@ CONTRACTS = {
 }
 
 
-def mkosi_version():
+def mkosi_version() -> str:
     """Returns the version of the importable mkosi."""
     from mkosi.sandbox import __version__
 
     return __version__
 
 
-def violations(version=None, contract=None):
+def violations(version: str | None = None, contract: Contract | None = None) -> list[str]:
     """Returns descriptions of the differences between the importable mkosi and the contract of its version."""
     version = mkosi_version() if version is None else version
-    found = []
+    found: list[str] = []
     if contract is None:
         if version in CONTRACTS:
             contract = CONTRACTS[version]
@@ -202,11 +210,11 @@ def violations(version=None, contract=None):
     return found
 
 
-def _version_key(version):
+def _version_key(version: str) -> tuple[int, ...]:
     return tuple(int(number) for number in re.findall(r"\d+", version))
 
 
-def verify():
+def verify() -> None:
     """Fails the release build loudly if the importable mkosi differs from the contract of its version."""
     found = violations()
     if found:
@@ -217,11 +225,11 @@ def verify():
         )
 
 
-def resolve(name):
+def resolve(name: str) -> MkosiObject:
     """Returns the object named "module:qualified.name", without binding class attributes, or raises LookupError."""
     module_name, _, qualified = name.partition(":")
     try:
-        value = importlib.import_module(module_name)
+        value: MkosiObject = importlib.import_module(module_name)
     except ImportError as error:
         raise LookupError(name) from error
     for part in qualified.split("."):
@@ -235,12 +243,15 @@ def resolve(name):
     return value
 
 
-def source_sha256(value):
+def source_sha256(value: MkosiObject) -> str:
     """Returns the SHA-256 of the source of a function, method, classmethod, or property."""
     return hashlib.sha256(inspect.getsource(_function(value)).encode()).hexdigest()
 
 
-def parameters(value):
+_PARAMETER_PREFIXES: dict[object, str] = {inspect.Parameter.VAR_POSITIONAL: "*", inspect.Parameter.VAR_KEYWORD: "**"}
+
+
+def parameters(value: MkosiObject) -> str:
     """Returns the parameter names and kinds of a callable, without annotations or default values."""
     signature = inspect.signature(inspect.unwrap(_function(value)))
     described = []
@@ -249,14 +260,14 @@ def parameters(value):
         if parameter.kind is parameter.KEYWORD_ONLY and not keyword_only:
             described.append("*")
             keyword_only = True
-        prefix = {parameter.VAR_POSITIONAL: "*", parameter.VAR_KEYWORD: "**"}.get(parameter.kind, "")
+        prefix = _PARAMETER_PREFIXES.get(parameter.kind, "")
         default = "=" if parameter.default is not parameter.empty else ""
         keyword_only = keyword_only or parameter.kind is parameter.VAR_POSITIONAL
         described.append(prefix + parameter.name + default)
     return ", ".join(described)
 
 
-def _function(value):
+def _function(value: MkosiObject) -> MkosiObject:
     if isinstance(value, (classmethod, staticmethod)):
         return value.__func__
     if isinstance(value, property):
@@ -264,7 +275,7 @@ def _function(value):
     return value
 
 
-def _patched_violations(patched):
+def _patched_violations(patched: Patched) -> list[str]:
     try:
         value = resolve(patched.name)
     except LookupError:
@@ -273,7 +284,7 @@ def _patched_violations(patched):
                 patched.name, patched.patch, patched.recheck
             )
         ]
-    found = []
+    found: list[str] = []
     actual = source_sha256(value)
     if actual != patched.sha256:
         found.append(
@@ -287,7 +298,7 @@ def _patched_violations(patched):
     return found
 
 
-def _caller_violations(caller, attribute, patched):
+def _caller_violations(caller: str, attribute: str, patched: Patched) -> list[str]:
     try:
         function = inspect.unwrap(_function(resolve(caller)))
     except LookupError:
@@ -303,7 +314,7 @@ def _caller_violations(caller, attribute, patched):
 _GLOBAL_LOADS = frozenset(("LOAD_GLOBAL", "LOAD_NAME", "LOAD_FROM_DICT_OR_GLOBALS"))
 
 
-def _global_names(code):
+def _global_names(code: CodeType) -> set[str]:
     """Returns the names that code, including its nested functions, reads from its module's globals."""
     names = {instruction.argval for instruction in dis.get_instructions(code) if instruction.opname in _GLOBAL_LOADS}
     for constant in code.co_consts:
@@ -312,7 +323,7 @@ def _global_names(code):
     return names
 
 
-def _inherited_violations(owner, attribute):
+def _inherited_violations(owner: str, attribute: str) -> list[str]:
     try:
         cls = resolve(owner)
     except LookupError:
@@ -322,7 +333,7 @@ def _inherited_violations(owner, attribute):
     return []
 
 
-def _signature_violations(name, expected):
+def _signature_violations(name: str, expected: str) -> list[str]:
     try:
         actual = parameters(resolve(name))
     except LookupError:
@@ -332,7 +343,7 @@ def _signature_violations(name, expected):
     return []
 
 
-def _field_violations(owner, names):
+def _field_violations(owner: str, names: Iterable[str]) -> list[str]:
     try:
         cls = resolve(owner)
     except LookupError:

@@ -7,17 +7,9 @@ import subprocess
 import sys
 import uuid
 
-from python.runfiles import runfiles
+from mkosi.tests.runfile_paths import resolve_runfile
 
 _ROOT_TYPE_GUID = uuid.UUID("4f68bce3-e8cd-4db1-96e7-fbcaf984b709").bytes_le
-
-
-def _runfile(path: str) -> pathlib.Path:
-    if path.startswith("../"):
-        path = path[3:]
-    elif not path.startswith("external/"):
-        path = os.path.join(os.environ["TEST_WORKSPACE"], path)
-    return pathlib.Path(runfiles.Create().Rlocation(path))
 
 
 def _root_partition(image: pathlib.Path, destination: pathlib.Path) -> None:
@@ -46,8 +38,8 @@ def _root_partition(image: pathlib.Path, destination: pathlib.Path) -> None:
 
 
 def main() -> None:
-    image = _runfile(sys.argv[1])
-    launcher = _runfile(sys.argv[2])
+    image = resolve_runfile(sys.argv[1])
+    launcher = resolve_runfile(sys.argv[2])
     root = pathlib.Path(os.environ["TEST_TMPDIR"]) / "release-root.ext4"
     _root_partition(image, root)
     environment = {
