@@ -95,6 +95,7 @@ behavior_targets(
         ":consumer_snapshot_provider_test",
         ":debian_snapshot_public_provider_test",
         ":debian_tools_public_provider_test",
+        ":arm64_demo_test",
         ":demo_artifact_test",
         ":uefi_boot_test",
         ":external_root_package_tree_build_test",
@@ -176,6 +177,27 @@ mkosi_image(
     name = "demo",
     config = "testdata/minimal.conf",
     debian_snapshot = "@mkosi_debian_snapshot//:repository",
+)
+
+# Cross-built on Linux x86-64 execution platforms: its maintainer scripts run under the toolchain's arm64 emulator.
+mkosi_image(
+    name = "arm64_demo",
+    config = "testdata/arm64-minimal.conf",
+    debian_snapshot = "@mkosi_debian_snapshot_arm64//:repository",
+)
+
+raw_image_file(
+    name = "arm64_demo_raw",
+    image = ":arm64_demo",
+)
+
+py_test(
+    name = "arm64_demo_test",
+    srcs = ["arm64_image_test.py"],
+    args = ["$(rlocationpath :arm64_demo_raw)"],
+    data = [":arm64_demo_raw"],
+    main = "arm64_image_test.py",
+    deps = ["@rules_python//python/runfiles"],
 )
 
 mkosi_rootfs_payload(

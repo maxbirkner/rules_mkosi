@@ -25,6 +25,10 @@ Exactly one of `config` (one file) and `config_tree` is required; release mode r
 <!-- behavior:BHV-IMAGE-SNAPSHOT -->
 `debian_snapshot` is required in release mode and optional in tracer mode, where it replaces the network as the package source.
 
+<!-- behavior:BHV-IMAGE-ARCHITECTURE -->
+An image built from `debian_snapshot` has the snapshot's architecture, and its configuration must resolve `Architecture=` to it (`x86-64` for `amd64`, `arm64` for `arm64`).
+If the Debian tools toolchain of the execution platform has another architecture, the image action registers the toolchain's user-mode emulator for the snapshot's architecture in a `binfmt_misc` instance private to the action, after checking that it runs a program of that architecture, and fails during analysis if the toolchain has none.
+
 <!-- behavior:BHV-IMAGE-SEED -->
 `release_seed` is required only in release mode and must match the resolved `Seed=`.
 

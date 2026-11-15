@@ -298,6 +298,11 @@ behavior_targets(
         ":config_tree_artifact_test",
         ":conflicting_root_test",
         ":consumer_isolation_tests",
+        "//mkosi/private:binfmt_registration_test",
+        "//mkosi/private:binfmt_runner_host_test",
+        "//mkosi/tests/arm64:base_foreign_architecture_test",
+        "//mkosi/tests/arm64:minimal_artifact_test",
+        "//mkosi/tests/arm64:minimal_foreign_architecture_test",
         ":debian_snapshot_arm64_artifact_test",
         ":debian_snapshot_arm64_provider_test",
         ":debian_snapshot_artifact_test",
@@ -1117,6 +1122,8 @@ py_test(
 )
 
 exports_files([
+    "release_root.py",
+    "runfile_paths.py",
     "behavior_matrix.tsv",
     "behavior_matrix_test.py",
     "mkosi_version_test.sh",

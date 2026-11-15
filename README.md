@@ -16,7 +16,7 @@ Bazel rules for building bootable Linux OS images with [mkosi](https://github.co
 | Host | Linux x86-64. With local execution, the host is the execution platform, and rules_mkosi's default bootstrap execution platform always declares Linux x86-64, so on another host the `llvm` module's Linux x86-64 compiler fails when it runs. |
 | Execution platform | Linux x86-64, kernel 5.12 or newer, unprivileged user and mount namespaces under Bazel's Linux sandbox (see [host-kernel contract](docs/design/0004-host-kernel-contract.md)). |
 | Bazel server | Any unprivileged user; neither sudo nor a server without supplementary groups is needed (see [supplementary groups](#supplementary-groups)). |
-| Images | Debian 13 (trixie), amd64. |
+| Images | Debian 13 (trixie), amd64 and [arm64](#arm64-images). On Linux x86-64, arm64 images need Linux 6.7 or newer. |
 | KVM | Optional; boot tests fall back to TCG. |
 
 Image actions never run remotely (`no-remote-exec`).
@@ -341,6 +341,25 @@ mkosi's default initrd is built from the same repositories, so `InitrdPackages=`
 Set `extra_packages` on the `mkosi_base` of a two-stage release, or on an `mkosi_image` with `debian_snapshot`.
 `extra_packages_metadata` of `MkosiBaseInfo` and `MkosiImageInfo` lists each package's name, version, architecture, size, and SHA-256, and `mkosi_reproducibility_manifest` records it next to the build metadata, which identifies the snapshot packages by the digest of their lock.
 
+### arm64 images
+
+An image has the architecture of its `debian_snapshot`.
+Build an arm64 image from an arm64 snapshot, such as `@mkosi_debian_snapshot_arm64//:repository` or your own [arm64 lock](#debian-snapshots), and set `Architecture=arm64` in its configuration; a configuration that resolves `Architecture=` to another architecture than the snapshot's fails the build.
+
+```ini
+[Distribution]
+Distribution=debian
+Release=trixie
+Snapshot=20260912T080811Z
+Architecture=arm64
+```
+
+On a Linux x86-64 execution platform, the image is cross-built: the amd64 Debian tools assemble it, and only the image's own programs, such as package maintainer scripts, run under the Debian tools toolchain's pinned static `qemu-aarch64`.
+The action registers the emulator in a `binfmt_misc` instance that only its own user namespaces see, which needs Linux 6.7 or newer but neither root nor a `binfmt_misc` registration on the host, and it ignores the host's registrations.
+To qualify a host for arm64 images, run `bazel test --config=kernel_preflight //mkosi/private:binfmt_runner_host_test` from a rules_mkosi checkout.
+Build the executables in `rootfs_payloads` for arm64 yourself, for example with `platform_transition_filegroup` from bazel_lib.
+arm64 release images with a UKI, dm-verity and A/B payloads, their boot tests, and arm64 execution platforms follow in [#206](https://github.com/maxbirkner/rules_mkosi/issues/206).
+
 ### Image identity
 
 `image_id` and `image_version` (or `image_version_file` for versions only known at build time) set mkosi's `ImageId=` and `ImageVersion=` and expand Make variables.
@@ -352,7 +371,7 @@ See [image identity](docs/sysupdate-ab.md#image-identity) for A/B partition labe
 ## Debian snapshots
 
 `@mkosi_debian_snapshot//:repository` is the built-in snapshot: Debian 13, amd64, `main` only, with a small package set (the Debian tools closure).
-`@mkosi_debian_snapshot_arm64//:repository` is the same package set for arm64, with `linux-image-arm64` and `grub-efi-arm64-bin` instead of the amd64 kernel and boot loaders; images cannot use it yet ([#206](https://github.com/maxbirkner/rules_mkosi/issues/206)).
+`@mkosi_debian_snapshot_arm64//:repository` is the same package set for arm64, with `linux-image-arm64` and `grub-efi-arm64-bin` instead of the amd64 kernel and boot loaders, for [arm64 images](#arm64-images).
 For other packages, components, or a different snapshot time, lock your own.
 
 1. Write a JSON specification in the format of [`debian13.spec.json`](mkosi/debian/debian13.spec.json):
@@ -486,7 +505,7 @@ register_toolchains("//toolchains:python_3_14")
 
 | Symptom | Fix |
 | --- | --- |
-| `KERNEL_CAPABILITY_FAILURE` | The host does not meet the [host-kernel contract](docs/design/0004-host-kernel-contract.md). Each `FAIL` line names its remediation. Do not disable the Linux sandbox. |
+| `KERNEL_CAPABILITY_FAILURE` | The host does not meet the [host-kernel contract](docs/design/0004-host-kernel-contract.md). Each `FAIL` line names its remediation; a `FAIL binfmt_misc` line concerns [arm64 images](#arm64-images) on Linux x86-64. Do not disable the Linux sandbox. |
 | `TOOLCHAIN_FAILURE` | A registered toolchain is missing or could not start; check the toolchain setup above. |
 | `NETWORK_FAILURE` | A tracer build could not download packages, although apt retries failed downloads. |
 | `PACKAGE_RESOLUTION_FAILURE` | APT could not install a package or dependency offline; add it to your snapshot's lock or to `extra_packages`. |
@@ -503,6 +522,7 @@ To qualify a host before building, run the preflight from a rules_mkosi checkout
 ```console
 bazel shutdown
 bazel test --config=kernel_preflight //mkosi/private:kernel_preflight_host_test
+bazel test --config=kernel_preflight //mkosi/private:binfmt_runner_host_test  # Only for arm64 images on x86-64.
 ```
 
 ### Static bootstrap toolchain

@@ -29,6 +29,10 @@ class Preamble:
     release_snapshot: str | None = None
     release_firmware: str | None = None
     debian_snapshot_components: tuple[str, ...] | None = None
+    debian_snapshot_architecture: str | None = None
+    foreign_architecture: str | None = None
+    foreign_emulator: str | None = None
+    binfmt_runner: str | None = None
     image_version_file: str | None = None
     slot_label_image_id: str | None = None
     release_base_tree: str | None = None
@@ -37,6 +41,9 @@ class Preamble:
 
     def debian_tools_options(self) -> tuple[str | None, str | None, str | None]:
         return (self.debian_tools_archive, self.debian_tools_extractor, self.debian_tools_sha256)
+
+    def foreign_options(self) -> tuple[str | None, str | None, str | None]:
+        return (self.foreign_architecture, self.foreign_emulator, self.binfmt_runner)
 
     def release_options(self) -> tuple[str | None, int | None, str | None, str | None, str | None, str | None]:
         return (
@@ -89,6 +96,10 @@ _PREAMBLE_OPTIONS: dict[str, tuple[str, Callable[[str], object]]] = {
     "--release-initrd": ("release_initrd", os.path.abspath),
     "--release-base-initrd-output": ("release_base_initrd_output", os.path.abspath),
     "--debian-snapshot-components": ("debian_snapshot_components", _snapshot_components),
+    "--debian-snapshot-architecture": ("debian_snapshot_architecture", _verbatim),
+    "--foreign-architecture": ("foreign_architecture", _verbatim),
+    "--foreign-emulator": ("foreign_emulator", os.path.abspath),
+    "--binfmt-runner": ("binfmt_runner", os.path.abspath),
 }
 
 

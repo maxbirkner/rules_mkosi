@@ -21,6 +21,8 @@ VERSIONS_BZL = pathlib.Path(sys.argv[3]).resolve()
 _VALIDATION_WORDS = frozenset(
     (
         "always",
+        "amd64",
+        "arm64",
         "base",
         "bios",
         "finalize",
@@ -278,15 +280,21 @@ class MkosiContractTest(unittest.TestCase):
     def test_first_parsed_configuration_selects_the_mirror_components(self) -> None:
         written = []
         mirror = types.SimpleNamespace(write_sources=lambda *arguments: written.append(arguments))
-        configuration = self.release_patches._MirrorConfiguration(mirror, ("main", "contrib", "non-free-firmware"))
-        image = types.SimpleNamespace(release="trixie", repositories=["contrib"])
+        configuration = self.release_patches._MirrorConfiguration(
+            mirror, ("main", "contrib", "non-free-firmware"), "arm64"
+        )
+        image = types.SimpleNamespace(release="trixie", repositories=["contrib"], architecture="arm64")
         configuration._original_parse_config = lambda *args, **kwargs: (None, None, [image])
         configuration.parse_config([])
         configuration.parse_config([])
         self.assertEqual([("trixie", ("main", "contrib"))], written)
-        configuration = self.release_patches._MirrorConfiguration(mirror, ("main",))
+        configuration = self.release_patches._MirrorConfiguration(mirror, ("main",), "arm64")
         configuration._original_parse_config = lambda *args, **kwargs: (None, None, [image])
         with self.assertRaisesRegex(SystemExit, "absent from the Debian snapshot: contrib"):
+            configuration.parse_config([])
+        configuration = self.release_patches._MirrorConfiguration(mirror, ("main", "contrib"), "amd64")
+        configuration._original_parse_config = lambda *args, **kwargs: (None, None, [image])
+        with self.assertRaisesRegex(SystemExit, "must resolve Architecture= to x86-64"):
             configuration.parse_config([])
 
     def test_context_creates_the_repository_directory_that_release_mode_replaces(self) -> None:

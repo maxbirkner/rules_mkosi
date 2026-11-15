@@ -159,6 +159,7 @@ CONTRACTS = {
         },
         fields={
             "mkosi.config:Config": (
+                "architecture",
                 "image",
                 "release",
                 "repositories",
