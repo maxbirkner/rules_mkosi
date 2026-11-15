@@ -3,6 +3,7 @@
 load(
     "//mkosi/debian:provenance.bzl",
     "DEBIAN_TOOLS_ARCHIVE_SHA256",
+    "DEBIAN_TOOLS_ARM64_LOCK_SHA256",
     "DEBIAN_TOOLS_LOCK_SHA256",
     "DEBIAN_TOOLS_PYTHON_VERSION",
     "DEBIAN_TOOLS_REQUIRED_COMPONENTS",
@@ -13,7 +14,7 @@ load("//mkosi/private:debian_snapshot_repo.bzl", "debian_snapshot_repo")
 load("//mkosi/private:debian_tools_repo.bzl", "debian_tools_repo")
 
 _toolchain = tag_class(
-    doc = "Requests the built-in Debian tools toolchain and snapshot; the extension creates them in any case.",
+    doc = "Requests the built-in Debian tools toolchain and snapshots; the extension creates them in any case.",
     attrs = {},
 )
 
@@ -43,8 +44,10 @@ with the `<name>.update` target of a `debian_lock` macro or with
 
 _BUILTIN_REPOSITORIES = [
     "mkosi_debian_package_inputs",
+    "mkosi_debian_package_inputs_arm64",
     "mkosi_debian_python",
     "mkosi_debian_snapshot",
+    "mkosi_debian_snapshot_arm64",
     "mkosi_debian_tools",
 ]
 _NAME_CHARACTERS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-"
@@ -88,29 +91,27 @@ def _snapshot_repositories(module_ctx):
         fail(error)
     return snapshots
 
+def _declare_snapshot(name, package_repo, lock, lock_sha256):
+    """Declares a snapshot repository and the repository of its locked packages."""
+    debian_package_repo(name = package_repo, lock = lock)
+    debian_snapshot_repo(name = name, lock = lock, package_repo = "@" + package_repo, lock_sha256 = lock_sha256)
+
 def _debian_tools_impl(module_ctx):
     snapshots = _snapshot_repositories(module_ctx)
-    debian_package_repo(
-        name = "mkosi_debian_package_inputs",
-        lock = "@rules_mkosi//mkosi/debian:debian13.lock.json",
-    )
-    debian_snapshot_repo(
+    _declare_snapshot(
         name = "mkosi_debian_snapshot",
+        package_repo = "mkosi_debian_package_inputs",
         lock = "@rules_mkosi//mkosi/debian:debian13.lock.json",
-        package_repo = "@mkosi_debian_package_inputs",
         lock_sha256 = DEBIAN_TOOLS_LOCK_SHA256,
     )
+    _declare_snapshot(
+        name = "mkosi_debian_snapshot_arm64",
+        package_repo = "mkosi_debian_package_inputs_arm64",
+        lock = "@rules_mkosi//mkosi/debian:debian13.arm64.lock.json",
+        lock_sha256 = DEBIAN_TOOLS_ARM64_LOCK_SHA256,
+    )
     for snapshot in snapshots:
-        debian_package_repo(
-            name = snapshot.name + "_packages",
-            lock = snapshot.lock,
-        )
-        debian_snapshot_repo(
-            name = snapshot.name,
-            lock = snapshot.lock,
-            package_repo = "@" + snapshot.name + "_packages",
-            lock_sha256 = snapshot.lock_sha256,
-        )
+        _declare_snapshot(snapshot.name, snapshot.name + "_packages", snapshot.lock, snapshot.lock_sha256)
     debian_python_repo(name = "mkosi_debian_python")
     debian_tools_repo(
         name = "mkosi_debian_tools",
@@ -129,7 +130,8 @@ debian_tools = module_extension(
     doc = """Creates the pinned Debian 13 build-time userspace and Debian snapshot repositories.
 
 `@mkosi_debian_tools` holds the userspace that image actions run in, and `@mkosi_debian_snapshot//:repository` the
-built-in snapshot, a small `main`-only package set for images. Each `snapshot` tag adds a consumer-owned snapshot.""",
+built-in snapshot, a small `main`-only amd64 package set for images. `@mkosi_debian_snapshot_arm64//:repository` is the
+same package set for arm64. Each `snapshot` tag adds a consumer-owned snapshot.""",
     tag_classes = {
         "snapshot": _snapshot,
         "toolchain": _toolchain,

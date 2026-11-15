@@ -5,6 +5,8 @@ useDefault = true
 description = "The Debian package lock contains public package keys and hashes, not credentials."
 paths = [
   '''mkosi/debian/debian13\.lock\.json$''',
+  '''mkosi/debian/debian13\.arm64\.lock\.json$''',
   '''e2e/smoke/testdata/consumer-snapshot/debian\.lock\.json$''',
+  '''e2e/smoke/testdata/consumer-snapshot-arm64/debian\.lock\.json$''',
   '''e2e/smoke/example/debian\.lock\.json$''',
 ]

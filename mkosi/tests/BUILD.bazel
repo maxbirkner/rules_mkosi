@@ -17,7 +17,7 @@ load("//mkosi/debian:toolchain.bzl", "debian_tools_launcher_probe", "debian_tool
 load(":behavior_targets.bzl", "behavior_targets")
 load(":config_tree_test.bzl", "config_tree_test_suite")
 load(":consumer_isolation_test.bzl", "consumer_isolation_test_suite")
-load(":debian_snapshot_test.bzl", "debian_snapshot_provider_test")
+load(":debian_snapshot_test.bzl", "debian_snapshot_arm64_provider_test", "debian_snapshot_provider_test")
 load(":debian_tools_provenance.bzl", "DEBIAN_TOOLS_PROVENANCE_ENV")
 load(
     ":extension_semantics_test.bzl",
@@ -298,6 +298,8 @@ behavior_targets(
         ":config_tree_artifact_test",
         ":conflicting_root_test",
         ":consumer_isolation_tests",
+        ":debian_snapshot_arm64_artifact_test",
+        ":debian_snapshot_arm64_provider_test",
         ":debian_snapshot_artifact_test",
         ":debian_snapshot_provider_test",
         ":debian_snapshot_trust_test",
@@ -356,11 +358,36 @@ debian_snapshot_provider_test(
     target_under_test = "@mkosi_debian_snapshot//:repository",
 )
 
+debian_snapshot_arm64_provider_test(
+    name = "debian_snapshot_arm64_provider_test",
+    target_under_test = "@mkosi_debian_snapshot_arm64//:repository",
+)
+
 py_test(
     name = "debian_snapshot_artifact_test",
     srcs = ["debian_snapshot_artifact_test.py"],
-    args = ["$(rootpath @mkosi_debian_snapshot//:repository)"],
-    data = ["@mkosi_debian_snapshot//:repository"],
+    args = [
+        "$(rootpath @mkosi_debian_snapshot//:repository)",
+        "$(rootpath //mkosi/debian:debian13.lock.json)",
+    ],
+    data = [
+        "//mkosi/debian:debian13.lock.json",
+        "@mkosi_debian_snapshot//:repository",
+    ],
+    main = "debian_snapshot_artifact_test.py",
+)
+
+py_test(
+    name = "debian_snapshot_arm64_artifact_test",
+    srcs = ["debian_snapshot_artifact_test.py"],
+    args = [
+        "$(rootpath @mkosi_debian_snapshot_arm64//:repository)",
+        "$(rootpath //mkosi/debian:debian13.arm64.lock.json)",
+    ],
+    data = [
+        "//mkosi/debian:debian13.arm64.lock.json",
+        "@mkosi_debian_snapshot_arm64//:repository",
+    ],
     main = "debian_snapshot_artifact_test.py",
 )
 

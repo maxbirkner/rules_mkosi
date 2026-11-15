@@ -166,6 +166,11 @@ The lock records the digest of its normalized specification, so a `debian_lock` 
 `debian_tools.snapshot` turns it into a repository with a computed lock digest and rejects duplicate or reserved names.
 Release images install from the components selected by `Repositories=` and reject components absent from the snapshot.
 
+<!-- behavior:BHV-SNAPSHOT-ARCHITECTURE -->
+A specification and its lock resolve exactly one architecture, `amd64` or `arm64`, plus `all` packages; other or several architectures are rejected.
+The snapshot repository verifies and serves the `binary-<architecture>` and `binary-all` indexes of its lock's architecture, and `DebianSnapshotInfo.architecture` reports it.
+`@mkosi_debian_snapshot_arm64` is the built-in snapshot's package set for arm64 at the same snapshot.
+
 <!-- behavior:BHV-DEBIAN-TOOLS-PROVIDER -->
 `DebianToolsInfo` exposes the Debian tools identity, archive, launcher and runfiles, provenance, and component inventory.
 

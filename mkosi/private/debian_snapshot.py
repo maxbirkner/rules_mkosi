@@ -81,6 +81,8 @@ def _release_hash(release: bytes, relative_path: str, expected_size: int, expect
 
 
 _SQV_KEYRING = "--keyring=/usr/share/keyrings/debian-archive-keyring.gpg"
+# Debian architectures of the locks that the stager accepts; arch: all packages are always included.
+_ARCHITECTURES = ("amd64", "arm64")
 
 
 def _run_sqv(
@@ -188,10 +190,10 @@ def _read_package_metadata(
         with open(package_index, "rb") as source:
             for paragraph in debian_control.paragraphs(source.read().decode("utf-8")):
                 architecture = paragraph.get("Architecture")
-                if architecture not in ("amd64", "all"):
-                    raise ValueError("unsupported package architecture")
                 if index_architecture == "all" and architecture != "all":
                     raise ValueError("binary-all index contains non-all package")
+                if architecture not in (index_architecture, "all"):
+                    raise ValueError("unsupported package architecture")
                 key = (
                     paragraph.get("Package"),
                     paragraph.get("Version"),
@@ -220,7 +222,7 @@ def _component_indexes(args: argparse.Namespace) -> list[_Index]:
     if len(args.component_indexes) != len(args.component_index_files):
         raise ValueError("--component-index and --component-index-file counts differ")
     indexes: list[_Index] = [
-        ("main", "amd64", args.packages_path, args.packages_xz_sha256, args.packages_xz),
+        ("main", args.architecture, args.packages_path, args.packages_xz_sha256, args.packages_xz),
         ("main", "all", args.packages_all_path, args.packages_all_xz_sha256, args.packages_all_xz),
     ]
     for record, path in zip(args.component_indexes, args.component_index_files, strict=True):
@@ -233,7 +235,7 @@ def _component_indexes(args: argparse.Namespace) -> list[_Index]:
     for component, architecture, relative, _, _ in indexes:
         if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", component):
             raise ValueError("invalid Debian component: %s" % component)
-        if architecture not in ("amd64", "all"):
+        if architecture not in (args.architecture, "all"):
             raise ValueError("unsupported index architecture: %s" % architecture)
         expected = "dists/%s/%s/binary-%s/Packages.xz" % (args.codename, component, architecture)
         if relative != expected:
@@ -242,8 +244,8 @@ def _component_indexes(args: argparse.Namespace) -> list[_Index]:
             raise ValueError("duplicate Packages index: %s %s" % (component, architecture))
         seen.add((component, architecture))
     components = {component for component, _, _, _, _ in indexes}
-    if seen != {(component, architecture) for component in components for architecture in ("amd64", "all")}:
-        raise ValueError("every Debian component needs binary-amd64 and binary-all indexes")
+    if seen != {(component, architecture) for component in components for architecture in (args.architecture, "all")}:
+        raise ValueError("every Debian component needs binary-%s and binary-all indexes" % args.architecture)
     return indexes
 
 
@@ -372,6 +374,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--packages-path", required=True)
     parser.add_argument("--packages-all-path", required=True)
     parser.add_argument("--codename", default="trixie")
+    parser.add_argument("--architecture", choices=_ARCHITECTURES, required=True)
     parser.add_argument("--component-index", dest="component_indexes", action="append", default=[])
     parser.add_argument(
         "--component-index-file",

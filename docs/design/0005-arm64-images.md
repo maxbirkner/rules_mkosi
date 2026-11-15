@@ -1,6 +1,6 @@
 # Design: arm64 images, built natively and cross-built from x86-64
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-15
 - **Issue:** [#206](https://github.com/maxbirkner/rules_mkosi/issues/206)
 

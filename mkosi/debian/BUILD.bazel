@@ -7,6 +7,8 @@ package(default_visibility = ["//visibility:public"])
 exports_files([
     "debian13.spec.json",
     "debian13.lock.json",
+    "debian13.arm64.spec.json",
+    "debian13.arm64.lock.json",
     "provenance.bzl",
     "components.txt",
     "components_missing.txt",
@@ -126,9 +128,11 @@ py_test(
         "debian_tools_lock_digest_test.py",
     ],
     data = [
+        "debian13.arm64.lock.json",
         "debian13.lock.json",
         "provenance.bzl",
         "@mkosi_debian_package_inputs//:package_manifest.txt",
+        "@mkosi_debian_package_inputs_arm64//:package_manifest.txt",
     ],
     main = "debian_tools_lock_digest_test.py",
 )

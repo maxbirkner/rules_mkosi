@@ -89,6 +89,8 @@ behavior_targets(
         ":bios_release_demo_build_test",
         ":bios_boot_test",
         ":consumer_snapshot_artifact_test",
+        ":consumer_arm64_debian_lock_test",
+        ":consumer_arm64_snapshot_provider_test",
         ":consumer_debian_lock_test",
         ":consumer_snapshot_provider_test",
         ":debian_snapshot_public_provider_test",
@@ -440,6 +442,19 @@ snapshot_public_api_test(
     ],
     expected_snapshot = "20250814T000000Z",
     target_under_test = "@consumer_debian//:repository",
+)
+
+debian_lock(
+    name = "consumer_arm64_debian_lock",
+    lock = "testdata/consumer-snapshot-arm64/debian.lock.json",
+    spec = "testdata/consumer-snapshot-arm64/debian.spec.json",
+)
+
+snapshot_public_api_test(
+    name = "consumer_arm64_snapshot_provider_test",
+    expected_architecture = "arm64",
+    expected_snapshot = "20250814T000000Z",
+    target_under_test = "@consumer_debian_arm64//:repository",
 )
 
 mkosi_config_tree(

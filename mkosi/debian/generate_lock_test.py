@@ -257,6 +257,27 @@ class ResolverTest(unittest.TestCase):
         with self.assertRaisesRegex(generate_lock.LockError, "non-all"):
             generate_lock.parse_packages(_stanza("app"), "main", "all")
 
+    def test_architecture_index_accepts_only_its_own_and_all_packages(self) -> None:
+        (package,) = generate_lock.parse_packages(_stanza("app", architecture="arm64"), "main", "arm64")
+        self.assertEqual("app_1_arm64", package.key)
+        for stanza, index in ((_stanza("app"), "arm64"), (_stanza("app", architecture="armhf"), "armhf")):
+            with self.subTest(index=index), self.assertRaisesRegex(generate_lock.LockError, "unsupported package"):
+                generate_lock.parse_packages(stanza, "main", index)
+
+    def test_universe_resolves_one_architecture(self) -> None:
+        arm64 = generate_lock.parse_packages(
+            _stanza("app", architecture="arm64", Depends="tool:arm64, data")
+            + "\n"
+            + _stanza("tool", architecture="arm64"),
+            "main",
+            "arm64",
+        )
+        data = generate_lock.parse_packages(_stanza("data", architecture="all"), "main", "all")
+        self.assertEqual(["app", "data", "tool"], _names(generate_lock.Universe(arm64 + data), ["app"]))
+        amd64 = generate_lock.parse_packages(_stanza("other"), "main", "amd64")
+        with self.assertRaisesRegex(generate_lock.LockError, "several architectures: amd64, arm64"):
+            generate_lock.Universe(arm64 + amd64)
+
 
 class SpecificationTest(unittest.TestCase):
     def _specification(self, **overrides: object) -> dict[str, object]:
@@ -275,13 +296,21 @@ class SpecificationTest(unittest.TestCase):
         self.assertEqual(("bb", "aa"), specification.packages)
         self.assertEqual("20250814T000000Z", specification.snapshot)
         self.assertEqual(_SNAPSHOT_URL, specification.snapshot_url)
+        self.assertEqual("amd64", specification.architecture)
+
+    def test_accepts_one_supported_architecture(self) -> None:
+        specification = generate_lock.load_specification(self._specification(archs=["arm64"]))
+        self.assertEqual("arm64", specification.architecture)
 
     def test_rejects_unpinned_or_incomplete_specifications(self) -> None:
         for overrides, message in (
             ({"sources": [{"channel": "trixie main", "url": "https://deb.debian.org/debian"}]}, "timestamp"),
             ({"sources": [{"channel": "trixie contrib", "url": _SNAPSHOT_URL}]}, "main"),
             ({"sources": [{"channel": "trixie", "url": _SNAPSHOT_URL}]}, "component"),
-            ({"archs": ["arm64"]}, "archs"),
+            ({"archs": ["armhf"]}, "archs"),
+            ({"archs": ["amd64", "arm64"]}, "archs"),
+            ({"archs": []}, "archs"),
+            ({"archs": "arm64"}, "archs"),
             ({"packages": []}, "at least one"),
             ({"packages": ["Bad"]}, "invalid package"),
             ({"version": 2}, "version"),
@@ -308,6 +337,7 @@ class SpecificationTest(unittest.TestCase):
             {"sources": [{"channel": "trixie main", "url": _SNAPSHOT_URL}]},
             {"sources": [{"channel": "forky main non-free-firmware", "url": _SNAPSHOT_URL}]},
             {"sources": [{"channel": "trixie main non-free-firmware", "url": later}]},
+            {"archs": ["arm64"]},
         ):
             with self.subTest(overrides=overrides):
                 self.assertNotEqual(self._digest(), self._digest(**overrides))
@@ -370,55 +400,72 @@ class CheckSpecTest(unittest.TestCase):
         self.assertIn("runfile is missing: _main/os/missing.lock.json", stderr.getvalue())
 
 
+def _indexes(architecture: str) -> dict[str, bytes]:
+    """Returns the compressed Packages indexes of the main and non-free-firmware components for one architecture."""
+    return {
+        "main/binary-%s/Packages.xz" % architecture: lzma.compress(
+            (
+                _stanza("base-files", architecture=architecture, Essential="yes")
+                + "\n"
+                + _stanza("libc6", version="2.41-12", architecture=architecture, Depends="data")
+            ).encode()
+        ),
+        "main/binary-all/Packages.xz": lzma.compress(_stanza("data", architecture="all").encode()),
+        "non-free-firmware/binary-%s/Packages.xz" % architecture: lzma.compress(
+            _stanza(
+                "firmware",
+                version="3.20250311.1",
+                architecture=architecture,
+                component="non-free-firmware",
+                Depends="libc6 (>= 2.36)",
+            ).encode()
+        ),
+        "non-free-firmware/binary-all/Packages.xz": lzma.compress(b""),
+    }
+
+
+def _snapshot_files(architecture: str, published: str) -> tuple[bytes, dict[str, bytes]]:
+    """Returns the Release and every file of a fake signed snapshot that publishes the architectures in published."""
+    base = _SNAPSHOT_URL + "/dists/trixie/"
+    indexes = _indexes(architecture)
+    checksums = "".join(
+        " %s %d %s\n" % (hashlib.sha256(data).hexdigest(), len(data), path) for path, data in sorted(indexes.items())
+    )
+    release = (
+        "Codename: trixie\nVersion: 13.0\n"
+        "Architectures: %s\nComponents: main contrib non-free-firmware\n"
+        "SHA256:\n" % published + checksums
+    ).encode()
+    inrelease = (
+        b"-----BEGIN PGP SIGNED MESSAGE-----\nHash: SHA512\n\n"
+        + release
+        + b"-----BEGIN PGP SIGNATURE-----\nsignature\n-----END PGP SIGNATURE-----\n"
+    )
+    files = {
+        base + "InRelease": inrelease,
+        base + "Release": release,
+        base + "Release.gpg": b"detached signature",
+    }
+    for path, data in indexes.items():
+        files[base + path] = data
+    return release, files
+
+
+def _firmware_specification(architecture: str) -> generate_lock.Specification:
+    return generate_lock.load_specification(
+        {
+            "version": 1,
+            "sources": [{"channel": "trixie main non-free-firmware", "url": _SNAPSHOT_URL}],
+            "archs": [architecture],
+            "packages": ["firmware"],
+        }
+    )
+
+
 class GenerateTest(unittest.TestCase):
     def setUp(self) -> None:
-        base = _SNAPSHOT_URL + "/dists/trixie/"
-        self.indexes = {
-            "main/binary-amd64/Packages.xz": lzma.compress(
-                (
-                    _stanza("base-files", Essential="yes") + "\n" + _stanza("libc6", version="2.41-12", Depends="data")
-                ).encode()
-            ),
-            "main/binary-all/Packages.xz": lzma.compress(_stanza("data", architecture="all").encode()),
-            "non-free-firmware/binary-amd64/Packages.xz": lzma.compress(
-                _stanza(
-                    "amd64-microcode",
-                    version="3.20250311.1",
-                    component="non-free-firmware",
-                    Depends="libc6 (>= 2.36)",
-                ).encode()
-            ),
-            "non-free-firmware/binary-all/Packages.xz": lzma.compress(b""),
-        }
-        checksums = "".join(
-            " %s %d %s\n" % (hashlib.sha256(data).hexdigest(), len(data), path)
-            for path, data in sorted(self.indexes.items())
-        )
-        self.release = (
-            "Codename: trixie\nVersion: 13.0\n"
-            "Architectures: all amd64\nComponents: main contrib non-free-firmware\n"
-            "SHA256:\n" + checksums
-        ).encode()
-        inrelease = (
-            b"-----BEGIN PGP SIGNED MESSAGE-----\nHash: SHA512\n\n"
-            + self.release
-            + b"-----BEGIN PGP SIGNATURE-----\nsignature\n-----END PGP SIGNATURE-----\n"
-        )
-        self.files = {
-            base + "InRelease": inrelease,
-            base + "Release": self.release,
-            base + "Release.gpg": b"detached signature",
-        }
-        for path, data in self.indexes.items():
-            self.files[base + path] = data
-        self.specification = generate_lock.load_specification(
-            {
-                "version": 1,
-                "sources": [{"channel": "trixie main non-free-firmware", "url": _SNAPSHOT_URL}],
-                "archs": ["amd64"],
-                "packages": ["amd64-microcode"],
-            }
-        )
+        self.release, self.files = _snapshot_files("amd64", "all amd64")
+        self.specification = _firmware_specification("amd64")
 
     def test_generates_deterministic_multi_component_lock(self) -> None:
         lock = generate_lock.generate(self.specification, fetcher=self.files.__getitem__)
@@ -441,8 +488,9 @@ class GenerateTest(unittest.TestCase):
             [entry["name"] for entry in repository["metadata"]],
         )
         packages = {package["name"]: package for package in lock["packages"]}
-        self.assertEqual(["amd64-microcode", "base-files", "data", "libc6"], sorted(packages))
-        firmware = packages["amd64-microcode"]
+        self.assertEqual("amd64", repository["architecture"])
+        self.assertEqual(["base-files", "data", "firmware", "libc6"], sorted(packages))
+        firmware = packages["firmware"]
         self.assertEqual("non-free-firmware", firmware["component"])
         self.assertEqual([_SNAPSHOT_URL + "/" + firmware["filename"]], firmware["urls"])
         self.assertEqual(["libc6"], [entry["name"] for entry in firmware["dependencies"]])
@@ -451,6 +499,31 @@ class GenerateTest(unittest.TestCase):
             [package["key"] for package in lock["packages"]],
             sorted(package["key"] for package in lock["packages"]),
         )
+
+    def test_generates_a_lock_for_another_architecture(self) -> None:
+        _, files = _snapshot_files("arm64", "all amd64 arm64")
+        lock = generate_lock.generate(_firmware_specification("arm64"), fetcher=files.__getitem__)
+        repository = lock["repository"]
+        self.assertEqual("arm64", repository["architecture"])
+        self.assertEqual(
+            {
+                "packages_xz": "dists/trixie/main/binary-arm64/Packages.xz",
+                "packages_all_xz": "dists/trixie/main/binary-all/Packages.xz",
+                "non-free-firmware_packages_xz": "dists/trixie/non-free-firmware/binary-arm64/Packages.xz",
+                "non-free-firmware_packages_all_xz": "dists/trixie/non-free-firmware/binary-all/Packages.xz",
+            },
+            {entry["name"]: entry["path"] for entry in repository["metadata"] if "architecture" in entry},
+        )
+        self.assertEqual(
+            {"base-files": "arm64", "data": "all", "firmware": "arm64", "libc6": "arm64"},
+            {package["name"]: package["arch"] for package in lock["packages"]},
+        )
+        self.assertEqual(generate_lock.spec_sha256(_firmware_specification("arm64")), lock["spec_sha256"])
+
+    def test_release_must_publish_the_architecture(self) -> None:
+        _, files = _snapshot_files("arm64", "all amd64")
+        with self.assertRaisesRegex(generate_lock.LockError, "does not provide architecture arm64"):
+            generate_lock.generate(_firmware_specification("arm64"), fetcher=files.__getitem__)
 
     def test_index_must_match_release_checksum(self) -> None:
         path = _SNAPSHOT_URL + "/dists/trixie/non-free-firmware/binary-amd64/Packages.xz"
