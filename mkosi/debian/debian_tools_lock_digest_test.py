@@ -7,15 +7,18 @@ import unittest
 
 
 class DebianToolsLockDigestTest(unittest.TestCase):
-    def test_checked_in_lock_digest(self):
+    def test_checked_in_lock_digest(self) -> None:
         directory = pathlib.Path(__file__).resolve().parent
         lock = directory / "debian13.lock.json"
         provenance = (directory / "provenance.bzl").read_text(encoding="utf-8")
-        expected = re.search(r'DEBIAN_TOOLS_LOCK_SHA256 = "([0-9a-f]{64})"', provenance).group(1)
+        match = re.search(r'DEBIAN_TOOLS_LOCK_SHA256 = "([0-9a-f]{64})"', provenance)
+        if match is None:
+            self.fail("provenance.bzl does not set DEBIAN_TOOLS_LOCK_SHA256")
+        expected = match.group(1)
         actual = hashlib.sha256(lock.read_bytes()).hexdigest()
         self.assertEqual(expected, actual)
 
-    def test_package_manifest_matches_lock_exactly_once(self):
+    def test_package_manifest_matches_lock_exactly_once(self) -> None:
         directory = pathlib.Path(__file__).resolve().parent
         lock = json.loads((directory / "debian13.lock.json").read_text(encoding="utf-8"))
         runfiles = pathlib.Path(os.environ["RUNFILES_DIR"])
