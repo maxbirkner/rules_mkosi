@@ -6,7 +6,7 @@ import unittest
 
 
 class DebianSnapshotArtifactTest(unittest.TestCase):
-    def test_layout(self):
+    def test_layout(self) -> None:
         root = pathlib.Path(sys.argv[1]).resolve()
         repository = root
         for relative in (

@@ -20,14 +20,14 @@ EXPECTED = {
 
 
 class ConfigTreeArtifactTest(unittest.TestCase):
-    def test_every_input_is_at_its_destination(self):
+    def test_every_input_is_at_its_destination(self) -> None:
         files = sorted(path.relative_to(TREE).as_posix() for path in TREE.rglob("*") if not path.is_dir())
         self.assertEqual(sorted(EXPECTED), files)
         for path, content in EXPECTED.items():
             if content is not None:
                 self.assertEqual(content, (TREE / path).read_text(), path)
 
-    def test_shared_tree_is_identical_in_image_and_initrd(self):
+    def test_shared_tree_is_identical_in_image_and_initrd(self) -> None:
         for name in ("hello.txt", "mkosi.build"):
             image = TREE / "mkosi.extra/opt/shared" / name
             initrd = TREE / "mkosi.initrd.conf/mkosi.extra/opt/shared" / name

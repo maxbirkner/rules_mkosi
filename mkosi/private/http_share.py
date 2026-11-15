@@ -14,10 +14,15 @@ import datetime
 import email.utils
 import hashlib
 import http.server
+import io
 import os
 import re
 import sys
 from http import HTTPStatus
+from typing import TYPE_CHECKING, AnyStr, BinaryIO, cast
+
+if TYPE_CHECKING:
+    from _typeshed import SupportsRead, SupportsWrite
 
 _CHUNK = 1 << 20
 # Longer positions are malformed: they exceed any file, and Python refuses to convert integers of over 4300 digits.
@@ -28,7 +33,7 @@ class _UnsatisfiableRange(Exception):
     pass
 
 
-def _content_digest(file):
+def _content_digest(file: BinaryIO) -> str:
     """Returns the Content-Digest value of an open file by reading it, and rewinds the file."""
     digest = hashlib.sha256()
     while chunk := file.read(_CHUNK):
@@ -37,7 +42,7 @@ def _content_digest(file):
     return "sha-256=:{}:".format(base64.b64encode(digest.digest()).decode())
 
 
-def _byte_range(header, size):
+def _byte_range(header: str | None, size: int) -> tuple[int, int] | None:
     """Returns the inclusive (first, last) positions of a single-range Range header, or None for the whole file.
 
     Raises _UnsatisfiableRange when the range starts at or after the end of the file or is bytes=-0. A nonzero suffix of
@@ -63,19 +68,20 @@ class _ConnectionHandler(http.server.SimpleHTTPRequestHandler):
     """Serves GET and HEAD requests over the inherited connection."""
 
     # Bytes of the open file that copyfile sends, or None for a directory listing.
-    _remaining = None
+    _remaining: int | None = None
 
-    def setup(self):
-        self.rfile = sys.stdin.buffer
-        self.wfile = sys.stdout.buffer
+    def setup(self) -> None:
+        # typeshed declares the standard streams as BinaryIO, but without -u Python buffers them.
+        self.rfile = cast(io.BufferedIOBase, sys.stdin.buffer)
+        self.wfile = cast(io.BufferedIOBase, sys.stdout.buffer)
 
-    def finish(self):
+    def finish(self) -> None:
         self.wfile.flush()
 
-    def log_message(self, format, *args):
+    def log_message(self, format: str, *args: object) -> None:
         print(format % args, file=sys.stderr, flush=True)
 
-    def send_head(self):
+    def send_head(self) -> BinaryIO | None:
         path = self.translate_path(self.path)
         # The base class redirects, lists directories, and rejects missing files and paths with a trailing slash.
         if not os.path.isfile(path):
@@ -91,7 +97,7 @@ class _ConnectionHandler(http.server.SimpleHTTPRequestHandler):
             file.close()
             raise
 
-    def _send_file_head(self, path, file):
+    def _send_file_head(self, path: str, file: BinaryIO) -> BinaryIO | None:
         """Sends the headers for an open regular file and returns it positioned at the first byte to send, or None."""
         status = os.fstat(file.fileno())
         last_modified = self.date_time_string(status.st_mtime)
@@ -127,7 +133,7 @@ class _ConnectionHandler(http.server.SimpleHTTPRequestHandler):
         self._remaining = last - first + 1
         return file
 
-    def _not_modified(self, mtime):
+    def _not_modified(self, mtime: float) -> bool:
         """Returns whether If-Modified-Since, without If-None-Match, is not older than the modification time."""
         header = self.headers.get("If-Modified-Since")
         if header is None or "If-None-Match" in self.headers:
@@ -140,14 +146,14 @@ class _ConnectionHandler(http.server.SimpleHTTPRequestHandler):
             since = since.replace(tzinfo=datetime.timezone.utc)
         return datetime.datetime.fromtimestamp(int(mtime), datetime.timezone.utc) <= since
 
-    def _range_header(self, last_modified):
+    def _range_header(self, last_modified: str) -> str | None:
         """Returns the Range header, unless an If-Range precondition names another Last-Modified date."""
         condition = self.headers.get("If-Range")
         if condition is not None and condition.strip() != last_modified:
             return None
         return self.headers.get("Range")
 
-    def copyfile(self, source, outputfile):
+    def copyfile(self, source: "SupportsRead[AnyStr]", outputfile: "SupportsWrite[AnyStr]") -> None:
         if self._remaining is None:
             super().copyfile(source, outputfile)
             return
@@ -159,11 +165,12 @@ class _ConnectionHandler(http.server.SimpleHTTPRequestHandler):
             self._remaining -= len(chunk)
 
 
-def main():
+def main() -> None:
     if len(sys.argv) != 3:
         raise SystemExit("usage: http_share.py DIRECTORY LOG")
     os.dup2(os.open(sys.argv[2], os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o644), 2)
-    _ConnectionHandler(None, ("guest", 0), None, directory=sys.argv[1])
+    # setup() takes the connection from standard input and output, so there is no request socket or server.
+    _ConnectionHandler(None, ("guest", 0), None, directory=sys.argv[1])  # type: ignore[arg-type]
 
 
 if __name__ == "__main__":

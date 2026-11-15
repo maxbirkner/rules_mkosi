@@ -12,7 +12,7 @@ import raw_image_validator
 
 
 class ReleaseNetworkIsolationTest(unittest.TestCase):
-    def test_undeclared_network_access_is_unavailable(self):
+    def test_undeclared_network_access_is_unavailable(self) -> None:
         raw_image_validator.validate(raw_image_validator.image_path(sys.argv[1]))
         self.assertEqual(["lo"], sorted(name for _, name in socket.if_nameindex()))
         with self.assertRaises(OSError):

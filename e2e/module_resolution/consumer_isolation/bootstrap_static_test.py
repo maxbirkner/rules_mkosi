@@ -8,7 +8,7 @@ _PT_INTERP = 3
 
 
 class BootstrapStaticTest(unittest.TestCase):
-    def test_bootstrap_binaries_are_fully_static(self):
+    def test_bootstrap_binaries_are_fully_static(self) -> None:
         for argument in sys.argv[1:]:
             with self.subTest(executable=argument):
                 data = pathlib.Path(argument).resolve().read_bytes()

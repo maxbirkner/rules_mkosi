@@ -9,7 +9,7 @@ ROOT = "4f68bce3-e8cd-4db1-96e7-fbcaf984b709"
 ROOT_VERITY = "2c7357ed-ebd2-46d9-aec1-23d437ec2bf5"
 
 
-def _version_and_digest(paths):
+def _version_and_digest(paths: list[pathlib.Path]) -> str:
     """Returns the version and the full digest from the image_version output group, told apart by their format."""
     contents = sorted((path.read_text(encoding="ascii") for path in paths), key=len)
     version, digest = (content.removesuffix("\n") for content in contents)

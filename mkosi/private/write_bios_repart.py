@@ -32,7 +32,7 @@ _DEFINITIONS = (
 )
 
 
-def main():
+def main() -> None:
     output = pathlib.Path(sys.argv[1])
     output.mkdir(exist_ok=True)
     paths = []
