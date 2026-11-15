@@ -84,8 +84,10 @@ debian_tools.toolchain()
 use_repo(
     debian_tools,
     "mkosi_debian_package_inputs",
+    "mkosi_debian_package_inputs_arm64",
     "mkosi_debian_python",
     "mkosi_debian_snapshot",
+    "mkosi_debian_snapshot_arm64",
     "mkosi_debian_tools",
 )
 

@@ -73,6 +73,13 @@ debian_tools.snapshot(
     lock = "//:testdata/consumer-snapshot/debian.lock.json",
 )
 
+# A consumer-owned arm64 lock generated with
+# `bazel run //:consumer_arm64_debian_lock.update`.
+debian_tools.snapshot(
+    name = "consumer_debian_arm64",
+    lock = "//:testdata/consumer-snapshot-arm64/debian.lock.json",
+)
+
 # The release example and the A/B update fixtures need systemd-sysupdate
 # (systemd-container), which the built-in snapshot does not lock.
 debian_tools.snapshot(
@@ -82,6 +89,7 @@ debian_tools.snapshot(
 use_repo(
     debian_tools,
     "consumer_debian",
+    "consumer_debian_arm64",
     "example_debian",
     "mkosi_debian_package_inputs",
     "mkosi_debian_python",

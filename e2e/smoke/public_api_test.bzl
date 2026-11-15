@@ -50,7 +50,7 @@ def _snapshot_public_api_test_impl(ctx):
     asserts.equals(env, "debian", info.distribution)
     asserts.equals(env, "13", info.release)
     asserts.equals(env, "trixie", info.codename)
-    asserts.equals(env, "amd64", info.architecture)
+    asserts.equals(env, ctx.attr.expected_architecture, info.architecture)
     asserts.equals(env, ctx.attr.expected_snapshot, info.snapshot)
     asserts.equals(env, ctx.attr.expected_components, info.components)
     asserts.equals(env, "repository_repository", info.repository.basename)
@@ -61,6 +61,7 @@ def _snapshot_public_api_test_impl(ctx):
 snapshot_public_api_test = analysistest.make(
     _snapshot_public_api_test_impl,
     attrs = {
+        "expected_architecture": attr.string(default = "amd64"),
         "expected_components": attr.string_list(default = ["main"]),
         "expected_snapshot": attr.string(default = DEBIAN_TOOLS_SNAPSHOT),
     },

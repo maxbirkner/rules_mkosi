@@ -78,6 +78,10 @@ def _snapshot_declaration_test_impl(ctx):
             "repository mkosi_debian_snapshot requested by consumer is already declared by rules_mkosi",
         ),
         (
+            [("consumer", "mkosi_debian_snapshot_arm64", "")],
+            "repository mkosi_debian_snapshot_arm64 requested by consumer is already declared by rules_mkosi",
+        ),
+        (
             [("first", "os", ""), ("second", "os", "")],
             "repository os requested by second is already declared by first",
         ),

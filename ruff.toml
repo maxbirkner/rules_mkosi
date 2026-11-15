@@ -3,13 +3,10 @@ target-version = "py310"
 line-length = 120
 
 [lint]
+# ANN requires type annotations on every function, which also makes mypy check its body.
 select = ["E", "F", "W", "I", "B", "UP", "SIM", "C90", "PLR0911", "PLR0912", "PLR0913", "PLR0915", "RUF", "ANN"]
 # printf-style and str.format() calls are left as they are; rewriting them to f-strings is churn without a defect.
 ignore = ["UP031", "UP032"]
-
-# Every function needs type annotations, which also make mypy check its body. The files below predate this rule and
-# are exempt; never add a file. Annotating a file fully means deleting its line, so the list only shrinks.
-[lint.per-file-ignores]
 
 [lint.isort]
 # Upstream mkosi shares its top-level package name with this repository's mkosi/ directory.

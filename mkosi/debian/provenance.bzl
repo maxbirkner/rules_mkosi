@@ -7,6 +7,10 @@ DEBIAN_TOOLS_ARCHITECTURE = "amd64"
 DEBIAN_TOOLS_SNAPSHOT = "20260912T080811Z"
 DEBIAN_TOOLS_SNAPSHOT_URL = "https://snapshot.debian.org/archive/debian/20260912T080811Z"
 DEBIAN_TOOLS_LOCK_SHA256 = "c2528f32656b458f02861fdb957737b40ed4b3efec57a8bd9a781063866d7b53"
+
+# The built-in arm64 lock resolves the same package set for arm64 at the same snapshot. It provides
+# @mkosi_debian_snapshot_arm64.
+DEBIAN_TOOLS_ARM64_LOCK_SHA256 = "8192d5a08336e4c7bdde1b43fa794d57bf4381321fd236113c417c0d78cb393b"
 DEBIAN_TOOLS_ARCHIVE_SHA256 = "f6566f5ee51f5d86a1332814631ebc935aa716600d7787138f161fb902a651c2"
 DEBIAN_TOOLS_PYTHON_VERSION = "3.14.10"
 DEBIAN_TOOLS_PYTHON_URL = "https://github.com/astral-sh/python-build-standalone/releases/download/20261026/cpython-3.14.10%2B20261026-x86_64-unknown-linux-musl-lto%2Bstatic-full.tar.zst"

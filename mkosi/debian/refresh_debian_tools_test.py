@@ -20,6 +20,7 @@ _OLD, _NEW = "20250814T000000Z", "20260912T080811Z"
 _PROVENANCE = """DEBIAN_TOOLS_SNAPSHOT = "{0}"
 DEBIAN_TOOLS_SNAPSHOT_URL = "https://snapshot.debian.org/archive/debian/{0}"
 DEBIAN_TOOLS_LOCK_SHA256 = "old-lock"
+DEBIAN_TOOLS_ARM64_LOCK_SHA256 = "old-arm64-lock"
 DEBIAN_TOOLS_ARCHIVE_SHA256 = "old-archive"
 DEBIAN_TOOLS_REQUIRED_COMPONENTS = ["apt-get"]
 """
@@ -45,7 +46,8 @@ class RefreshTest(unittest.TestCase):
     def setUp(self) -> None:
         self.workspace = pathlib.Path(os.environ["TEST_TMPDIR"]) / self._testMethodName
         _write(self.workspace / refresh_debian_tools.PROVENANCE, _PROVENANCE.format(_OLD))
-        _write(self.workspace / refresh_debian_tools.SPEC, '"url": "%s"' % _snapshot_url(_OLD))
+        for spec, _, _ in refresh_debian_tools.LOCKS:
+            _write(self.workspace / spec, '"url": "%s"' % _snapshot_url(_OLD))
         _write(self.workspace / "README.md", "Snapshot=%s, epoch 1755129600\n" % _OLD)
         _write(self.workspace / "e2e/smoke/testdata/minimal.conf", "Snapshot=%s\n" % _OLD)
         _write(self.workspace / "bazel-out/flat.tar", "archive")
@@ -57,8 +59,9 @@ class RefreshTest(unittest.TestCase):
         self.enterContext(mock.patch.object(refresh_debian_tools.generate_lock, "main", side_effect=self._lock))  # type: ignore[attr-defined]
 
     def _lock(self, argv: Sequence[str]) -> int:
-        self.assertEqual(["--spec", refresh_debian_tools.SPEC, "--output", refresh_debian_tools.LOCK], argv)
-        _write(self.workspace / refresh_debian_tools.LOCK, "lock")
+        locks = {spec: lock for spec, lock, _ in refresh_debian_tools.LOCKS}
+        self.assertEqual(["--spec", argv[1], "--output", locks[argv[1]]], argv)
+        _write(self.workspace / argv[3], "lock for " + argv[1])
         return 0
 
     def _text(self, name: str) -> str:
@@ -71,14 +74,20 @@ class RefreshTest(unittest.TestCase):
             {
                 "DEBIAN_TOOLS_SNAPSHOT": _NEW,
                 "DEBIAN_TOOLS_SNAPSHOT_URL": _snapshot_url(_NEW),
-                "DEBIAN_TOOLS_LOCK_SHA256": hashlib.sha256(b"lock").hexdigest(),
+                "DEBIAN_TOOLS_LOCK_SHA256": hashlib.sha256(
+                    b"lock for " + refresh_debian_tools.SPEC.encode()
+                ).hexdigest(),
+                "DEBIAN_TOOLS_ARM64_LOCK_SHA256": hashlib.sha256(
+                    b"lock for " + refresh_debian_tools.ARM64_SPEC.encode()
+                ).hexdigest(),
                 "DEBIAN_TOOLS_ARCHIVE_SHA256": hashlib.sha256(b"archive").hexdigest(),
             },
             values,
         )
         self.assertEqual(values, {name: provenance[name] for name in values})
         self.assertIn('DEBIAN_TOOLS_REQUIRED_COMPONENTS = ["apt-get"]', self._text(refresh_debian_tools.PROVENANCE))
-        self.assertEqual('"url": "%s"' % _snapshot_url(_NEW), self._text(refresh_debian_tools.SPEC))
+        for spec, _, _ in refresh_debian_tools.LOCKS:
+            self.assertEqual('"url": "%s"' % _snapshot_url(_NEW), self._text(spec))
         self.assertEqual("Snapshot=%s, epoch 1789200491\n" % _NEW, self._text("README.md"))
         self.assertEqual("Snapshot=%s\n" % _NEW, self._text("e2e/smoke/testdata/minimal.conf"))
 

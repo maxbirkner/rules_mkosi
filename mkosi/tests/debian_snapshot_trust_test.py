@@ -144,6 +144,7 @@ class DebianSnapshotTrustTest(unittest.TestCase):
                 "packages_path": "dists/trixie/main/binary-amd64/Packages.xz",
                 "packages_all_path": "dists/trixie/main/binary-all/Packages.xz",
                 "codename": "trixie",
+                "architecture": "amd64",
                 "component_indexes": [],
                 "component_index_files": [],
                 "package_records": [],

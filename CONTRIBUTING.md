@@ -5,7 +5,7 @@
 - Bazelisk, or the Bazel version in `.bazelversion`.
 - [`prek`](https://prek.j178.dev/) 0.5 or newer.
 - Optional: [ShellCheck](https://www.shellcheck.net/) on `PATH`, so prek's actionlint hook also checks workflow `run:` scripts as CI does.
-- Host Python 3.11 or newer, only for the [`tools/bazel`](tools/README.md) wrapper.
+- Host Python 3.10 or newer, only for the [`tools/bazel`](tools/README.md) wrapper.
 - A host that meets the [requirements](README.md#requirements).
 - Optional: read-write access to `/dev/kvm` for faster boot tests, for example through membership in the `kvm` group.
   `ci/bin/group-free` drops group membership, so a server started through it needs a user ACL such as `sudo setfacl -m "u:$USER:rw" /dev/kvm` instead.
@@ -24,11 +24,14 @@ ci/check-lazy-toolchain-fetch.sh --bootstrap-target @mkosi_debian_tools//:namesp
 ```
 
 Run Bazel from a module root, or use [`tools/bazel`](tools/README.md) from a subdirectory.
+The checked-in `.bazelrc` files keep a disk cache in each module's `.cache/bazel-disk`, so the root module and `e2e/smoke` never share cached action results.
+Every clone and Git worktree therefore fills its own disk cache.
+Pass `--disk_cache=` to skip it for one command, or add `build --disk_cache=` to the ignored `.bazelrc.user` of the root module to skip it in that checkout.
 See [`e2e/README.md`](e2e/README.md) for the consumer and module-resolution fixtures.
 
 ### Python type annotations
 
-Annotate every new and changed Python function; ruff and mypy enforce it as described in [`ci/README.md`](ci/README.md#type-checking).
+Annotate every Python function; ruff and mypy enforce it as described in [`ci/README.md`](ci/README.md#type-checking).
 
 ### API reference
 
@@ -93,14 +96,15 @@ Pass runfiles as `$(rlocationpath ...)` arguments and resolve them in the script
 
 The consumer lock fixtures are regenerated from `e2e/smoke` as described in their READMEs; `//mkosi/debian:generate_lock_test` covers the generator.
 The built-in `mkosi/debian/debian13.lock.json` is the Debian tools closure plus the essential packages that release images need, resolved from `mkosi/debian/debian13.spec.json`.
-Move it to a new snapshot with one command, optionally together with a new static Python from python-build-standalone:
+`mkosi/debian/debian13.arm64.lock.json` resolves the same package set for arm64 from `mkosi/debian/debian13.arm64.spec.json`, with the arm64 kernel and boot loader instead of the amd64 ones, and provides `@mkosi_debian_snapshot_arm64`.
+Move both to a new snapshot with one command, optionally together with a new static Python from python-build-standalone:
 
 ```console
 bazel run //mkosi/debian:refresh_debian_tools -- --snapshot 20260912T080811Z \
   [--python-release 20261026 --python-version 3.14.10]
 ```
 
-It regenerates the lock, rewrites `mkosi/debian/provenance.bzl` including the archive digest, which it builds `@mkosi_debian_tools//:tree` to compute, and moves the test configurations and README examples to the new snapshot.
+It regenerates both locks, rewrites `mkosi/debian/provenance.bzl` including the lock digests and the archive digest, which it builds `@mkosi_debian_tools//:tree` to compute, and moves the test configurations and README examples to the new snapshot.
 Tests read the expected values from `provenance.bzl`.
 
 ### mkosi versions

@@ -5,10 +5,10 @@ Run it from the root module:
     bazel run //mkosi/debian:refresh_debian_tools -- --snapshot 20260912T080811Z \\
         [--python-release 20261026 --python-version 3.14.10]
 
-It points the specification at the snapshot, regenerates the lock, and rewrites the snapshot, the lock and archive
-digests, and optionally the static Python pin in provenance.bzl. It also moves the test configurations and README
-examples from the old snapshot to the new one. The archive digest is the SHA-256 of
-@mkosi_debian_tools//:tree, which the command builds with Bazel after it has written the new lock.
+It points the amd64 and arm64 specifications at the snapshot, regenerates both locks, and rewrites the snapshot, the
+lock and archive digests, and optionally the static Python pin in provenance.bzl. It also moves the test
+configurations and README examples from the old snapshot to the new one. The archive digest is the SHA-256 of
+@mkosi_debian_tools//:tree, which the command builds with Bazel after it has written the new locks.
 """
 
 import argparse
@@ -31,6 +31,13 @@ import http_download
 PROVENANCE = "mkosi/debian/provenance.bzl"
 SPEC = "mkosi/debian/debian13.spec.json"
 LOCK = "mkosi/debian/debian13.lock.json"
+ARM64_SPEC = "mkosi/debian/debian13.arm64.spec.json"
+ARM64_LOCK = "mkosi/debian/debian13.arm64.lock.json"
+# Each built-in specification, its lock, and the provenance.bzl constant that pins the lock's digest.
+LOCKS = (
+    (SPEC, LOCK, "DEBIAN_TOOLS_LOCK_SHA256"),
+    (ARM64_SPEC, ARM64_LOCK, "DEBIAN_TOOLS_ARM64_LOCK_SHA256"),
+)
 ARCHIVE_TARGET = "@mkosi_debian_tools//:tree"
 # Files and directories whose snapshot references follow the built-in snapshot.
 SNAPSHOT_USERS = ("README.md", "mkosi/tests/testdata", "e2e/smoke/testdata")
@@ -115,23 +122,24 @@ def _archive_sha256(workspace: pathlib.Path) -> str:
     return _sha256(pathlib.Path(_bazel(workspace, "info", "execution_root").strip(), archive[0]))
 
 
-def _write_lock(workspace: pathlib.Path, snapshot: str) -> dict[str, str]:
+def _write_locks(workspace: pathlib.Path, snapshot: str) -> dict[str, str]:
     url = _SNAPSHOT_URL.format(snapshot)
-    _update(workspace / SPEC, lambda text: re.sub(re.escape(_SNAPSHOT_URL.format("")) + _SNAPSHOT.pattern, url, text))
-    if generate_lock.main(["--spec", SPEC, "--output", LOCK]) != 0:
-        raise SystemExit("Debian lock generation failed")
-    return {
-        "DEBIAN_TOOLS_SNAPSHOT": snapshot,
-        "DEBIAN_TOOLS_SNAPSHOT_URL": url,
-        "DEBIAN_TOOLS_LOCK_SHA256": _sha256(workspace / LOCK),
-    }
+    values = {"DEBIAN_TOOLS_SNAPSHOT": snapshot, "DEBIAN_TOOLS_SNAPSHOT_URL": url}
+    for spec, lock, constant in LOCKS:
+        _update(
+            workspace / spec, lambda text: re.sub(re.escape(_SNAPSHOT_URL.format("")) + _SNAPSHOT.pattern, url, text)
+        )
+        if generate_lock.main(["--spec", spec, "--output", lock]) != 0:
+            raise SystemExit("Debian lock generation failed for {}".format(spec))
+        values[constant] = _sha256(workspace / lock)
+    return values
 
 
 def refresh(workspace: pathlib.Path, snapshot: str, python: tuple[str, str] | None = None) -> dict[str, str]:
     """Refreshes the snapshot in workspace and returns the provenance values it wrote."""
     provenance = workspace / PROVENANCE
     old_snapshot = read_provenance(provenance.read_text(encoding="utf-8"))["DEBIAN_TOOLS_SNAPSHOT"]
-    values = _write_lock(workspace, snapshot)
+    values = _write_locks(workspace, snapshot)
     if python:
         values |= _download_python_pin(*python)
     _update(provenance, lambda text: rewrite_provenance(text, values))
