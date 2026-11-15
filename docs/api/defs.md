@@ -868,7 +868,7 @@ version files image_version_file and input_digest are in the image_version outpu
 | <a id="MkosiImageInfo-root_hash_image"></a>root_hash_image |  Split dm-verity hash partition when verity = "hash", or None.    |
 | <a id="MkosiImageInfo-root_image"></a>root_image |  Split root filesystem partition when verity = "hash", or None.    |
 | <a id="MkosiImageInfo-uki"></a>uki |  The unsigned Unified Kernel Image when unified_kernel_image = "unsigned", or None.    |
-| <a id="MkosiImageInfo-uki_metadata"></a>uki_metadata |  Normalized JSON metadata of the UKI's PE sections, or None.    |
+| <a id="MkosiImageInfo-uki_metadata"></a>uki_metadata |  Normalized JSON metadata of the UKI's PE sections and device trees, or None.    |
 | <a id="MkosiImageInfo-verity_metadata"></a>verity_metadata |  Normalized JSON linking the root and hash partitions to root_hash, or None.    |
 | <a id="MkosiImageInfo-version_auto_enroll_keys"></a>version_auto_enroll_keys |  List of the files declared in version_auto_enroll_keys, or None without image_version_from_inputs.    |
 | <a id="MkosiImageInfo-version_inputs"></a>version_inputs |  List of the files declared in version_inputs, which a version derived with image_version_from_inputs covers in addition to the build, or None without image_version_from_inputs.    |

@@ -36,6 +36,10 @@ If the Debian tools toolchain of the execution platform has another architecture
 <!-- behavior:BHV-IMAGE-EXT4-HASH-SEED -->
 Release builds that format partitions derive the ext4 directory hash seed from `release_seed`, unless the configuration sets `SYSTEMD_REPART_MKFS_OPTIONS_EXT4`.
 
+<!-- behavior:BHV-IMAGE-DEVICETREES -->
+A release build fails if a positive `Devicetrees=` pattern selects no device tree of the image's kernel, or if the patterns select none.
+The UKI metadata lists each `.dtb` and `.dtbauto` section with its root compatible strings, size and SHA-256, and rejects a section that is not a device tree or a `.dtbauto` section without a compatible string.
+
 <!-- behavior:BHV-IMAGE-EPOCH -->
 `release_source_date_epoch` is a non-negative value, required only in release mode, that must match the resolved `SourceDateEpoch=`.
 

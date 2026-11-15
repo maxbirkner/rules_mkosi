@@ -88,7 +88,7 @@ sets manifest = True, or None.""",
         "root_hash_image": "Split dm-verity hash partition when verity = \"hash\", or None.",
         "root_image": "Split root filesystem partition when verity = \"hash\", or None.",
         "uki": "The unsigned Unified Kernel Image when unified_kernel_image = \"unsigned\", or None.",
-        "uki_metadata": "Normalized JSON metadata of the UKI's PE sections, or None.",
+        "uki_metadata": "Normalized JSON metadata of the UKI's PE sections and device trees, or None.",
         "verity_metadata": "Normalized JSON linking the root and hash partitions to root_hash, or None.",
         "version_auto_enroll_keys": """List of the files declared in version_auto_enroll_keys, or None without
 image_version_from_inputs.""",

@@ -41,6 +41,7 @@ load(
     "image_manifest_file",
     "image_partition_metadata_file",
     "image_public_api_test",
+    "image_uki_metadata_file",
     "input_version_public_api_test",
     "mkosi_python_override_test",
     "public_api_test",
@@ -210,6 +211,11 @@ image_partition_metadata_file(
     image = ":arm64_demo",
 )
 
+image_uki_metadata_file(
+    name = "arm64_demo_uki_metadata",
+    image = ":arm64_demo",
+)
+
 image_architecture_test(
     name = "arm64_demo_public_provider_test",
     expected_architecture = "arm64",
@@ -228,10 +234,12 @@ py_test(
     args = [
         "$(rlocationpath :arm64_demo_raw)",
         "$(rlocationpath :arm64_demo_partition_metadata)",
+        "$(rlocationpath :arm64_demo_uki_metadata)",
     ],
     data = [
         ":arm64_demo_partition_metadata",
         ":arm64_demo_raw",
+        ":arm64_demo_uki_metadata",
     ],
     main = "arm64_image_test.py",
     deps = ["@rules_python//python/runfiles"],

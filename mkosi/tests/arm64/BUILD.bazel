@@ -119,7 +119,7 @@ arm64_image_test(
         field = field,
         image = ":uki_release",
     )
-    for field in ("raw_image", "partition_metadata", "uki")
+    for field in ("raw_image", "partition_metadata", "uki", "uki_metadata")
 ]
 
 py_test(
@@ -133,12 +133,14 @@ py_test(
         "$(rootpath :uki_release_partition_metadata)",
         "$(rootpath :uki_release_uki)",
         "$(rootpath :uki_release_payload)",
+        "$(rootpath :uki_release_uki_metadata)",
     ],
     data = [
         ":uki_release_partition_metadata",
         ":uki_release_payload",
         ":uki_release_raw_image",
         ":uki_release_uki",
+        ":uki_release_uki_metadata",
     ],
     main = "arm64_release_artifact_test.py",
     deps = [

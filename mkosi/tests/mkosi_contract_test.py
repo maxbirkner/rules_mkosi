@@ -329,6 +329,37 @@ class MkosiContractTest(unittest.TestCase):
         self.release_patches.include_base_packages_in_manifest()
         self.assertEqual(["bash"], recorded_packages())
 
+    def test_release_mode_rejects_devicetrees_patterns_that_select_no_device_tree(self) -> None:
+        import mkosi
+
+        # mypy resolves mkosi to this repository's mkosi/ directory, not to upstream mkosi (see mypy.ini).
+        self._replace(mkosi, "filter_devicetrees", mkosi.filter_devicetrees)  # type: ignore[attr-defined]
+        self.release_patches.require_selected_devicetrees()
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            vendor = pathlib.Path("usr/lib/linux-image-6.12.0-arm64/vendor")
+            (root / vendor).mkdir(parents=True)
+            for name in ("board-a.dtb", "board-b.dtb"):
+                (root / vendor / name).write_bytes(b"")
+
+            def select(*patterns: str) -> list[pathlib.Path]:
+                selected: list[pathlib.Path] = mkosi.filter_devicetrees(  # type: ignore[attr-defined]
+                    root, "6.12.0-arm64", include=patterns
+                )
+                return selected
+
+            self.assertEqual([vendor / "board-a.dtb", vendor / "board-b.dtb"], select("vendor/board-*.dtb"))
+            self.assertEqual([vendor / "board-a.dtb"], select("vendor/*", "-board-b.dtb"))
+            with self.assertRaisesRegex(SystemExit, r"Devicetrees= pattern board-c\.dtb selects no device tree"):
+                select("board-a.dtb", "board-c.dtb")
+            with self.assertRaisesRegex(SystemExit, r"Devicetrees= pattern board-b\.dtb selects no device tree"):
+                select("board-*.dtb", "board-b.dtb", "-board-b.dtb")
+            with self.assertRaisesRegex(
+                SystemExit,
+                r"Devicetrees= selects no device tree of kernel 6\.12\.0-arm64; .*linux-image-6\.12\.0-arm64/",
+            ):
+                select("-board-a.dtb")
+
     def test_parse_ini_reports_the_sections_that_release_mode_validates(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = pathlib.Path(directory) / "mkosi.conf"

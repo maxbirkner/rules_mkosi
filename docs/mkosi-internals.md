@@ -16,6 +16,7 @@ Where mkosi has no option for a release constraint, [`release_patches.py`](../mk
 | `mkosi:install_sandbox_trees` | `_install_sandbox_trees` | Copies no host `/etc/passwd`, `/etc/group` or resolver files into the sandbox. | None. mkosi copies the host files after it applies `SandboxTrees=`, and `ToolsTreeCertificates=` covers only certificates. |
 | `mkosi:make_tar` | `deterministic_make_tar` | Makes the base root archive independent of the file system's directory order. | None. mkosi's tar has no `--sort=name`. |
 | `mkosi.manifest:Manifest.record_deb_packages` | `include_base_packages_in_manifest` | Lists the base tree's packages in the manifest of a finalized image. mkosi omits them for `BaseTrees=`. | None. |
+| `mkosi:filter_devicetrees` | `require_selected_devicetrees` | Fails the build when a `Devicetrees=` pattern selects no device tree of the image's kernel, or when the patterns select none. mkosi only warns when none is selected and drops a pattern that matches nothing, so a typo or a kernel package that moved its device trees would build a UKI without them. | None. |
 
 The contract also pins:
 
