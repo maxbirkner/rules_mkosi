@@ -11,7 +11,7 @@ import unittest
 
 
 class DebianSnapshotTrustTest(unittest.TestCase):
-    def setUp(self):
+    def setUp(self) -> None:
         self.root = pathlib.Path(__file__).resolve().parent
         self.inrelease = pathlib.Path(sys.argv[1]).resolve()
         self.release = pathlib.Path(sys.argv[2]).resolve()
@@ -33,15 +33,17 @@ class DebianSnapshotTrustTest(unittest.TestCase):
         spec = importlib.util.spec_from_file_location(
             "debian_snapshot", self.root.parent / "private/debian_snapshot.py"
         )
+        if spec is None or spec.loader is None:
+            raise RuntimeError("debian_snapshot.py cannot be loaded")
         self.snapshot = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(self.snapshot)
         self.work = pathlib.Path(os.environ["TEST_TMPDIR"]) / self._testMethodName
         self.work.mkdir()
 
-    def tearDown(self):
+    def tearDown(self) -> None:
         shutil.rmtree(self.work, ignore_errors=True)
 
-    def _run(self, arguments):
+    def _run(self, arguments: list[str]) -> subprocess.CompletedProcess[str]:
         self.invocation += 1
         environment = os.environ.copy()
         environment.update(
@@ -58,7 +60,7 @@ class DebianSnapshotTrustTest(unittest.TestCase):
             text=True,
         )
 
-    def _cleartext(self, source):
+    def _cleartext(self, source: pathlib.Path) -> subprocess.CompletedProcess[str]:
         output = self.work / "output"
         output.mkdir(exist_ok=True)
         return self._run(
@@ -75,7 +77,7 @@ class DebianSnapshotTrustTest(unittest.TestCase):
             ]
         )
 
-    def _detached(self, signature):
+    def _detached(self, signature: pathlib.Path) -> subprocess.CompletedProcess[str]:
         return self._run(
             [
                 "--ro-bind",
@@ -89,7 +91,7 @@ class DebianSnapshotTrustTest(unittest.TestCase):
             ]
         )
 
-    def test_mutated_inrelease_is_rejected(self):
+    def test_mutated_inrelease_is_rejected(self) -> None:
         mutated = self.work / "InRelease"
         data = self.inrelease.read_bytes()
         marker = b"Suite: stable"
@@ -101,7 +103,7 @@ class DebianSnapshotTrustTest(unittest.TestCase):
         self.assertNotEqual(0, result.returncode)
         self.assertNotIn("scratch", result.stderr.lower())
 
-    def test_mutated_detached_signature_is_rejected(self):
+    def test_mutated_detached_signature_is_rejected(self) -> None:
         mutated = self.work / "Release.gpg"
         data = self.release_gpg.read_bytes()
         header_end = data.index(b"\n", data.index(b"BEGIN PGP SIGNATURE")) + 1
@@ -115,7 +117,7 @@ class DebianSnapshotTrustTest(unittest.TestCase):
         self.assertNotEqual(0, result.returncode)
         self.assertNotIn("scratch", result.stderr.lower())
 
-    def test_mutated_packages_index_is_rejected_by_signed_release(self):
+    def test_mutated_packages_index_is_rejected_by_signed_release(self) -> None:
         mutated = self.work / "Packages.xz"
         data = self.packages.read_bytes()
         mutated.write_bytes(data[:-1] + bytes([data[-1] ^ 1]))

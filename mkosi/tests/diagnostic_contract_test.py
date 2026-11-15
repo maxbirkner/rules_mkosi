@@ -9,8 +9,10 @@ import types
 import unittest
 
 
-def _load(name, path):
+def _load(name: str, path: pathlib.Path) -> types.ModuleType:
     spec = importlib.util.spec_from_file_location(name, path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError("test module cannot be loaded: %s" % path)
     module = importlib.util.module_from_spec(spec)
     sys.modules[name] = module
     spec.loader.exec_module(module)
@@ -18,13 +20,16 @@ def _load(name, path):
 
 
 class DiagnosticContractTest(unittest.TestCase):
+    diagnostics: types.ModuleType
+    run_mkosi: types.ModuleType
+
     @classmethod
-    def setUpClass(cls):
+    def setUpClass(cls) -> None:
         root = pathlib.Path(__file__).parents[1] / "private"
         cls.diagnostics = _load("mkosi_diagnostics", root / "diagnostics.py")
         cls.run_mkosi = _load("run_mkosi", root / "run_mkosi.py")
 
-    def test_all_failure_classes_are_actionable_and_preserve_detail(self):
+    def test_all_failure_classes_are_actionable_and_preserve_detail(self) -> None:
         cases = {
             "KERNEL_CAPABILITY_FAILURE": "select a Linux runner that satisfies the kernel contract",
             "TOOLCHAIN_FAILURE": "register the required Bazel toolchain",
@@ -41,11 +46,11 @@ class DiagnosticContractTest(unittest.TestCase):
             self.assertIn("original failure detail", message)
             self.assertIn("Action: " + action, message)
 
-    def test_unknown_category_is_not_silently_accepted(self):
+    def test_unknown_category_is_not_silently_accepted(self) -> None:
         with self.assertRaises(ValueError):
             self.diagnostics.report("UNKNOWN_FAILURE", "detail")
 
-    def test_mkosi_output_classification_is_deterministic(self):
+    def test_mkosi_output_classification_is_deterministic(self) -> None:
         cases = {
             b"could not download Packages": "NETWORK_FAILURE",
             b"systemd-repart: not found": "TOOLCHAIN_FAILURE",
@@ -54,7 +59,7 @@ class DiagnosticContractTest(unittest.TestCase):
         for output, expected in cases.items():
             self.assertEqual(expected, self.diagnostics.classify_mkosi_output(output))
 
-    def test_kernel_preflight_failure_preserves_probe_without_a_host_fixture(self):
+    def test_kernel_preflight_failure_preserves_probe_without_a_host_fixture(self) -> None:
         result = types.SimpleNamespace(
             returncode=1,
             stdout=b"FAIL user_namespace: enable unprivileged user namespaces\n",
@@ -72,7 +77,7 @@ class DiagnosticContractTest(unittest.TestCase):
         self.assertIn("FAIL user_namespace", message)
         self.assertIn("RESULT kernel_contract: FAIL", message)
 
-    def test_mkosi_process_failure_is_never_converted_to_success(self):
+    def test_mkosi_process_failure_is_never_converted_to_success(self) -> None:
         result = types.SimpleNamespace(
             returncode=17,
             stdout=b"download failed: connection refused\n",
@@ -90,7 +95,7 @@ class DiagnosticContractTest(unittest.TestCase):
         self.assertEqual(1, message.count("NETWORK_FAILURE:"))
         self.assertIn("download failed: connection refused", message)
 
-    def test_mkosi_signal_failure_uses_shell_compatible_status(self):
+    def test_mkosi_signal_failure_uses_shell_compatible_status(self) -> None:
         result = types.SimpleNamespace(
             returncode=-9,
             stdout=b"",
@@ -107,7 +112,7 @@ class DiagnosticContractTest(unittest.TestCase):
         self.assertIn("ASSEMBLY_FAILURE:", output.getvalue())
         self.assertIn("mkosi process was killed", output.getvalue())
 
-    def test_child_exit_code_stays_in_the_portable_process_status_range(self):
+    def test_child_exit_code_stays_in_the_portable_process_status_range(self) -> None:
         cases = {
             255: 255,
             256: 1,
@@ -123,7 +128,7 @@ class DiagnosticContractTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.diagnostics.child_exit_code(0)
 
-    def test_fail_rejects_process_statuses_outside_one_byte_range(self):
+    def test_fail_rejects_process_statuses_outside_one_byte_range(self) -> None:
         for exit_code in (0, 256):
             with self.assertRaises(ValueError):
                 self.diagnostics.fail("ASSEMBLY_FAILURE", "detail", exit_code=exit_code)

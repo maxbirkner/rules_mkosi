@@ -14,6 +14,7 @@ import sys
 import unittest
 import uuid
 import zlib
+from collections.abc import Callable, Iterable
 from pathlib import Path
 from unittest import mock
 
@@ -54,14 +55,16 @@ SCENARIOS = {
 }
 
 
-def _write_tree(tree, files):
+def _write_tree(tree: Path, files: dict[str, bytes]) -> None:
     shutil.rmtree(tree, ignore_errors=True)
     for esp_path, data in files.items():
         (tree / esp_path).parent.mkdir(parents=True, exist_ok=True)
         (tree / esp_path).write_bytes(data)
 
 
-def _esp_commands(name, bits, sector_size, cluster_sectors, size_kib):
+def _esp_commands(
+    name: str, bits: int, sector_size: int, cluster_sectors: int, size_kib: int
+) -> tuple[Path, list[str]]:
     """Returns the shell lines that create the FAT image of a scenario and leave EFI/fragmented.bin fragmented."""
     image = WORK / (name + ".fat")
     tree = WORK / (name + "-tree")
@@ -79,7 +82,9 @@ def _esp_commands(name, bits, sector_size, cluster_sectors, size_kib):
     return image, commands
 
 
-def _gpt(first, last, total, sector_size, type_guids):
+def _gpt(
+    first: int, last: int, total: int, sector_size: int, type_guids: Iterable[uuid.UUID]
+) -> tuple[bytearray, bytearray]:
     """Returns the primary GPT header and partition array of a disk with one partition per type GUID.
 
     The reader checks only the primary GPT, so the disk needs no backup GPT.
@@ -98,7 +103,9 @@ def _gpt(first, last, total, sector_size, type_guids):
     return header, array
 
 
-def _write_disk(disk, esp, sector_size, type_guids=(esp_manifest.ESP_TYPE_GUID,)):
+def _write_disk(
+    disk: Path, esp: Path, sector_size: int, type_guids: tuple[uuid.UUID, ...] = (esp_manifest.ESP_TYPE_GUID,)
+) -> None:
     """Writes a GPT disk whose partitions, one per type GUID, all hold the file system image esp at 1 MiB."""
     data = esp.read_bytes()
     first = ESP_START // sector_size
@@ -122,23 +129,23 @@ def _write_disk(disk, esp, sector_size, type_guids=(esp_manifest.ESP_TYPE_GUID,)
         writer.truncate(total * sector_size)
 
 
-def _fat_type(esp):
+def _fat_type(esp: Path) -> int:
     """Returns the FAT type that mkfs.fat recorded in the boot sector of the file system image esp."""
     boot = esp.read_bytes()[:512]
     return 32 if struct.unpack_from("<H", boot, 22)[0] == 0 else int(boot[54:59].decode().removeprefix("FAT"))
 
 
-def _run(*arguments, env=None):
+def _run(*arguments: str | os.PathLike[str], env: dict[str, str] | None = None) -> subprocess.CompletedProcess[bytes]:
     return subprocess.run([sys.executable, SCRIPT, *map(str, arguments)], capture_output=True, check=False, env=env)
 
 
 class Fixture:
     """The disks of every scenario, built with one call of the Debian tools launcher."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         shutil.rmtree(WORK, ignore_errors=True)
         WORK.mkdir()
-        self.esps = {}
+        self.esps: dict[str, Path] = {}
         commands = ["set -eu", "export MTOOLS_SKIP_CHECK=1"]
         for name, scenario in SCENARIOS.items():
             self.esps[name], lines = _esp_commands(name, *scenario)
@@ -152,7 +159,7 @@ class Fixture:
         script = WORK / "create.sh"
         script.write_text("\n".join(commands) + "\n")
         launcher_tool["run_tool"](DEBIAN_TOOLS, "/bin/sh", script)
-        self.disks = {}
+        self.disks: dict[str, Path] = {}
         for name, (_, sector_size, _, _) in SCENARIOS.items():
             self.disks[name] = WORK / (name + ".raw")
             _write_disk(self.disks[name], self.esps[name], sector_size)
@@ -160,7 +167,7 @@ class Fixture:
         _write_disk(self.disk_without_manifest, self.esps["fat12_without_manifest"], 512)
         self.files = FILES | {"EFI/after.bin": b"after", FRAGMENTED: BIG[:40000]}
 
-    def patched(self, name, patch):
+    def patched(self, name: str, patch: Callable[[bytearray, int], None]) -> Path:
         """Returns a copy of the FAT16 disk that patch(data, ESP offset) changed in place."""
         data = bytearray(self.disks["fat16"].read_bytes())
         patch(data, ESP_START)
@@ -170,28 +177,28 @@ class Fixture:
 
 
 @functools.cache
-def _fixture():
+def _fixture() -> Fixture:
     return Fixture()
 
 
-def _entry(data, offset, short_name):
+def _entry(data: bytearray, offset: int, short_name: bytes) -> int:
     """Returns the offset of the only directory entry with the 11-byte short_name after offset."""
     position = data.find(short_name, offset)
     if position < 0 or data.find(short_name, position + 1) >= 0:
-        raise AssertionError("expected one {} entry".format(short_name))
+        raise AssertionError("expected one {!r} entry".format(short_name))
     return position
 
 
-def _fat16_entry(data, esp, cluster):
+def _fat16_entry(data: bytearray, esp: int, cluster: int) -> int:
     """Returns the offset of the FAT16 entry of cluster in the first FAT."""
     return esp + struct.unpack_from("<H", data, esp + 14)[0] * 512 + cluster * 2
 
 
-def _first_cluster(data, entry):
+def _first_cluster(data: bytearray, entry: int) -> int:
     return struct.unpack_from("<H", data, entry + 26)[0]
 
 
-def _fat16_chain(data, esp, first):
+def _fat16_chain(data: bytearray, esp: int, first: int) -> list[int]:
     """Returns the clusters of the FAT16 chain that starts at first."""
     chain = [first]
     while (following := struct.unpack_from("<H", data, _fat16_entry(data, esp, chain[-1]))[0]) < 0xFFF8:
@@ -199,7 +206,7 @@ def _fat16_chain(data, esp, first):
     return chain
 
 
-def _fat16_cluster_offset(data, esp, cluster):
+def _fat16_cluster_offset(data: bytearray, esp: int, cluster: int) -> int:
     """Returns the offset of a FAT16 data cluster, after the FATs and the fixed root directory."""
     sector, per_cluster, reserved, fats, root_entries = struct.unpack_from("<HBHBH", data, esp + 11)
     fat_size = struct.unpack_from("<H", data, esp + 22)[0]
@@ -207,7 +214,7 @@ def _fat16_cluster_offset(data, esp, cluster):
     return esp + data_start + (cluster - 2) * per_cluster * sector
 
 
-def _write_clusters(data, esp, chain, content):
+def _write_clusters(data: bytearray, esp: int, chain: list[int], content: bytes) -> None:
     """Writes content across the FAT16 clusters of chain, zero-padded to their size."""
     size = struct.unpack_from("<H", data, esp + 11)[0] * data[esp + 13]
     content = content.ljust(len(chain) * size, b"\0")
@@ -216,27 +223,29 @@ def _write_clusters(data, esp, chain, content):
         data[offset : offset + size] = content[index * size : (index + 1) * size]
 
 
-def _long_name_slot(sequence, checksum, name=""):
+def _long_name_slot(sequence: int, checksum: int, name: str = "") -> bytes:
     units = name.encode("utf-16-le").ljust(26, b"\0")
     return bytes([sequence]) + units[:10] + bytes([0x0F, 0, checksum]) + units[10:22] + bytes(2) + units[22:26]
 
 
-def _short_entry(name):
+def _short_entry(name: bytes) -> bytes:
     return name + bytes([0x20]) + bytes(20)
 
 
 class ScenarioTest(unittest.TestCase):
+    fixture: Fixture
+
     @classmethod
-    def setUpClass(cls):
+    def setUpClass(cls) -> None:
         cls.fixture = _fixture()
 
-    def test_scenarios_cover_every_fat_type_and_sector_size(self):
+    def test_scenarios_cover_every_fat_type_and_sector_size(self) -> None:
         for name, (bits, *_) in SCENARIOS.items():
             self.assertEqual(_fat_type(self.fixture.esps[name]), bits, name)
         sector_sizes = {esp_manifest.find_esp(disk).sector_size for disk in self.fixture.disks.values()}
         self.assertEqual(sector_sizes, {512, 4096})
 
-    def test_a_file_is_fragmented(self):
+    def test_a_file_is_fragmented(self) -> None:
         fragmented = []
         for name, disk in self.fixture.disks.items():
             with open(disk, "rb") as file:
@@ -247,38 +256,38 @@ class ScenarioTest(unittest.TestCase):
                 fragmented.append(name)
         self.assertTrue(fragmented)
 
-    def test_esp_is_found_at_its_gpt_extent(self):
+    def test_esp_is_found_at_its_gpt_extent(self) -> None:
         for name, disk in self.fixture.disks.items():
             esp = esp_manifest.find_esp(disk)
             self.assertEqual((esp.offset, esp.size), (ESP_START, self.fixture.esps[name].stat().st_size), name)
 
-    def test_manifest_is_read(self):
+    def test_manifest_is_read(self) -> None:
         for name, disk in self.fixture.disks.items():
             self.assertEqual(esp_manifest.read_esp_manifest(disk), MANIFEST, name)
 
-    def test_every_file_is_listed_with_its_long_name_and_size(self):
+    def test_every_file_is_listed_with_its_long_name_and_size(self) -> None:
         expected = sorted(esp_manifest.EspFile(path, len(data)) for path, data in self.fixture.files.items())
         for name, disk in self.fixture.disks.items():
             self.assertEqual(esp_manifest.list_esp_files(disk), expected, name)
 
-    def test_every_file_reads_back_byte_for_byte(self):
+    def test_every_file_reads_back_byte_for_byte(self) -> None:
         for name, disk in self.fixture.disks.items():
             for path, data in self.fixture.files.items():
                 self.assertEqual(esp_manifest.read_esp_file(disk, path), data, "{}: {}".format(name, path))
 
-    def test_paths_are_case_insensitive_and_match_short_names(self):
+    def test_paths_are_case_insensitive_and_match_short_names(self) -> None:
         disk = self.fixture.disks["fat32"]
         self.assertEqual(esp_manifest.read_esp_file(disk, "/efi/boot/bootx64.efi"), FILES["EFI/BOOT/BOOTX64.EFI"])
         self.assertEqual(esp_manifest.read_esp_file(disk, "LOADER/LOADER.CONF"), FILES["loader/loader.conf"])
         self.assertEqual(esp_manifest.read_esp_file(disk, "BIG.BIN"), BIG)
 
-    def test_missing_files_and_directories_are_not_found(self):
+    def test_missing_files_and_directories_are_not_found(self) -> None:
         disk = self.fixture.disks["fat12"]
         for path in ("loader/missing.json", "loader", "big.bin/inside", "", "missing/loader.conf"):
             with self.assertRaises(esp_manifest.EspFileNotFoundError, msg=path):
                 esp_manifest.read_esp_file(disk, path)
 
-    def test_constants_match_the_signed_image_tool(self):
+    def test_constants_match_the_signed_image_tool(self) -> None:
         assignments = {
             node.targets[0].id: node.value.value
             for node in ast.parse(Path(SECURE_BOOT_IMAGE).read_text()).body
@@ -289,7 +298,7 @@ class ScenarioTest(unittest.TestCase):
         self.assertEqual(assignments["ESP_MANIFEST"], esp_manifest.ESP_MANIFEST_PATH)
         self.assertEqual(assignments["ESP_MANIFEST_FORMAT"], esp_manifest.ESP_MANIFEST_FORMAT)
 
-    def test_command_line(self):
+    def test_command_line(self) -> None:
         disk = self.fixture.disks["fat16_4k_sectors"]
         printed = _run(disk)
         self.assertEqual((printed.returncode, json.loads(printed.stdout)), (0, MANIFEST), printed.stderr)
@@ -301,7 +310,7 @@ class ScenarioTest(unittest.TestCase):
         relative = _run(disk.name, env=environment)
         self.assertEqual((relative.returncode, json.loads(relative.stdout)), (0, MANIFEST), relative.stderr)
 
-    def test_command_line_exit_status_tells_a_missing_file_from_an_invalid_image(self):
+    def test_command_line_exit_status_tells_a_missing_file_from_an_invalid_image(self) -> None:
         missing = _run("--extract", "loader/missing", self.fixture.disks["fat12"])
         self.assertEqual(missing.returncode, 3)
         self.assertIn(b"loader/missing", missing.stderr)
@@ -311,52 +320,59 @@ class ScenarioTest(unittest.TestCase):
 
 
 class MalformedImageTest(unittest.TestCase):
+    fixture: Fixture
+
     @classmethod
-    def setUpClass(cls):
+    def setUpClass(cls) -> None:
         cls.fixture = _fixture()
 
-    def assert_invalid(self, disk, message, read=lambda disk: esp_manifest.read_esp_file(disk, "big.bin")):
+    def assert_invalid(
+        self,
+        disk: Path,
+        message: str,
+        read: Callable[[Path], object] = lambda disk: esp_manifest.read_esp_file(disk, "big.bin"),
+    ) -> None:
         with self.assertRaisesRegex(esp_manifest.InvalidImageError, message):
             read(disk)
 
-    def test_cyclic_cluster_chain_is_rejected(self):
-        def loop(data, esp):
+    def test_cyclic_cluster_chain_is_rejected(self) -> None:
+        def loop(data: bytearray, esp: int) -> None:
             first = _first_cluster(data, _entry(data, esp, b"BIG     BIN"))
             second = struct.unpack_from("<H", data, _fat16_entry(data, esp, first))[0]
             struct.pack_into("<H", data, _fat16_entry(data, esp, second), first)
 
         self.assert_invalid(self.fixture.patched("loop", loop), "loops at cluster")
 
-    def test_chain_into_a_free_cluster_is_rejected(self):
-        def free(data, esp):
+    def test_chain_into_a_free_cluster_is_rejected(self) -> None:
+        def free(data: bytearray, esp: int) -> None:
             first = _first_cluster(data, _entry(data, esp, b"BIG     BIN"))
             struct.pack_into("<H", data, _fat16_entry(data, esp, first), 0)
 
         self.assert_invalid(self.fixture.patched("free", free), "invalid cluster 0")
 
-    def test_size_beyond_the_chain_is_rejected(self):
-        def grow(data, esp):
+    def test_size_beyond_the_chain_is_rejected(self) -> None:
+        def grow(data: bytearray, esp: int) -> None:
             entry = _entry(data, esp, b"BIG     BIN")
             struct.pack_into("<I", data, entry + 28, len(BIG) + (1 << 16))
 
         self.assert_invalid(self.fixture.patched("grow", grow), "bytes but a chain of")
 
-    def test_directory_that_contains_its_parent_is_rejected(self):
-        def loop(data, esp):
+    def test_directory_that_contains_its_parent_is_rejected(self) -> None:
+        def loop(data: bytearray, esp: int) -> None:
             keys = _first_cluster(data, _entry(data, esp, b"KEYS       "))
             struct.pack_into("<H", data, _entry(data, esp, b"AUTO       ") + 26, keys)
 
         self.assert_invalid(self.fixture.patched("directory-loop", loop), "cross-linked", esp_manifest.list_esp_files)
 
-    def test_subdirectory_at_cluster_zero_is_rejected(self):
-        def to_root(data, esp):
+    def test_subdirectory_at_cluster_zero_is_rejected(self) -> None:
+        def to_root(data: bytearray, esp: int) -> None:
             struct.pack_into("<H", data, _entry(data, esp, b"AUTO       ") + 26, 0)
 
         disk = self.fixture.patched("directory-at-zero", to_root)
         self.assert_invalid(disk, "invalid cluster 0", esp_manifest.list_esp_files)
 
-    def test_directories_that_share_clusters_are_rejected(self):
-        def cross_link(data, esp):
+    def test_directories_that_share_clusters_are_rejected(self) -> None:
+        def cross_link(data: bytearray, esp: int) -> None:
             keys = _first_cluster(data, _entry(data, esp, b"KEYS       "))
             entries = _fat16_chain(data, esp, _first_cluster(data, _entry(data, esp, b"ENTRIES    ")))
             self.assertGreater(len(entries), 1)
@@ -365,16 +381,16 @@ class MalformedImageTest(unittest.TestCase):
         disk = self.fixture.patched("cross-linked", cross_link)
         self.assert_invalid(disk, "shares cluster .* cross-linked", esp_manifest.list_esp_files)
 
-    def test_walk_reads_at_most_the_esp_size_of_directories(self):
+    def test_walk_reads_at_most_the_esp_size_of_directories(self) -> None:
         limits = esp_manifest._WalkLimits(4096)
         limits.claim([2], 2048, "first")
         with self.assertRaisesRegex(esp_manifest.InvalidImageError, "larger than the ESP"):
             limits.claim([3, 4], 4096, "second")
 
-    def test_long_name_slot_runs_are_bounded(self):
+    def test_long_name_slot_runs_are_bounded(self) -> None:
         """A directory of stray long name slots is parsed in linear time, and a slot count of 0 names nothing."""
 
-        def stray_slots(data, esp):
+        def stray_slots(data: bytearray, esp: int) -> None:
             entry = _entry(data, esp, b"BIG     BIN")
             data[entry + 11] = 0x10
             struct.pack_into("<I", data, entry + 28, 0)
@@ -390,51 +406,51 @@ class MalformedImageTest(unittest.TestCase):
         self.assertIn("big.bin/ZERO.BIN", files)
         self.assertLessEqual(max(len(call.args[0]) for call in long_name.call_args_list), 20)
 
-    def test_partition_array_outside_the_image_is_rejected(self):
+    def test_partition_array_outside_the_image_is_rejected(self) -> None:
         for lba in (1, 1 << 40, 1 << 63, (1 << 64) - 1):
 
-            def move(data, _, lba=lba):
+            def move(data: bytearray, _: int, lba: int = lba) -> None:
                 struct.pack_into("<QI", data, 512 + 72, lba, 128)
                 struct.pack_into("<I", data, 512 + 16, 0)
                 struct.pack_into("<I", data, 512 + 16, zlib.crc32(data[512 : 512 + 92]))
 
             self.assert_invalid(self.fixture.patched("gpt-lba", move), "partition array at LBA {} ".format(lba))
 
-    def test_corrupt_gpt_is_rejected(self):
-        def corrupt(data, _):
+    def test_corrupt_gpt_is_rejected(self) -> None:
+        def corrupt(data: bytearray, _: int) -> None:
             data[2 * 512 + 56] ^= 1
 
         self.assert_invalid(self.fixture.patched("gpt-crc", corrupt), "partition array's CRC")
 
-    def test_image_without_protective_mbr_is_rejected(self):
-        def wipe(data, _):
+    def test_image_without_protective_mbr_is_rejected(self) -> None:
+        def wipe(data: bytearray, _: int) -> None:
             data[510:512] = b"\0\0"
 
         self.assert_invalid(self.fixture.patched("no-mbr", wipe), "protective MBR")
 
-    def test_esp_without_fat_is_rejected(self):
-        def wipe(data, esp):
+    def test_esp_without_fat_is_rejected(self) -> None:
+        def wipe(data: bytearray, esp: int) -> None:
             data[esp : esp + 512] = bytes(512)
 
         self.assert_invalid(self.fixture.patched("no-fat", wipe), "no FAT file system")
 
-    def test_truncated_image_is_rejected(self):
+    def test_truncated_image_is_rejected(self) -> None:
         disk = WORK / "truncated.raw"
         disk.write_bytes(self.fixture.disks["fat16"].read_bytes()[: ESP_START + 4096])
         self.assert_invalid(disk, "does not lie within the image")
 
-    def test_disk_needs_exactly_one_esp(self):
+    def test_disk_needs_exactly_one_esp(self) -> None:
         for name, type_guids in (("no-esp", (LINUX_DATA,)), ("two-esps", (esp_manifest.ESP_TYPE_GUID,) * 2)):
             disk = WORK / (name + ".raw")
             _write_disk(disk, self.fixture.esps["fat12"], 512, type_guids)
             found = type_guids.count(esp_manifest.ESP_TYPE_GUID)
             self.assert_invalid(disk, "exactly one EFI system partition, found {}".format(found))
 
-    def test_manifest_of_another_format_or_not_json_is_rejected(self):
+    def test_manifest_of_another_format_or_not_json_is_rejected(self) -> None:
         old = esp_manifest.ESP_MANIFEST_FORMAT.encode()
         for name, new in (("other-format", old[:-1] + b"9"), ("not-json", b"\xff" * len(old))):
 
-            def replace(data, esp, new=new):
+            def replace(data: bytearray, esp: int, new: bytes = new) -> None:
                 position = _entry(data, esp, old)
                 data[position : position + len(old)] = new
 
@@ -442,7 +458,7 @@ class MalformedImageTest(unittest.TestCase):
                 self.fixture.patched(name, replace), "ESP manifest is not", esp_manifest.read_esp_manifest
             )
 
-    def test_deleted_manifest_is_not_found(self):
+    def test_deleted_manifest_is_not_found(self) -> None:
         disk = self.fixture.disk_without_manifest
         with self.assertRaises(esp_manifest.EspFileNotFoundError):
             esp_manifest.read_esp_manifest(disk)

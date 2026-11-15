@@ -493,21 +493,40 @@ def _signing_certificates(binaries, consumer):
     return certificates, ephemeral
 
 def _check_auto_enroll_keys(image, consumer, targets):
-    if [target for target in targets if _EphemeralFixtureMarkerInfo in target]:
-        return
-    keys = sorted([file.short_path for target in targets for file in target.files.to_list()])
-    declared = sorted([file.short_path for file in (getattr(image, "version_auto_enroll_keys", None) or [])])
-    if keys != declared:
-        fail(("%s enrolls the keys [%s], but the image's version_auto_enroll_keys are [%s]; a derived version must " +
-              "declare exactly the keys that its signed images ship") % (consumer, ", ".join(keys), ", ".join(declared)))
+    """Fails unless the keys of targets are exactly version_auto_enroll_keys.
+
+    The keys of a test fixture stand in for the declared keys of the same names, so only the other targets' keys are
+    compared with the remaining declared keys.
+    """
+    replaced = {}
+    keys = []
+    for target in targets:
+        if _EphemeralFixtureMarkerInfo in target:
+            fixture = target[SecureBootEphemeralTestFixtureInfo]
+            replaced.update({file.basename: True for file in fixture.auto_enroll_keys})
+        else:
+            keys.extend([file.short_path for file in target.files.to_list()])
+    declared = [
+        file.short_path
+        for file in (getattr(image, "version_auto_enroll_keys", None) or [])
+        if file.basename not in replaced
+    ]
+    if sorted(keys) != sorted(declared):
+        fail(("%s enrolls the keys [%s], but the image's version_auto_enroll_keys%s are [%s]; a derived version must " +
+              "declare exactly the keys that its signed images ship") % (
+            consumer,
+            ", ".join(sorted(keys)),
+            " that no secure_boot_ephemeral_test_fixture replaces" if replaced else "",
+            ", ".join(sorted(declared)),
+        ))
 
 def check_version_signing(image, consumer, binaries, esp_paths = None, auto_enroll_keys = None):
     """Fails unless an image deriving its version declares exactly the signing material that consumer ships.
 
     A version is fixed before signing and cannot tell differently signed artifacts of one image apart, so every
     consumer must sign each binary with the certificate that version_signing_certificates declares for its ESP path,
-    and enroll exactly version_auto_enroll_keys. Material of a secure_boot_ephemeral_test_fixture is exempt. Images
-    with another kind of version pass.
+    and enroll exactly version_auto_enroll_keys. Binaries signed by a secure_boot_ephemeral_test_fixture are exempt, and
+    its keys stand in for the declared keys of the same names. Images with another kind of version pass.
 
     Args:
       image: MkosiImageInfo of the image.
@@ -617,7 +636,8 @@ secure_boot_signed_image = rule(
     attrs = dict({
         "auto_enroll_keys": attr.label_list(
             allow_files = [".auth"],
-            doc = """PK.auth, KEK.auth, db.auth and optionally dbx.auth, or a secure_boot_ephemeral_test_fixture.
+            doc = """PK.auth, KEK.auth, db.auth and optionally dbx.auth; a secure_boot_ephemeral_test_fixture can
+replace PK.auth, KEK.auth and db.auth.
 
 The public, pre-signed authenticated variables that systemd-boot enrolls from /loader/keys/auto/ when the firmware is in
 Setup Mode. The build fails unless db trusts the signer of every signed *.efi file and boot loader entry binary on the
@@ -666,7 +686,8 @@ mkosi_image.
 
 When the image derives its version with image_version_from_inputs, its version_signing_certificates must map exactly
 the ESP paths of the signed binaries to their certificates, and its version_auto_enroll_keys must be exactly the
-auto_enroll_keys, except material of a secure_boot_ephemeral_test_fixture.""",
+auto_enroll_keys. Binaries signed by a secure_boot_ephemeral_test_fixture are exempt, and its keys stand in for the
+declared keys of the same names, so the other auto_enroll_keys must be exactly the remaining declared keys.""",
     provides = [MkosiImageInfo],
     toolchains = [MKOSI_TOOLCHAIN_TYPE],
 )

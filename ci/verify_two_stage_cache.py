@@ -3,30 +3,35 @@
 
 import pathlib
 import sys
+from collections.abc import Mapping, Sequence
+from typing import Any
 
 from execution_log import read_entries
 
 BASE = ("MkosiBase", "//mkosi/tests:two_stage_base")
 IMAGE = ("MkosiImage", "//mkosi/tests:two_stage_release")
 
+# An entry of a JSON execution log.
+Entry = Mapping[str, Any]
 
-def _executions(entries, key):
+
+def _executions(entries: Sequence[Entry], key: tuple[str, str]) -> list[Entry]:
     return [entry for entry in entries if (entry.get("mnemonic"), entry.get("targetLabel")) == key]
 
 
-def _executed(entries, key):
+def _executed(entries: Sequence[Entry], key: tuple[str, str]) -> list[Entry]:
     return [entry for entry in _executions(entries, key) if entry.get("cacheHit") is False]
 
 
-def _wall_time(entry):
+def _wall_time(entry: Entry) -> str:
     return (entry.get("metrics") or {}).get("totalTime") or entry.get("walltime") or "unknown"
 
 
-def verify(first_path, second_path):
+def verify(first_path: pathlib.Path, second_path: pathlib.Path) -> None:
     """Requires both stages in the first build and only the finalization in the second one."""
     first = read_entries(first_path)
     second = read_entries(second_path)
-    errors = []
+    errors: list[str] = []
     for build, entries, keys in (("first", first, (BASE, IMAGE)), ("second", second, (IMAGE,))):
         for key in keys:
             if len(_executed(entries, key)) != 1:

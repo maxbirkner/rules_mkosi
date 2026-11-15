@@ -747,7 +747,8 @@ moving the target also changes the version.
 The version identifies the unsigned build and the declared signing material: signing happens after the version is
 fixed, so declare the signing certificates in version_signing_certificates and the Secure Boot keys in
 version_auto_enroll_keys. One version cannot tell differently signed artifacts of the same image apart, so build a
-separate mkosi_image for each variant that is signed with other certificates or keys, or not signed at all.
+separate mkosi_image for each variant that is signed with other certificates or keys, or not signed at all. The
+image's own raw_image and unsigned UKI cannot be checked; do not ship them from an image that declares signing material.
 
 Requires image_id and release mode and excludes image_version and image_version_file. With verity = "hash",
 image_id may have at most 12 characters so that '<image_id>_<version>_verity' fits a GPT partition name.
@@ -799,9 +800,10 @@ unified_kernel_image = "unsigned".""",
             doc = """The auto_enroll_keys of every secure_boot_signed_image of this image, which a version derived with
 image_version_from_inputs covers; requires image_version_from_inputs.
 
-secure_boot_signed_image fails unless its auto_enroll_keys are exactly these files, except keys of a
-secure_boot_ephemeral_test_fixture, whose throwaway keys change with every build. Rotating a key then gives a new
-version.
+secure_boot_signed_image fails unless its auto_enroll_keys are exactly these files. The PK.auth, KEK.auth and db.auth
+of a secure_boot_ephemeral_test_fixture, whose throwaway keys change with every build, stand in for the files of those
+names, so the other auto_enroll_keys, such as a dbx.auth, must be exactly the remaining files. Rotating a key then
+gives a new version.
 """,
         ),
         "version_inputs": attr.label_list(
@@ -826,6 +828,9 @@ sysupdate_payload fails unless it signs the UKI with the certificate declared fo
 declared, and secure_boot_signed_image fails unless its signed binaries use exactly the declared certificates. Binaries
 signed by a secure_boot_ephemeral_test_fixture are exempt, because its throwaway keys change with every build. Build
 a separate mkosi_image for each differently signed or unsigned variant.
+
+The image's own raw_image and unsigned UKI cannot be checked; do not ship them from an image that declares signing
+material.
 """,
         ),
         "_write_bios_repart": attr.label(

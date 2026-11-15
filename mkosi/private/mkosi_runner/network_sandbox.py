@@ -1,6 +1,7 @@
 """Prepares the sandbox files of a build that downloads packages from the network."""
 
 import os
+from pathlib import Path
 
 from . import tree
 
@@ -8,7 +9,7 @@ from . import tree
 APT_CONFIGURATION = 'Acquire::Retries "10";\n'
 
 
-def configure_network_sandbox(workspace, arguments):
+def configure_network_sandbox(workspace: Path, arguments: list[str]) -> None:
     """Adds a sandbox tree whose apt configuration retries failed downloads."""
     sandbox_tree = workspace / "network-sandbox"
     tree.write_file(sandbox_tree / "etc/apt/apt.conf.d/99rules-mkosi-retries", APT_CONFIGURATION)

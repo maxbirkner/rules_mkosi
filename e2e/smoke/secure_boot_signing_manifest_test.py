@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 
 
-def _split_arguments(arguments):
+def _split_arguments(arguments: list[str]) -> tuple[str, list[str], list[str]]:
     """Returns the signer, the manifest rule's outputs and the test signer's outputs."""
     separator = arguments.index("--")
     return arguments[0], arguments[1:separator], arguments[separator + 1 :]
@@ -20,7 +20,7 @@ MANIFEST = Path(next(path for path in MANIFEST_OUTPUTS if path.endswith(".secure
 CERTIFICATE = Path(next(path for path in FIXTURE_OUTPUTS if path.endswith(".certificate.pem")))
 
 
-def _runfile(path):
+def _runfile(path: str) -> Path:
     """Returns the runfile of the consumer's file at an execution-root-relative path such as bazel-out/<cfg>/bin/x."""
     parts = Path(path).parts
     if parts[0] != "bazel-out" or parts[2] != "bin":
@@ -29,10 +29,10 @@ def _runfile(path):
 
 
 class SigningManifestTest(unittest.TestCase):
-    def setUp(self):
+    def setUp(self) -> None:
         self.manifest = json.loads(MANIFEST.read_text())
 
-    def test_entries_name_each_request_with_its_binary_and_certificate(self):
+    def test_entries_name_each_request_with_its_binary_and_certificate(self) -> None:
         self.assertEqual("mkosi-secure-boot-signing-manifest-v1", self.manifest["format_version"])
         entries = self.manifest["requests"]
         self.assertEqual(["systemd-bootx64.efi", "uki.efi"], [entry["signed_name"] for entry in entries])
@@ -45,7 +45,7 @@ class SigningManifestTest(unittest.TestCase):
             certificate = _runfile(entry["certificate"]).read_bytes()
             self.assertEqual(request["certificate_sha256"], hashlib.sha256(certificate).hexdigest())
 
-    def validate(self, *arguments, env=None):
+    def validate(self, *arguments: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
         """Runs the reference signer with --validate-only on the manifest and returns the completed process."""
         # The manifest's paths are relative to the execution root; map each bazel-out/<cfg>/bin to the runfiles.
         execroot = Path("signing-manifest-execroot").absolute()
@@ -71,12 +71,12 @@ class SigningManifestTest(unittest.TestCase):
             env=env,
         )
 
-    def test_reference_signer_validates_the_manifest_against_the_certificate(self):
+    def test_reference_signer_validates_the_manifest_against_the_certificate(self) -> None:
         result = self.validate()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(2, len([line for line in result.stdout.splitlines() if line.startswith("valid: ")]))
 
-    def test_reference_signer_rejects_a_signing_time_outside_the_certificate_validity(self):
+    def test_reference_signer_rejects_a_signing_time_outside_the_certificate_validity(self) -> None:
         environment = {key: value for key, value in os.environ.items() if key != "SOURCE_DATE_EPOCH"}
         for name, arguments, source_date_epoch, source in (
             ("option", ["--signing-time", "0"], None, ""),

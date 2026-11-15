@@ -7,6 +7,8 @@ SignedData) followed by the variable data, a list of EFI_SIGNATURE_LISTs. system
 
 import struct
 import uuid
+from collections.abc import Iterable, Sequence
+from typing import TypeAlias
 
 EFI_CERT_TYPE_PKCS7 = uuid.UUID("4aafd29d-68df-49ee-8aa9-347d375665a7")
 EFI_CERT_X509 = uuid.UUID("a5c059a1-94e4-4aa7-87b5-ab155c2bf072")
@@ -28,25 +30,28 @@ _SIGNATURE_LIST = struct.Struct("<16sIII")
 _WIN_CERT_TYPE_EFI_GUID = 0x0EF1
 _WIN_CERT_REVISION = 0x0200
 
+# An EFI_SIGNATURE_LIST: its signature type and the data of each of its signatures.
+SignatureList: TypeAlias = tuple[uuid.UUID, list[bytes]]
 
-def efi_time(year, month=1, day=1):
+
+def efi_time(year: int, month: int = 1, day: int = 1) -> bytes:
     """Returns an EFI_TIME at midnight UTC with the zero fields that time-based authenticated variables require."""
     return _TIME.pack(year, month, day, 0, 0, 0, 0, 0, 0, 0, 0)
 
 
-def signature_list(certificate_der, owner):
+def signature_list(certificate_der: bytes, owner: uuid.UUID) -> bytes:
     """Returns an EFI_SIGNATURE_LIST holding one X.509 certificate owned by the owner UUID."""
     size = _SIGNATURE_LIST.size + 16 + len(certificate_der)
     header = _SIGNATURE_LIST.pack(EFI_CERT_X509.bytes_le, size, 0, 16 + len(certificate_der))
     return header + owner.bytes_le + certificate_der
 
 
-def signed_payload(name, timestamp, data):
+def signed_payload(name: str, timestamp: bytes, data: bytes) -> bytes:
     """Returns the bytes that the PKCS#7 signature of variable name with timestamp and data signs."""
     return name.encode("utf-16-le") + VARIABLES[name].bytes_le + struct.pack("<I", ATTRIBUTES) + timestamp + data
 
 
-def auth_file(timestamp, signed_data, data):
+def auth_file(timestamp: bytes, signed_data: bytes, data: bytes) -> bytes:
     """Returns an .auth file from its timestamp, the DER PKCS#7 SignedData over signed_payload, and the data."""
     header = _WIN_CERTIFICATE.pack(
         _WIN_CERTIFICATE.size + len(signed_data),
@@ -57,7 +62,7 @@ def auth_file(timestamp, signed_data, data):
     return timestamp + header + signed_data + data
 
 
-def _parse_time(data):
+def _parse_time(data: bytes) -> None:
     if len(data) < _TIME.size + _WIN_CERTIFICATE.size:
         raise ValueError("too short for an EFI_VARIABLE_AUTHENTICATION_2 header")
     year, month, day, hour, minute, second, pad1, nanosecond, zone, daylight, pad2 = _TIME.unpack_from(data)
@@ -67,7 +72,7 @@ def _parse_time(data):
         raise ValueError("EFI_TIME of a time-based authenticated variable must have zero Pad, Nanosecond, TimeZone")
 
 
-def _parse_certificate(data):
+def _parse_certificate(data: bytes) -> tuple[bytes, int]:
     """Returns the PKCS#7 bytes and the offset of the variable data after the WIN_CERTIFICATE_UEFI_GUID."""
     length, revision, certificate_type, cert_type = _WIN_CERTIFICATE.unpack_from(data, _TIME.size)
     end = _TIME.size + length
@@ -83,9 +88,9 @@ def _parse_certificate(data):
     return signed_data, end
 
 
-def signature_lists(data):
+def signature_lists(data: bytes) -> list[SignatureList]:
     """Returns (signature type UUID, [signature data]) for each EFI_SIGNATURE_LIST in data; raises ValueError."""
-    lists = []
+    lists: list[SignatureList] = []
     offset = 0
     while offset < len(data):
         if len(data) - offset < _SIGNATURE_LIST.size:
@@ -103,7 +108,7 @@ def signature_lists(data):
     return lists
 
 
-def parse_auth(name, data):
+def parse_auth(name: str, data: bytes) -> tuple[bytes, list[SignatureList]]:
     """Validates the .auth file data of variable name; returns its PKCS#7 bytes and its signature lists."""
     if name not in VARIABLES:
         raise ValueError("{}.auth is not a Secure Boot variable; expected one of {}".format(name, sorted(VARIABLES)))
@@ -117,6 +122,6 @@ def parse_auth(name, data):
     return signed_data, lists
 
 
-def x509_certificates(lists):
+def x509_certificates(lists: Iterable[tuple[uuid.UUID, Sequence[bytes]]]) -> list[bytes]:
     """Returns the DER X.509 certificates in signature lists."""
     return [entry for signature_type, entries in lists if signature_type == EFI_CERT_X509 for entry in entries]

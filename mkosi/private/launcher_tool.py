@@ -9,13 +9,17 @@ that receives the command line unchanged.
 import os
 import shutil
 import subprocess
+from collections.abc import Iterable
 from pathlib import Path
+from typing import TypeAlias
+
+StrPath: TypeAlias = str | os.PathLike[str]
 
 WORK = "/outputs/work"
 _counter = 0
 
 
-def _argument(value, launcher):
+def _argument(value: StrPath, launcher: bool) -> str:
     if not isinstance(value, os.PathLike):
         return value
     path = os.fspath(value)
@@ -24,12 +28,12 @@ def _argument(value, launcher):
     return WORK + "/" + os.path.normpath(path)
 
 
-def namespace_path(tool, path):
+def namespace_path(tool: StrPath, path: StrPath) -> str:
     """Returns the path at which a command run through tool sees the file at path below the working directory."""
     return _argument(Path(path), Path(tool).name == "launcher")
 
 
-def command(tool, arguments):
+def command(tool: StrPath, arguments: Iterable[StrPath]) -> tuple[list[str], dict[str, str] | None]:
     """Returns the command line and environment that run arguments through tool."""
     global _counter
     launcher = Path(tool).name == "launcher"
@@ -43,7 +47,7 @@ def command(tool, arguments):
     return [os.fspath(tool), "--rw-bind", "{}:{}".format(cwd, WORK), *converted], env
 
 
-def run_tool(tool, *arguments, capture=False):
+def run_tool(tool: StrPath, *arguments: StrPath, capture: bool = False) -> subprocess.CompletedProcess[bytes]:
     """Runs arguments[0] with the remaining arguments and returns the completed process."""
     command_line, env = command(tool, list(arguments))
     try:

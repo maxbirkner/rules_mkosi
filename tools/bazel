@@ -8,13 +8,14 @@ import secrets
 import shlex
 import stat
 import sys
+from collections.abc import Callable
 
 
 class WrapperError(RuntimeError):
     """User-facing wrapper configuration error."""
 
 
-def _module_root():
+def _module_root() -> pathlib.Path:
     cwd = pathlib.Path.cwd().resolve(strict=True)
     for directory in (cwd, *cwd.parents):
         module = directory / "MODULE.bazel"
@@ -30,7 +31,7 @@ def _module_root():
     raise WrapperError(f"could not find a Bazel module root from {cwd}")
 
 
-def _backend(wrapper):
+def _backend(wrapper: pathlib.Path) -> pathlib.Path:
     for name in ("bazel", "bazelisk"):
         for directory in os.get_exec_path():
             candidate = pathlib.Path(directory or os.curdir) / name
@@ -46,7 +47,7 @@ def _backend(wrapper):
     raise WrapperError(f"could not find a Bazel or Bazelisk executable other than {wrapper}")
 
 
-def _verified_directory(path):
+def _verified_directory(path: pathlib.Path) -> int:
     with contextlib.suppress(FileExistsError):
         os.mkdir(path, mode=0o700)
     directory_stat = path.stat(follow_symlinks=False)
@@ -66,7 +67,7 @@ def _verified_directory(path):
     return descriptor
 
 
-def _reject_unsafe_component(directory_fd, name, expected_type):
+def _reject_unsafe_component(directory_fd: int, name: str, expected_type: Callable[[int], bool]) -> None:
     try:
         component_stat = os.stat(
             name,
@@ -79,7 +80,7 @@ def _reject_unsafe_component(directory_fd, name, expected_type):
         raise WrapperError(f"refusing unsafe cache component: {name}")
 
 
-def _write_rc(module_root):
+def _write_rc(module_root: pathlib.Path) -> pathlib.Path:
     cache_directory = module_root / ".cache"
     cache = cache_directory / "bazel-disk"
     rc_name = "bazel-wrapper.bazelrc"
@@ -160,7 +161,7 @@ def _write_rc(module_root):
     return rc
 
 
-def main():
+def main() -> None:
     wrapper = pathlib.Path(__file__).resolve(strict=True)
     backend = _backend(wrapper)
     arguments = sys.argv[1:]

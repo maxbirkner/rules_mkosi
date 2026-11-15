@@ -10,6 +10,8 @@ import tempfile
 import unittest
 import uuid
 import zlib
+from collections.abc import Callable
+from typing import Any
 from unittest import mock
 
 from mkosi.private import gpt_partitions, partition_metadata
@@ -18,9 +20,11 @@ SECTOR = 512
 SECTORS = 32768
 COUNT = 8
 ENTRY_SIZE = 128
+# A partition table entry as (slot, first LBA, last LBA, type GUID, label).
+PartitionEntry = tuple[int, int, int, str, str]
 
 
-def _header(current, backup, entries_lba, array, **overrides):
+def _header(current: int, backup: int, entries_lba: int, array: bytes | bytearray, **overrides: int) -> bytearray:
     values = {
         "revision": 0x10000,
         "header_size": 92,
@@ -54,7 +58,11 @@ def _header(current, backup, entries_lba, array, **overrides):
     return result
 
 
-def image(entries=None, primary_overrides=None, backup_overrides=None):
+def image(
+    entries: list[PartitionEntry] | None = None,
+    primary_overrides: dict[str, int] | None = None,
+    backup_overrides: dict[str, int] | None = None,
+) -> bytearray:
     array = bytearray(COUNT * ENTRY_SIZE)
     if entries is None:
         entries = [(2, 2048, 4095, gpt_partitions.ROOT_X86_64, "root-x86-64")]
@@ -75,13 +83,13 @@ def image(entries=None, primary_overrides=None, backup_overrides=None):
     return raw
 
 
-def _recrc_header(raw, offset):
+def _recrc_header(raw: bytearray, offset: int) -> None:
     header = bytearray(raw[offset : offset + SECTOR])
     header[16:20] = b"\0" * 4
     struct.pack_into("<I", raw, offset + 16, zlib.crc32(header[:92]))
 
 
-def _rewrite_arrays(raw, mutate):
+def _rewrite_arrays(raw: bytearray, mutate: Callable[[bytearray], object]) -> None:
     for array_offset in (2 * SECTOR, (SECTORS - 3) * SECTOR):
         array = bytearray(raw[array_offset : array_offset + COUNT * ENTRY_SIZE])
         mutate(array)
@@ -92,30 +100,30 @@ def _rewrite_arrays(raw, mutate):
 
 
 class ProjectionTest(unittest.TestCase):
-    def setUp(self):
+    def setUp(self) -> None:
         self.directory = tempfile.TemporaryDirectory()
         self.path = os.path.join(self.directory.name, "image.raw")
 
-    def tearDown(self):
+    def tearDown(self) -> None:
         self.directory.cleanup()
 
-    def project(self, raw):
+    def project(self, raw: bytes | bytearray) -> dict[str, Any]:
         with open(self.path, "wb") as output:
             output.write(raw)
         return partition_metadata.project_image(self.path)
 
-    def digest(self, raw):
+    def digest(self, raw: bytes | bytearray) -> str:
         with open(self.path, "wb") as output:
             output.write(raw)
         return partition_metadata.canonical_image_sha256(self.path)
 
-    def test_canonical_digest_covers_partition_payload(self):
+    def test_canonical_digest_covers_partition_payload(self) -> None:
         original = image()
         changed = bytearray(original)
         changed[2048 * SECTOR + 123] ^= 1
         self.assertNotEqual(self.digest(original), self.digest(changed))
 
-    def test_canonical_digest_normalizes_only_gpt_identity_and_crcs(self):
+    def test_canonical_digest_normalizes_only_gpt_identity_and_crcs(self) -> None:
         original = image()
         changed = bytearray(original)
         replacement_disk_guid = uuid.uuid4().bytes_le
@@ -132,7 +140,7 @@ class ProjectionTest(unittest.TestCase):
         )
         self.assertEqual(self.digest(original), self.digest(changed))
 
-    def test_canonical_digest_preserves_partition_semantics(self):
+    def test_canonical_digest_preserves_partition_semantics(self) -> None:
         original = image()
         mutations = {
             "attributes": lambda array: struct.pack_into("<Q", array, ENTRY_SIZE + 48, 1),
@@ -161,7 +169,7 @@ class ProjectionTest(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     self.digest(changed)
 
-    def write_dense_image(self, count):
+    def write_dense_image(self, count: int) -> None:
         sectors = 2048 * (count + 2)
         array = bytearray(count * ENTRY_SIZE)
         for slot in range(count):
@@ -204,13 +212,13 @@ class ProjectionTest(unittest.TestCase):
             output.seek((sectors - 1) * SECTOR)
             output.write(backup)
 
-    def test_sparse_slots_and_identifier_normalization(self):
+    def test_sparse_slots_and_identifier_normalization(self) -> None:
         projected = self.project(image())
         self.assertEqual(2, projected["partitions"][0]["number"])
         self.assertNotIn("disk_guid", projected)
         self.assertNotIn("unique_guid", projected["partitions"][0])
 
-    def test_bios_firmware_requires_bios_boot_partition(self):
+    def test_bios_firmware_requires_bios_boot_partition(self) -> None:
         entries = [
             (1, 2048, 4095, gpt_partitions.BIOS_BOOT, "BIOS Boot"),
             (2, 4096, 6143, gpt_partitions.ROOT_X86_64, "root-x86-64"),
@@ -226,7 +234,7 @@ class ProjectionTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "BIOS boot partition"):
             partition_metadata.project_image(self.path, "bios")
 
-    def test_dense_table_uses_one_linear_entry_scan(self):
+    def test_dense_table_uses_one_linear_entry_scan(self) -> None:
         self.write_dense_image(512)
         projected = partition_metadata.project_image(self.path)
         self.assertEqual(512, len(projected["partitions"]))
@@ -245,7 +253,7 @@ class ProjectionTest(unittest.TestCase):
         ]
         self.assertEqual([], nested_loops)
 
-    def test_each_header_and_array_copy_is_checked(self):
+    def test_each_header_and_array_copy_is_checked(self) -> None:
         for offset in (SECTOR + 24, (SECTORS - 1) * SECTOR + 24, 2 * SECTOR, (SECTORS - 3) * SECTOR):
             with self.subTest(offset=offset):
                 raw = image()
@@ -253,7 +261,7 @@ class ProjectionTest(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "CRC"):
                     self.project(raw)
 
-    def test_consistent_crc_protected_copies_are_required(self):
+    def test_consistent_crc_protected_copies_are_required(self) -> None:
         raw = image()
         backup_array = (SECTORS - 3) * SECTOR
         raw[backup_array + 56] ^= 1
@@ -273,12 +281,12 @@ class ProjectionTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "disk_guid"):
             self.project(raw)
 
-    def test_truncation_and_non_divisible_size(self):
+    def test_truncation_and_non_divisible_size(self) -> None:
         for raw in (image()[:-SECTOR], image()[:-1]):
             with self.subTest(size=len(raw)), self.assertRaises(ValueError):
                 self.project(raw)
 
-    def test_hostile_count_entry_size_and_array_location(self):
+    def test_hostile_count_entry_size_and_array_location(self) -> None:
         cases = [
             {"count": partition_metadata._MAX_ENTRIES + 1},
             {"entry_size": 8192},
@@ -292,7 +300,7 @@ class ProjectionTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "outside|location"):
             self.project(raw)
 
-    def test_reciprocal_and_usable_bounds(self):
+    def test_reciprocal_and_usable_bounds(self) -> None:
         for overrides in (
             {"first_usable": SECTORS},
             {"last_usable": SECTORS - 1},
@@ -305,7 +313,7 @@ class ProjectionTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "reciprocal"):
             self.project(raw)
 
-    def test_partition_rules(self):
+    def test_partition_rules(self) -> None:
         wrong = "0fc63daf-8483-4772-8e79-3d69d8477de4"
         cases = [
             ([], "exactly one"),
@@ -332,12 +340,14 @@ class ProjectionTest(unittest.TestCase):
             with self.subTest(message=message), self.assertRaisesRegex(ValueError, message):
                 self.project(image(entries=entries))
 
-    def project_slots(self, entries, slot_label="ab_1"):
+    def project_slots(self, entries: list[PartitionEntry], slot_label: str = "ab_1") -> dict[str, Any]:
         with open(self.path, "wb") as output:
             output.write(image(entries=entries))
         return partition_metadata.project_image(self.path, slot_label=slot_label)
 
-    def ab_entries(self, root_label="ab_1", verity_label="ab_1_verity", inactive_root_last=8191):
+    def ab_entries(
+        self, root_label: str = "ab_1", verity_label: str = "ab_1_verity", inactive_root_last: int = 8191
+    ) -> list[PartitionEntry]:
         verity = gpt_partitions.ROOT_X86_64_VERITY
         return [
             (2, 2048, 4095, gpt_partitions.ROOT_X86_64, root_label),
@@ -346,7 +356,7 @@ class ProjectionTest(unittest.TestCase):
             (5, 10240, 12287, verity, "_empty"),
         ]
 
-    def test_versioned_slots_record_partition_uuids(self):
+    def test_versioned_slots_record_partition_uuids(self) -> None:
         projected = self.project_slots(self.ab_entries())
         self.assertEqual(
             ["ab_1", "ab_1_verity", "_empty", "_empty"],
@@ -355,11 +365,11 @@ class ProjectionTest(unittest.TestCase):
         uuids = [uuid.UUID(partition["uuid"]) for partition in projected["partitions"]]
         self.assertEqual(4, len(set(uuids)))
 
-    def test_unversioned_projection_omits_partition_uuids(self):
+    def test_unversioned_projection_omits_partition_uuids(self) -> None:
         projected = self.project(image())
         self.assertNotIn("uuid", projected["partitions"][0])
 
-    def test_versioned_slot_rules(self):
+    def test_versioned_slot_rules(self) -> None:
         cases = [
             (self.ab_entries(root_label="ab_2"), "populated root partition labelled 'ab_1'"),
             (self.ab_entries(verity_label="ab_1-verity"), "populated verity partition labelled 'ab_1_verity'"),
@@ -375,11 +385,11 @@ class ProjectionTest(unittest.TestCase):
             with self.subTest(message=message), self.assertRaisesRegex(ValueError, message):
                 self.project_slots(entries)
 
-    def test_inactive_slots_are_optional(self):
+    def test_inactive_slots_are_optional(self) -> None:
         projected = self.project_slots(self.ab_entries()[:2])
         self.assertEqual(2, len(projected["partitions"]))
 
-    def test_canonical_digest_validates_versioned_slots(self):
+    def test_canonical_digest_validates_versioned_slots(self) -> None:
         with open(self.path, "wb") as output:
             output.write(image(entries=self.ab_entries()))
         self.assertEqual(64, len(partition_metadata.canonical_image_sha256(self.path, slot_label="ab_1")))
@@ -388,7 +398,9 @@ class ProjectionTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "populated root partition labelled 'ab_2'"):
             partition_metadata.canonical_image_sha256(self.path, slot_label="ab_2")
 
-    def run_main(self, version_content, entries=None, image_id="ab"):
+    def run_main(
+        self, version_content: bytes, entries: list[PartitionEntry] | None = None, image_id: str = "ab"
+    ) -> dict[str, Any]:
         with open(self.path, "wb") as output:
             output.write(image(entries=entries or self.ab_entries()))
         version_file = os.path.join(self.directory.name, "version.txt")
@@ -411,7 +423,7 @@ class ProjectionTest(unittest.TestCase):
         with open(metadata, encoding="utf-8") as projected:
             return json.load(projected)
 
-    def test_slot_label_version_is_read_from_file(self):
+    def test_slot_label_version_is_read_from_file(self) -> None:
         projected = self.run_main(b"1\n")
         self.assertEqual(
             ["ab_1", "ab_1_verity", "_empty", "_empty"],
@@ -420,7 +432,7 @@ class ProjectionTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "populated root partition labelled 'ab_2'"):
             self.run_main(b"2")
 
-    def test_version_file_label_beyond_gpt_limit_is_rejected(self):
+    def test_version_file_label_beyond_gpt_limit_is_rejected(self) -> None:
         # 'ab_<version>_verity' is 37 characters, one more than a GPT partition name holds.
         with self.assertRaisesRegex(
             SystemExit,
@@ -429,7 +441,7 @@ class ProjectionTest(unittest.TestCase):
         ):
             self.run_main(b"123456789012345678901234567\n")
 
-    def test_invalid_version_file_is_rejected(self):
+    def test_invalid_version_file_is_rejected(self) -> None:
         for content in (b"", b"\n", b"1-2\n", b"1\n\n", b" 1"):
             with (
                 self.subTest(content=content),
