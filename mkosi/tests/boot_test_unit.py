@@ -7,21 +7,23 @@ import socket
 import subprocess
 import tempfile
 import unittest
+from collections.abc import Callable, Iterable
+from typing import IO, Any, NoReturn
 from unittest import mock
 
 from mkosi.private import boot_test
 
 
 class _Process:
-    def __init__(self, polls=(), wait_error=False, returncode=0):
+    def __init__(self, polls: Iterable[int | None] = (), wait_error: bool = False, returncode: int = 0) -> None:
         self._polls = iter(polls)
         self._wait_error = wait_error
-        self.returncode = None
+        self.returncode: int | None = None
         self.final_returncode = returncode
         self.terminated = False
         self.killed = False
 
-    def poll(self):
+    def poll(self) -> int | None:
         if self.returncode is not None:
             return self.returncode
         try:
@@ -32,37 +34,39 @@ class _Process:
             self.returncode = value
         return value
 
-    def wait(self, timeout=None):
+    def wait(self, timeout: float | None = None) -> int:
         if self._wait_error and not self.terminated:
-            raise subprocess.TimeoutExpired("qemu", timeout)
+            # Like Popen.wait, the fake accepts timeout=None; TimeoutExpired stores it unchecked.
+            raise subprocess.TimeoutExpired("qemu", timeout)  # type: ignore[arg-type]
         self.returncode = self.final_returncode
         return self.returncode
 
-    def terminate(self):
+    def terminate(self) -> None:
         self.terminated = True
         self.returncode = -15
 
-    def kill(self):
+    def kill(self) -> None:
         self.killed = True
         self.returncode = -9
 
 
 class _StubbornProcess(_Process):
-    def wait(self, timeout=None):
-        raise subprocess.TimeoutExpired("qemu", timeout)
+    def wait(self, timeout: float | None = None) -> NoReturn:
+        # Like Popen.wait, the fake accepts timeout=None; TimeoutExpired stores it unchecked.
+        raise subprocess.TimeoutExpired("qemu", timeout)  # type: ignore[arg-type]
 
 
 class BootLifecycleTest(unittest.TestCase):
     def _run(
         self,
-        expected,
+        expected: str,
         *,
-        serial=b"serial diagnostic\n",
-        process=None,
-        handshake=None,
-        clock_values=(0, 1),
-        boot_options=None,
-    ):
+        serial: bytes = b"serial diagnostic\n",
+        process: _Process | Exception | None = None,
+        handshake: Callable[..., object] | None = None,
+        clock_values: tuple[int, ...] = (0, 1),
+        boot_options: dict[str, Any] | None = None,
+    ) -> _Process | Exception:
         """Boots until the expected failure; process is the fake QEMU or the exception its launch raises."""
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
@@ -71,7 +75,7 @@ class BootLifecycleTest(unittest.TestCase):
             (root / "guest-serial.log").write_bytes(serial)
             process = process or _Process()
 
-            def factory(_command, stdout, **_kwargs):
+            def factory(_command: list[str], stdout: IO[bytes], **_kwargs: object) -> _Process:
                 stdout.write(b"qemu diagnostic\n")
                 stdout.flush()
                 if isinstance(process, Exception):
@@ -81,7 +85,7 @@ class BootLifecycleTest(unittest.TestCase):
             clock = iter(clock_values)
             last = [0]
 
-            def monotonic():
+            def monotonic() -> int:
                 with contextlib.suppress(StopIteration):
                     last[0] = next(clock)
                 return last[0]
@@ -136,14 +140,14 @@ class BootLifecycleTest(unittest.TestCase):
             self.assertIn(serial[:16], (outputs / "guest-serial.log").read_bytes())
             return process
 
-    def _expected_failure_passes(self, serial):
+    def _expected_failure_passes(self, serial: bytes) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
             (root / "vars.fd").write_bytes(b"vars")
             (root / "guest-serial.log").write_bytes(serial)
             process = _Process()
 
-            def factory(_command, stdout, **_kwargs):
+            def factory(_command: list[str], stdout: IO[bytes], **_kwargs: object) -> _Process:
                 stdout.write(b"qemu diagnostic\n")
                 return process
 
@@ -168,13 +172,13 @@ class BootLifecycleTest(unittest.TestCase):
                 )
             self.assertTrue(process.terminated)
 
-    def test_expected_failure_before_readiness_passes(self):
+    def test_expected_failure_before_readiness_passes(self) -> None:
         self._expected_failure_passes(b"VERITY FAILURE\n")
 
-    def test_expected_failure_precedes_readiness_when_both_are_present(self):
+    def test_expected_failure_precedes_readiness_when_both_are_present(self) -> None:
         self._expected_failure_passes(b"VERITY FAILURE\nREADY\n")
 
-    def test_readiness_before_expected_failure_is_failure(self):
+    def test_readiness_before_expected_failure_is_failure(self) -> None:
         self._run(
             "GUEST_FAILURE",
             serial=b"READY\nVERITY FAILURE\n",
@@ -184,7 +188,7 @@ class BootLifecycleTest(unittest.TestCase):
             },
         )
 
-    def test_missing_expected_failure_marker_times_out(self):
+    def test_missing_expected_failure_marker_times_out(self) -> None:
         self._run(
             "READINESS_TIMEOUT",
             serial=b"Linux version 6.1\n",
@@ -192,10 +196,10 @@ class BootLifecycleTest(unittest.TestCase):
             boot_options={"expected_failure_marker": "VERITY FAILURE"},
         )
 
-    def test_launch_failure(self):
+    def test_launch_failure(self) -> None:
         self._run("QEMU_EXEC_FAILURE", process=OSError("missing qemu"))
 
-    def test_qmp_initialization_failure(self):
+    def test_qmp_initialization_failure(self) -> None:
         self._run(
             "QEMU_INITIALIZATION_FAILURE",
             handshake=lambda *_args: (_ for _ in ()).throw(
@@ -203,10 +207,10 @@ class BootLifecycleTest(unittest.TestCase):
             ),
         )
 
-    def test_firmware_exit_before_readiness(self):
+    def test_firmware_exit_before_readiness(self) -> None:
         self._run("FIRMWARE_FAILURE", process=_Process(polls=(1,)))
 
-    def test_seabios_missing_boot_sector_is_distinct(self):
+    def test_seabios_missing_boot_sector_is_distinct(self) -> None:
         self.assertEqual(
             "MISSING_BOOT_SECTOR",
             boot_test._classify_pre_readiness_failure(
@@ -216,7 +220,7 @@ class BootLifecycleTest(unittest.TestCase):
             ),
         )
 
-    def test_seabios_grub_failure_is_distinct(self):
+    def test_seabios_grub_failure_is_distinct(self) -> None:
         self.assertEqual(
             "GRUB_FAILURE",
             boot_test._classify_pre_readiness_failure(
@@ -226,7 +230,7 @@ class BootLifecycleTest(unittest.TestCase):
             ),
         )
 
-    def test_seabios_kernel_config_failure_is_guest_failure(self):
+    def test_seabios_kernel_config_failure_is_guest_failure(self) -> None:
         self.assertEqual(
             "GUEST_FAILURE",
             boot_test._classify_pre_readiness_failure(
@@ -236,35 +240,35 @@ class BootLifecycleTest(unittest.TestCase):
             ),
         )
 
-    def test_guest_exit_before_readiness(self):
+    def test_guest_exit_before_readiness(self) -> None:
         self._run(
             "GUEST_FAILURE",
             serial=b"Linux version 6.1\n",
             process=_Process(polls=(1,)),
         )
 
-    def test_readiness_timeout(self):
+    def test_readiness_timeout(self) -> None:
         self._run(
             "READINESS_TIMEOUT",
             process=_Process(),
             clock_values=(0, 0, 181),
         )
 
-    def test_readiness_deadline_elapsed_before_first_poll_still_reports_timeout(self):
+    def test_readiness_deadline_elapsed_before_first_poll_still_reports_timeout(self) -> None:
         self._run(
             "READINESS_TIMEOUT",
             process=_Process(),
             clock_values=(0, 181),
         )
 
-    def test_unexpected_guest_exit_after_readiness(self):
+    def test_unexpected_guest_exit_after_readiness(self) -> None:
         self._run(
             "GUEST_FAILURE",
             serial=b"READY\nLinux version 6.1\n",
             process=_Process(returncode=1),
         )
 
-    def test_shutdown_timeout(self):
+    def test_shutdown_timeout(self) -> None:
         process = _Process(wait_error=True)
         self._run(
             "SHUTDOWN_FAILURE",
@@ -273,7 +277,7 @@ class BootLifecycleTest(unittest.TestCase):
         )
         self.assertTrue(process.terminated)
 
-    def test_post_kill_cleanup_is_bounded(self):
+    def test_post_kill_cleanup_is_bounded(self) -> None:
         process = _StubbornProcess()
         self._run(
             "SHUTDOWN_FAILURE",
@@ -282,7 +286,7 @@ class BootLifecycleTest(unittest.TestCase):
         )
         self.assertTrue(process.killed)
 
-    def test_qmp_socket_stays_short_with_long_test_tmpdir(self):
+    def test_qmp_socket_stays_short_with_long_test_tmpdir(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory) / ("long-" * 30)
             root.mkdir()
@@ -290,23 +294,21 @@ class BootLifecycleTest(unittest.TestCase):
             vars_file.write_bytes(b"vars")
             (root / "guest-serial.log").write_bytes(b"READY\n")
             process = _Process()
-            observed = {}
+            observed: dict[str, Any] = {}
 
-            def factory(command, stdout, cwd, env, **_kwargs):
+            def factory(
+                command: list[str], stdout: IO[bytes], cwd: pathlib.Path, env: dict[str, str], **_kwargs: object
+            ) -> _Process:
                 observed["command"] = command
                 observed["cwd"] = cwd
                 observed["env"] = env
                 stdout.flush()
                 return process
 
-            def handshake(_process, socket_path, *_args):
+            def handshake(_process: _Process, socket_path: str, *_args: object) -> None:
                 observed["socket_path"] = socket_path
 
-            with mock.patch.dict(
-                "os.environ",
-                {"TEST_TMPDIR": str(root)},
-                clear=False,
-            ):
+            with mock.patch.dict("os.environ", {"TEST_TMPDIR": str(root)}, clear=False):
                 boot_test._boot(
                     "image.raw",
                     "qemu",
@@ -333,7 +335,7 @@ class BootLifecycleTest(unittest.TestCase):
             self.assertEqual("", observed["env"]["PATH"])
             self.assertFalse((root / "qmp.sock").exists())
 
-    def test_success_exports_and_prints_actual_observed_evidence(self):
+    def test_success_exports_and_prints_actual_observed_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
             outputs = root / "outputs"
@@ -347,7 +349,7 @@ class BootLifecycleTest(unittest.TestCase):
             )
             process = _Process()
 
-            def factory(_command, stdout, **_kwargs):
+            def factory(_command: list[str], stdout: IO[bytes], **_kwargs: object) -> _Process:
                 (root / "firmware.log").write_bytes(
                     b"SeaBIOS (version actual-build)\nBooting from Hard Disk...\n",
                 )
@@ -400,7 +402,7 @@ class BootLifecycleTest(unittest.TestCase):
                 )[0],
             )
 
-    def test_success_without_undeclared_outputs_directory_is_safe(self):
+    def test_success_without_undeclared_outputs_directory_is_safe(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
             (root / "vars.fd").write_bytes(b"vars")
@@ -428,7 +430,8 @@ class BootLifecycleTest(unittest.TestCase):
                     ),
                 )
 
-    def _lifecycle_boot(self, serial, **boot_options):
+    # boot_options are forwarded to the _BootOptions dataclass, whose fields have different types.
+    def _lifecycle_boot(self, serial: bytes, **boot_options: Any) -> list[str]:  # noqa: ANN401
         """Runs a successful boot and returns the QEMU command line."""
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
@@ -436,7 +439,7 @@ class BootLifecycleTest(unittest.TestCase):
             (root / "guest-serial.log").write_bytes(serial)
             observed = {}
 
-            def factory(command, **_kwargs):
+            def factory(command: list[str], **_kwargs: object) -> _Process:
                 observed["command"] = command
                 return _Process()
 
@@ -463,7 +466,7 @@ class BootLifecycleTest(unittest.TestCase):
                 )
             return observed["command"]
 
-    def test_nonpositive_deadlines_are_rejected_before_qemu_starts(self):
+    def test_nonpositive_deadlines_are_rejected_before_qemu_starts(self) -> None:
         for option in (
             "boot_timeout_seconds",
             "qmp_initialization_timeout_seconds",
@@ -483,7 +486,8 @@ class BootLifecycleTest(unittest.TestCase):
                         boot_test._BootOptions(
                             readiness_marker="READY",
                             shutdown_markers=("SHUTDOWN",),
-                            **{option: value},
+                            # mypy cannot match the variable option name to its float deadline field.
+                            **{option: value},  # type: ignore[arg-type]
                         ),
                         boot_test._BootHost(
                             process_factory=lambda *_args, **_kwargs: self.fail("QEMU started"),
@@ -492,14 +496,14 @@ class BootLifecycleTest(unittest.TestCase):
                         ),
                     )
 
-    def test_progress_markers_must_precede_readiness_in_order(self):
+    def test_progress_markers_must_precede_readiness_in_order(self) -> None:
         command = self._lifecycle_boot(
             b"FIRST\nSECOND\nFIRST\nREADY\nSHUTDOWN\n",
             progress_markers=("FIRST", "SECOND", "FIRST"),
         )
         self.assertIn("-no-reboot", command)
 
-    def test_out_of_order_progress_markers_time_out_naming_the_missing_marker(self):
+    def test_out_of_order_progress_markers_time_out_naming_the_missing_marker(self) -> None:
         self._run(
             "READINESS_TIMEOUT",
             serial=b"SECOND\nFIRST\nREADY\n",
@@ -537,11 +541,11 @@ class BootLifecycleTest(unittest.TestCase):
                 )
             self.assertIn("did not observe exact serial marker 'SECOND'", stderr.getvalue())
 
-    def test_allow_reboot_keeps_qemu_running_across_guest_reboots(self):
+    def test_allow_reboot_keeps_qemu_running_across_guest_reboots(self) -> None:
         command = self._lifecycle_boot(b"READY\nSHUTDOWN\n", allow_reboot=True)
         self.assertNotIn("-no-reboot", command)
 
-    def test_read_only_shares_expose_resolved_regular_files(self):
+    def test_read_only_shares_expose_resolved_regular_files(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             source = pathlib.Path(directory) / "artifacts"
             share = pathlib.Path(directory) / "payload"
@@ -559,7 +563,7 @@ class BootLifecycleTest(unittest.TestCase):
             self.assertTrue(option.startswith("local,path=/"))
             self.assertTrue(option.endswith(",mount_tag=payload-2,security_model=none,readonly=on"))
 
-    def test_materialized_share_has_no_symlinks(self):
+    def test_materialized_share_has_no_symlinks(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
             source = root / "artifacts"
@@ -581,7 +585,7 @@ class BootLifecycleTest(unittest.TestCase):
             self.assertEqual(b"root", (materialized / "root.raw").read_bytes())
             self.assertEqual(b"uki", (materialized / "nested" / "uki.efi").read_bytes())
 
-    def test_manifest_only_share_is_materialized_from_its_file_entries(self):
+    def test_manifest_only_share_is_materialized_from_its_file_entries(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
             (root / "root.raw").write_bytes(b"root")
@@ -604,7 +608,7 @@ class BootLifecycleTest(unittest.TestCase):
             self.assertEqual(b"root", (materialized / "root.raw").read_bytes())
             self.assertEqual(b"uki", (materialized / "nested" / "uki.efi").read_bytes())
 
-    def test_http_shares_serve_directory_contents_and_files_below_their_path(self):
+    def test_http_shares_serve_directory_contents_and_files_below_their_path(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
             payload = root / "payload"
@@ -626,19 +630,19 @@ class BootLifecycleTest(unittest.TestCase):
                 self.assertTrue(response.endswith(b"\r\n\r\n" + expected), response)
             self.assertIn('"GET /after-1/SHA256SUMS HTTP/1.1" 200', (root / "scratch" / "http-share.log").read_text())
 
-    def _http_share(self, root, *sources):
+    def _http_share(self, root: pathlib.Path, *sources: pathlib.Path) -> pathlib.Path:
         """Materializes sources at one HTTP path and returns the served directory."""
         boot_test._http_arguments([("after-1", [str(source) for source in sources])], root / "scratch")
         return root / "scratch" / "http" / "after-1"
 
-    def _directory(self, root, name, files):
+    def _directory(self, root: pathlib.Path, name: str, files: dict[str, bytes]) -> pathlib.Path:
         directory = root / name
         for relative, content in files.items():
             (directory / relative).parent.mkdir(parents=True, exist_ok=True)
             (directory / relative).write_bytes(content)
         return directory
 
-    def test_http_share_merges_a_file_before_a_directory_and_several_directories(self):
+    def test_http_share_merges_a_file_before_a_directory_and_several_directories(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
             (root / "SHA256SUMS.gpg").write_bytes(b"signature")
@@ -656,7 +660,7 @@ class BootLifecycleTest(unittest.TestCase):
                 {str(path.relative_to(served)): path.read_bytes() for path in served.rglob("*") if path.is_file()},
             )
 
-    def test_http_share_rejects_a_file_name_that_two_sources_provide(self):
+    def test_http_share_rejects_a_file_name_that_two_sources_provide(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
             first = self._directory(root, "first", {"SHA256SUMS": b"first"})
@@ -668,14 +672,14 @@ class BootLifecycleTest(unittest.TestCase):
                     self._http_share(root, *sources)
                 self.assertEqual(b"first", (root / "scratch" / "http" / "after-1" / "SHA256SUMS").read_bytes())
 
-    def test_only_http_shares_give_the_guest_a_network(self):
+    def test_only_http_shares_give_the_guest_a_network(self) -> None:
         self.assertEqual([], boot_test._http_arguments([], pathlib.Path("unused")))
         self.assertNotIn("-netdev", self._lifecycle_boot(b"READY\nSHUTDOWN\n"))
         with tempfile.NamedTemporaryFile() as file:
             command = self._lifecycle_boot(b"READY\nSHUTDOWN\n", http_shares=[("payload", [file.name])])
         self.assertIn("-netdev", command)
 
-    def test_qmp_malformed_and_eof_are_bounded_errors(self):
+    def test_qmp_malformed_and_eof_are_bounded_errors(self) -> None:
         for payload in (b"not-json\n", b""):
             left, right = socket.socketpair()
             try:
@@ -687,7 +691,7 @@ class BootLifecycleTest(unittest.TestCase):
                 left.close()
                 right.close()
 
-    def _qmp_session(self, *replies):
+    def _qmp_session(self, *replies: bytes) -> tuple[str, str]:
         """Runs the QMP handshake against scripted replies and returns its result and the commands sent."""
         left, right = socket.socketpair()
         try:
@@ -700,7 +704,7 @@ class BootLifecycleTest(unittest.TestCase):
             left.close()
             right.close()
 
-    def test_qmp_handshake_reports_the_accelerator_qemu_selected(self):
+    def test_qmp_handshake_reports_the_accelerator_qemu_selected(self) -> None:
         for enabled, expected in ((b"true", "kvm"), (b"false", "tcg")):
             with self.subTest(expected=expected):
                 accelerator, commands = self._qmp_session(
@@ -713,7 +717,7 @@ class BootLifecycleTest(unittest.TestCase):
                     commands,
                 )
 
-    def test_qmp_accelerator_query_failure_is_a_handshake_error(self):
+    def test_qmp_accelerator_query_failure_is_a_handshake_error(self) -> None:
         for reply in (
             b'{"error": {"class": "CommandNotFound", "desc": "query-kvm"}}\n',
             b'{"return": {"present": true}}\n',
@@ -723,14 +727,14 @@ class BootLifecycleTest(unittest.TestCase):
             with self.subTest(reply=reply), self.assertRaises(boot_test.QmpHandshakeError):
                 self._qmp_session(reply)
 
-    def test_accelerator_arguments_are_passed_and_selected_accelerator_is_recorded(self):
+    def test_accelerator_arguments_are_passed_and_selected_accelerator_is_recorded(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
             outputs = root / "outputs"
             (root / "guest-serial.log").write_bytes(b"READY\nSHUTDOWN\n")
             observed = {}
 
-            def factory(command, **_kwargs):
+            def factory(command: list[str], **_kwargs: object) -> _Process:
                 observed["command"] = command
                 return _Process()
 
@@ -771,8 +775,8 @@ class BootLifecycleTest(unittest.TestCase):
                 (outputs / "boot-evidence.log").read_text().splitlines()[0],
             )
 
-    def test_failed_qmp_handshake_records_unknown_accelerator(self):
-        def handshake(*_args):
+    def test_failed_qmp_handshake_records_unknown_accelerator(self) -> None:
+        def handshake(*_args: object) -> NoReturn:
             raise boot_test.QmpHandshakeError("no greeting")
 
         with tempfile.TemporaryDirectory() as directory:
@@ -805,7 +809,7 @@ class BootLifecycleTest(unittest.TestCase):
                 (outputs / "boot-evidence.log").read_text().splitlines()[0],
             )
 
-    def test_config_is_json_and_preserves_exact_markers(self):
+    def test_config_is_json_and_preserves_exact_markers(self) -> None:
         value = json.dumps(
             {
                 "readiness_marker": "READY",

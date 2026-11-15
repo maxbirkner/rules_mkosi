@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 
-def pe_section(path, name):
+def pe_section(path: str, name: str) -> bytes:
     """Returns the raw content of the named section of a PE file such as a UKI."""
     data = Path(path).read_bytes()
     (header,) = struct.unpack_from("<I", data, 0x3C)
@@ -23,7 +23,7 @@ def pe_section(path, name):
     raise ValueError("{} has no {} section".format(path, name))
 
 
-def os_release(content):
+def os_release(content: bytes) -> dict[str, str]:
     """Returns the KEY=value assignments of os-release content."""
     text = content.rstrip(b"\0").decode("utf-8")
     return dict(line.split("=", 1) for line in text.splitlines() if "=" in line and not line.startswith("#"))
