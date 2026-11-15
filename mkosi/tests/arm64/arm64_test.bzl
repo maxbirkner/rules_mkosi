@@ -27,11 +27,15 @@ foreign_architecture_test = analysistest.make(
 def _arm64_image_test_impl(ctx):
     env = analysistest.begin(ctx)
     asserts.equals(env, "arm64", analysistest.target_under_test(env)[MkosiImageInfo].architecture)
-    projection = single_action(env, "MkosiPartitionMetadata")
-    asserts.equals(env, "arm64", option_value(projection.argv, "--architecture"))
+    if ctx.attr.projected:
+        projection = single_action(env, "MkosiPartitionMetadata")
+        asserts.equals(env, "arm64", option_value(projection.argv, "--architecture"))
     return analysistest.end(env)
 
-arm64_image_test = analysistest.make(_arm64_image_test_impl)
+arm64_image_test = analysistest.make(
+    _arm64_image_test_impl,
+    attrs = {"projected": attr.bool(default = True, doc = "Whether the target projects its own partition metadata.")},
+)
 
 def _arm64_boot_config_test_impl(ctx):
     env = analysistest.begin(ctx)

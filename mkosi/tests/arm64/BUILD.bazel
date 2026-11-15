@@ -9,6 +9,10 @@ load(
     "mkosi_reproducibility_manifest",
     "qemu_ovmf_boot_config",
     "qemu_ovmf_boot_test",
+    "secure_boot_ephemeral_test_fixture",
+    "secure_boot_import_response",
+    "secure_boot_signed_image",
+    "secure_boot_signing_request",
     "sysupdate_payload",
     "sysupdate_transfers",
 )
@@ -150,6 +154,73 @@ py_test(
         "//mkosi:esp_manifest_lib",
         "@rules_python//python/runfiles",
     ],
+)
+
+# Offline Secure Boot signing of the arm64 UKI and boot loader, as for amd64 images; the signer and its certificate
+# do not depend on the architecture of the signed PE binaries.
+secure_boot_ephemeral_test_fixture(
+    name = "secure_boot_signer",
+    esp_paths = ["EFI/systemd/systemd-bootaa64.efi"],
+    images = [":uki_release"],
+)
+
+[
+    secure_boot_signing_request(
+        name = "uki_release_{}_signing_request".format(binary),
+        certificate = ":secure_boot_signer",
+        esp_path = esp_path,
+        image = ":uki_release",
+    )
+    for binary, esp_path in (
+        ("uki", ""),
+        ("systemd_boot", "EFI/systemd/systemd-bootaa64.efi"),
+    )
+]
+
+[
+    secure_boot_import_response(
+        name = "uki_release_signed_" + binary,
+        request = ":uki_release_{}_signing_request".format(binary),
+        signed_binary = ":secure_boot_signer",
+    )
+    for binary in ("uki", "systemd_boot")
+]
+
+secure_boot_signed_image(
+    name = "uki_release_secure_boot",
+    auto_enroll_keys = [":secure_boot_signer"],
+    image = ":uki_release",
+    secure_boot_enroll = "force",
+    signed_binaries = [
+        ":uki_release_signed_systemd_boot",
+        ":uki_release_signed_uki",
+    ],
+)
+
+raw_image_file(
+    name = "uki_release_secure_boot_raw",
+    image = ":uki_release_secure_boot",
+)
+
+py_test(
+    name = "secure_boot_artifact_test",
+    srcs = [
+        "arm64_secure_boot_artifact_test.py",
+        "//mkosi/tests:runfile_paths.py",
+    ],
+    args = ["$(rootpath :uki_release_secure_boot_raw)"],
+    data = [":uki_release_secure_boot_raw"],
+    main = "arm64_secure_boot_artifact_test.py",
+    deps = [
+        "//mkosi:esp_manifest_lib",
+        "@rules_python//python/runfiles",
+    ],
+)
+
+arm64_image_test(
+    name = "uki_release_secure_boot_provider_test",
+    projected = False,
+    target_under_test = ":uki_release_secure_boot",
 )
 
 # On Linux x86-64 the arm64 guest runs under TCG.
