@@ -75,14 +75,26 @@ def adapter_attrs(readiness_marker, machine, shutdown_timeout_seconds):
 
     Args:
       readiness_marker: Default readiness_marker.
-      machine: Default QEMU machine type.
+      machine: Default QEMU machine type, or None for the machine of the image's architecture.
       shutdown_timeout_seconds: Default shutdown_timeout_seconds.
+
+    Returns:
+      The attributes of a boot configuration rule.
     """
-    return BOOT_CONFIG_ATTRS | {
-        "machine_args": attr.string_list(
+    if machine:
+        machine_args = attr.string_list(
             default = ["-machine", machine, "-m", "512M"],
             doc = "QEMU machine and memory arguments.",
-        ),
+        )
+    else:
+        machine_args = attr.string_list(
+            doc = """QEMU machine and memory arguments.
+
+Empty, the default, selects the machine and memory of the image's architecture: `q35` with 512 MiB for amd64, `virt`
+with 1 GiB for arm64. The CPU model and the serial port of the architecture are added either way.""",
+        )
+    return BOOT_CONFIG_ATTRS | {
+        "machine_args": machine_args,
         "readiness_marker": attr.string(
             default = readiness_marker,
             doc = """Exact serial marker proving guest userspace readiness.
@@ -139,37 +151,39 @@ def validate_deadlines(ctx):
             ),
         )
 
-def boot_config(ctx, qemu, image, firmware_args):
+def boot_config(ctx, guest, image, firmware_args):
     """Returns the firmware-independent boot_test.py configuration.
 
     Args:
       ctx: Rule context with BOOT_CONFIG_ATTRS.
-      qemu: MkosiQemuToolchainInfo.
+      guest: The entry of MkosiQemuToolchainInfo.guests for the image's architecture.
       image: Raw disk image to boot.
       firmware_args: QEMU arguments that select the firmware, appended to machine_args.
     """
+    machine_args = ctx.attr.machine_args or ["-machine", guest.machine, "-m", guest.memory]
     return {
-        "accelerator_args": qemu_accelerator_args(ctx.attr.accelerator),
+        "accelerator_args": qemu_accelerator_args(ctx.attr.accelerator, guest.native),
         "boot_timeout_seconds": ctx.attr.boot_timeout_seconds,
         "diagnostic_bytes": ctx.attr.diagnostic_bytes,
         "image": image.short_path,
         "kernel_preflight": ctx.executable._kernel_preflight.short_path,
-        "qemu": qemu.qemu_files_to_run.executable.short_path,
-        "qemu_args": ctx.attr.machine_args + firmware_args,
+        "qemu": guest.qemu_files_to_run.executable.short_path,
+        "qemu_args": machine_args + guest.cpu_args + firmware_args,
         "qmp_initialization_timeout_seconds": ctx.attr.qmp_initialization_timeout_seconds,
         "readiness_marker": ctx.attr.readiness_marker,
+        "serial_args": guest.serial_args,
         "shutdown_markers": ctx.attr.shutdown_markers,
         "shutdown_timeout_seconds": ctx.attr.shutdown_timeout_seconds,
-        "system_data": qemu.system_data_anchor.short_path,
+        "system_data": ctx.toolchains[QEMU_TOOLCHAIN_TYPE].qemu.system_data_anchor.short_path,
         "test_timeout": ctx.attr.test_timeout,
     }
 
-def boot_config_outputs(ctx, qemu, config, image, firmware_files, extra_files = []):
+def boot_config_outputs(ctx, guest, config, image, firmware_files, extra_files = []):
     """Writes the configuration and returns the providers of a boot configuration rule.
 
     Args:
       ctx: Rule context with BOOT_CONFIG_ATTRS.
-      qemu: MkosiQemuToolchainInfo.
+      guest: The entry of MkosiQemuToolchainInfo.guests for the image's architecture.
       config: boot_test.py configuration.
       image: Raw disk image to boot.
       firmware_files: Firmware files read by QEMU.
@@ -178,16 +192,17 @@ def boot_config_outputs(ctx, qemu, config, image, firmware_files, extra_files = 
     Returns:
       A list of DefaultInfo and QemuBootConfigInfo.
     """
+    qemu = ctx.toolchains[QEMU_TOOLCHAIN_TYPE].qemu
     output = ctx.actions.declare_file(ctx.label.name + ".json")
     ctx.actions.write(output = output, content = json.encode(config) + "\n")
     runfiles = ctx.runfiles(
         files = [image] + firmware_files + [
-            qemu.qemu_files_to_run.executable,
+            guest.qemu_files_to_run.executable,
             qemu.system_data_anchor,
             ctx.executable._kernel_preflight,
         ] + extra_files,
         transitive_files = depset(transitive = [
-            qemu.qemu_runfiles.files,
+            guest.qemu_runfiles.files,
             qemu.system_data_files,
             ctx.attr._kernel_preflight[DefaultInfo].default_runfiles.files,
         ]),

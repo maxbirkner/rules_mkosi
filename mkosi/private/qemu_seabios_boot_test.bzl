@@ -22,7 +22,8 @@ def _qemu_seabios_boot_config_impl(ctx):
     validate_lifecycle(ctx)
     validate_deadlines(ctx)
     qemu = ctx.toolchains[QEMU_TOOLCHAIN_TYPE].qemu
-    config = boot_config(ctx, qemu, image.raw_image, [
+    guest = qemu.guests["amd64"]
+    config = boot_config(ctx, guest, image.raw_image, [
         "-bios",
         "{firmware}",
         "-chardev",
@@ -34,7 +35,7 @@ def _qemu_seabios_boot_config_impl(ctx):
         "firmware": qemu.seabios.short_path,
         "firmware_kind": "seabios",
     }
-    return boot_config_outputs(ctx, qemu, config, image.raw_image, firmware_files = [qemu.seabios])
+    return boot_config_outputs(ctx, guest, config, image.raw_image, firmware_files = [qemu.seabios])
 
 qemu_seabios_boot_config = rule(
     implementation = _qemu_seabios_boot_config_impl,

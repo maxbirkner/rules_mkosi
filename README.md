@@ -28,8 +28,8 @@ As a consequence, `ForeignUIDRange=yes` is not supported and fails the build.
 | mkosi | 27.1 (`systemd/mkosi@ecf7f5702bb2052b7a69cab3fe7d37bc3b9ad77b`) |
 | Python for mkosi | 3.14, from rules_python |
 | Debian tools and snapshot | Debian 13, snapshot `20260912T080811Z` |
-| QEMU | 11.0.0.1, from [rules_qemu](https://github.com/hermeticbuild/rules_qemu) |
-| OVMF | `edk2-stable202605-r1` |
+| QEMU | 11.0.0.1, from [rules_qemu](https://github.com/hermeticbuild/rules_qemu); `qemu-system-aarch64` from the same [qemu-prebuilt](https://github.com/hermeticbuild/qemu-prebuilt) release |
+| OVMF and AAVMF | `edk2-stable202605-r1` |
 | SeaBIOS | `rel-1.17.0-0-gb52ca86e094d-prebuilt.qemu.org` |
 
 Supported mkosi versions: 27.1 only, pinned to the commit above.
@@ -359,7 +359,9 @@ The action registers the emulator in a `binfmt_misc` instance that only its own 
 To qualify a host for arm64 images, run `bazel test --config=kernel_preflight //mkosi/private:binfmt_runner_host_test` from a rules_mkosi checkout.
 Build the executables in `rootfs_payloads` for arm64 yourself, for example with `platform_transition_filegroup` from bazel_lib.
 Release images of arm64 support the same UKI, dm-verity, A/B and update payload settings as those of amd64: their partitions use the `root-arm64` and `root-arm64-verity` types, the ESP holds `systemd-bootaa64.efi` and `BOOTAA64.EFI`, `MkosiImageInfo.architecture` is `arm64`, and their `sysupdate_transfers` need `architecture = "arm64"`.
-Boot tests of arm64 images, Secure Boot signing tests of their boot binaries, and arm64 execution platforms follow in [#206](https://github.com/maxbirkner/rules_mkosi/issues/206).
+Give the ESP at least 512 MiB: systemd-repart formats it as FAT32 with 4 KiB clusters, and the UEFI firmware does not mount a FAT32 file system with fewer than 65525 clusters.
+`qemu_ovmf_boot_test` boots arm64 images with `qemu-system-aarch64` and AAVMF, under TCG on Linux x86-64; see [boot tests](#boot-tests).
+Secure Boot signing tests of arm64 boot binaries and arm64 execution platforms follow in [#206](https://github.com/maxbirkner/rules_mkosi/issues/206).
 
 ### Image identity
 
@@ -466,6 +468,11 @@ qemu_seabios_boot_test(
 ```
 
 The test boots a read-only snapshot of `MkosiImageInfo.raw_image`, waits for the exact `readiness_marker` on the serial console, and requires a clean guest shutdown.
+
+`qemu_ovmf_boot_test` picks QEMU, the UEFI firmware, the machine, and the serial console by `MkosiImageInfo.architecture`.
+amd64 images boot with OVMF on a `q35` machine with 512 MiB; arm64 images boot with AAVMF on a `virt` machine with 1 GiB and the `max` CPU, and their serial console is `ttyAMA0` (`KernelCommandLine=console=ttyAMA0`).
+On Linux x86-64, arm64 guests always run under TCG, so a boot takes tens of seconds instead of a few; the default `moderate` timeout covers a single boot.
+`secure_boot = True` supports only amd64 images.
 
 Further attributes set the shutdown markers, QEMU machine arguments, the accelerator (KVM with a TCG fallback by default), the deadlines, and the retained log size; see [`qemu_ovmf_boot_config`](docs/api/defs.md#qemu_ovmf_boot_config) and [`qemu_seabios_boot_config`](docs/api/defs.md#qemu_seabios_boot_config).
 
