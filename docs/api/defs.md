@@ -130,6 +130,9 @@ need the Linux namespace and mount capabilities of the host-kernel contract.
 Select outputs through MkosiImageInfo; DefaultInfo contains every produced artifact. The raw_image output group
 contains only the raw disk image, for `bazel build --output_groups=raw_image` or `filegroup(output_group = "raw_image")`.
 The image_version output group contains the image_version_file and input_digest of MkosiImageInfo that are set.
+With image_version_from_inputs, the image_version_inputs output group contains a JSON manifest that lists every input
+that the version covers with its SHA-256, next to the version and the full digest; compare the manifests of two builds
+to find the inputs that changed the version.
 
 **ATTRIBUTES**
 
@@ -464,7 +467,8 @@ replace UKIs without updating it, and its keys are those offered for enrollment,
 
 Returns DefaultInfo with the disk image and its JSON metadata, the image's MkosiImageInfo with raw_image replaced by the
 signed disk image, and the output groups raw_image, with only the disk image, secure_boot_metadata, with only the
-JSON metadata, and image_version, with the image's version files as in mkosi_image.
+JSON metadata, and image_version and image_version_inputs, with the image's version files and input manifest as in
+mkosi_image.
 
 When the image derives its version with image_version_from_inputs, its version_signing_certificates must map exactly
 the ESP paths of the signed binaries to their certificates, and its version_auto_enroll_keys must be exactly the

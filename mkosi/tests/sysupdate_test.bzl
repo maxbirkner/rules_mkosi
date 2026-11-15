@@ -174,11 +174,16 @@ def _input_version_identity_test_impl(ctx):
     asserts.equals(env, [version_file, info.input_digest], target[OutputGroupInfo].image_version.to_list())
     asserts.false(env, version_file in target[DefaultInfo].files.to_list())
 
+    input_manifests = target[OutputGroupInfo].image_version_inputs.to_list()
+    asserts.equals(env, [target.label.name + ".image-version-inputs.json"], [file.basename for file in input_manifests])
+    asserts.false(env, input_manifests[0] in target[DefaultInfo].files.to_list())
+
     version_action = single_action(env, "MkosiInputVersion")
-    asserts.equals(env, [version_file, info.input_digest], version_action.outputs.to_list())
+    asserts.equals(env, [version_file, info.input_digest] + input_manifests, version_action.outputs.to_list())
     asserts.true(env, version_action.argv[1].endswith("/input_version.py"))
     asserts.equals(env, version_file.path, option_value(version_action.argv, "--version-output"))
     asserts.equals(env, info.input_digest.path, option_value(version_action.argv, "--digest-output"))
+    asserts.equals(env, input_manifests[0].path, option_value(version_action.argv, "--manifest-output"))
     asserts.equals(env, "", version_action.env["PATH"])
 
     image_action = single_action(env, "MkosiImage")

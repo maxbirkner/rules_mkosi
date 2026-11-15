@@ -140,6 +140,8 @@ mkosi_image(
   Paths are relative to the execution root, without the configuration name in `bazel-out/<config>/bin`, so the version does not depend on the sandbox, the output base, or `--compilation_mode`, but renaming or moving the target changes it.
 - The version is the first 16 lowercase hex characters (64 bits) of that SHA-256.
   `MkosiImageInfo.image_version_file` and `SysupdatePayloadInfo.image_version_file` hold it as for `image_version_file`, `MkosiImageInfo.input_digest` holds the full digest, `MkosiImageInfo.version_signing_certificates`, `version_auto_enroll_keys` and `version_inputs` hold the declarations, and the `image_version` output group of `mkosi_image` and `secure_boot_signed_image` contains the version and digest files.
+- Their `image_version_inputs` output group contains a JSON manifest with the version, the full digest, the hashed command line and environment, and every covered input path with its SHA-256, one per line.
+  When a version changes unexpectedly, for example between two machines, `diff` the manifests of both builds to find the inputs that differ.
 - It requires `image_id` and release mode, and excludes `image_version` and `image_version_file`; the three declaration attributes require it.
   With `verity = "hash"`, `image_id` may have at most 12 characters, to fit the [label limit](#image-identity).
 - Unlike a stamped version, the version changes only when the covered files do, so a new commit that does not touch them rebuilds nothing.

@@ -346,7 +346,7 @@ def _release_source(ctx, modes):
     return None, None
 
 def _input_version_files(ctx, image_id, modes):
-    """Validates image_version_from_inputs and declares the derived version and digest files."""
+    """Validates image_version_from_inputs and declares the derived version, digest and input manifest files."""
     if ctx.attr.image_version or ctx.attr.image_version_file:
         fail("image_version_from_inputs excludes image_version and image_version_file")
     if not image_id:
@@ -358,6 +358,7 @@ def _input_version_files(ctx, image_id, modes):
     return (
         ctx.actions.declare_file(ctx.label.name + ".image-version"),
         ctx.actions.declare_file(ctx.label.name + ".input-digest"),
+        ctx.actions.declare_file(ctx.label.name + ".image-version-inputs.json"),
     )
 
 def _version_declarations(ctx):
@@ -394,13 +395,15 @@ def _image_identity(ctx, modes):
         if modes.verity:
             validate_slot_labels(image_id, image_version)
     input_digest = None
+    input_manifest = None
     if ctx.attr.image_version_from_inputs:
-        image_version_file, input_digest = _input_version_files(ctx, image_id, modes)
+        image_version_file, input_digest, input_manifest = _input_version_files(ctx, image_id, modes)
     return struct(
         image_id = image_id,
         image_version = image_version,
         image_version_file = image_version_file,
         input_digest = input_digest,
+        input_manifest = input_manifest,
         version_declarations = _version_declarations(ctx),
     )
 
@@ -444,6 +447,7 @@ def _image_settings(ctx):
         image_version = identity.image_version,
         image_version_file = identity.image_version_file,
         input_digest = identity.input_digest,
+        input_manifest = identity.input_manifest,
         version_declarations = identity.version_declarations,
         manifest = ctx.attr.manifest,
         config = config,
@@ -594,7 +598,14 @@ def _build_image(ctx, settings, staging, outputs):
     )
     derived_version = []
     if settings.input_digest:
-        derive_image_version(ctx, action, settings.image_version_file, settings.input_digest, settings.version_declarations)
+        derive_image_version(
+            ctx,
+            action,
+            settings.image_version_file,
+            settings.input_digest,
+            settings.input_manifest,
+            settings.version_declarations,
+        )
         derived_version = [settings.image_version_file]
     register_mkosi_action(
         ctx,
@@ -635,6 +646,7 @@ def _image_providers(settings, outputs):
         ),
         OutputGroupInfo(
             image_version = depset([file for file in (settings.image_version_file, settings.input_digest) if file]),
+            image_version_inputs = depset([settings.input_manifest] if settings.input_manifest else []),
             raw_image = depset([outputs.raw_image]),
         ),
     ]
@@ -832,6 +844,9 @@ need the Linux namespace and mount capabilities of the host-kernel contract.
 Select outputs through MkosiImageInfo; DefaultInfo contains every produced artifact. The raw_image output group
 contains only the raw disk image, for `bazel build --output_groups=raw_image` or `filegroup(output_group = "raw_image")`.
 The image_version output group contains the image_version_file and input_digest of MkosiImageInfo that are set.
+With image_version_from_inputs, the image_version_inputs output group contains a JSON manifest that lists every input
+that the version covers with its SHA-256, next to the version and the full digest; compare the manifests of two builds
+to find the inputs that changed the version.
 """,
     provides = [MkosiImageInfo],
     toolchains = MKOSI_BUILD_TOOLCHAINS,

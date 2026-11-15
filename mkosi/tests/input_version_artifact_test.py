@@ -29,8 +29,8 @@ def os_release(content):
     return dict(line.split("=", 1) for line in text.splitlines() if "=" in line and not line.startswith("#"))
 
 
-def main():
-    version_file, digest_file, uki, build_metadata = sys.argv[1:5]
+def main() -> None:
+    version_file, digest_file, uki, build_metadata, inputs_manifest = sys.argv[1:6]
     version = Path(version_file).read_text(encoding="ascii")
     digest = Path(digest_file).read_text(encoding="ascii")
     assert re.fullmatch(r"[0-9a-f]{16}\n", version), version
@@ -43,6 +43,12 @@ def main():
     assert release["IMAGE_VERSION"].strip('"') == version, (release, version)
     metadata = json.loads(Path(build_metadata).read_text(encoding="utf-8"))
     assert metadata["image"] == {"id": "rules-mkosi-ab", "version": version}, metadata["image"]
+
+    # The manifest lists the base that the image finalizes among the inputs of the version.
+    manifest = json.loads(Path(inputs_manifest).read_text(encoding="ascii"))
+    assert (manifest["image_version"], manifest["input_digest"] + "\n") == (version, digest), manifest["image_version"]
+    base = manifest["inputs"]["bazel-out/bin/mkosi/tests/two_stage_base.initrd"]
+    assert base["kind"] == "file" and re.fullmatch(r"[0-9a-f]{64}", base["sha256"]), base
 
 
 if __name__ == "__main__":

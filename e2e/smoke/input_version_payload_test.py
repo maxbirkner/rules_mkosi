@@ -20,10 +20,17 @@ def _version_and_digest(paths: list[pathlib.Path]) -> str:
 
 
 def main() -> None:
-    *files, payload, partitions, build_metadata = (pathlib.Path(argument) for argument in sys.argv[1:])
+    *files, payload, partitions, build_metadata, inputs = (pathlib.Path(argument) for argument in sys.argv[1:])
     assert len(files) == 2, files
     version = _version_and_digest(files)
     name = "rules-mkosi_" + version
+
+    # The manifest of the version lists the base that the release finalizes.
+    manifest = json.loads(inputs.read_text(encoding="ascii"))
+    assert manifest["image_version"] == version, manifest["image_version"]
+    assert manifest["input_digest"].startswith(version), manifest["input_digest"]
+    base = manifest["inputs"]["bazel-out/bin/sysupdate_base.initrd"]
+    assert base["kind"] == "file" and re.fullmatch(r"[0-9a-f]{64}", base["sha256"]), base
 
     # The UKI's .osrel section is the os-release that the booted release reports.
     uki = (payload / (name + ".efi")).read_bytes()
