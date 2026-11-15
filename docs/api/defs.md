@@ -25,7 +25,7 @@ Declare it through the debian_tools.snapshot module extension, which generates t
 | Name  | Description | Type | Mandatory | Default |
 | :------------- | :------------- | :------------- | :------------- | :------------- |
 | <a id="debian_snapshot-name"></a>name |  A unique name for this target.   | <a href="https://bazel.build/concepts/labels#target-names">Name</a> | required |  |
-| <a id="debian_snapshot-architecture"></a>architecture |  Debian package architecture, such as `amd64`.   | String | optional |  `"amd64"`  |
+| <a id="debian_snapshot-architecture"></a>architecture |  Debian package architecture of the lock, `amd64` or `arm64`.   | String | optional |  `"amd64"`  |
 | <a id="debian_snapshot-codename"></a>codename |  Debian codename, such as `trixie`.   | String | optional |  `"trixie"`  |
 | <a id="debian_snapshot-component_package_records"></a>component_package_records |  component\|architecture\|path\|sha256 records for component_packages.   | List of strings | optional |  `[]`  |
 | <a id="debian_snapshot-component_packages"></a>component_packages |  Packages.xz indexes of components other than main, aligned with component_package_records.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
@@ -40,7 +40,7 @@ Declare it through the debian_tools.snapshot module extension, which generates t
 | <a id="debian_snapshot-packages_all_path"></a>packages_all_path |  Repository path of packages_all_xz.   | String | optional |  `"dists/trixie/main/binary-all/Packages.xz"`  |
 | <a id="debian_snapshot-packages_all_xz"></a>packages_all_xz |  main binary-all Packages.xz.   | <a href="https://bazel.build/concepts/labels">Label</a> | required |  |
 | <a id="debian_snapshot-packages_path"></a>packages_path |  Repository path of packages_xz.   | String | optional |  `"dists/trixie/main/binary-amd64/Packages.xz"`  |
-| <a id="debian_snapshot-packages_xz"></a>packages_xz |  main binary-amd64 Packages.xz.   | <a href="https://bazel.build/concepts/labels">Label</a> | required |  |
+| <a id="debian_snapshot-packages_xz"></a>packages_xz |  main Packages.xz of `architecture`.   | <a href="https://bazel.build/concepts/labels">Label</a> | required |  |
 | <a id="debian_snapshot-release"></a>release |  Numeric Debian release, such as `13`.   | String | optional |  `"13"`  |
 | <a id="debian_snapshot-release_gpg"></a>release_gpg |  Detached Release.gpg signature.   | <a href="https://bazel.build/concepts/labels">Label</a> | required |  |
 | <a id="debian_snapshot-release_metadata"></a>release_metadata |  Release file of the snapshot, verified against inrelease.   | <a href="https://bazel.build/concepts/labels">Label</a> | required |  |

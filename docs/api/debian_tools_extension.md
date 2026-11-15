@@ -15,7 +15,8 @@ debian_tools.toolchain()
 Creates the pinned Debian 13 build-time userspace and Debian snapshot repositories.
 
 `@mkosi_debian_tools` holds the userspace that image actions run in, and `@mkosi_debian_snapshot//:repository` the
-built-in snapshot, a small `main`-only package set for images. Each `snapshot` tag adds a consumer-owned snapshot.
+built-in snapshot, a small `main`-only amd64 package set for images. `@mkosi_debian_snapshot_arm64//:repository` is the
+same package set for arm64. Each `snapshot` tag adds a consumer-owned snapshot.
 
 
 **TAG CLASSES**
@@ -43,7 +44,7 @@ with the `<name>.update` target of a `debian_lock` macro or with
 
 ### toolchain
 
-Requests the built-in Debian tools toolchain and snapshot; the extension creates them in any case.
+Requests the built-in Debian tools toolchain and snapshots; the extension creates them in any case.
 
 **Attributes**
 

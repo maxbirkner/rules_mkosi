@@ -1,0 +1,15 @@
+{
+  "archs": [
+    "arm64"
+  ],
+  "packages": [
+    "arm-trusted-firmware"
+  ],
+  "sources": [
+    {
+      "channel": "trixie main",
+      "url": "https://snapshot.debian.org/archive/debian/20250814T000000Z"
+    }
+  ],
+  "version": 1
+}

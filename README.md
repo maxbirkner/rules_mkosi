@@ -352,6 +352,7 @@ See [image identity](docs/sysupdate-ab.md#image-identity) for A/B partition labe
 ## Debian snapshots
 
 `@mkosi_debian_snapshot//:repository` is the built-in snapshot: Debian 13, amd64, `main` only, with a small package set (the Debian tools closure).
+`@mkosi_debian_snapshot_arm64//:repository` is the same package set for arm64, with `linux-image-arm64` and `grub-efi-arm64-bin` instead of the amd64 kernel and boot loaders; images cannot use it yet ([#206](https://github.com/maxbirkner/rules_mkosi/issues/206)).
 For other packages, components, or a different snapshot time, lock your own.
 
 1. Write a JSON specification in the format of [`debian13.spec.json`](mkosi/debian/debian13.spec.json):
@@ -370,7 +371,9 @@ For other packages, components, or a different snapshot time, lock your own.
    }
    ```
 
-   `channel` is the codename followed by its components; `main` is required and `archs` must be `["amd64"]`.
+   `channel` is the codename followed by its components; `main` is required.
+   `archs` names the one architecture that the lock resolves, `["amd64"]` or `["arm64"]`; `all` packages are always included.
+   For both architectures, keep two specifications and locks, such as `debian.amd64.spec.json` and `debian.arm64.spec.json`, with one `debian_lock` target and one `debian_tools.snapshot` each, because the dependency closures differ.
 
 2. Declare the lock targets next to the specification in `os/BUILD.bazel`:
 

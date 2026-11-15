@@ -50,8 +50,8 @@ def _component_indexes(ctx):
             fail("duplicate Debian component index: %s %s" % (component, architecture))
         architectures[component].append(architecture)
     for component, indexed in architectures.items():
-        if sorted(indexed) != ["all", "amd64"]:
-            fail("Debian component %s must provide binary-amd64 and binary-all indexes" % component)
+        if sorted(indexed) != sorted(["all", ctx.attr.architecture]):
+            fail("Debian component %s must provide binary-%s and binary-all indexes" % (component, ctx.attr.architecture))
     return components, files
 
 _METADATA_OPTIONS = [
@@ -73,6 +73,7 @@ def _stager_arguments(ctx, launcher, output, scratch, component_indexes):
     arguments.add("--scratch", scratch.path)
     arguments.add("--launcher", launcher.executable.path)
     arguments.add("--codename", ctx.attr.codename)
+    arguments.add("--architecture", ctx.attr.architecture)
     for name, option in _METADATA_OPTIONS:
         arguments.add("--%s-sha256" % option, ctx.attr.metadata_digests[name])
     arguments.add("--packages-path", ctx.attr.packages_path)
@@ -140,7 +141,11 @@ def _impl(ctx):
 debian_snapshot = rule(
     implementation = _impl,
     attrs = {
-        "architecture": attr.string(default = "amd64", doc = "Debian package architecture, such as `amd64`."),
+        "architecture": attr.string(
+            default = "amd64",
+            values = ["amd64", "arm64"],
+            doc = "Debian package architecture of the lock, `amd64` or `arm64`.",
+        ),
         "codename": attr.string(default = "trixie", doc = "Debian codename, such as `trixie`."),
         "component_package_records": attr.string_list(
             doc = "component|architecture|path|sha256 records for component_packages.",
@@ -172,7 +177,11 @@ debian_snapshot = rule(
             default = "dists/trixie/main/binary-amd64/Packages.xz",
             doc = "Repository path of packages_xz.",
         ),
-        "packages_xz": attr.label(mandatory = True, allow_single_file = True, doc = "main binary-amd64 Packages.xz."),
+        "packages_xz": attr.label(
+            mandatory = True,
+            allow_single_file = True,
+            doc = "main Packages.xz of `architecture`.",
+        ),
         "release": attr.string(default = "13", doc = "Numeric Debian release, such as `13`."),
         "release_gpg": attr.label(mandatory = True, allow_single_file = True, doc = "Detached Release.gpg signature."),
         "release_metadata": attr.label(mandatory = True, allow_single_file = True, doc = "Release file of the snapshot, verified against inrelease."),

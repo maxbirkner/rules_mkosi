@@ -16,9 +16,12 @@ The specification is JSON with the same shape as ``debian13.spec.json``:
 
 The generator downloads the snapshot's InRelease, Release, and Release.gpg,
 checks that InRelease carries the same Release payload, verifies every
-component's binary-amd64 and binary-all Packages.xz against the Release
+component's binary-<arch> and binary-all Packages.xz against the Release
 SHA-256 list, and resolves the Depends and Pre-Depends closure of the requested
-packages plus every Essential and Priority: required package. Recommends and
+packages plus every Essential and Priority: required package. ``archs`` names
+the one architecture that the lock resolves, ``amd64`` or ``arm64``; a
+specification resolves only one, because the closures differ between
+architectures. Recommends and
 Suggests are not followed. Signatures are verified by the build-time staging
 action with Debian's pinned archive keyring, so a tampered index fails the
 build even if it was accepted here.
@@ -49,8 +52,8 @@ sys.path.insert(0, str(pathlib.Path(__file__).parent))
 import http_download
 from python.runfiles import runfiles
 
-ARCHITECTURE = "amd64"
-INDEX_ARCHITECTURES = (ARCHITECTURE, "all")
+# Debian architectures that a lock may resolve. arch: all packages are always included.
+ARCHITECTURES = ("amd64", "arm64")
 
 _SNAPSHOT = re.compile(r"[0-9]{8}T[0-9]{6}Z")
 _IDENTIFIER = re.compile(r"[a-z0-9][a-z0-9-]*")
@@ -272,10 +275,12 @@ def lock_key(name: str, version: str, architecture: str) -> str:
 
 def _package_record(paragraph: Mapping[str, str], component: str, index_architecture: str) -> Package:
     architecture = paragraph.get("Architecture")
-    if architecture not in INDEX_ARCHITECTURES:
-        raise LockError("unsupported package architecture: %s" % architecture)
     if index_architecture == "all" and architecture != "all":
         raise LockError("binary-all index contains non-all package")
+    if index_architecture not in (*ARCHITECTURES, "all") or architecture not in (index_architecture, "all"):
+        raise LockError(
+            "unsupported package architecture in the binary-%s index: %s" % (index_architecture, architecture)
+        )
     size = paragraph.get("Size", "")
     digest = paragraph.get("SHA256", "")
     filename = paragraph.get("Filename", "")
@@ -310,9 +315,17 @@ def parse_packages(text: str, component: str, index_architecture: str) -> list[P
 
 
 class Universe:
-    """Installable single-architecture view of the locked components."""
+    """Installable single-architecture view of the locked components.
+
+    The architecture is that of the packages that are not ``all``; packages of two architectures are rejected.
+    """
 
     def __init__(self, packages: Iterable[Package]) -> None:
+        packages = list(packages)
+        architectures = {package.architecture for package in packages} - {"all"}
+        if len(architectures) > 1:
+            raise LockError("packages of several architectures: %s" % ", ".join(sorted(architectures)))
+        self._architecture = architectures.pop() if architectures else None
         by_name: collections.defaultdict[str, dict[tuple[str, str], Package]] = collections.defaultdict(dict)
         for package in packages:
             identity = (package.version, package.architecture)
@@ -349,13 +362,12 @@ class Universe:
         candidates = self._packages.get(name, ())
         return candidates[0] if candidates else None
 
-    @staticmethod
-    def _architecture_matches(package: Package, qualifier: str | None) -> bool:
+    def _architecture_matches(self, package: Package, qualifier: str | None) -> bool:
         # Only the native architecture is resolved, so dpkg's Multi-Arch rules reduce to this: an
         # unqualified, :any, or native-qualified relation accepts native and arch: all packages, while a
         # foreign architecture qualifier is satisfied only by Multi-Arch: foreign packages.
-        if qualifier in (None, "any", "native", ARCHITECTURE):
-            return package.architecture in INDEX_ARCHITECTURES
+        if qualifier in (None, "any", "native") or qualifier == self._architecture:
+            return True
         return package.multi_arch == "foreign"
 
     def candidates(self, relation: Relation) -> list[Package]:
@@ -516,6 +528,7 @@ class Specification:
     suite: str
     components: tuple[str, ...]
     packages: tuple[str, ...]
+    architecture: str
 
 
 def _snapshot_source(data: Mapping[str, object]) -> tuple[Mapping[str, object], str, str]:
@@ -572,14 +585,19 @@ def load_specification(data: object) -> Specification:
         raise LockError("specification version must be 1")
     source, url, snapshot = _snapshot_source(data)
     suite, components = _channel(source)
-    if data.get("archs") != [ARCHITECTURE]:
-        raise LockError("archs must be [%r]; arch: all is included implicitly" % ARCHITECTURE)
+    archs = data.get("archs")
+    if not isinstance(archs, list) or len(archs) != 1 or archs[0] not in ARCHITECTURES:
+        raise LockError(
+            "archs must name one architecture, one of %s; arch: all is included implicitly"
+            % ", ".join(repr([architecture]) for architecture in ARCHITECTURES)
+        )
     return Specification(
         snapshot_url=url,
         snapshot=snapshot,
         suite=suite,
         components=("main", *sorted(set(components) - {"main"})),
         packages=_requested_packages(data),
+        architecture=archs[0],
     )
 
 
@@ -591,7 +609,7 @@ def spec_sha256(specification: Specification) -> str:
     resolution.
     """
     canonical = {
-        "archs": [ARCHITECTURE],
+        "archs": [specification.architecture],
         "components": list(specification.components),
         "packages": list(specification.packages),
         "snapshot_url": specification.snapshot_url,
@@ -622,7 +640,7 @@ def _metadata_entry(name: str, path: str, data: bytes, snapshot_url: str, **extr
 
 def _index_name(component: str, architecture: str) -> str:
     prefix = "" if component == "main" else component + "_"
-    return prefix + ("packages_xz" if architecture == ARCHITECTURE else "packages_all_xz")
+    return prefix + ("packages_all_xz" if architecture == "all" else "packages_xz")
 
 
 def _fetch_release(url: str, base: str, fetcher: Callable[[str], bytes]) -> tuple[bytes, bytes, bytes]:
@@ -646,8 +664,8 @@ def _release_number(fields: Mapping[str, str], specification: Specification, rel
     missing = sorted(set(specification.components) - available)
     if missing:
         raise LockError("Release does not provide components: %s" % ", ".join(missing))
-    if ARCHITECTURE not in fields.get("Architectures", "").split():
-        raise LockError("Release does not provide architecture %s" % ARCHITECTURE)
+    if specification.architecture not in fields.get("Architectures", "").split():
+        raise LockError("Release does not provide architecture %s" % specification.architecture)
     release_number = release or fields.get("Version", "").split(".", 1)[0]
     if not release_number.isdigit():
         raise LockError("Release has no numeric Version; pass --release")
@@ -682,7 +700,7 @@ def _fetch_indexes(
     metadata = []
     packages = []
     for component in specification.components:
-        for architecture in INDEX_ARCHITECTURES:
+        for architecture in (specification.architecture, "all"):
             relative = "%s/binary-%s/Packages.xz" % (component, architecture)
             data = _fetch_index(url, base, relative, checksums, fetcher)
             metadata.append(
@@ -775,7 +793,7 @@ def generate(
     return {
         "packages": _locked_packages(selected, edges, url),
         "repository": {
-            "architecture": ARCHITECTURE,
+            "architecture": specification.architecture,
             "codename": specification.suite,
             "components": list(specification.components),
             "distribution": "debian",

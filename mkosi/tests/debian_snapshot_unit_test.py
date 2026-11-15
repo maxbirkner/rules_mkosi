@@ -163,32 +163,43 @@ class DebianSnapshotUnitTest(unittest.TestCase):
             output.write(content)
         return path
 
-    def _package(self, name: str, component: str, content: bytes) -> tuple[pathlib.Path, bytes, str]:
+    def _package(
+        self, name: str, component: str, content: bytes, architecture: str = "amd64"
+    ) -> tuple[pathlib.Path, bytes, str]:
         package = self.work / ("%s.deb" % name)
         package.write_bytes(content)
         digest = hashlib.sha256(content).hexdigest()
-        filename = "pool/%s/%s/%s_1_amd64.deb" % (component, name[0], name)
+        filename = "pool/%s/%s/%s_1_%s.deb" % (component, name[0], name, architecture)
         paragraph = (
-            "Package: %s\nVersion: 1\nArchitecture: amd64\n"
-            "Filename: %s\nSize: %d\nSHA256: %s\n\n" % (name, filename, len(content), digest)
+            "Package: %s\nVersion: 1\nArchitecture: %s\n"
+            "Filename: %s\nSize: %d\nSHA256: %s\n\n" % (name, architecture, filename, len(content), digest)
         ).encode()
-        record = "%s|1|amd64|%s|%d|%s" % (name, filename, len(content), digest)
+        record = "%s|1|%s|%s|%d|%s" % (name, architecture, filename, len(content), digest)
         return package, paragraph, record
 
-    def _arguments(self, extra_components: tuple[str, ...] = ()) -> types.SimpleNamespace:
-        package, paragraph, record = self._package("demo", "main", b"representative package")
+    def _indexes_and_packages(
+        self, extra_components: tuple[str, ...], architecture: str
+    ) -> tuple[list[tuple[str, str, pathlib.Path]], list[tuple[pathlib.Path, str]]]:
+        """Returns (component, architecture, path) of every index and (file, record) of every package."""
+        package, paragraph, record = self._package("demo", "main", b"representative package", architecture)
         indexes = [
-            ("main", "amd64", self._write_index("main-amd64.xz", paragraph)),
+            ("main", architecture, self._write_index("main-%s.xz" % architecture, paragraph)),
             ("main", "all", self._write_index("main-all.xz", b"")),
         ]
         packages = [(package, record + "|pkg_000.deb")]
         for index, component in enumerate(extra_components):
             firmware, firmware_paragraph, firmware_record = self._package(
-                "firmware-%d" % index, component, b"firmware payload %d" % index
+                "firmware-%d" % index, component, b"firmware payload %d" % index, architecture
             )
-            indexes.append((component, "amd64", self._write_index(component + "-amd64.xz", firmware_paragraph)))
+            indexes.append(
+                (component, architecture, self._write_index("%s-%s.xz" % (component, architecture), firmware_paragraph))
+            )
             indexes.append((component, "all", self._write_index(component + "-all.xz", b"")))
             packages.append((firmware, firmware_record + "|pkg_%03d.deb" % (index + 1)))
+        return indexes, packages
+
+    def _arguments(self, extra_components: tuple[str, ...] = (), architecture: str = "amd64") -> types.SimpleNamespace:
+        indexes, packages = self._indexes_and_packages(extra_components, architecture)
         digests = {
             (component, architecture): hashlib.sha256(path.read_bytes()).hexdigest()
             for component, architecture, path in indexes
@@ -221,11 +232,12 @@ class DebianSnapshotUnitTest(unittest.TestCase):
             inrelease_sha256=hashlib.sha256(inrelease.read_bytes()).hexdigest(),
             release_sha256=hashlib.sha256(release).hexdigest(),
             release_gpg_sha256=hashlib.sha256(release_gpg.read_bytes()).hexdigest(),
-            packages_xz_sha256=digests[("main", "amd64")],
+            packages_xz_sha256=digests[("main", architecture)],
             packages_all_xz_sha256=digests[("main", "all")],
-            packages_path="dists/trixie/main/binary-amd64/Packages.xz",
+            packages_path="dists/trixie/main/binary-%s/Packages.xz" % architecture,
             packages_all_path="dists/trixie/main/binary-all/Packages.xz",
             codename="trixie",
+            architecture=architecture,
             component_indexes=[
                 "%s|%s|dists/trixie/%s/binary-%s/Packages.xz|%s"
                 % (component, architecture, component, architecture, digests[(component, architecture)])
@@ -269,6 +281,32 @@ class DebianSnapshotUnitTest(unittest.TestCase):
             b"firmware payload 1",
             (repository / "pool/contrib/f/firmware-1_1_amd64.deb").read_bytes(),
         )
+
+    def test_stages_the_indexes_and_packages_of_the_lock_architecture(self) -> None:
+        repository = self._stage(self._arguments(("non-free-firmware",), architecture="arm64"))
+        for component in ("main", "non-free-firmware"):
+            for architecture in ("arm64", "all"):
+                index = repository / "dists/trixie" / component / ("binary-" + architecture) / "Packages"
+                self.assertTrue(index.is_file(), index)
+        self.assertFalse((repository / "dists/trixie/main/binary-amd64").exists())
+        self.assertEqual(b"representative package", (repository / "pool/main/d/demo_1_arm64.deb").read_bytes())
+
+    def test_indexes_of_another_architecture_are_rejected(self) -> None:
+        args = self._arguments(("non-free-firmware",), architecture="arm64")
+        args.architecture = "amd64"
+        with self.assertRaisesRegex(ValueError, "binary-arm64/Packages.xz must be staged at .*binary-amd64"):
+            self._stage(args)
+        args = self._arguments(("non-free-firmware",), architecture="arm64")
+        args.architecture = "amd64"
+        args.packages_path = args.packages_path.replace("arm64", "amd64")
+        with self.assertRaisesRegex(ValueError, "unsupported index architecture: arm64"):
+            self._stage(args)
+
+    def test_packages_of_another_architecture_are_rejected(self) -> None:
+        arm64 = self.work / "arm64.xz"
+        arm64.write_bytes(b"Package: demo\nVersion: 1\nArchitecture: amd64\nFilename: f\nSize: 1\nSHA256: a\n")
+        with self.assertRaisesRegex(ValueError, "unsupported package architecture"):
+            debian_snapshot._read_package_metadata(((str(arm64), "arm64"),), {})
 
     def test_component_index_must_be_authenticated_by_release(self) -> None:
         args = self._arguments(("non-free-firmware",))
