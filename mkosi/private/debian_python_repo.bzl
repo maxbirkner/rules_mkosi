@@ -15,15 +15,21 @@ def _impl(ctx):
     )
     python_minor = ".".join(DEBIAN_TOOLS_PYTHON_VERSION.split(".")[:2])
     ctx.symlink(ctx.path("bin/python" + python_minor), "python")
+
+    # An interpreter that runs outside a sandbox, such as the Debian tools launcher started by `bazel run`, can write
+    # bytecode into this directory. The next analysis would add it to the runtime, so that the keys of the actions that
+    # read the runtime, and image versions derived from their inputs, would depend on what ran in the output base.
     ctx.file(
         "BUILD.bazel",
         """package(default_visibility = ["//visibility:public"])
 
-exports_files(["python"] + glob(["bin/**", "lib/**"]))
+_BYTECODE = ["**/__pycache__/**", "**/*.pyc"]
+
+exports_files(["python"] + glob(["bin/**", "lib/**"], exclude = _BYTECODE))
 
 filegroup(
     name = "runtime",
-    srcs = glob(["lib/**"]),
+    srcs = glob(["lib/**"], exclude = _BYTECODE),
 )
 """,
     )

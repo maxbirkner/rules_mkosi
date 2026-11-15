@@ -184,6 +184,7 @@ The manifest's whole-image digest covers every byte except GPT disk and partitio
 
 <!-- behavior:BHV-REPRODUCIBILITY-INDEPENDENCE -->
 A one-stage release, a compressed erofs release with its update payload, and a two-stage base and finalization are built twice in clean, uncached output roots, and their manifests and digests must match.
+Before the second build, its output root runs the Debian tools launcher outside the sandbox and restarts its server, like a reused CI runner, so the results must not depend on what ran in an output base.
 
 ## Actions, toolchains, and failures
 
