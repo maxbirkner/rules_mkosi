@@ -7,7 +7,9 @@ import shutil
 import subprocess
 import sys
 import unittest
+from collections.abc import Iterable
 from pathlib import Path
+from types import ModuleType
 
 sys.path.insert(0, str(Path(__file__).parent))
 import secure_boot_fixtures
@@ -15,7 +17,7 @@ import secure_boot_fixtures
 SECURE_BOOT_TOOL, IMAGE_TOOL, EFI_AUTH, DEBIAN_TOOLS = sys.argv[1:5]
 
 
-def _load(name, path):
+def _load(name: str, path: str) -> ModuleType:
     spec = importlib.util.spec_from_file_location(name, path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
@@ -34,18 +36,18 @@ UKI = "EFI/Linux/os_1+3.efi"
 ESP_MANIFEST = "loader/rules_mkosi-secure-boot.json"
 
 
-def _sha256(data):
+def _sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def _python(*arguments, check=True):
+def _python(*arguments: object, check: bool = True) -> subprocess.CompletedProcess[str]:
     result = subprocess.run([sys.executable, *map(str, arguments)], capture_output=True, text=True)
     if check and result.returncode:
         raise AssertionError(result.stderr)
     return result
 
 
-def _sign(name, pairs):
+def _sign(name: str, pairs: Iterable[tuple[Path, Path]]) -> tuple[Path, Path]:
     """Signs (unsigned, signed) pairs with new ephemeral keys; returns the certificate and the auto-enroll directory."""
     certificate = WORK / (name + ".pem")
     keys = WORK / (name + "-keys")
@@ -56,7 +58,7 @@ def _sign(name, pairs):
     return certificate, keys
 
 
-def _request(name, unsigned, certificate, esp_path=""):
+def _request(name: str, unsigned: Path, certificate: Path, esp_path: str = "") -> tuple[Path, Path]:
     """Returns the request and normalized certificate of a signing request for unsigned."""
     request = WORK / (name + ".json")
     normalized = WORK / (name + ".der")
@@ -75,7 +77,7 @@ def _request(name, unsigned, certificate, esp_path=""):
     return request, normalized
 
 
-def _esp_tree(disk, destination):
+def _esp_tree(disk: Path, destination: Path) -> dict[str, bytes]:
     """Copies the ESP files of disk to destination and returns {lowercase ESP path: bytes}."""
     esp = WORK / "check-esp.img"
     data = disk.read_bytes()[secure_boot_fixtures.ESP_OFFSET : -len(secure_boot_fixtures.TRAILER)]
@@ -93,7 +95,7 @@ def _esp_tree(disk, destination):
 class Fixture:
     """Two PE binaries on an ESP, signed with one hierarchy; a second hierarchy's keys do not trust the signer."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         shutil.rmtree(WORK, ignore_errors=True)
         WORK.mkdir()
         self.boot = WORK / "boot.efi"
@@ -110,17 +112,24 @@ class Fixture:
             path: _request(path.stem, path, certificate, BOOT_LOADER if path == self.boot else "")
             for path in self.signed
         }
-        files = {FALLBACK: self.boot, BOOT_LOADER: self.boot, UKI: self.uki, "loader/loader.conf": b"timeout 3\n"}
-        files["loader/loader.conf"] += b"secure-boot-enroll off\n"
+        loader_conf = b"timeout 3\nsecure-boot-enroll off\n"
+        files = {FALLBACK: self.boot, BOOT_LOADER: self.boot, UKI: self.uki, "loader/loader.conf": loader_conf}
         self.disk, self.metadata = secure_boot_fixtures.disk_with_esp(run_tool, DEBIAN_TOOLS, WORK, files)
 
-    def signed_image(self):
+    def signed_image(self) -> tuple[subprocess.CompletedProcess[str], Path]:
         """Returns the result and output of signing both binaries with the trusted keys, signing only once."""
         if not hasattr(self, "_signed_image"):
             self._signed_image = self.sign_image("signed", [self.boot, self.uki], self.keys)
         return self._signed_image
 
-    def sign_image(self, name, binaries, keys=None, mode="force", disk=None):
+    def sign_image(
+        self,
+        name: str,
+        binaries: list[Path],
+        keys: Path | None = None,
+        mode: str = "force",
+        disk: tuple[Path, Path] | None = None,
+    ) -> tuple[subprocess.CompletedProcess[str], Path]:
         output = WORK / (name + ".raw")
         image, metadata = disk or (self.disk, self.metadata)
         arguments = ["--tools", DEBIAN_TOOLS, "--image", image, "--partition-metadata", metadata]
@@ -134,11 +143,13 @@ class Fixture:
 
 
 class SignedImageTest(unittest.TestCase):
+    fixture: Fixture
+
     @classmethod
-    def setUpClass(cls):
+    def setUpClass(cls) -> None:
         cls.fixture = Fixture()
 
-    def test_esp_holds_signed_binaries_keys_and_enroll_mode_and_nothing_else_changes(self):
+    def test_esp_holds_signed_binaries_keys_and_enroll_mode_and_nothing_else_changes(self) -> None:
         result, output = self.fixture.signed_image()
         self.assertEqual(result.returncode, 0, result.stderr)
         files = _esp_tree(output, WORK / "signed-tree")
@@ -163,7 +174,7 @@ class SignedImageTest(unittest.TestCase):
         _, again = self.fixture.sign_image("again", [self.fixture.uki, self.fixture.boot], self.fixture.keys)
         self.assertEqual(hashlib.sha256(again.read_bytes()).digest(), hashlib.sha256(data).digest())
 
-    def test_esp_manifest_records_keys_certificates_and_signers(self):
+    def test_esp_manifest_records_keys_certificates_and_signers(self) -> None:
         fixture = self.fixture
         result, output = fixture.signed_image()
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -190,7 +201,7 @@ class SignedImageTest(unittest.TestCase):
         for field in ("auto_enroll_keys", "replaced", "secure_boot_enroll"):
             self.assertEqual(metadata[field], manifest[field], field)
 
-    def test_without_keys_only_binaries_and_the_manifest_change(self):
+    def test_without_keys_only_binaries_and_the_manifest_change(self) -> None:
         result, output = self.fixture.sign_image("binaries-only", [self.fixture.boot, self.fixture.uki], mode="if-safe")
         self.assertEqual(result.returncode, 0, result.stderr)
         files = _esp_tree(output, WORK / "binaries-only-tree")
@@ -200,7 +211,7 @@ class SignedImageTest(unittest.TestCase):
         self.assertEqual((manifest["auto_enroll_keys"], manifest["secure_boot_enroll"]), ([], None))
         self.assertEqual(len(manifest["replaced"]), 3)
 
-    def test_inputs_that_would_not_boot_are_rejected(self):
+    def test_inputs_that_would_not_boot_are_rejected(self) -> None:
         fixture = self.fixture
         missing_pk = WORK / "missing-pk"
         missing_pk.mkdir(exist_ok=True)
@@ -226,17 +237,19 @@ class SignedImageTest(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn(error, result.stderr)
 
-    def test_startable_already_signed_binaries_must_be_trusted_by_db_when_keys_are_enrolled(self):
+    def test_startable_already_signed_binaries_must_be_trusted_by_db_when_keys_are_enrolled(self) -> None:
         fixture = self.fixture
         boot_files = {FALLBACK: fixture.boot, BOOT_LOADER: fixture.boot, UKI: fixture.uki}
         untrusted = WORK / "untrusted.efi"
-        extra = {"EFI/tools/extra.efi": untrusted}
-        kernel = {"vmlinuz-6": untrusted}
+        # Explicit value types keep every case's files a dict[str, Path | bytes] instead of a join to object.
+        trusted_extra: dict[str, Path | bytes] = {"EFI/tools/extra.efi": fixture.signed[fixture.absent]}
+        extra: dict[str, Path | bytes] = {"EFI/tools/extra.efi": untrusted}
+        kernel: dict[str, Path | bytes] = {"vmlinuz-6": untrusted}
         type1 = kernel | {"loader/entries/os.conf": b"title OS\nlinux /vmlinuz-6\n"}
         type1_tab = kernel | {"loader/entries/os.conf": b"title OS\nlinux\t/vmlinuz-6\n"}
         type1_quoted = kernel | {"loader/entries/os.conf": b'title OS\nlinux "/vmlinuz-6"\n'}
         for name, files, keys, untrusted_path in [
-            ("trusted-pre-signed", {"EFI/tools/extra.efi": fixture.signed[fixture.absent]}, fixture.keys, None),
+            ("trusted-pre-signed", trusted_extra, fixture.keys, None),
             ("untrusted-pre-signed", extra, fixture.keys, "EFI/tools/extra.efi"),
             ("untrusted-pre-signed-without-keys", extra, None, None),
             ("untrusted-kernel-that-nothing-starts", kernel, fixture.keys, None),
@@ -258,17 +271,17 @@ class SignedImageTest(unittest.TestCase):
 
 
 class AuthFileTest(unittest.TestCase):
-    def setUp(self):
+    def setUp(self) -> None:
         self.certificate = bytes.fromhex("3003020100")
         self.data = efi_auth.signature_list(self.certificate, efi_auth.EFI_GLOBAL_VARIABLE)
         self.auth = efi_auth.auth_file(efi_auth.efi_time(2026), b"\x30\x00", self.data)
 
-    def test_built_file_parses(self):
+    def test_built_file_parses(self) -> None:
         signed_data, lists = efi_auth.parse_auth("PK", self.auth)
         self.assertEqual(signed_data, b"\x30\x00")
         self.assertEqual(efi_auth.x509_certificates(lists), [self.certificate])
 
-    def test_malformed_files_are_rejected(self):
+    def test_malformed_files_are_rejected(self) -> None:
         two_certificates = efi_auth.auth_file(efi_auth.efi_time(2026), b"\x30\x00", self.data + self.data)
         for name, variable, data in [
             ("unknown variable", "MokList", self.auth),
@@ -283,7 +296,7 @@ class AuthFileTest(unittest.TestCase):
             with self.subTest(name), self.assertRaises(ValueError):
                 efi_auth.parse_auth(variable, data)
 
-    def test_signed_payload_binds_name_guid_attributes_time_and_data(self):
+    def test_signed_payload_binds_name_guid_attributes_time_and_data(self) -> None:
         payload = efi_auth.signed_payload("db", efi_auth.efi_time(2026), self.data)
         self.assertTrue(payload.startswith("db".encode("utf-16-le") + efi_auth.EFI_IMAGE_SECURITY_DATABASE.bytes_le))
         self.assertTrue(payload.endswith(efi_auth.efi_time(2026) + self.data))

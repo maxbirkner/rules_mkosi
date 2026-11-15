@@ -7,6 +7,7 @@ import struct
 import sys
 import uuid
 import zlib
+from typing import Any, BinaryIO
 
 SECTOR_SIZE = 512
 GPT_HEADER_SIZE = 92
@@ -23,14 +24,14 @@ EXT4_RO_COMPAT_METADATA_CSUM = 0x00000400
 EXT4_DIR_CSUM = 0xDE
 
 
-def image_path(argument):
+def image_path(argument: str) -> pathlib.Path:
     path = pathlib.Path(argument)
     if path.is_absolute():
         return path
     return pathlib.Path(os.environ["TEST_SRCDIR"]) / os.environ["TEST_WORKSPACE"] / path
 
 
-def _read(image, offset, size, message):
+def _read(image: BinaryIO, offset: int, size: int, message: str) -> bytes:
     image.seek(offset)
     value = image.read(size)
     if len(value) != size:
@@ -38,14 +39,14 @@ def _read(image, offset, size, message):
     return value
 
 
-def _physical_data_ranges(image, start, end):
+def _physical_data_ranges(image: BinaryIO, start: int, end: int) -> list[tuple[int, int]]:
     try:
         fd = image.fileno()
     except (AttributeError, io.UnsupportedOperation) as error:
         raise AssertionError("physical data extents are unavailable for this image") from error
     seek_data = getattr(os, "SEEK_DATA", 3)
     seek_hole = getattr(os, "SEEK_HOLE", 4)
-    ranges = []
+    ranges: list[tuple[int, int]] = []
     cursor = start
     while cursor < end:
         try:
@@ -71,7 +72,7 @@ def _physical_data_ranges(image, start, end):
     return ranges
 
 
-def _range_fully_allocated(ranges, start, end):
+def _range_fully_allocated(ranges: list[tuple[int, int]], start: int, end: int) -> bool:
     cursor = start
     for data, hole in sorted(ranges):
         if hole <= cursor:
@@ -84,7 +85,7 @@ def _range_fully_allocated(ranges, start, end):
     return False
 
 
-def _crc32c(crc, data):
+def _crc32c(crc: int, data: bytes | bytearray) -> int:
     for byte in data:
         for _ in range(8):
             crc = (crc >> 1) ^ 0x82F63B78 if (crc ^ byte) & 1 else crc >> 1
@@ -92,13 +93,13 @@ def _crc32c(crc, data):
     return crc & 0xFFFFFFFF
 
 
-def _directory_checksum(seed, inode_number, generation, block):
+def _directory_checksum(seed: int, inode_number: int, generation: int, block: bytes | bytearray) -> int:
     checksum = _crc32c(seed, struct.pack("<I", inode_number))
     checksum = _crc32c(checksum, struct.pack("<I", generation))
     return _crc32c(checksum, block[:-12])
 
 
-def _check_header_integrity(raw, lba):
+def _check_header_integrity(raw: bytes, lba: int) -> None:
     if raw[:8] != b"EFI PART":
         raise AssertionError("GPT header signature is missing at LBA %d" % lba)
     revision, header_size, stored_crc = struct.unpack_from("<III", raw, 8)
@@ -112,7 +113,7 @@ def _check_header_integrity(raw, lba):
         raise AssertionError("GPT header CRC is invalid at LBA %d" % lba)
 
 
-def _check_header_geometry(header, lba, total_sectors):
+def _check_header_geometry(header: dict[str, Any], lba: int, total_sectors: int) -> None:
     if header["current_lba"] != lba or header["backup_lba"] >= total_sectors:
         raise AssertionError("GPT header LBA relationship is invalid")
     first_usable = header["first_usable"]
@@ -124,13 +125,13 @@ def _check_header_geometry(header, lba, total_sectors):
         raise AssertionError("GPT partition array is outside the image")
 
 
-def _parse_header(image, lba, total_sectors):
+def _parse_header(image: BinaryIO, lba: int, total_sectors: int) -> dict[str, Any]:
     raw = _read(image, lba * SECTOR_SIZE, SECTOR_SIZE, "GPT header is truncated")
     _check_header_integrity(raw, lba)
     current_lba, backup_lba, first_usable, last_usable = struct.unpack_from("<QQQQ", raw, 24)
     array_lba, entry_count, entry_size, array_crc = struct.unpack_from("<QIII", raw, 72)
     array_size = entry_count * entry_size
-    header = {
+    header: dict[str, Any] = {
         "current_lba": current_lba,
         "backup_lba": backup_lba,
         "first_usable": first_usable,
@@ -149,11 +150,11 @@ def _parse_header(image, lba, total_sectors):
     return header
 
 
-def _u16(data, offset):
+def _u16(data: bytes, offset: int) -> int:
     return struct.unpack_from("<H", data, offset)[0]
 
 
-def _u32(data, offset):
+def _u32(data: bytes, offset: int) -> int:
     return struct.unpack_from("<I", data, offset)[0]
 
 
@@ -172,11 +173,11 @@ class _Ext4:
     inode_size: int
     descriptor_size: int
 
-    def block_offset(self, block):
+    def block_offset(self, block: int) -> int:
         return self.partition_offset + block * self.block_size
 
 
-def _read_ext4_superblock(image, partition_offset):
+def _read_ext4_superblock(image: BinaryIO, partition_offset: int) -> bytes:
     superblock = _read(
         image,
         partition_offset + 1024,
@@ -190,7 +191,7 @@ def _read_ext4_superblock(image, partition_offset):
     return superblock
 
 
-def _ext4_block_size(superblock):
+def _ext4_block_size(superblock: bytes) -> int:
     block_size_log = _u32(superblock, 24)
     if block_size_log > 6:
         raise AssertionError("Linux root filesystem block size is invalid")
@@ -200,7 +201,7 @@ def _ext4_block_size(superblock):
     return block_size
 
 
-def _read_ext4_geometry(image, partition_offset, partition_size):
+def _read_ext4_geometry(image: BinaryIO, partition_offset: int, partition_size: int) -> _Ext4:
     superblock = _read_ext4_superblock(image, partition_offset)
     block_size = _ext4_block_size(superblock)
     blocks = _u32(superblock, 4) | _u32(superblock, 336) << 32
@@ -233,7 +234,7 @@ def _read_ext4_geometry(image, partition_offset, partition_size):
     )
 
 
-def _read_first_group_metadata(image, fs):
+def _read_first_group_metadata(image: BinaryIO, fs: _Ext4) -> list[tuple[int, int]]:
     """Returns the (start, length) block ranges of group 0's block bitmap, inode bitmap, and inode table."""
     descriptor_block = 2 if fs.block_size == 1024 else 1
     descriptor = _read(
@@ -253,7 +254,7 @@ def _read_first_group_metadata(image, fs):
     return [(block_bitmap, 1), (inode_bitmap, 1), (inode_table, inode_table_blocks)]
 
 
-def _require_disjoint_group_metadata(metadata_blocks, group_end):
+def _require_disjoint_group_metadata(metadata_blocks: list[tuple[int, int]], group_end: int) -> None:
     for metadata_index, (metadata_start, metadata_length) in enumerate(metadata_blocks):
         if (
             metadata_start == 0
@@ -267,7 +268,9 @@ def _require_disjoint_group_metadata(metadata_blocks, group_end):
             raise AssertionError("Linux root filesystem allocation metadata overlaps")
 
 
-def _require_allocated_metadata(fs, metadata_blocks, data_ranges):
+def _require_allocated_metadata(
+    fs: _Ext4, metadata_blocks: list[tuple[int, int]], data_ranges: list[tuple[int, int]]
+) -> None:
     for metadata_start, metadata_length in metadata_blocks:
         metadata_offset = fs.block_offset(metadata_start)
         if not _range_fully_allocated(
@@ -278,7 +281,7 @@ def _require_allocated_metadata(fs, metadata_blocks, data_ranges):
             raise AssertionError("Linux root filesystem metadata is not allocated")
 
 
-def _read_bitmaps(image, fs, block_bitmap, inode_bitmap):
+def _read_bitmaps(image: BinaryIO, fs: _Ext4, block_bitmap: int, inode_bitmap: int) -> bytes:
     """Returns group 0's block bitmap after requiring that its inode bitmap allocates the root inode."""
     block_bitmap_data = _read(
         image,
@@ -297,7 +300,7 @@ def _read_bitmaps(image, fs, block_bitmap, inode_bitmap):
     return block_bitmap_data
 
 
-def _read_root_inode(image, fs, inode_table):
+def _read_root_inode(image: BinaryIO, fs: _Ext4, inode_table: int) -> bytes:
     inode_offset = fs.block_offset(inode_table) + fs.inode_size
     if inode_offset + fs.inode_size > fs.partition_offset + fs.partition_size:
         raise AssertionError("Linux root inode is outside the root partition")
@@ -309,14 +312,14 @@ def _read_root_inode(image, fs, inode_table):
     return inode
 
 
-def _root_directory_extents(fs, inode):
+def _root_directory_extents(fs: _Ext4, inode: bytes) -> list[tuple[int, int, int]]:
     """Returns the root directory's (logical, length, physical) extents after checking that they cover it."""
     directory_blocks = (_u32(inode, 4) + fs.block_size - 1) // fs.block_size
     extent = inode[40:100]
     magic, entries, maximum, depth = struct.unpack_from("<HHHH", extent, 0)
     if magic != 0xF30A or entries == 0 or entries > maximum or depth != 0:
         raise AssertionError("Linux root inode extent tree is invalid")
-    extents = []
+    extents: list[tuple[int, int, int]] = []
     for index in range(entries):
         logical, length, start_high, start_low = struct.unpack_from("<IHHI", extent, 12 + index * 12)
         length &= 0x7FFF
@@ -331,7 +334,9 @@ def _root_directory_extents(fs, inode):
     return extents
 
 
-def _require_allocated_extent(fs, physical, length, block_bitmap_data, data_ranges):
+def _require_allocated_extent(
+    fs: _Ext4, physical: int, length: int, block_bitmap_data: bytes, data_ranges: list[tuple[int, int]]
+) -> None:
     if physical + length > fs.blocks_per_group:
         raise AssertionError("Linux root directory extent leaves its allocation group")
     if any(not (block_bitmap_data[block // 8] & (1 << (block % 8))) for block in range(physical, physical + length)):
@@ -341,7 +346,7 @@ def _require_allocated_extent(fs, physical, length, block_bitmap_data, data_rang
         raise AssertionError("Linux root inode extent is not physically allocated")
 
 
-def _directory_checksum_key(fs, inode):
+def _directory_checksum_key(fs: _Ext4, inode: bytes) -> tuple[int, int] | None:
     """Returns the (seed, generation) pair for root directory block checksums, or None if they are disabled."""
     if _u32(fs.superblock, 100) & EXT4_RO_COMPAT_METADATA_CSUM == 0:
         return None
@@ -352,7 +357,7 @@ def _directory_checksum_key(fs, inode):
     return seed, _u32(inode, 100)
 
 
-def _directory_data_limit(directory_block, checksum_key):
+def _directory_data_limit(directory_block: bytes, checksum_key: tuple[int, int] | None) -> int:
     """Returns the size of the record area in directory_block after validating its checksum tail."""
     if checksum_key is None:
         return len(directory_block)
@@ -371,7 +376,9 @@ def _directory_data_limit(directory_block, checksum_key):
     return len(directory_block) - 12
 
 
-def _validate_directory_entry(fs, entry_inode, name, file_type, seen_names, position):
+def _validate_directory_entry(
+    fs: _Ext4, entry_inode: int, name: bytes, file_type: int, seen_names: set[bytes], position: tuple[int, int]
+) -> None:
     """Validates one used record; position is the (logical block, byte offset) of the record."""
     if (
         entry_inode > _u32(fs.superblock, 0)
@@ -389,7 +396,9 @@ def _validate_directory_entry(fs, entry_inode, name, file_type, seen_names, posi
         raise AssertionError("Linux root directory lacks '..'")
 
 
-def _validate_directory_records(fs, directory_block, data_limit, logical_block, seen_names):
+def _validate_directory_records(
+    fs: _Ext4, directory_block: bytes, data_limit: int, logical_block: int, seen_names: set[bytes]
+) -> None:
     cursor = 0
     while cursor < data_limit:
         if cursor + 8 > data_limit:
@@ -414,9 +423,11 @@ def _validate_directory_records(fs, directory_block, data_limit, logical_block, 
         raise AssertionError("Linux root directory records leave a gap")
 
 
-def _validate_root_directory(image, fs, inode, block_bitmap_data, data_ranges):
+def _validate_root_directory(
+    image: BinaryIO, fs: _Ext4, inode: bytes, block_bitmap_data: bytes, data_ranges: list[tuple[int, int]]
+) -> None:
     checksum_key = _directory_checksum_key(fs, inode)
-    seen_names = set()
+    seen_names: set[bytes] = set()
     logical_block = 0
     for logical, length, physical in _root_directory_extents(fs, inode):
         if logical != logical_block:
@@ -434,7 +445,9 @@ def _validate_root_directory(image, fs, inode, block_bitmap_data, data_ranges):
             logical_block += 1
 
 
-def _validate_ext4_root(image, partition_start, partition_end, physical_ranges=None):
+def _validate_ext4_root(
+    image: BinaryIO, partition_start: int, partition_end: int, physical_ranges: list[tuple[int, int]] | None = None
+) -> None:
     partition_offset = partition_start * SECTOR_SIZE
     partition_size = (partition_end - partition_start + 1) * SECTOR_SIZE
     if partition_size < 1024 * 1024:
@@ -454,7 +467,7 @@ def _validate_ext4_root(image, partition_start, partition_end, physical_ranges=N
     _validate_root_directory(image, fs, inode, block_bitmap_data, data_ranges)
 
 
-def _total_sectors(size):
+def _total_sectors(size: int) -> int:
     if size == 0 or size % SECTOR_SIZE:
         raise AssertionError("raw image size is empty or not sector aligned")
     total_sectors = size // SECTOR_SIZE
@@ -463,7 +476,7 @@ def _total_sectors(size):
     return total_sectors
 
 
-def _validate_protective_mbr(image, total_sectors):
+def _validate_protective_mbr(image: BinaryIO, total_sectors: int) -> None:
     mbr = _read(image, 0, SECTOR_SIZE, "protective MBR is truncated")
     if mbr[510:512] != b"\x55\xaa":
         raise AssertionError("protective MBR signature is missing")
@@ -477,7 +490,7 @@ def _validate_protective_mbr(image, total_sectors):
         raise AssertionError("protective MBR contains unexpected partitions")
 
 
-def _read_gpt(image, total_sectors):
+def _read_gpt(image: BinaryIO, total_sectors: int) -> dict[str, Any]:
     """Returns the primary GPT header after requiring that the backup header mirrors it."""
     primary = _parse_header(image, 1, total_sectors)
     backup = _parse_header(image, total_sectors - 1, total_sectors)
@@ -498,10 +511,10 @@ def _read_gpt(image, total_sectors):
     return primary
 
 
-def _gpt_partitions(header):
+def _gpt_partitions(header: dict[str, Any]) -> list[tuple[int, int, bytes]]:
     """Returns the (start, end, type GUID) of every used, disjoint GPT partition entry."""
-    partitions = []
-    partition_guids = set()
+    partitions: list[tuple[int, int, bytes]] = []
+    partition_guids: set[bytes] = set()
     entry_size = header["entry_size"]
     for index in range(header["entry_count"]):
         entry = header["array"][index * entry_size : (index + 1) * entry_size]
@@ -521,7 +534,7 @@ def _gpt_partitions(header):
     return partitions
 
 
-def _validate(image, size, physical_ranges=None):
+def _validate(image: BinaryIO, size: int, physical_ranges: list[tuple[int, int]] | None = None) -> None:
     total_sectors = _total_sectors(size)
     _validate_protective_mbr(image, total_sectors)
     partitions = _gpt_partitions(_read_gpt(image, total_sectors))
@@ -531,7 +544,7 @@ def _validate(image, size, physical_ranges=None):
     _validate_ext4_root(image, roots[0][0], roots[0][1], physical_ranges)
 
 
-def validate_bytes(data, physical_ranges=None):
+def validate_bytes(data: bytes | bytearray, physical_ranges: list[tuple[int, int]] | None = None) -> None:
     _validate(io.BytesIO(data), len(data), physical_ranges)
 
 
@@ -546,7 +559,7 @@ def root_ext4_hash_seed(path: pathlib.Path) -> uuid.UUID:
     return uuid.UUID(bytes=superblock[236:252])
 
 
-def validate(path):
+def validate(path: pathlib.Path) -> None:
     stat = path.stat()
     with path.open("rb") as image:
         _validate(image, stat.st_size)

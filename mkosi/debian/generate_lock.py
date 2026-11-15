@@ -40,6 +40,8 @@ import pathlib
 import re
 import runpy
 import sys
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+from typing import Any, TypedDict, cast
 
 # Bazel runs the binary with safe paths, so the helper next to it must be put on sys.path explicitly.
 sys.path.insert(0, str(pathlib.Path(__file__).parent))
@@ -73,7 +75,7 @@ _parse_paragraphs = runpy.run_path(os.path.join(os.path.dirname(__file__), os.pa
 ]
 
 
-def _order(character):
+def _order(character: str) -> int:
     if character == "~":
         return -1
     if character.isdigit():
@@ -83,7 +85,7 @@ def _order(character):
     return ord(character) + 256
 
 
-def _compare_non_digits(left, right, left_index, right_index):
+def _compare_non_digits(left: str, right: str, left_index: int, right_index: int) -> tuple[int, int, int]:
     """Compares the non-digit prefixes at the indexes; returns the difference and the indexes after them."""
     while (left_index < len(left) and not left[left_index].isdigit()) or (
         right_index < len(right) and not right[right_index].isdigit()
@@ -97,7 +99,7 @@ def _compare_non_digits(left, right, left_index, right_index):
     return 0, left_index, right_index
 
 
-def _compare_digits(left, right, left_index, right_index):
+def _compare_digits(left: str, right: str, left_index: int, right_index: int) -> tuple[int, int, int]:
     """Numerically compares the digit runs at the indexes; returns the difference and the indexes after them."""
     while left_index < len(left) and left[left_index] == "0":
         left_index += 1
@@ -121,7 +123,7 @@ def _compare_digits(left, right, left_index, right_index):
     return difference, left_index, right_index
 
 
-def _compare_fragment(left, right):
+def _compare_fragment(left: str, right: str) -> int:
     left_index = 0
     right_index = 0
     while left_index < len(left) or right_index < len(right):
@@ -132,7 +134,7 @@ def _compare_fragment(left, right):
     return 0
 
 
-def _split_version(version):
+def _split_version(version: str) -> tuple[int, str, str]:
     epoch = 0
     if ":" in version:
         epoch_text, version = version.split(":", 1)
@@ -145,7 +147,7 @@ def _split_version(version):
     return epoch, upstream, revision
 
 
-def compare_versions(left, right):
+def compare_versions(left: str, right: str) -> int:
     """Compare two Debian versions with dpkg semantics.
 
     Returns a negative number, zero, or a positive number when ``left`` sorts
@@ -169,7 +171,7 @@ _RELATION_OPERATORS = {
 }
 
 
-def version_satisfies(version, operator, required):
+def version_satisfies(version: str, operator: str, required: str) -> bool:
     """Return whether ``version`` satisfies the relation ``operator required``."""
     result = compare_versions(version, required)
     if operator not in _RELATION_OPERATORS:
@@ -186,14 +188,14 @@ class Relation:
     operator: str | None = None
     version: str | None = None
 
-    def __str__(self):
+    def __str__(self) -> str:
         text = self.name + (":" + self.arch if self.arch else "")
         if self.operator:
             text += " (%s %s)" % (self.operator, self.version)
         return text
 
 
-def parse_relations(value):
+def parse_relations(value: str | None) -> tuple[tuple[Relation, ...], ...]:
     """Parse a Depends-style field into a list of alternative groups."""
     groups = []
     for group_text in (value or "").replace("\n", " ").split(","):
@@ -216,7 +218,7 @@ def parse_relations(value):
     return tuple(groups)
 
 
-def parse_provides(value):
+def parse_provides(value: str | None) -> tuple[tuple[str, str | None], ...]:
     provides = []
     for group in parse_relations(value):
         if len(group) != 1:
@@ -228,7 +230,7 @@ def parse_provides(value):
     return tuple(provides)
 
 
-def paragraphs(text):
+def paragraphs(text: str) -> list[dict[str, str]]:
     """Parse deb822 control data into ordered dictionaries; raises LockError for malformed data."""
     try:
         return _parse_paragraphs(text)
@@ -250,16 +252,16 @@ class Package:
     multi_arch: str = "no"
     essential: bool = False
     priority: str = "optional"
-    pre_depends: tuple = ()
-    depends: tuple = ()
-    provides: tuple = ()
+    pre_depends: tuple[tuple[Relation, ...], ...] = ()
+    depends: tuple[tuple[Relation, ...], ...] = ()
+    provides: tuple[tuple[str, str | None], ...] = ()
 
     @property
-    def key(self):
+    def key(self) -> str:
         return lock_key(self.name, self.version, self.architecture)
 
 
-def lock_key(name, version, architecture):
+def lock_key(name: str, version: str, architecture: str) -> str:
     """Return the filesystem-safe lock key used to order staged packages."""
     return "%s_%s_%s" % (
         name.replace("+", "-p-"),
@@ -268,7 +270,7 @@ def lock_key(name, version, architecture):
     )
 
 
-def _package_record(paragraph, component, index_architecture):
+def _package_record(paragraph: Mapping[str, str], component: str, index_architecture: str) -> Package:
     architecture = paragraph.get("Architecture")
     if architecture not in INDEX_ARCHITECTURES:
         raise LockError("unsupported package architecture: %s" % architecture)
@@ -302,7 +304,7 @@ def _package_record(paragraph, component, index_architecture):
     )
 
 
-def parse_packages(text, component, index_architecture):
+def parse_packages(text: str, component: str, index_architecture: str) -> list[Package]:
     """Parse one Packages index into Package records."""
     return [_package_record(paragraph, component, index_architecture) for paragraph in paragraphs(text)]
 
@@ -310,8 +312,8 @@ def parse_packages(text, component, index_architecture):
 class Universe:
     """Installable single-architecture view of the locked components."""
 
-    def __init__(self, packages):
-        by_name = collections.defaultdict(dict)
+    def __init__(self, packages: Iterable[Package]) -> None:
+        by_name: collections.defaultdict[str, dict[tuple[str, str], Package]] = collections.defaultdict(dict)
         for package in packages:
             identity = (package.version, package.architecture)
             previous = by_name[package.name].get(identity)
@@ -319,9 +321,12 @@ class Universe:
                 by_name[package.name][identity] = package
             elif previous != dataclasses.replace(package, component=previous.component):
                 raise LockError("conflicting duplicate package metadata: %s" % package.name)
-        newest_first = functools.cmp_to_key(lambda left, right: compare_versions(right.version, left.version))
-        self._packages = {}
-        self._providers = collections.defaultdict(list)
+        # The annotation lets mypy infer the parameter types of the lambda.
+        newest_first: Callable[[Package], Any] = functools.cmp_to_key(
+            lambda left, right: compare_versions(right.version, left.version)
+        )
+        self._packages: dict[str, tuple[Package, ...]] = {}
+        self._providers: collections.defaultdict[str, list[tuple[Package, str | None]]] = collections.defaultdict(list)
         for name, candidates in by_name.items():
             ordered = tuple(sorted(candidates.values(), key=newest_first))
             self._packages[name] = ordered
@@ -336,16 +341,16 @@ class Universe:
                 )
             )
 
-    def packages(self):
+    def packages(self) -> Iterator[Package]:
         for candidates in self._packages.values():
             yield from candidates
 
-    def newest(self, name):
+    def newest(self, name: str) -> Package | None:
         candidates = self._packages.get(name, ())
         return candidates[0] if candidates else None
 
     @staticmethod
-    def _architecture_matches(package, qualifier):
+    def _architecture_matches(package: Package, qualifier: str | None) -> bool:
         # Only the native architecture is resolved, so dpkg's Multi-Arch rules reduce to this: an
         # unqualified, :any, or native-qualified relation accepts native and arch: all packages, while a
         # foreign architecture qualifier is satisfied only by Multi-Arch: foreign packages.
@@ -353,38 +358,41 @@ class Universe:
             return package.architecture in INDEX_ARCHITECTURES
         return package.multi_arch == "foreign"
 
-    def candidates(self, relation):
+    def candidates(self, relation: Relation) -> list[Package]:
         """Return packages satisfying ``relation`` in apt's preference order."""
         result = []
+        # _RELATION matches an operator only together with a version.
         for package in self._packages.get(relation.name, ()):
             if self._architecture_matches(package, relation.arch) and (
-                not relation.operator or version_satisfies(package.version, relation.operator, relation.version)
+                not relation.operator
+                or version_satisfies(package.version, relation.operator, cast(str, relation.version))
             ):
                 result.append(package)
         for package, provided_version in self._providers.get(relation.name, ()):
             if not self._architecture_matches(package, relation.arch) or package in result:
                 continue
             if relation.operator and (
-                provided_version is None or not version_satisfies(provided_version, relation.operator, relation.version)
+                provided_version is None
+                or not version_satisfies(provided_version, relation.operator, cast(str, relation.version))
             ):
                 continue
             result.append(package)
         return result
 
 
-def _format_group(group):
+def _format_group(group: Iterable[Relation]) -> str:
     return " | ".join(str(relation) for relation in group)
 
 
 class _Closure:
     """Packages selected so far, the dependency edges between them, and those whose dependencies are pending."""
 
-    def __init__(self):
-        self.selected = {}
-        self.edges = {}
-        self.queue = collections.deque()
+    def __init__(self) -> None:
+        self.selected: dict[str, Package] = {}
+        self.edges: dict[str, set[str]] = {}
+        self.queue: collections.deque[Package] = collections.deque()
 
-    def select(self, package, reason):
+    def select(self, package: Package, reason: str) -> None:
         current = self.selected.get(package.name)
         if current is not None:
             if current != package:
@@ -398,15 +406,16 @@ class _Closure:
         self.queue.append(package)
 
 
-def _select_bootstrap(universe, closure):
+def _select_bootstrap(universe: Universe, closure: _Closure) -> None:
     bootstrap = sorted(
         {package.name for package in universe.packages() if package.essential or package.priority == "required"}
     )
     for name in bootstrap:
-        closure.select(universe.newest(name), "the bootstrap set")
+        # Every bootstrap name comes from universe.packages(), so universe.newest() finds a package.
+        closure.select(cast(Package, universe.newest(name)), "the bootstrap set")
 
 
-def _select_requested(universe, requested, closure):
+def _select_requested(universe: Universe, requested: Iterable[str], closure: _Closure) -> None:
     missing = []
     for name in requested:
         candidates = universe.candidates(Relation(name))
@@ -426,7 +435,9 @@ def _select_requested(universe, requested, closure):
         raise LockError("requested packages are not in the snapshot: %s" % ", ".join(missing))
 
 
-def _satisfying_candidate(universe, selected, group):
+def _satisfying_candidate(
+    universe: Universe, selected: Mapping[str, Package], group: Iterable[Relation]
+) -> Package | None:
     """Prefers an alternative that is already selected, then the first unselected candidate in apt order."""
     for relation in group:
         for candidate in universe.candidates(relation):
@@ -439,7 +450,7 @@ def _satisfying_candidate(universe, selected, group):
     return None
 
 
-def resolve(universe, requested):
+def resolve(universe: Universe, requested: Iterable[str]) -> tuple[dict[str, Package], dict[str, set[str]]]:
     """Resolve the install closure for ``requested`` packages.
 
     Every Essential: yes and Priority: required package is added because mkosi
@@ -465,7 +476,7 @@ def resolve(universe, requested):
     return closure.selected, closure.edges
 
 
-def cleartext_payload(inrelease):
+def cleartext_payload(inrelease: bytes) -> bytes:
     """Return the dash-unescaped payload of a clear-signed InRelease file."""
     lines = inrelease.decode("utf-8").split("\n")
     try:
@@ -478,7 +489,7 @@ def cleartext_payload(inrelease):
     return ("\n".join(payload) + "\n").encode("utf-8")
 
 
-def release_checksums(release):
+def release_checksums(release: bytes) -> tuple[dict[str, str], dict[str, tuple[str, int]]]:
     """Return the SHA-256 entries of a Release file keyed by relative path."""
     fields = paragraphs(release.decode("utf-8"))
     if len(fields) != 1:
@@ -503,11 +514,11 @@ class Specification:
     snapshot_url: str
     snapshot: str
     suite: str
-    components: tuple
-    packages: tuple
+    components: tuple[str, ...]
+    packages: tuple[str, ...]
 
 
-def _snapshot_source(data):
+def _snapshot_source(data: Mapping[str, object]) -> tuple[Mapping[str, object], str, str]:
     """Returns the only declared source, its normalized snapshot URL, and the snapshot timestamp."""
     sources = data.get("sources")
     if not isinstance(sources, list) or len(sources) != 1 or not isinstance(sources[0], dict):
@@ -523,7 +534,7 @@ def _snapshot_source(data):
     return source, url, snapshot
 
 
-def _channel(source):
+def _channel(source: Mapping[str, object]) -> tuple[str, list[str]]:
     """Returns the suite and components of a source channel such as ``trixie main non-free-firmware``."""
     channel = source.get("channel", "")
     words = channel.split() if isinstance(channel, str) else []
@@ -540,7 +551,7 @@ def _channel(source):
     return suite, components
 
 
-def _requested_packages(data):
+def _requested_packages(data: Mapping[str, object]) -> tuple[str, ...]:
     packages = data.get("packages")
     if not isinstance(packages, list) or not packages:
         raise LockError("specification must request at least one package")
@@ -550,7 +561,7 @@ def _requested_packages(data):
     return tuple(dict.fromkeys(packages))
 
 
-def load_specification(data):
+def load_specification(data: object) -> Specification:
     """Validate a decoded JSON specification."""
     if not isinstance(data, dict):
         raise LockError("specification must be a JSON object")
@@ -572,7 +583,7 @@ def load_specification(data):
     )
 
 
-def spec_sha256(specification):
+def spec_sha256(specification: Specification) -> str:
     """Return the SHA-256 of the normalized specification that a lock records as ``spec_sha256``.
 
     Formatting, key order, a trailing slash in the snapshot URL, the order of non-main components, and repeated
@@ -590,7 +601,7 @@ def spec_sha256(specification):
     return hashlib.sha256(json.dumps(canonical, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
 
 
-def fetch(url):
+def fetch(url: str) -> bytes:
     """Download ``url``, retrying while the snapshot service throttles or fails transiently."""
     try:
         return http_download.download(url, "rules_mkosi-generate-lock", timeout=300)
@@ -598,7 +609,7 @@ def fetch(url):
         raise LockError(str(error)) from error
 
 
-def _metadata_entry(name, path, data, snapshot_url, **extra):
+def _metadata_entry(name: str, path: str, data: bytes, snapshot_url: str, **extra: str) -> dict[str, str]:
     entry = {
         "name": name,
         "path": path,
@@ -609,12 +620,12 @@ def _metadata_entry(name, path, data, snapshot_url, **extra):
     return entry
 
 
-def _index_name(component, architecture):
+def _index_name(component: str, architecture: str) -> str:
     prefix = "" if component == "main" else component + "_"
     return prefix + ("packages_xz" if architecture == ARCHITECTURE else "packages_all_xz")
 
 
-def _fetch_release(url, base, fetcher):
+def _fetch_release(url: str, base: str, fetcher: Callable[[str], bytes]) -> tuple[bytes, bytes, bytes]:
     """Downloads InRelease, Release and Release.gpg and checks that InRelease carries the Release payload."""
     inrelease = fetcher("%s/%s/InRelease" % (url, base))
     release_data = fetcher("%s/%s/Release" % (url, base))
@@ -625,7 +636,7 @@ def _fetch_release(url, base, fetcher):
     return inrelease, release_data, release_gpg
 
 
-def _release_number(fields, specification, release):
+def _release_number(fields: Mapping[str, str], specification: Specification, release: str | None) -> str:
     """Checks that Release provides the requested suite, components and architecture; returns its number."""
     if fields.get("Codename") != specification.suite:
         raise LockError(
@@ -643,7 +654,9 @@ def _release_number(fields, specification, release):
     return release_number
 
 
-def _fetch_index(url, base, relative, checksums, fetcher):
+def _fetch_index(
+    url: str, base: str, relative: str, checksums: Mapping[str, tuple[str, int]], fetcher: Callable[[str], bytes]
+) -> bytes:
     """Downloads one Packages.xz and verifies it against the Release SHA-256 list."""
     if relative not in checksums:
         raise LockError("Release does not list %s" % relative)
@@ -654,14 +667,16 @@ def _fetch_index(url, base, relative, checksums, fetcher):
     return data
 
 
-def _decode_index(relative, data):
+def _decode_index(relative: str, data: bytes) -> str:
     try:
         return lzma.decompress(data).decode("utf-8")
     except (lzma.LZMAError, UnicodeDecodeError) as error:
         raise LockError("%s cannot be decoded: %s" % (relative, error)) from error
 
 
-def _fetch_indexes(specification, base, checksums, fetcher):
+def _fetch_indexes(
+    specification: Specification, base: str, checksums: Mapping[str, tuple[str, int]], fetcher: Callable[[str], bytes]
+) -> tuple[list[dict[str, str]], list[Package]]:
     """Returns the metadata entries and package records of every authenticated Packages index."""
     url = specification.snapshot_url
     metadata = []
@@ -684,7 +699,28 @@ def _fetch_indexes(specification, base, checksums, fetcher):
     return metadata, packages
 
 
-def _locked_package(package, dependencies, url):
+class _LockedDependency(TypedDict):
+    key: str
+    name: str
+    version: str
+
+
+class _LockedPackage(TypedDict):
+    """One entry of the ``packages`` list of a lock."""
+
+    arch: str
+    component: str
+    dependencies: list[_LockedDependency]
+    filename: str
+    key: str
+    name: str
+    sha256: str
+    size: int
+    urls: list[str]
+    version: str
+
+
+def _locked_package(package: Package, dependencies: Iterable[Package], url: str) -> _LockedPackage:
     return {
         "arch": package.architecture,
         "component": package.component,
@@ -702,7 +738,9 @@ def _locked_package(package, dependencies, url):
     }
 
 
-def _locked_packages(selected, edges, url):
+def _locked_packages(
+    selected: Mapping[str, Package], edges: Mapping[str, Iterable[str]], url: str
+) -> list[_LockedPackage]:
     locked = [
         _locked_package(selected[name], (selected[dependency] for dependency in edges[name]), url)
         for name in sorted(selected, key=lambda item: selected[item].key)
@@ -713,7 +751,9 @@ def _locked_packages(selected, edges, url):
     return locked
 
 
-def generate(specification, fetcher=fetch, release=None):
+def generate(
+    specification: Specification, fetcher: Callable[[str], bytes] = fetch, release: str | None = None
+) -> dict[str, object]:
     """Return the lock dictionary for a validated specification.
 
     ``fetcher`` maps an absolute URL to its bytes, which keeps tests offline.
@@ -749,12 +789,12 @@ def generate(specification, fetcher=fetch, release=None):
     }
 
 
-def render(lock):
+def render(lock: Mapping[str, object]) -> str:
     """Serialize a lock deterministically."""
     return json.dumps(lock, indent=2, sort_keys=True) + "\n"
 
 
-def _workspace_path(path):
+def _workspace_path(path: str | os.PathLike[str]) -> pathlib.Path:
     workspace = os.environ.get("BUILD_WORKSPACE_DIRECTORY")
     path = pathlib.Path(path)
     if workspace and not path.is_absolute():
@@ -762,7 +802,7 @@ def _workspace_path(path):
     return path
 
 
-def _parser():
+def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
     parser.add_argument("--spec", required=True, help="JSON package specification")
     parser.add_argument("--output", required=True, help="lock file to write or check")
@@ -789,7 +829,7 @@ def _parser():
     return parser
 
 
-def _read_specification(spec_path):
+def _read_specification(spec_path: pathlib.Path) -> Specification:
     try:
         data = json.loads(spec_path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as error:
@@ -797,11 +837,11 @@ def _read_specification(spec_path):
     return load_specification(data)
 
 
-def _render_lock(spec_path, release):
+def _render_lock(spec_path: pathlib.Path, release: str | None) -> str:
     return render(generate(_read_specification(spec_path), release=release))
 
 
-def check_spec(spec_path, lock_path):
+def check_spec(spec_path: pathlib.Path, lock_path: pathlib.Path) -> None:
     """Raise LockError unless the lock at ``lock_path`` was generated from the specification at ``spec_path``.
 
     Only the ``spec_sha256`` the generator records is compared, so the check needs no network access. Locks
@@ -819,14 +859,14 @@ def check_spec(spec_path, lock_path):
         raise LockError("the lock was generated from a different specification")
 
 
-def _runfile(resolver, path):
+def _runfile(resolver: runfiles.Runfiles | None, path: str) -> pathlib.Path:
     location = resolver.Rlocation(path) if resolver else None
     if not location:
         raise LockError("runfile is missing: %s" % path)
     return pathlib.Path(location)
 
 
-def _check_spec(args):
+def _check_spec(args: argparse.Namespace) -> int:
     try:
         if args.runfiles:
             resolver = runfiles.Create()
@@ -844,7 +884,7 @@ def _check_spec(args):
     return 0
 
 
-def main(argv=None):
+def main(argv: Sequence[str] | None = None) -> int:
     parser = _parser()
     args = parser.parse_args(argv)
     if args.check_spec:

@@ -20,6 +20,7 @@ import re
 import subprocess
 import sys
 import urllib.parse
+from collections.abc import Callable, Iterator, Mapping, Sequence
 
 # The runfiles path, not the source tree that it links to, so that bytecode caches stay out of the source tree.
 sys.path.insert(0, str(pathlib.Path(__file__).parent))
@@ -40,18 +41,18 @@ _PYTHON_RELEASES = "https://github.com/astral-sh/python-build-standalone/release
 _PYTHON_ASSET = "cpython-{version}+{release}-x86_64-unknown-linux-musl-lto+static-full.tar.zst"
 
 
-def snapshot_epoch(snapshot):
+def snapshot_epoch(snapshot: str) -> int:
     """Returns the Unix time of a snapshot timestamp such as 20260912T080811Z."""
     moment = datetime.datetime.strptime(snapshot, "%Y%m%dT%H%M%SZ").replace(tzinfo=datetime.timezone.utc)
     return int(moment.timestamp())
 
 
-def read_provenance(text):
+def read_provenance(text: str) -> dict[str, str]:
     """Returns the string constants of provenance.bzl."""
     return dict(re.findall(r'^(DEBIAN_TOOLS_[A-Z0-9_]+) = "([^"]*)"$', text, re.MULTILINE))
 
 
-def rewrite_provenance(text, values):
+def rewrite_provenance(text: str, values: Mapping[str, str]) -> str:
     """Returns provenance.bzl with the string constants in values replaced; every name must already exist."""
     for name, value in values.items():
         text, count = re.subn(r'^{} = "[^"]*"$'.format(name), '{} = "{}"'.format(name, value), text, flags=re.M)
@@ -60,12 +61,12 @@ def rewrite_provenance(text, values):
     return text
 
 
-def replace_snapshot(text, old, new):
+def replace_snapshot(text: str, old: str, new: str) -> str:
     """Returns text with the old snapshot timestamp and its Unix time replaced by the new ones."""
     return text.replace(old, new).replace(str(snapshot_epoch(old)), str(snapshot_epoch(new)))
 
 
-def python_pin(release, version, sums):
+def python_pin(release: str, version: str, sums: str) -> dict[str, str]:
     """Returns the provenance constants of a python-build-standalone release given its SHA256SUMS text."""
     asset = _PYTHON_ASSET.format(version=version, release=release)
     digests = [line.split()[0] for line in sums.splitlines() if line.split()[1:] == [asset]]
@@ -78,19 +79,19 @@ def python_pin(release, version, sums):
     }
 
 
-def _download_python_pin(release, version):
+def _download_python_pin(release: str, version: str) -> dict[str, str]:
     sums = http_download.download(_PYTHON_RELEASES.format(release) + "SHA256SUMS", "rules_mkosi-refresh", timeout=60)
     return python_pin(release, version, sums.decode("utf-8"))
 
 
-def _update(path, transform):
+def _update(path: pathlib.Path, transform: Callable[[str], str]) -> None:
     text = path.read_text(encoding="utf-8")
     updated = transform(text)
     if updated != text:
         path.write_text(updated, encoding="utf-8")
 
 
-def _snapshot_files(workspace, snapshot):
+def _snapshot_files(workspace: pathlib.Path, snapshot: str) -> Iterator[pathlib.Path]:
     """Yields the regular files of SNAPSHOT_USERS that mention snapshot."""
     for name in SNAPSHOT_USERS:
         path = workspace / name
@@ -99,22 +100,22 @@ def _snapshot_files(workspace, snapshot):
                 yield file
 
 
-def _sha256(path):
+def _sha256(path: pathlib.Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def _bazel(workspace, *arguments):
+def _bazel(workspace: pathlib.Path, *arguments: str) -> str:
     command = [os.environ.get("BAZEL", "bazel"), *arguments]
     return subprocess.run(command, cwd=workspace, check=True, stdout=subprocess.PIPE, text=True).stdout
 
 
-def _archive_sha256(workspace):
+def _archive_sha256(workspace: pathlib.Path) -> str:
     _bazel(workspace, "build", ARCHIVE_TARGET)
     archive = _bazel(workspace, "cquery", "--output=files", ARCHIVE_TARGET).split()
     return _sha256(pathlib.Path(_bazel(workspace, "info", "execution_root").strip(), archive[0]))
 
 
-def _write_lock(workspace, snapshot):
+def _write_lock(workspace: pathlib.Path, snapshot: str) -> dict[str, str]:
     url = _SNAPSHOT_URL.format(snapshot)
     _update(workspace / SPEC, lambda text: re.sub(re.escape(_SNAPSHOT_URL.format("")) + _SNAPSHOT.pattern, url, text))
     if generate_lock.main(["--spec", SPEC, "--output", LOCK]) != 0:
@@ -126,7 +127,7 @@ def _write_lock(workspace, snapshot):
     }
 
 
-def refresh(workspace, snapshot, python=None):
+def refresh(workspace: pathlib.Path, snapshot: str, python: tuple[str, str] | None = None) -> dict[str, str]:
     """Refreshes the snapshot in workspace and returns the provenance values it wrote."""
     provenance = workspace / PROVENANCE
     old_snapshot = read_provenance(provenance.read_text(encoding="utf-8"))["DEBIAN_TOOLS_SNAPSHOT"]
@@ -141,7 +142,7 @@ def refresh(workspace, snapshot, python=None):
     return values | archive
 
 
-def _parser():
+def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
     parser.add_argument("--snapshot", required=True, help="snapshot.debian.org timestamp, such as 20260912T080811Z")
     parser.add_argument("--python-release", help="python-build-standalone release of the static Python, a date")
@@ -149,7 +150,7 @@ def _parser():
     return parser
 
 
-def main(argv=None):
+def main(argv: Sequence[str] | None = None) -> int:
     parser = _parser()
     args = parser.parse_args(argv)
     if not _SNAPSHOT.fullmatch(args.snapshot):

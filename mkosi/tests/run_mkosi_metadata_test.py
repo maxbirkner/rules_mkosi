@@ -11,6 +11,7 @@ import sys
 import types
 import unittest
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -19,14 +20,15 @@ SEED_INT = uuid.UUID(SEED).int
 SNAPSHOT = "20260912T080811Z"
 
 
-def _load_wrapper(path):
+def _load_wrapper(path: str | None) -> types.ModuleType:
     spec = importlib.util.spec_from_file_location("run_mkosi", path)
+    assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
 
 
-def _prepare(root, name, mode, timestamp):
+def _prepare(root: pathlib.Path, name: str, mode: int, timestamp: int) -> pathlib.Path:
     source = root / name
     (source / "linked-dir").mkdir(parents=True)
     (source / "file-target").write_text("file\n")
@@ -41,7 +43,7 @@ def _prepare(root, name, mode, timestamp):
     return source
 
 
-def _assert_normalized(path):
+def _assert_normalized(path: pathlib.Path) -> None:
     assert stat.S_IMODE(path.stat().st_mode) == 0o755
     assert path.stat().st_mtime == 0
     assert stat.S_IMODE((path / "file-target").stat().st_mode) == 0o644
@@ -54,7 +56,8 @@ def _assert_normalized(path):
     assert os.readlink(path / "linked-directory") == "linked-dir"
 
 
-def _expect_exit(function, message):
+# Callable[..., object], since mypy rejects lambdas that bind loop variables as defaults for Callable[[], object].
+def _expect_exit(function: Callable[..., object], message: str) -> None:
     try:
         function()
     except SystemExit as error:
@@ -63,13 +66,19 @@ def _expect_exit(function, message):
         raise AssertionError("expected failure containing {!r}".format(message))
 
 
-def _configuration(**settings):
+def _configuration(**settings: object) -> types.SimpleNamespace:
     values = {"seed": uuid.UUID(SEED), "source_date_epoch": 0}
     values.update(settings)
     return types.SimpleNamespace(**values)
 
 
-def _validate(wrapper, configuration, allowed_paths, allowed_extra_tree=None, **settings):
+def _validate(
+    wrapper: types.ModuleType,
+    configuration: types.SimpleNamespace,
+    allowed_paths: list[pathlib.Path],
+    allowed_extra_tree: pathlib.Path | None = None,
+    **settings: object,
+) -> tuple[pathlib.Path, ...]:
     validation = wrapper.release_validation
     release = validation.ReleaseSettings(
         seed=SEED,
@@ -86,7 +95,7 @@ def _validate(wrapper, configuration, allowed_paths, allowed_extra_tree=None, **
 _WRAPPER_PATH = None
 
 
-def _base_artifacts(root):
+def _base_artifacts(root: pathlib.Path) -> tuple[pathlib.Path, pathlib.Path, pathlib.Path, pathlib.Path]:
     base_tree = root / "base/root.tar"
     base_initrd = root / "base/initrd"
     other = root / "other.tar"
@@ -106,17 +115,17 @@ class _WrapperTest(unittest.TestCase):
     wrapper: types.ModuleType
 
     @classmethod
-    def setUpClass(cls):
+    def setUpClass(cls) -> None:
         cls.wrapper = _load_wrapper(_WRAPPER_PATH)
 
-    def setUp(self):
+    def setUp(self) -> None:
         self.root = pathlib.Path(os.environ["TEST_TMPDIR"]) / self._testMethodName
         shutil.rmtree(self.root, ignore_errors=True)
         self.root.mkdir(parents=True)
 
 
 class MaterializationTest(_WrapperTest):
-    def test_materialized_metadata_does_not_depend_on_source_metadata(self):
+    def test_materialized_metadata_does_not_depend_on_source_metadata(self) -> None:
         wrapper, root = self.wrapper, self.root
         first = _prepare(root, "first", 0o600, 946684800)
         second = _prepare(root, "second", 0o644, 1893456000)
@@ -127,14 +136,14 @@ class MaterializationTest(_WrapperTest):
         assert (root / "out-first/file-target").read_bytes() == (root / "out-second/file-target").read_bytes()
         assert first != second
 
-    def test_declared_executables_keep_the_executable_mode(self):
+    def test_declared_executables_keep_the_executable_mode(self) -> None:
         wrapper, root = self.wrapper, self.root
         executable = self._executable_tree()
         wrapper.tree.materialize_tree(executable, root / "out-executable", ["bin/tool"])
         assert stat.S_IMODE((root / "out-executable/bin/tool").stat().st_mode) == 0o755
         assert stat.S_IMODE((root / "out-executable/data").stat().st_mode) == 0o644
 
-    def test_symlink_destination_is_rejected(self):
+    def test_symlink_destination_is_rejected(self) -> None:
         wrapper, root = self.wrapper, self.root
         executable = self._executable_tree()
         (root / "out-first").mkdir()
@@ -144,7 +153,7 @@ class MaterializationTest(_WrapperTest):
             "materialization destination is a symlink",
         )
 
-    def _executable_tree(self):
+    def _executable_tree(self) -> pathlib.Path:
         executable = self.root / "executable"
         (executable / "bin").mkdir(parents=True)
         (executable / "bin/tool").write_text("#!/bin/sh\n")
@@ -153,7 +162,7 @@ class MaterializationTest(_WrapperTest):
 
 
 class ManifestLinksTest(_WrapperTest):
-    def setUp(self):
+    def setUp(self) -> None:
         super().setUp()
         self.restored = self.root / "restored"
         self.restored.mkdir()
@@ -161,7 +170,7 @@ class ManifestLinksTest(_WrapperTest):
         (self.restored / "link").write_text("materialized link\n")
         self.manifest = self.root / "manifest.json"
 
-    def test_manifest_symlinks_are_restored_with_epoch_mtimes(self):
+    def test_manifest_symlinks_are_restored_with_epoch_mtimes(self) -> None:
         wrapper, restored, manifest = self.wrapper, self.restored, self.manifest
         manifest.write_text(json.dumps([{"kind": "symlink", "link_target": "target", "path": "link"}]))
         wrapper.tree.restore_manifest_links(restored, manifest)
@@ -169,7 +178,7 @@ class ManifestLinksTest(_WrapperTest):
         assert (restored / "link").lstat().st_mtime == 0
         assert restored.stat().st_mtime == 0
 
-    def test_invalid_manifest_links_are_rejected(self):
+    def test_invalid_manifest_links_are_rejected(self) -> None:
         wrapper, restored, manifest = self.wrapper, self.restored, self.manifest
         for entry, message in (
             ({"kind": "symlink", "link_target": "target", "path": "../escape"}, "invalid staging manifest path"),
@@ -182,13 +191,13 @@ class ManifestLinksTest(_WrapperTest):
 
 
 class ReleaseSandboxTest(_WrapperTest):
-    def test_release_mirror_and_sandbox_tree_are_configured(self):
+    def test_release_mirror_and_sandbox_tree_are_configured(self) -> None:
         wrapper, root = self.wrapper, self.root
         sandbox = wrapper.release_sandbox
         repository = root / "repository"
         (repository / "dists/trixie/main").mkdir(parents=True)
         (repository / "dists/trixie/main/Release").write_text("locked metadata\n")
-        arguments = []
+        arguments: list[str] = []
         mirror = sandbox.configure_release_mirror(repository, root / "workspace", arguments)
         sandbox_tree = root / "workspace/release-sandbox"
         assert mirror.directory == root / "workspace/debian-snapshot"
@@ -206,7 +215,7 @@ class ReleaseSandboxTest(_WrapperTest):
         assert (etc / "nsswitch.conf").read_text() == sandbox.NSSWITCH
         assert not (etc / "apt/sources.list.d/mkosi.sources").exists()
 
-    def test_mirror_sources_list_the_requested_components_at_the_repository_path(self):
+    def test_mirror_sources_list_the_requested_components_at_the_repository_path(self) -> None:
         wrapper, root = self.wrapper, self.root
         repository = root / "repository"
         repository.mkdir()
@@ -219,7 +228,7 @@ class ReleaseSandboxTest(_WrapperTest):
         assert sources.stat().st_mtime == 0
 
     # The SnapshotMirror class belongs to the runner that the test loads at run time.
-    def _extra_packages_mirror(self) -> Any:
+    def _extra_packages_mirror(self) -> Any:  # noqa: ANN401
         repository, extra = self.root / "repository", self.root / "extra"
         (repository / "dists").mkdir(parents=True)
         extra.mkdir()
@@ -265,12 +274,12 @@ class ReleaseSandboxTest(_WrapperTest):
             sandbox.EXTRA_PACKAGES_LABEL,
         )
 
-    def test_release_patches_do_not_read_host_identity_files(self):
+    def test_release_patches_do_not_read_host_identity_files(self) -> None:
         release_setup = inspect.getsource(self.wrapper.release_patches)
         for host_file in ("/etc/passwd", "/etc/group", "/etc/hosts"):
             assert host_file not in release_setup
 
-    def test_host_dependent_matching_sections_are_rejected(self):
+    def test_host_dependent_matching_sections_are_rejected(self) -> None:
         wrapper = self.wrapper
         for section in ("Match", "TriggerMatch"):
             with self.subTest(section=section):
@@ -282,7 +291,7 @@ class ReleaseSandboxTest(_WrapperTest):
 
 
 class CommandLineTest(_WrapperTest):
-    def test_preamble_options_are_parsed(self):
+    def test_preamble_options_are_parsed(self) -> None:
         command_line = self.wrapper.command_line
         preamble, arguments = command_line.parse_preamble(
             [
@@ -311,7 +320,7 @@ class CommandLineTest(_WrapperTest):
         assert preamble.release_seed is None
         assert arguments == ["-C", "config"]
 
-    def test_invalid_preambles_are_rejected(self):
+    def test_invalid_preambles_are_rejected(self) -> None:
         command_line = self.wrapper.command_line
         for argv, message in (
             (["--unknown", "value", "--"], "invalid run_mkosi.py preamble"),
@@ -325,7 +334,7 @@ class CommandLineTest(_WrapperTest):
             with self.subTest(argv=argv):
                 _expect_exit(lambda argv=argv: command_line.parse_preamble(argv), message)
 
-    def test_mkosi_path_options_are_made_absolute(self):
+    def test_mkosi_path_options_are_made_absolute(self) -> None:
         command_line = self.wrapper.command_line
         assert command_line.absolute_paths(["--include=config", "--format=disk", "build"]) == [
             "--include=" + os.path.abspath("config"),
@@ -334,13 +343,13 @@ class CommandLineTest(_WrapperTest):
         ]
         _expect_exit(lambda: command_line.absolute_paths(["--tools-tree"]), "mkosi path option is missing its value")
 
-    def test_declared_paths_skip_mkosi_constants(self):
+    def test_declared_paths_skip_mkosi_constants(self) -> None:
         command_line = self.wrapper.command_line
         assert command_line.declared_paths(
             ["-C", "/config", "--initrd", "default", "--initrd", "/initrd", "--base-tree=/base"]
         ) == ["/config", "/initrd", "/base"]
 
-    def test_initrd_default_constant_is_not_made_absolute(self):
+    def test_initrd_default_constant_is_not_made_absolute(self) -> None:
         command_line = self.wrapper.command_line
         # mkosi's "default" initrd constant is not a path relative to the action's working directory.
         assert command_line.absolute_paths(["--initrd=default", "--initrd", "default", "--base-tree", "base.tar"]) == [
@@ -352,7 +361,7 @@ class CommandLineTest(_WrapperTest):
         ]
         assert command_line.absolute_paths(["--initrd", "initrd"]) == ["--initrd", os.path.abspath("initrd")]
 
-    def test_mkosi_option_value_comes_from_exactly_one_mkosi_argument(self):
+    def test_mkosi_option_value_comes_from_exactly_one_mkosi_argument(self) -> None:
         command_line = self.wrapper.command_line
         argv = ["--release-seed", "x", "--", "--output-directory", "out"]
         assert command_line.mkosi_option_value(argv, "--output-directory") == "out"
@@ -361,7 +370,7 @@ class CommandLineTest(_WrapperTest):
             "expected exactly one mkosi --output-directory argument",
         )
 
-    def test_release_stage_follows_the_release_inputs(self):
+    def test_release_stage_follows_the_release_inputs(self) -> None:
         command_line = self.wrapper.command_line
         assert command_line.release_stage(False, None, None, None, None) is None
         # A tracer build may install packages from the snapshot repository without becoming a release.
@@ -370,7 +379,7 @@ class CommandLineTest(_WrapperTest):
         assert command_line.release_stage(True, "repository", None, None, "initrd") == "base"
         assert command_line.release_stage(True, None, "root.tar", "initrd", None) == "finalize"
 
-    def test_inconsistent_release_inputs_are_rejected(self):
+    def test_inconsistent_release_inputs_are_rejected(self) -> None:
         command_line = self.wrapper.command_line
         for options, message in (
             ((True, None, "root.tar", None, None), "requires both --release-base-tree and --release-initrd"),
@@ -383,7 +392,7 @@ class CommandLineTest(_WrapperTest):
             with self.subTest(options=options):
                 _expect_exit(lambda options=options: command_line.release_stage(*options), message)
 
-    def test_snapshot_repository_requires_its_components(self):
+    def test_snapshot_repository_requires_its_components(self) -> None:
         preamble, _ = self.wrapper.command_line.parse_preamble(
             ["--kernel-preflight", "preflight", "--debian-snapshot-repository", "repository", "--"]
         )
@@ -400,10 +409,10 @@ class CommandLineTest(_WrapperTest):
 
 
 class ReleaseConfigurationTest(_WrapperTest):
-    def test_reproducible_release_configuration_is_accepted(self):
+    def test_reproducible_release_configuration_is_accepted(self) -> None:
         _validate(self.wrapper, _configuration(), [self.root])
 
-    def test_apt_components_are_main_plus_the_requested_snapshot_components(self):
+    def test_apt_components_are_main_plus_the_requested_snapshot_components(self) -> None:
         snapshot_components = ("main", "non-free-firmware")
         assert self.wrapper.release_validation.release_apt_components([], snapshot_components) == ("main",)
         assert (
@@ -414,7 +423,7 @@ class ReleaseConfigurationTest(_WrapperTest):
             == snapshot_components
         )
 
-    def test_repositories_must_be_snapshot_components(self):
+    def test_repositories_must_be_snapshot_components(self) -> None:
         wrapper, root = self.wrapper, self.root
         snapshot_components = ("main", "non-free-firmware")
         _validate(wrapper, _configuration(repositories=["non-free-firmware"]), [root], components=snapshot_components)
@@ -430,15 +439,15 @@ class ReleaseConfigurationTest(_WrapperTest):
                     "absent from the Debian snapshot: " + repositories[0],
                 )
 
-    def test_declared_extra_tree_is_accepted(self):
+    def test_declared_extra_tree_is_accepted(self) -> None:
         wrapper, root = self.wrapper, self.root
         safe_extra = root / "mkosi.extra"
         _validate(wrapper, _configuration(extra_trees=[types.SimpleNamespace(source=safe_extra)]), [root], safe_extra)
 
-    def test_splash_names_a_file_inside_the_image(self):
+    def test_splash_names_a_file_inside_the_image(self) -> None:
         _validate(self.wrapper, _configuration(splash=pathlib.Path("/usr/share/boot/splash.bmp")), [self.root])
 
-    def test_bios_release_rejects_uefi_settings(self):
+    def test_bios_release_rejects_uefi_settings(self) -> None:
         wrapper, root = self.wrapper, self.root
         for setting, value, message in (
             ("secure_boot", True, "SecureBoot"),
@@ -453,7 +462,7 @@ class ReleaseConfigurationTest(_WrapperTest):
                     message,
                 )
 
-    def test_unreproducible_or_host_dependent_settings_are_rejected(self):
+    def test_unreproducible_or_host_dependent_settings_are_rejected(self) -> None:
         wrapper, root = self.wrapper, self.root
         for configuration, message in (
             (_configuration(seed=uuid.uuid4()), "Seed"),
@@ -496,14 +505,14 @@ class ReleaseConfigurationTest(_WrapperTest):
 
 
 class TwoStageReleaseTest(_WrapperTest):
-    def test_finalization_sandbox_tree_is_configured(self):
+    def test_finalization_sandbox_tree_is_configured(self) -> None:
         wrapper, root = self.wrapper, self.root
-        arguments = []
+        arguments: list[str] = []
         wrapper.release_sandbox.configure_release_sandbox(root / "finalize-workspace", arguments)
         assert arguments == ["--sandbox-tree", os.fspath(root / "finalize-workspace/release-sandbox")]
         assert (root / "finalize-workspace/release-sandbox/etc/passwd").read_text() == wrapper.release_sandbox.PASSWD
 
-    def test_release_tar_command_is_sorted_and_owned_by_root(self):
+    def test_release_tar_command_is_sorted_and_owned_by_root(self) -> None:
         wrapper = self.wrapper
         tar = wrapper.release_patches.tar_command("/work/root", ["--exclude=./proc"], 1000)
         assert "--sort=name" in tar and "--sparse" not in tar
@@ -550,27 +559,27 @@ class Ext4HashSeedTest(_WrapperTest):
 
 
 class BaseInitrdPublicationTest(_WrapperTest):
-    def setUp(self):
+    def setUp(self) -> None:
         super().setUp()
         self.output_directory = self.root / "base-output"
         self.output_directory.mkdir()
         (self.output_directory / "initrd.cpio.zst").write_bytes(b"initrd")
 
-    def test_default_initrd_is_published_and_its_link_removed(self):
+    def test_default_initrd_is_published_and_its_link_removed(self) -> None:
         wrapper, root, output_directory = self.wrapper, self.root, self.output_directory
         (output_directory / "initrd").symlink_to("initrd.cpio.zst")
         wrapper._publish_base_initrd(output_directory, root / "base.initrd")
         assert (root / "base.initrd").read_bytes() == b"initrd"
         assert not (output_directory / "initrd").exists() and not (output_directory / "initrd").is_symlink()
 
-    def test_missing_default_initrd_link_is_rejected(self):
+    def test_missing_default_initrd_link_is_rejected(self) -> None:
         wrapper, root, output_directory = self.wrapper, self.root, self.output_directory
         _expect_exit(
             lambda: wrapper._publish_base_initrd(output_directory, root / "missing.initrd"),
             "did not produce the default initrd link",
         )
 
-    def test_default_initrd_link_outside_the_output_directory_is_rejected(self):
+    def test_default_initrd_link_outside_the_output_directory_is_rejected(self) -> None:
         wrapper, root, output_directory = self.wrapper, self.root, self.output_directory
         outside = root / "outside.cpio"
         outside.write_bytes(b"outside")
@@ -582,11 +591,11 @@ class BaseInitrdPublicationTest(_WrapperTest):
 
 
 class FinalizeConfigurationTest(_WrapperTest):
-    def setUp(self):
+    def setUp(self) -> None:
         super().setUp()
         self.base_tree, self.base_initrd, self.other, self.staged = _base_artifacts(self.root)
 
-    def _finalize(self, **settings):
+    def _finalize(self, **settings: object) -> tuple[pathlib.Path, ...]:
         values = {
             "distribution": types.SimpleNamespace(value="debian"),
             "release": "trixie",
@@ -604,10 +613,10 @@ class FinalizeConfigurationTest(_WrapperTest):
             base_initrd=self.base_initrd,
         )
 
-    def test_declared_base_artifacts_are_allowed_outside_staged_paths(self):
+    def test_declared_base_artifacts_are_allowed_outside_staged_paths(self) -> None:
         assert self.base_tree.resolve() in self._finalize()
 
-    def test_finalization_accepts_cache_snapshot_and_initrd_module_settings(self):
+    def test_finalization_accepts_cache_snapshot_and_initrd_module_settings(self) -> None:
         finalize = self._finalize
         finalize(cacheonly=types.SimpleNamespace(value="always"))
         finalize(snapshot=SNAPSHOT)
@@ -618,7 +627,7 @@ class FinalizeConfigurationTest(_WrapperTest):
             kernel_modules_initrd_exclude=["drm"],
         )
 
-    def test_finalization_rejects_package_and_base_changes(self):
+    def test_finalization_rejects_package_and_base_changes(self) -> None:
         finalize, base_tree, base_initrd, other, staged = (
             self._finalize,
             self.base_tree,
@@ -651,13 +660,13 @@ class FinalizeConfigurationTest(_WrapperTest):
             with self.subTest(settings=settings):
                 _expect_exit(lambda settings=settings: finalize(**settings), message)
 
-    def test_finalization_requires_declared_base_artifacts(self):
+    def test_finalization_requires_declared_base_artifacts(self) -> None:
         _expect_exit(
             lambda: _validate(self.wrapper, _configuration(), [self.staged], stage="finalize"),
             "requires a declared base tree and initrd",
         )
 
-    def test_unknown_release_stage_is_rejected(self):
+    def test_unknown_release_stage_is_rejected(self) -> None:
         _expect_exit(
             lambda: _validate(self.wrapper, _configuration(), [self.staged], stage="incremental"),
             "unknown release stage incremental",
@@ -665,20 +674,20 @@ class FinalizeConfigurationTest(_WrapperTest):
 
 
 class BaseConfigurationTest(_WrapperTest):
-    def setUp(self):
+    def setUp(self) -> None:
         super().setUp()
         _, _, self.other, self.staged = _base_artifacts(self.root)
 
-    def _base(self, **settings):
+    def _base(self, **settings: object) -> tuple[pathlib.Path, ...]:
         return _validate(self.wrapper, _configuration(**settings), [self.staged], stage="base")
 
-    def test_base_accepts_initrd_and_image_id_settings(self):
+    def test_base_accepts_initrd_and_image_id_settings(self) -> None:
         base = self._base
         base()
         base(image_id="rules-mkosi-ab")
         base(kernel_modules_initrd=True, initrd_packages=["cryptsetup"], initrd_profiles=["lvm"])
 
-    def test_base_rejects_finalization_settings(self):
+    def test_base_rejects_finalization_settings(self) -> None:
         base, other = self._base, self.other
         for settings, message in (
             ({"kernel_modules_initrd": False}, "cannot use KernelModulesInitrd=no"),
@@ -697,7 +706,7 @@ class BaseConfigurationTest(_WrapperTest):
 class VerityHashSizeTest(_WrapperTest):
     """A Verity=hash partition needs SizeMinBytes= or Minimize=; systemd-repart reserves only 4 KiB for it."""
 
-    def _validate(self, definitions):
+    def _validate(self, definitions: dict[str, str]) -> tuple[pathlib.Path, ...]:
         """Validates repart definitions, keyed by their path below the first or the second repart directory."""
         directories = [self.root / "first", self.root / "second"]
         for directory in directories:
@@ -707,7 +716,7 @@ class VerityHashSizeTest(_WrapperTest):
             (self.root / path).write_text("[Partition]\n" + text)
         return _validate(self.wrapper, _configuration(repart_dirs=directories), [self.root])
 
-    def test_sized_verity_hash_partition_is_accepted(self):
+    def test_sized_verity_hash_partition_is_accepted(self) -> None:
         for definitions in (
             {"first/20-hash.conf": "Verity=hash\nSizeMinBytes=64M\n"},
             {"first/20-hash.conf": "Verity=hash\nMinimize=best\n"},
@@ -719,7 +728,7 @@ class VerityHashSizeTest(_WrapperTest):
             with self.subTest(definitions=definitions):
                 self._validate(definitions)
 
-    def test_unsized_verity_hash_partition_is_rejected(self):
+    def test_unsized_verity_hash_partition_is_rejected(self) -> None:
         for definitions in (
             {"second/20-hash.conf": "Verity=hash\n"},
             {"first/20-hash.conf": "Verity=hash\nSizeMaxBytes=64M\n"},
@@ -734,17 +743,17 @@ class VerityHashSizeTest(_WrapperTest):
 
 
 class FinalizeConfigDirectoryTest(_WrapperTest):
-    def setUp(self):
+    def setUp(self) -> None:
         super().setUp()
         self.validate = self.wrapper.release_validation.validate_finalize_config_directory
 
-    def test_configuration_without_initrd_settings_is_accepted(self):
+    def test_configuration_without_initrd_settings_is_accepted(self) -> None:
         finalize_config = self.root / "finalize-config"
         finalize_config.mkdir()
         (finalize_config / "mkosi.conf").write_text("[Content]\nBootable=yes\n")
         self.validate(finalize_config)
 
-    def test_initrd_configuration_is_rejected(self):
+    def test_initrd_configuration_is_rejected(self) -> None:
         validate = self.validate
         finalize_config = self.root / "finalize-config"
         finalize_config.mkdir()
@@ -765,7 +774,7 @@ class FinalizeConfigDirectoryTest(_WrapperTest):
                 else:
                     path.unlink()
 
-    def test_nested_initrd_configuration_is_rejected(self):
+    def test_nested_initrd_configuration_is_rejected(self) -> None:
         validate = self.validate
         nested = self.root / "nested-finalize-config"
         (nested / "mkosi").mkdir(parents=True)
@@ -775,11 +784,11 @@ class FinalizeConfigDirectoryTest(_WrapperTest):
 
 
 class StagedConfigurationTest(_WrapperTest):
-    def setUp(self):
+    def setUp(self) -> None:
         super().setUp()
         self.preamble = self.wrapper.command_line.Preamble()
 
-    def _stage(self):
+    def _stage(self) -> tuple[pathlib.Path, list[str], pathlib.Path]:
         """Stages a -C configuration with an initrd file; returns the staged directory and the rewritten arguments."""
         configuration = self.root / "staged-finalize"
         configuration.mkdir()
@@ -790,7 +799,7 @@ class StagedConfigurationTest(_WrapperTest):
         arguments += ["--workspace-directory", os.fspath(workspace)]
         return self.wrapper._stage_configuration(self.preamble, arguments), arguments, workspace
 
-    def test_configuration_is_staged_into_the_workspace(self):
+    def test_configuration_is_staged_into_the_workspace(self) -> None:
         staged, arguments, workspace = self._stage()
         assert staged == workspace / "staging-root"
         assert arguments == [
@@ -803,7 +812,7 @@ class StagedConfigurationTest(_WrapperTest):
         ]
         assert (staged / "mkosi.conf").read_text() == "[Content]\nBootable=yes\n"
 
-    def test_finalization_rejects_the_staged_initrd_configuration(self):
+    def test_finalization_rejects_the_staged_initrd_configuration(self) -> None:
         wrapper, preamble = self.wrapper, self.preamble
         staged, arguments, _ = self._stage()
         # The finalization rejects the staged copy before it patches mkosi.
@@ -812,19 +821,19 @@ class StagedConfigurationTest(_WrapperTest):
             "cannot contain mkosi.initrd.conf",
         )
 
-    def test_image_stage_requires_a_staged_configuration_directory(self):
+    def test_image_stage_requires_a_staged_configuration_directory(self) -> None:
         wrapper, preamble = self.wrapper, self.preamble
         _expect_exit(
             lambda: wrapper._activate_release_mode(preamble, [], "image", None, None),
             "requires a staged -C configuration directory",
         )
 
-    def test_arguments_without_a_configuration_directory_are_not_staged(self):
+    def test_arguments_without_a_configuration_directory_are_not_staged(self) -> None:
         assert self.wrapper._stage_configuration(self.preamble, ["build"]) is None
 
 
 class NetworkSandboxTest(_WrapperTest):
-    def test_network_build_retries_apt_downloads(self):
+    def test_network_build_retries_apt_downloads(self) -> None:
         wrapper, root = self.wrapper, self.root
         workspace = root / "workspace"
         arguments = ["--workspace-directory", os.fspath(workspace)]

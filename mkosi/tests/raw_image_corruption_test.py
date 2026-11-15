@@ -9,7 +9,7 @@ import raw_image_validator
 IMAGE_PATH = None
 
 
-def _corrupt_third_directory_record(path):
+def _corrupt_third_directory_record(path: pathlib.Path) -> bytearray:
     image = bytearray(path.read_bytes())
     sector_size = raw_image_validator.SECTOR_SIZE
     partition_array = image[2 * sector_size : 2 * sector_size + 128 * 128]
@@ -56,7 +56,7 @@ def _corrupt_third_directory_record(path):
 
 
 class RawImageCorruptionTest(unittest.TestCase):
-    def test_real_root_directory_rec_len_corruption_is_rejected(self):
+    def test_real_root_directory_rec_len_corruption_is_rejected(self) -> None:
         image = _corrupt_third_directory_record(raw_image_validator.image_path(IMAGE_PATH))
         with self.assertRaisesRegex(AssertionError, "record length"):
             raw_image_validator.validate_bytes(image, physical_ranges=[(0, len(image))])

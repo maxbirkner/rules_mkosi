@@ -1,8 +1,10 @@
 """Minimal PE/COFF binaries and ESP disk images for the Secure Boot tests."""
 
 import json
+import pathlib
 import shutil
 import struct
+from collections.abc import Callable, Mapping
 
 ESP_TYPE_GUID = "c12a7328-f81f-11d2-ba4b-00a0c93ec93b"
 # The ESP starts at 1 MiB and is followed by 1 MiB of nonzero bytes that must survive any ESP rewrite.
@@ -10,7 +12,7 @@ ESP_OFFSET = 1 << 20
 TRAILER = b"\xa5" * (1 << 20)
 
 
-def minimal_pe(marker=b"requested UKI"):
+def minimal_pe(marker: bytes = b"requested UKI") -> bytes:
     data = bytearray(0x400)
     data[:2] = b"MZ"
     struct.pack_into("<I", data, 0x3C, 0x80)
@@ -32,7 +34,9 @@ def minimal_pe(marker=b"requested UKI"):
     return bytes(data)
 
 
-def disk_with_esp(run_tool, tools, work, files):
+def disk_with_esp(
+    run_tool: Callable[..., object], tools: str, work: pathlib.Path, files: Mapping[str, pathlib.Path | bytes]
+) -> tuple[pathlib.Path, pathlib.Path]:
     """Returns a disk whose FAT ESP holds files, keyed by ESP path, and its partition metadata.
 
     Values are source paths or bytes.

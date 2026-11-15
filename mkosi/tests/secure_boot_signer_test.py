@@ -11,6 +11,7 @@ import sys
 import time
 import unittest
 from types import SimpleNamespace
+from typing import Any
 
 sys.path.insert(0, str(pathlib.Path(__file__).parent))
 import secure_boot_fixtures
@@ -24,7 +25,7 @@ SIGNER = SimpleNamespace(**runpy.run_path(SIGNER_TOOL))
 SECURE_BOOT = SIGNER.secure_boot
 
 
-def create_key_pair(name):
+def create_key_pair(name: str) -> tuple[pathlib.Path, pathlib.Path]:
     """Returns the paths of a new throwaway RSA key and its self-signed certificate."""
     key, certificate = WORK / (name + ".key"), WORK / (name + ".pem")
     SECURE_BOOT.run_tool(
@@ -37,7 +38,7 @@ def create_key_pair(name):
     return key, certificate
 
 
-def openssl_signing_times(signed):
+def openssl_signing_times(signed: pathlib.Path) -> list[str]:
     """Returns the signingTime values that OpenSSL prints for the Authenticode signature of a signed binary."""
     pkcs7 = WORK / (signed.name + ".p7")
     pkcs7.write_bytes(SECURE_BOOT.embedded_authenticode(signed.read_bytes()))
@@ -51,12 +52,12 @@ def openssl_signing_times(signed):
     return [lines[index + 2].strip() for index, line in enumerate(lines) if "object: signingTime" in line]
 
 
-def openssl_time(seconds):
+def openssl_time(seconds: int) -> str:
     """Returns how OpenSSL prints a UTCTime of Unix time seconds."""
     return "UTCTIME:" + time.strftime("%b %e %H:%M:%S %Y GMT", time.gmtime(seconds))
 
 
-def create_request(name, esp_path, certificate):
+def create_request(name: str, esp_path: str, certificate: pathlib.Path) -> dict[str, str]:
     """Writes the unsigned binary and request files of name below the bin directory and returns its manifest entry."""
     directory = WORK / "template" / BIN
     directory.mkdir(parents=True, exist_ok=True)
@@ -87,8 +88,14 @@ def create_request(name, esp_path, certificate):
 
 
 class SecureBootSignerTest(unittest.TestCase):
+    key: pathlib.Path
+    certificate: pathlib.Path
+    other_key: pathlib.Path
+    other_certificate: pathlib.Path
+    entries: list[dict[str, str]]
+
     @classmethod
-    def setUpClass(cls):
+    def setUpClass(cls) -> None:
         shutil.rmtree(WORK, ignore_errors=True)
         WORK.mkdir()
         cls.key, cls.certificate = create_key_pair("expected")
@@ -98,19 +105,28 @@ class SecureBootSignerTest(unittest.TestCase):
             create_request("boot", "EFI/BOOT/BOOTX64.EFI", cls.certificate),
         ]
 
-    def setUp(self):
+    def setUp(self) -> None:
         self.execroot = WORK / self._testMethodName
         shutil.rmtree(self.execroot, ignore_errors=True)
         shutil.copytree(WORK / "template", self.execroot)
         self.output = WORK / (self._testMethodName + "-signed")
         self.manifest = self.write_manifest(self.entries)
 
-    def write_manifest(self, entries, format_version="mkosi-secure-boot-signing-manifest-v1"):
+    def write_manifest(
+        self, entries: list[dict[str, str]], format_version: str = "mkosi-secure-boot-signing-manifest-v1"
+    ) -> pathlib.Path:
         manifest = self.execroot / BIN / "signing.secure-boot-signing-manifest.json"
         manifest.write_text(json.dumps({"format_version": format_version, "requests": entries}))
         return manifest
 
-    def run_signer(self, *arguments, key=None, certificate=None, output=None, env=None):
+    def run_signer(
+        self,
+        *arguments: str,
+        key: pathlib.Path | None = None,
+        certificate: pathlib.Path | None = None,
+        output: pathlib.Path | None = None,
+        env: dict[str, str] | None = None,
+    ) -> subprocess.CompletedProcess[str]:
         output = output or self.output
         signing = ["--key", key or self.key, "--output-dir", output, "--debian-tools", DEBIAN_TOOLS]
         result = subprocess.run(
@@ -127,13 +143,14 @@ class SecureBootSignerTest(unittest.TestCase):
         )
         return result
 
-    def assert_rejected(self, message, *arguments, **options):
+    # options are the keyword arguments of run_signer, whose differing types one annotation cannot express.
+    def assert_rejected(self, message: str, *arguments: str, **options: Any) -> None:  # noqa: ANN401
         result = self.run_signer(*arguments, **options)
         self.assertNotEqual(result.returncode, 0, result.stdout)
         self.assertIn(message, result.stderr)
         self.assertFalse(self.output.exists(), "a rejected manifest must not produce signed binaries")
 
-    def assert_import_accepts(self, entry):
+    def assert_import_accepts(self, entry: dict[str, str]) -> None:
         """Runs the verification of secure_boot_import_response on the signed binary of entry."""
         scratch = WORK / (self._testMethodName + "-import")
         scratch.mkdir(exist_ok=True)
@@ -155,7 +172,7 @@ class SecureBootSignerTest(unittest.TestCase):
             )
         )
 
-    def test_signs_every_request_with_the_pinned_sbsign_and_the_import_accepts_them(self):
+    def test_signs_every_request_with_the_pinned_sbsign_and_the_import_accepts_them(self) -> None:
         result = self.run_signer()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(sorted(path.name for path in self.output.iterdir()), ["boot.signed.efi", "uki.signed.efi"])
@@ -163,7 +180,7 @@ class SecureBootSignerTest(unittest.TestCase):
             self.assert_import_accepts(entry)
         self.assertNotIn("PRIVATE", result.stdout + result.stderr)
 
-    def test_signs_deterministically_at_the_signing_time_or_source_date_epoch(self):
+    def test_signs_deterministically_at_the_signing_time_or_source_date_epoch(self) -> None:
         not_before, _ = SECURE_BOOT.certificate_validity(SECURE_BOOT.certificate_der(self.certificate))
         signing_time = not_before + 1
         result = self.run_signer("--signing-time", str(signing_time))
@@ -178,14 +195,14 @@ class SecureBootSignerTest(unittest.TestCase):
             self.assertEqual(openssl_signing_times(signed), [openssl_time(signing_time)])
             self.assert_import_accepts(entry)
 
-    def test_signs_at_the_current_time_without_a_signing_time(self):
+    def test_signs_at_the_current_time_without_a_signing_time(self) -> None:
         before = int(time.time())
         result = self.run_signer(env={key: value for key, value in os.environ.items() if key != "SOURCE_DATE_EPOCH"})
         self.assertEqual(result.returncode, 0, result.stderr)
         printed = openssl_signing_times(self.output / self.entries[0]["signed_name"])
         self.assertIn(printed, [[openssl_time(moment)] for moment in range(before, int(time.time()) + 1)])
 
-    def test_rejects_invalid_signing_times(self):
+    def test_rejects_invalid_signing_times(self) -> None:
         not_before, not_after = SECURE_BOOT.certificate_validity(SECURE_BOOT.certificate_der(self.certificate))
         inside = str(not_before)
         early = ["--signing-time", str(not_before - 1)]
@@ -208,7 +225,7 @@ class SecureBootSignerTest(unittest.TestCase):
         result = self.run_signer("--validate-only", "--signing-time", inside)
         self.assertEqual(result.returncode, 0, result.stderr)
 
-    def test_host_signing_tool_needs_faketime_for_a_signing_time(self):
+    def test_host_signing_tool_needs_faketime_for_a_signing_time(self) -> None:
         empty = WORK / (self._testMethodName + "-path")
         empty.mkdir()
         self.assert_rejected(
@@ -218,7 +235,7 @@ class SecureBootSignerTest(unittest.TestCase):
         )
 
     @unittest.skipUnless(shutil.which("sbsign"), "the host has no sbsigntools sbsign")
-    def test_rejects_a_signature_at_another_time_than_the_signing_time(self):
+    def test_rejects_a_signature_at_another_time_than_the_signing_time(self) -> None:
         # A faketime that ignores the time it is given, as a static signing tool would ignore libfaketime.
         bin_directory = WORK / (self._testMethodName + "-path")
         bin_directory.mkdir()
@@ -234,7 +251,7 @@ class SecureBootSignerTest(unittest.TestCase):
         )
 
     @unittest.skipUnless(shutil.which("sbsign") and shutil.which("faketime"), "the host has no sbsign and faketime")
-    def test_host_sbsign_signs_at_the_signing_time(self):
+    def test_host_sbsign_signs_at_the_signing_time(self) -> None:
         not_before, _ = SECURE_BOOT.certificate_validity(SECURE_BOOT.certificate_der(self.certificate))
         result = self.run_signer("--sbsign", "sbsign", "--signing-time", str(not_before))
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -243,42 +260,42 @@ class SecureBootSignerTest(unittest.TestCase):
         )
 
     @unittest.skipUnless(shutil.which("sbsign"), "the host has no sbsigntools sbsign")
-    def test_host_sbsign_output_is_accepted_by_the_import(self):
+    def test_host_sbsign_output_is_accepted_by_the_import(self) -> None:
         result = self.run_signer("--sbsign", "sbsign")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assert_import_accepts(self.entries[0])
 
-    def test_validate_only_needs_no_key(self):
+    def test_validate_only_needs_no_key(self) -> None:
         result = self.run_signer("--validate-only")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(
             result.stdout.splitlines(), ["valid: //:uki -> uki.signed.efi", "valid: //:boot -> boot.signed.efi"]
         )
 
-    def test_execroot_defaults_to_the_parent_of_bazel_out(self):
+    def test_execroot_defaults_to_the_parent_of_bazel_out(self) -> None:
         self.assertEqual(SIGNER.find_execroot(self.manifest), self.execroot.resolve())
         with self.assertRaisesRegex(ValueError, "pass --execroot"):
             SIGNER.find_execroot(pathlib.Path("/signing/manifest.json"))
 
-    def test_rejects_a_substituted_binary(self):
+    def test_rejects_a_substituted_binary(self) -> None:
         (self.execroot / self.entries[0]["unsigned_binary"]).write_bytes(secure_boot_fixtures.minimal_pe(b"other"))
         self.assert_rejected("//:uki: unsigned binary does not match its request", "--validate-only")
 
-    def test_rejects_another_certificate(self):
+    def test_rejects_another_certificate(self) -> None:
         self.assert_rejected("is not the requested certificate", certificate=self.other_certificate)
 
-    def test_rejects_a_key_file_with_another_certificate(self):
+    def test_rejects_a_key_file_with_another_certificate(self) -> None:
         bundle = WORK / (self._testMethodName + ".bundle")
         bundle.write_bytes(self.key.read_bytes() + self.other_certificate.read_bytes())
         bundle.chmod(0o600)
         self.assert_rejected("the certificate in the key file is not --certificate", key=bundle)
 
-    def test_rejects_a_key_that_does_not_belong_to_the_certificate(self):
+    def test_rejects_a_key_that_does_not_belong_to_the_certificate(self) -> None:
         result = self.run_signer(key=self.other_key)
         self.assertNotEqual(result.returncode, 0, result.stdout)
         self.assertFalse(self.output.exists())
 
-    def test_rejects_signatures_that_do_not_verify_with_the_certificate(self):
+    def test_rejects_signatures_that_do_not_verify_with_the_certificate(self) -> None:
         self.assertEqual(self.run_signer().returncode, 0)
         unsigned = (self.execroot / self.entries[0]["unsigned_binary"]).read_bytes()
         payload = SECURE_BOOT.verify_embedded_digest(unsigned, (self.output / "uki.signed.efi").read_bytes())
@@ -291,7 +308,7 @@ class SecureBootSignerTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "does not verify with --certificate"):
             SIGNER.verify_signature(corrupted, certificate)
 
-    def test_rejects_malformed_requests(self):
+    def test_rejects_malformed_requests(self) -> None:
         request_path = self.execroot / self.entries[0]["request"]
         document = json.loads(request_path.read_text())
         for name, change, message in (
@@ -305,7 +322,7 @@ class SecureBootSignerTest(unittest.TestCase):
         request_path.write_text('{"esp_path": "", "esp_path": ""}')
         self.assert_rejected("duplicate JSON keys", "--validate-only")
 
-    def test_rejects_malformed_manifests(self):
+    def test_rejects_malformed_manifests(self) -> None:
         uki, boot = self.entries
         for name, entries, message in (
             ("duplicate name", [uki, boot | {"signed_name": uki["signed_name"]}], "duplicate signed file name"),
@@ -321,7 +338,7 @@ class SecureBootSignerTest(unittest.TestCase):
         self.write_manifest(self.entries, "mkosi-secure-boot-signing-manifest-v0")
         self.assert_rejected("is not a mkosi-secure-boot-signing-manifest-v1 signing manifest", "--validate-only")
 
-    def test_request_certificate_fingerprint_is_the_sha256_of_the_der_certificate(self):
+    def test_request_certificate_fingerprint_is_the_sha256_of_the_der_certificate(self) -> None:
         request = json.loads((self.execroot / self.entries[0]["request"]).read_text())
         der = SECURE_BOOT.certificate_der(self.certificate)
         self.assertEqual(request["certificate_sha256"], hashlib.sha256(der).hexdigest())
