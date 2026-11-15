@@ -306,6 +306,7 @@ See [two-stage releases](docs/sysupdate-ab.md#two-stage-releases).
 
 `image_id` and `image_version` (or `image_version_file` for versions only known at build time) set mkosi's `ImageId=` and `ImageVersion=` and expand Make variables.
 `image_version_from_inputs = True` instead derives the version from a hash of everything that the image build reads and of the signing certificates and keys declared in `version_signing_certificates` and `version_auto_enroll_keys`, so an unchanged image keeps its version; see [versions derived from the inputs](docs/sysupdate-ab.md#versions-derived-from-the-inputs) for why such releases are installed by explicit version.
+The `image_version_inputs` output group then holds a JSON manifest of every covered input with its SHA-256; diff the manifests of two builds to see why their versions differ.
 `image_id` uses lowercase letters, digits, `.`, `_`, and `-`; a version uses letters, digits, and `.`.
 See [image identity](docs/sysupdate-ab.md#image-identity) for A/B partition labels and their 36-character limit.
 

@@ -6,6 +6,9 @@ are identified by their path relative to the execution root, with the configurat
 removed, so that neither the sandbox, the output base nor the configuration name changes the version. As when Bazel
 digests inputs, symlinks are followed to their content, except artifacts declared as symlinks, which are identified by
 their target text, and directories are walked. The version is the first VERSION_LENGTH hex characters of the digest.
+
+An optional manifest lists every hashed input with its digest next to the version, so that the manifests of two builds
+show which input changed the version.
 """
 
 import argparse
@@ -16,12 +19,15 @@ import re
 import runpy
 import stat
 import sys
+from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 _load_sibling = runpy.run_path(str(Path(__file__).with_name("sibling_loader.py")))["load_sibling"]
 file_hashing = _load_sibling(__file__, "file_hashing")
 
 FORMAT_VERSION = "rules-mkosi-input-digest-v1"
+MANIFEST_FORMAT_VERSION = "rules-mkosi-input-manifest-v1"
 # INPUT_VERSION_LENGTH in image_identity.bzl bounds image_id with the same length.
 VERSION_LENGTH = 16
 COMMAND_LINE_MARKER = "--command-line"
@@ -88,13 +94,20 @@ def _stable_json(value):
     return value
 
 
-def digest(paths, command_line, environment, execution_requirements, symlinks=(), declared=None):
-    """Returns the lowercase hex SHA-256 of the canonical JSON description of an action.
+def describe(
+    paths: Sequence[str],
+    command_line: Sequence[str],
+    environment: dict[str, str],
+    execution_requirements: dict[str, str],
+    symlinks: Sequence[str] = (),
+    declared: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Returns the canonical JSON description of an action that digest hashes.
 
     declared describes inputs that the action does not read but the version covers, such as the roles of signing
     certificates.
     """
-    document = {
+    return {
         "command_line": [stable_path(argument) for argument in command_line],
         "declared": _stable_json(declared or {}),
         "environment": {key: stable_path(value) for key, value in environment.items()},
@@ -102,11 +115,54 @@ def digest(paths, command_line, environment, execution_requirements, symlinks=()
         "format_version": FORMAT_VERSION,
         "inputs": input_entries(paths, symlinks),
     }
+
+
+def hash_description(document: dict[str, Any]) -> str:
+    """Returns the lowercase hex SHA-256 of the canonical encoding of a description returned by describe."""
     encoded = json.dumps(document, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
     return hashlib.sha256(encoded.encode("ascii")).hexdigest()
 
 
-def _parse(argv):
+def digest(
+    paths: Sequence[str],
+    command_line: Sequence[str],
+    environment: dict[str, str],
+    execution_requirements: dict[str, str],
+    symlinks: Sequence[str] = (),
+    declared: dict[str, Any] | None = None,
+) -> str:
+    """Returns the lowercase hex SHA-256 of the canonical JSON description of an action."""
+    return hash_description(describe(paths, command_line, environment, execution_requirements, symlinks, declared))
+
+
+def build_manifest(document: dict[str, Any], hex_digest: str) -> dict[str, Any]:
+    """Returns the manifest of a version: its digest, the hashed description, and every input path with its digest.
+
+    Files map to their SHA-256 and executable bit, declared symlinks to their target text, and directories to their
+    kind only, since their entries are listed separately.
+    """
+    inputs: dict[str, dict[str, Any]] = {}
+    for path, kind, content, executable in document["inputs"]:
+        if kind == "file":
+            inputs[path] = {"executable": executable, "kind": kind, "sha256": content}
+        elif kind == "symlink":
+            inputs[path] = {"kind": kind, "target": content}
+        else:
+            inputs[path] = {"kind": kind}
+    return {
+        "command_line": document["command_line"],
+        "declared": document["declared"],
+        "digest_format_version": document["format_version"],
+        "environment": document["environment"],
+        "execution_requirements": document["execution_requirements"],
+        "format_version": MANIFEST_FORMAT_VERSION,
+        "image_version": hex_digest[:VERSION_LENGTH],
+        "input_digest": hex_digest,
+        "inputs": inputs,
+    }
+
+
+def _parse(argv: list[str]) -> tuple[argparse.Namespace, list[str]]:
     if COMMAND_LINE_MARKER not in argv:
         raise SystemExit("IMAGE_INPUT_VERSION_FAILED: missing {}".format(COMMAND_LINE_MARKER))
     split = argv.index(COMMAND_LINE_MARKER)
@@ -118,20 +174,26 @@ def _parse(argv):
     parser.add_argument("--declared-json", default={}, type=json.loads)
     parser.add_argument("--version-output", required=True, type=Path)
     parser.add_argument("--digest-output", required=True, type=Path)
+    parser.add_argument("--manifest-output", type=Path)
     return parser.parse_args(argv[:split]), argv[split + 1 :]
 
 
-def main(argv=None):
+def main(argv: list[str] | None = None) -> None:
     args, command_line = _parse(sys.argv[1:] if argv is None else argv)
     try:
         paths = args.inputs_file.read_text(encoding="utf-8").splitlines()
         symlinks = args.symlinks_file.read_text(encoding="utf-8").splitlines() if args.symlinks_file else []
         environment, requirements = args.environment_json, args.execution_requirements_json
-        hex_digest = digest(paths, command_line, environment, requirements, symlinks, args.declared_json)
+        document = describe(paths, command_line, environment, requirements, symlinks, args.declared_json)
     except (OSError, ValueError) as error:
         raise SystemExit("IMAGE_INPUT_VERSION_FAILED: {}".format(error)) from error
+    hex_digest = hash_description(document)
     args.digest_output.write_text(hex_digest + "\n", encoding="ascii")
     args.version_output.write_text(hex_digest[:VERSION_LENGTH] + "\n", encoding="ascii")
+    if args.manifest_output:
+        # One input per line, so that a line diff of two manifests names the inputs that changed the version.
+        manifest = json.dumps(build_manifest(document, hex_digest), indent=1, sort_keys=True, ensure_ascii=True)
+        args.manifest_output.write_text(manifest + "\n", encoding="ascii")
 
 
 if __name__ == "__main__":

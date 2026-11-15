@@ -171,6 +171,7 @@ def _input_version_public_api_test_impl(ctx):
     asserts.true(env, image.input_digest != None)
     asserts.equals(env, [], image.version_inputs)
     asserts.equals(env, [image.image_version_file, image.input_digest], image_target[OutputGroupInfo].image_version.to_list())
+    asserts.equals(env, 1, len(image_target[OutputGroupInfo].image_version_inputs.to_list()))
     asserts.equals(env, image.image_id, payload.image_id)
     asserts.equals(env, None, payload.image_version)
     asserts.equals(env, image.image_version_file, payload.image_version_file)

@@ -130,7 +130,8 @@ def _input_version_finalize_test_impl(ctx):
     info = analysistest.target_under_test(env)[MkosiImageInfo]
     base = ctx.attr.base[MkosiBaseInfo]
     version_action = single_action(env, "MkosiInputVersion")
-    asserts.equals(env, [info.image_version_file, info.input_digest], version_action.outputs.to_list())
+    input_manifests = analysistest.target_under_test(env)[OutputGroupInfo].image_version_inputs.to_list()
+    asserts.equals(env, [info.image_version_file, info.input_digest] + input_manifests, version_action.outputs.to_list())
 
     # The version covers the base that the image finalizes.
     hashed = version_action.inputs.to_list()
@@ -179,6 +180,12 @@ def _input_version_fixtures():
     mkosi_reproducibility_manifest(
         name = "two_stage_input_version_reproducibility",
         image = ":two_stage_input_version_release",
+        tags = ["manual"],
+    )
+    native.filegroup(
+        name = "two_stage_input_version_inputs_manifest",
+        srcs = [":two_stage_input_version_release"],
+        output_group = "image_version_inputs",
         tags = ["manual"],
     )
     for field in ("build_metadata", "image_version_file", "input_digest", "uki"):

@@ -67,7 +67,7 @@ def _declared_json(declarations):
         "signing_certificates": {role: file.path for role, file in declarations.signing_certificates.items()},
     })
 
-def derive_image_version(ctx, action, image_version_file, input_digest, declarations):
+def derive_image_version(ctx, action, image_version_file, input_digest, input_manifest, declarations):
     """Registers the action that derives the image version from an mkosi build action.
 
     The derived action reads the same inputs depset as the build action, and the same Args objects form the command
@@ -80,6 +80,7 @@ def derive_image_version(ctx, action, image_version_file, input_digest, declarat
       action: Struct returned by mkosi_action for the image build.
       image_version_file: Output file receiving the version and one newline.
       input_digest: Output file receiving the full lowercase hex SHA-256 and one newline.
+      input_manifest: Output JSON file listing every hashed input with its digest, the version and the digest.
       declarations: Struct of the files, signing_certificates and auto_enroll_keys that the version covers although
         the build does not read them.
     """
@@ -90,6 +91,7 @@ def derive_image_version(ctx, action, image_version_file, input_digest, declarat
     options.add("--declared-json", _declared_json(declarations))
     options.add("--version-output", image_version_file)
     options.add("--digest-output", input_digest)
+    options.add("--manifest-output", input_manifest)
     declared = declarations.files + declarations.signing_certificates.values() + declarations.auto_enroll_keys
     hashed = depset(declared, transitive = [action.inputs, action.tool_files, _artifact_tool_files(ctx)])
     command_line = ctx.actions.args()
@@ -100,7 +102,7 @@ def derive_image_version(ctx, action, image_version_file, input_digest, declarat
         arguments = [options] + _hashed_path_arguments(ctx, hashed) + [command_line] + action.arguments,
         inputs = [ctx.file._input_version, ctx.file._file_hashing, ctx.file._sibling_loader],
         transitive_inputs = [mkosi_toolchain_info(ctx).python_runtime_files, hashed],
-        outputs = [image_version_file, input_digest],
+        outputs = [image_version_file, input_digest, input_manifest],
         execution_requirements = mkosi_execution_requirements(True, offline = True),
         mnemonic = "MkosiInputVersion",
         progress_message = "Deriving the image version of %{label} from its inputs",

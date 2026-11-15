@@ -1,11 +1,14 @@
 """Tests for the derivation of an image version from the inputs of its build action."""
 
+import hashlib
+import json
 import os
 import re
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "private"))
 import input_version
@@ -195,6 +198,38 @@ class InputVersionTest(unittest.TestCase):
         self.assertRegex(version_file.read_text(encoding="ascii"), re.compile(r"\A[0-9a-f]{16}\n\Z"))
         self.assertEqual(self.baseline + "\n", digest_file.read_text(encoding="ascii"))
         self.assertEqual(self.baseline[:16] + "\n", version_file.read_text(encoding="ascii"))
+
+    def _write_manifest(self, name: str) -> dict[str, Any]:
+        inputs_file = Path(self._directory.name, "inputs.params")
+        inputs_file.write_text("\n".join(INPUTS) + "\n", encoding="utf-8")
+        manifest_file = Path(self._directory.name, name)
+        arguments = ["--environment-json", json.dumps(ENVIRONMENT), "--execution-requirements-json"]
+        arguments += [json.dumps(REQUIREMENTS), "--inputs-file", str(inputs_file)]
+        arguments += ["--version-output", str(Path(self._directory.name, "image-version"))]
+        arguments += ["--digest-output", str(Path(self._directory.name, "input-digest"))]
+        input_version.main([*arguments, "--manifest-output", str(manifest_file), "--command-line", *COMMAND_LINE])
+        return json.loads(manifest_file.read_text(encoding="ascii"))
+
+    def test_main_writes_a_manifest_of_every_input_with_its_digest_and_the_version(self) -> None:
+        manifest = self._write_manifest("first.json")
+        self.assertEqual("rules-mkosi-input-manifest-v1", manifest["format_version"])
+        self.assertEqual(self.baseline, manifest["input_digest"])
+        self.assertEqual(self.baseline[:16], manifest["image_version"])
+        self.assertEqual([*COMMAND_LINE[:3], "bazel-out/bin/image.image-version"], manifest["command_line"])
+        self.assertEqual(ENVIRONMENT, manifest["environment"])
+        tool = manifest["inputs"]["bazel-out/bin/payload/usr/local/bin/tool"]
+        expected = hashlib.sha256(b"#!/bin/sh\n").hexdigest()
+        self.assertEqual({"executable": True, "kind": "file", "sha256": expected}, tool)
+        self.assertEqual({"kind": "directory"}, manifest["inputs"]["bazel-out/bin/payload/etc"])
+
+    def test_manifests_of_two_builds_differ_only_in_the_changed_input_and_the_version(self) -> None:
+        first = self._write_manifest("first.json")
+        _write(self.execroot, PAYLOAD_TREE + "/etc/tool.conf", "level=2\n")
+        second = self._write_manifest("second.json")
+        changed = {path for path in first["inputs"] if first["inputs"][path] != second["inputs"][path]}
+        self.assertEqual({"bazel-out/bin/payload/etc/tool.conf"}, changed)
+        self.assertNotEqual(first["image_version"], second["image_version"])
+        self.assertEqual(first["inputs"].keys(), second["inputs"].keys())
 
     def test_main_reports_unreadable_inputs(self):
         inputs_file = Path(self._directory.name, "inputs.params")

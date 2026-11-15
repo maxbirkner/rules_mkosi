@@ -67,6 +67,7 @@ def _assert_no_version_files(env, target):
     asserts.equals(env, None, info.image_version_file)
     asserts.equals(env, None, info.input_digest)
     asserts.equals(env, [], target[OutputGroupInfo].image_version.to_list())
+    asserts.equals(env, [], target[OutputGroupInfo].image_version_inputs.to_list())
 
 def _provider_test_impl(ctx):
     env = analysistest.begin(ctx)

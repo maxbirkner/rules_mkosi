@@ -93,6 +93,12 @@ def _signed_image_test_impl(ctx):
     for field in fields:
         asserts.equals(env, getattr(image, field), getattr(signed, field), field)
     asserts.equals(env, [image.image_version_file, image.input_digest], target[OutputGroupInfo].image_version.to_list())
+    asserts.equals(
+        env,
+        ctx.attr.image[OutputGroupInfo].image_version_inputs.to_list(),
+        target[OutputGroupInfo].image_version_inputs.to_list(),
+    )
+    asserts.equals(env, 1, len(target[OutputGroupInfo].image_version_inputs.to_list()))
     assert_artifact_tools_are_hashed(env, single_action(env, "SecureBootSignedImage"))
     return analysistest.end(env)
 

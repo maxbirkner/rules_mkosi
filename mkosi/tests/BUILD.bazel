@@ -232,11 +232,13 @@ py_test(
         "$(rootpath :two_stage_input_version_input_digest)",
         "$(rootpath :two_stage_input_version_uki)",
         "$(rootpath :two_stage_input_version_build_metadata)",
+        "$(rootpath :two_stage_input_version_inputs_manifest)",
     ],
     data = [
         ":two_stage_input_version_build_metadata",
         ":two_stage_input_version_image_version_file",
         ":two_stage_input_version_input_digest",
+        ":two_stage_input_version_inputs_manifest",
         ":two_stage_input_version_uki",
     ],
     main = "input_version_artifact_test.py",

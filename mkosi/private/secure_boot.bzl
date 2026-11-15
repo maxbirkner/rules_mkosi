@@ -569,6 +569,12 @@ def _signed_image_arguments(ctx, image, signed, keys, outputs):
     args.add("--metadata", outputs[1].path)
     return args
 
+def _image_version_inputs(image):
+    """Returns the image_version_inputs output group of an image target, which is empty unless it derives its version."""
+    if OutputGroupInfo in image and hasattr(image[OutputGroupInfo], "image_version_inputs"):
+        return image[OutputGroupInfo].image_version_inputs
+    return depset()
+
 def _signed_image_impl(ctx):
     image = ctx.attr.image[MkosiImageInfo]
     if image.partition_metadata == None or image.firmware != "uefi":
@@ -600,6 +606,7 @@ def _signed_image_impl(ctx):
         MkosiImageInfo(image = outputs[0], raw_image = outputs[0], **fields),
         OutputGroupInfo(
             image_version = depset([file for file in (fields["image_version_file"], fields["input_digest"]) if file]),
+            image_version_inputs = _image_version_inputs(ctx.attr.image),
             raw_image = depset([outputs[0]]),
             secure_boot_metadata = depset([outputs[1]]),
         ),
@@ -654,7 +661,8 @@ replace UKIs without updating it, and its keys are those offered for enrollment,
 
 Returns DefaultInfo with the disk image and its JSON metadata, the image's MkosiImageInfo with raw_image replaced by the
 signed disk image, and the output groups raw_image, with only the disk image, secure_boot_metadata, with only the
-JSON metadata, and image_version, with the image's version files as in mkosi_image.
+JSON metadata, and image_version and image_version_inputs, with the image's version files and input manifest as in
+mkosi_image.
 
 When the image derives its version with image_version_from_inputs, its version_signing_certificates must map exactly
 the ESP paths of the signed binaries to their certificates, and its version_auto_enroll_keys must be exactly the

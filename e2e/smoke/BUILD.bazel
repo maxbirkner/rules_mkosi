@@ -918,6 +918,13 @@ filegroup(
     output_group = "image_version",
 )
 
+# Every input that the derived version covers, with its digest.
+filegroup(
+    name = "sysupdate_input_version_inputs",
+    srcs = [":sysupdate_input_version"],
+    output_group = "image_version_inputs",
+)
+
 image_partition_metadata_file(
     name = "sysupdate_input_version_partition_metadata",
     image = ":sysupdate_input_version",
@@ -936,10 +943,12 @@ py_test(
         "$(rootpath :sysupdate_input_version_payload)",
         "$(rootpath :sysupdate_input_version_partition_metadata)",
         "$(rootpath :sysupdate_input_version_build_metadata)",
+        "$(rootpath :sysupdate_input_version_inputs)",
     ],
     data = [
         ":sysupdate_input_version_build_metadata",
         ":sysupdate_input_version_files",
+        ":sysupdate_input_version_inputs",
         ":sysupdate_input_version_partition_metadata",
         ":sysupdate_input_version_payload",
     ],
