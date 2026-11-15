@@ -11,7 +11,7 @@ import uuid
 import zlib
 from collections.abc import Iterable, Sequence
 from pathlib import Path
-from typing import IO, TypedDict
+from typing import IO, Any, TypedDict
 
 _load_sibling = runpy.run_path(str(Path(__file__).with_name("sibling_loader.py")))["load_sibling"]
 gpt = _load_sibling(__file__, "gpt_partitions")
@@ -310,7 +310,7 @@ def _validate_firmware(partitions: Sequence[_Partition], firmware: str) -> None:
         raise ValueError("GPT BIOS boot partition must be at least 1 MiB")
 
 
-def project_image(path: str | Path, firmware: str = "uefi", slot_label: str | None = None) -> dict[str, object]:
+def project_image(path: str | Path, firmware: str = "uefi", slot_label: str | None = None) -> dict[str, Any]:
     _, sector_size, primary, _ = _validated_gpt(path)
     entry_size = primary["entry_size"]
     partitions: list[_SlotPartition] = []
