@@ -259,6 +259,19 @@ py_test(
 )
 
 py_test(
+    name = "devicetree_test",
+    srcs = [
+        "devicetree_fixture.py",
+        "devicetree_test.py",
+        "//mkosi/private:devicetree.py",
+        "//mkosi/private:sibling_loader.py",
+        "//mkosi/private:uki_metadata.py",
+    ],
+    main = "devicetree_test.py",
+    deps = ["@mkosi_pypi//pefile"],
+)
+
+py_test(
     name = "behavior_matrix_test",
     srcs = ["behavior_matrix_test.py"],
     args = [
@@ -316,6 +329,7 @@ behavior_targets(
         ":debian_snapshot_unit_test",
         ":debian_tools_runtime_test",
         ":default_version_test",
+        ":devicetree_test",
         ":diagnostic_contract_test",
         ":esp_manifest_test",
         ":extra_packages_analysis_tests",

@@ -1,4 +1,6 @@
-"""Checks that a consumer's arm64 release image has the arm64 root and verity partitions of its architecture."""
+"""Checks that a consumer's arm64 release image has the arm64 root and verity partitions of its architecture, and a
+UKI with the device trees that Devicetrees= selects from the kernel package.
+"""
 
 import json
 import pathlib
@@ -30,13 +32,18 @@ def partitions(image: pathlib.Path) -> list[tuple[str, str]]:
 
 def main() -> None:
     resolver = runfiles.Create()
-    image, partition_metadata = (pathlib.Path(resolver.Rlocation(path)) for path in sys.argv[1:3])
+    image, partition_metadata, uki_metadata = (pathlib.Path(resolver.Rlocation(path)) for path in sys.argv[1:4])
     found = partitions(image)
     assert (_ROOT_ARM64, "root-arm64") in found, found
     assert (_ROOT_ARM64_VERITY, "root-arm64-verity") in found, found
     metadata = json.loads(partition_metadata.read_text())
     assert metadata["architecture"] == "arm64", metadata
     assert {partition["type_guid"] for partition in metadata["partitions"]} >= {_ROOT_ARM64, _ROOT_ARM64_VERITY}
+    devicetrees = json.loads(uki_metadata.read_text())["devicetrees"]
+    assert [(tree["section"], tree["compatible"][0]) for tree in devicetrees] == [
+        (".dtbauto", "arm,corstone1000-fvp"),
+        (".dtbauto", "arm,corstone1000-mps3"),
+    ], devicetrees
 
 
 if __name__ == "__main__":
