@@ -6,7 +6,9 @@ import hashlib
 import json
 import os
 import runpy
+from collections.abc import Iterable, Mapping
 from pathlib import Path
+from typing import IO, Any
 
 _load_sibling = runpy.run_path(str(Path(__file__).with_name("sibling_loader.py")))["load_sibling"]
 partition_metadata = _load_sibling(__file__, "partition_metadata")
@@ -14,11 +16,11 @@ _HASH_CHUNK_SIZE = 1024 * 1024
 _MAX_JSON_BYTES = 4 * 1024 * 1024
 
 
-def _descriptor_stat(source):
+def _descriptor_stat(source: IO[bytes]) -> os.stat_result:
     return os.fstat(source.fileno())
 
 
-def _identity(stat):
+def _identity(stat: os.stat_result) -> tuple[int, int, int, int, int]:
     return (
         stat.st_dev,
         stat.st_ino,
@@ -28,7 +30,7 @@ def _identity(stat):
     )
 
 
-def _artifact_projection(path):
+def _artifact_projection(path: Path) -> dict[str, str | int]:
     digest = hashlib.sha256()
     count = 0
     with path.open("rb") as source:
@@ -49,7 +51,7 @@ def _artifact_projection(path):
     return {"sha256": digest.hexdigest(), "size": count}
 
 
-def _small_json(path):
+def _small_json(path: Path) -> Any:  # noqa: ANN401 - a JSON document of any shape
     size = path.stat().st_size
     if size > _MAX_JSON_BYTES:
         raise ValueError("{} exceeds normalized JSON size limit".format(path))
@@ -60,7 +62,7 @@ def _small_json(path):
     return json.loads(content)
 
 
-def _metadata_projection(path):
+def _metadata_projection(path: Path) -> tuple[dict[str, str | int], Any]:
     return _artifact_projection(path), _small_json(path)
 
 
@@ -99,7 +101,7 @@ _EXCLUDED_VARIABLE_FIELDS = (
 )
 
 
-def _slot_label(metadata):
+def _slot_label(metadata: Mapping[str, Any]) -> str | None:
     """Returns the A/B slot label of a versioned dm-verity image's root partitions, or None."""
     image = metadata.get("image") or {}
     if (metadata.get("artifacts") or {}).get("verity_metadata") and image.get("version"):
@@ -107,10 +109,12 @@ def _slot_label(metadata):
     return None
 
 
-def project(raw_image, build_metadata, partition_metadata_path, artifacts=()):
+def project(
+    raw_image: Path, build_metadata: Path, partition_metadata_path: Path, artifacts: Iterable[tuple[str, Path]] = ()
+) -> dict[str, Any]:
     metadata = _small_json(build_metadata)
     partition_artifact, partitions = _metadata_projection(partition_metadata_path)
-    result = {
+    result: dict[str, Any] = {
         "excluded_variable_fields": [{"field": field, "reason": reason} for field, reason in _EXCLUDED_VARIABLE_FIELDS],
         "format_version": "mkosi-reproducibility-manifest-v1",
         "immutable_artifacts": {
@@ -133,7 +137,7 @@ def project(raw_image, build_metadata, partition_metadata_path, artifacts=()):
     return result
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--raw-image", type=Path, required=True)
     parser.add_argument("--build-metadata", type=Path, required=True)

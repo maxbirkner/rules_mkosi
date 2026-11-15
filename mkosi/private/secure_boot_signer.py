@@ -21,8 +21,12 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple
+
+if TYPE_CHECKING:
+    from mkosi.private.secure_boot import Der
 
 _load_sibling = runpy.run_path(str(Path(__file__).with_name("sibling_loader.py")))["load_sibling"]
 secure_boot = _load_sibling(__file__, "secure_boot")
@@ -58,10 +62,10 @@ class Request(NamedTuple):
     unsigned_data: bytes
 
 
-def load_json(path):
+def load_json(path: str | Path) -> Any:  # noqa: ANN401 - a JSON document of any shape
     """Returns the JSON document at path; raises ValueError on duplicate object keys."""
 
-    def reject_duplicates(pairs):
+    def reject_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
         keys = [key for key, _ in pairs]
         if len(keys) != len(set(keys)):
             raise ValueError("{} has duplicate JSON keys".format(path))
@@ -70,7 +74,7 @@ def load_json(path):
     return json.loads(Path(path).read_text(encoding="utf-8"), object_pairs_hook=reject_duplicates)
 
 
-def load_manifest(path):
+def load_manifest(path: Path) -> list[dict[str, str]]:
     """Returns the entries of a signing manifest after checking its schema and signed file names."""
     manifest = load_json(path)
     if not isinstance(manifest, dict) or manifest.get("format_version") != MANIFEST_FORMAT:
@@ -78,7 +82,7 @@ def load_manifest(path):
     entries = manifest.get("requests")
     if set(manifest) != {"format_version", "requests"} or not isinstance(entries, list) or not entries:
         raise ValueError("signing manifest must hold exactly format_version and a nonempty requests array")
-    names = set()
+    names: set[str] = set()
     for entry in entries:
         if not isinstance(entry, dict) or set(entry) != _ENTRY_FIELDS:
             raise ValueError("signing manifest entries must have exactly the fields {}".format(sorted(_ENTRY_FIELDS)))
@@ -90,7 +94,7 @@ def load_manifest(path):
     return entries
 
 
-def find_execroot(manifest):
+def find_execroot(manifest: Path) -> Path:
     """Returns the execution root that holds manifest: the parent of bazel-out in its real path."""
     for parent in Path(manifest).resolve().parents:
         if parent.name == "bazel-out":
@@ -98,14 +102,14 @@ def find_execroot(manifest):
     raise ValueError("{} is not below bazel-out; pass --execroot".format(manifest))
 
 
-def resolve_path(execroot, path):
+def resolve_path(execroot: Path, path: str) -> Path:
     """Returns the file at the execution-root-relative path of a manifest entry."""
     if not path or Path(path).is_absolute():
         raise ValueError("manifest path {!r} must be relative to the execution root".format(path))
     return execroot / path
 
 
-def validate_entry(execroot, entry, certificate):
+def validate_entry(execroot: Path, entry: Mapping[str, str], certificate: bytes) -> Request:
     """Returns the Request of a manifest entry after checking it against its files and the expected certificate."""
     label = entry["label"]
     request = load_json(resolve_path(execroot, entry["request"]))
@@ -129,7 +133,7 @@ def validate_entry(execroot, entry, certificate):
     return Request(label, entry["signed_name"], unsigned_data)
 
 
-def check_key_file(key, certificate):
+def check_key_file(key: Path, certificate: bytes) -> None:
     """Checks that a certificate in the key file, if there is one, is the expected certificate."""
     if not key.is_file():
         raise ValueError("--key must name a private key file")
@@ -142,7 +146,7 @@ def check_key_file(key, certificate):
         raise ValueError("the certificate in the key file is not --certificate")
 
 
-def _encode_der(tag, value):
+def _encode_der(tag: int, value: bytes) -> bytes:
     length = len(value)
     if length < 0x80:
         return bytes([tag, length]) + value
@@ -150,7 +154,7 @@ def _encode_der(tag, value):
     return bytes([tag, 0x80 | size]) + length.to_bytes(size, "big") + value
 
 
-def _certificate_key(certificate):
+def _certificate_key(certificate: bytes) -> tuple["Der", "Der", int, int]:
     """Returns the issuer, serial number and RSA modulus and exponent of a DER certificate."""
     tbs = secure_boot.der_read(certificate)[0].children()[0].children()
     if tbs[0].tag == 0xA0:
@@ -162,9 +166,9 @@ def _certificate_key(certificate):
     return tbs[2], tbs[0], int.from_bytes(modulus.value, "big"), int.from_bytes(exponent.value, "big")
 
 
-def _signed_attributes_digest(attributes, content_digest):
+def _signed_attributes_digest(attributes: "Der", content_digest: bytes) -> tuple[bytes, int | None]:
     """Returns the digest that the signature covers and the signingTime, or None, after checking the attributes."""
-    values = {}
+    values: dict[str, list[list[Der]]] = {}
     for attribute in attributes.children():
         oid, attribute_values = attribute.children()
         values.setdefault(secure_boot.der_oid(oid), []).append(attribute_values.children())
@@ -181,7 +185,7 @@ def _signed_attributes_digest(attributes, content_digest):
     return hashlib.sha256(_encode_der(0x31, attributes.value)).digest(), signing_time
 
 
-def verify_signature(payload, certificate):
+def verify_signature(payload: bytes, certificate: bytes) -> int | None:
     """Returns the signingTime of the one SignerInfo of payload, or None if it has none.
 
     Raises ValueError unless the SignerInfo names certificate and its RSA signature verifies.
@@ -210,7 +214,7 @@ def verify_signature(payload, certificate):
     return signing_time
 
 
-def check_signing_time(certificate, signing_time, source="--signing-time"):
+def check_signing_time(certificate: bytes, signing_time: int, source: str = "--signing-time") -> None:
     """Raises ValueError unless signing_time, in Unix seconds, lies within the validity of the DER certificate.
 
     source names where the signing time came from, --signing-time or SOURCE_DATE_EPOCH.
@@ -229,7 +233,7 @@ def check_signing_time(certificate, signing_time, source="--signing-time"):
         )
 
 
-def _run_debian_sbsign(launcher, key, work, signing_time):
+def _run_debian_sbsign(launcher: str, key: Path, work: Path, signing_time: int | None) -> None:
     """Signs work/unsigned.efi with the pinned systemd-sbsign; the key is bind-mounted read-only, never copied."""
     tools_scratch = work.parent / (work.name + "-debian-tools")
     if ":" in str(key) or ":" in str(work):
@@ -260,7 +264,7 @@ def _run_debian_sbsign(launcher, key, work, signing_time):
         shutil.rmtree(tools_scratch, ignore_errors=True)
 
 
-def _run_host_sbsign(args, work):
+def _run_host_sbsign(args: argparse.Namespace, work: Path) -> None:
     """Signs work/unsigned.efi with a host systemd-sbsign or sbsigntools' sbsign, under faketime at a signing time."""
     if Path(args.sbsign).name == "systemd-sbsign":
         options = ["sign", "--private-key", args.key, "--certificate", work / "certificate.pem"]
@@ -275,7 +279,7 @@ def _run_host_sbsign(args, work):
     subprocess.run(command, check=True, env=env)
 
 
-def sign_request(args, request, certificate, scratch):
+def sign_request(args: argparse.Namespace, request: Request, certificate: bytes, scratch: str) -> bytes:
     """Signs one validated request in a new scratch directory and returns the verified signed binary."""
     work = Path(tempfile.mkdtemp(prefix="request-", dir=scratch)).resolve()
     (work / "certificate.pem").write_bytes(secure_boot.certificate_pem(certificate))
@@ -296,7 +300,7 @@ def sign_request(args, request, certificate, scratch):
     return signed_data
 
 
-def write_signed(output_dir, name, data):
+def write_signed(output_dir: Path, name: str, data: bytes) -> None:
     """Atomically writes data to output_dir/name."""
     output_dir.mkdir(parents=True, exist_ok=True)
     partial = output_dir / ".{}.partial".format(name)
@@ -304,7 +308,7 @@ def write_signed(output_dir, name, data):
     partial.replace(output_dir / name)
 
 
-def _user_path(value):
+def _user_path(value: str) -> Path:
     """Returns value as an absolute path; relative paths are relative to the directory that bazel run started in."""
     path = Path(value).expanduser()
     if not path.is_absolute():
@@ -312,7 +316,7 @@ def _user_path(value):
     return path.absolute()
 
 
-def _runfile(value):
+def _runfile(value: str) -> str:
     """Returns the path of a runfile given by its runfiles path, or value itself if it is absolute."""
     if os.path.isabs(value):
         return value
@@ -325,7 +329,7 @@ def _runfile(value):
     return path
 
 
-def _signing_time(value):
+def _signing_time(value: str) -> int:
     """Returns a signing time given in Unix seconds."""
     if not re.fullmatch(r"[0-9]+", value) or int(value) > _MAX_SIGNING_TIME:
         raise argparse.ArgumentTypeError(
@@ -334,7 +338,7 @@ def _signing_time(value):
     return int(value)
 
 
-def _parser():
+def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="secure_boot_signer",
         description="Validates and Authenticode-signs the requests of a secure_boot_signing_manifest.",
@@ -365,7 +369,7 @@ def _parser():
     return parser
 
 
-def _parse_arguments(argv):
+def _parse_arguments(argv: Sequence[str] | None) -> argparse.Namespace:
     parser = _parser()
     args = parser.parse_args(argv)
     if not args.validate_only and (args.key is None or args.output_dir is None):
@@ -394,7 +398,7 @@ def _parse_arguments(argv):
     return args
 
 
-def sign_manifest(args):
+def sign_manifest(args: argparse.Namespace) -> None:
     """Validates every request of the manifest, then signs them all and writes the signed binaries."""
     certificate = secure_boot.certificate_der(args.certificate)
     execroot = args.execroot or find_execroot(args.manifest)
@@ -415,7 +419,7 @@ def sign_manifest(args):
         print("signed: {} -> {}".format(request.label, args.output_dir / request.signed_name))
 
 
-def main(argv=None):
+def main(argv: Sequence[str] | None = None) -> None:
     args = _parse_arguments(argv)
     try:
         sign_manifest(args)

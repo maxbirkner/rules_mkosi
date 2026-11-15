@@ -9,11 +9,11 @@ from pathlib import Path
 import pefile
 
 
-def project(uki_path, root_hash_path=None):
+def project(uki_path: str | Path, root_hash_path: str | Path | None = None) -> dict[str, object]:
     data = Path(uki_path).read_bytes()
     pe = pefile.PE(data=data, fast_load=True)
-    sections = []
-    section_data = {}
+    sections: list[dict[str, str | int]] = []
+    section_data: dict[str, bytes] = {}
     for section in pe.sections:
         name = section.Name.rstrip(b"\0").decode("ascii")
         content = section.get_data()
@@ -39,7 +39,7 @@ def project(uki_path, root_hash_path=None):
     }
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--uki", required=True)
     parser.add_argument("--root-hash")
