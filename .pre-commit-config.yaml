@@ -87,7 +87,7 @@ repos:
         args: []
         additional_dependencies:
           - click==8.5.0
-        files: ^((ci|mkosi|tools)/|mypy\.ini$)
+        files: ^((ci|e2e|mkosi|tools)/|mypy\.ini$)
         types_or:
           - ini
           - python
