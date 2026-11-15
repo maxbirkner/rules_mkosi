@@ -361,7 +361,8 @@ Build the executables in `rootfs_payloads` for arm64 yourself, for example with 
 Release images of arm64 support the same UKI, dm-verity, A/B and update payload settings as those of amd64: their partitions use the `root-arm64` and `root-arm64-verity` types, the ESP holds `systemd-bootaa64.efi` and `BOOTAA64.EFI`, `MkosiImageInfo.architecture` is `arm64`, and their `sysupdate_transfers` need `architecture = "arm64"`.
 Give the ESP at least 512 MiB: systemd-repart formats it as FAT32 with 4 KiB clusters, and the UEFI firmware does not mount a FAT32 file system with fewer than 65525 clusters.
 `qemu_ovmf_boot_test` boots arm64 images with `qemu-system-aarch64` and AAVMF, under TCG on Linux x86-64; see [boot tests](#boot-tests).
-Secure Boot signing tests of arm64 boot binaries and arm64 execution platforms follow in [#206](https://github.com/maxbirkner/rules_mkosi/issues/206).
+[Secure Boot signing](docs/secure-boot.md) works the same for arm64 images; sign `EFI/systemd/systemd-bootaa64.efi` instead of `EFI/systemd/systemd-bootx64.efi`.
+Native arm64 execution platforms follow in [#206](https://github.com/maxbirkner/rules_mkosi/issues/206).
 
 ### Device trees
 
@@ -397,9 +398,8 @@ mkosi_image(
 )
 ```
 
-The build checks that each file is a flattened device tree (magic `0xd00dfeed`) with a root compatible string, stages it as `/usr/lib/firmware/<kver>/device-tree/rules-mkosi/<file name>` for the UKI's kernel, and appends the pattern `rules-mkosi/<file name>` to `Devicetrees=`, after the configuration's own patterns, so that no exclusion drops it.
-It is therefore selected together with the device trees that `Devicetrees=` selects from packages, and the rules above decide between `.dtb` and `.dtbauto`.
-mkosi builds the UKI after the root partition, so a staged device tree is only in the UKI, not in the root file system.
+The build checks that each file is a flattened device tree (magic `0xd00dfeed`) with a root compatible string, and hands it to ukify together with the device trees that `Devicetrees=` selects from packages, ahead of them and whatever their patterns exclude; the rules above decide between `.dtb` and `.dtbauto`.
+The files are never copied into the image tree, so they are only in the UKI, not in the root file system, the ESP, or any other partition or output, with or without dm-verity.
 `devicetrees` requires release mode and `unified_kernel_image`; file names must end with `.dtb`, be unique, and consist of letters, digits, `.`, `_`, `+` and `-`.
 The files are build inputs, so a changed device tree changes the cache key and a version derived with `image_version_from_inputs`.
 

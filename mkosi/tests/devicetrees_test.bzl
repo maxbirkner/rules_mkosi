@@ -86,9 +86,22 @@ def devicetrees_test_suite(name):
     _device_tree("devicetree_board_b", "devicetrees/board-b.dtb", "vendor,board-b")
     _device_tree("devicetree_other_board_a", "devicetrees/other/board-a.dtb", "other,board-a")
 
-    # fnmatch() would read the brackets of this file name as a pattern.
+    # Brackets are not among the allowed file name characters.
     _device_tree("devicetree_bracketed", "devicetrees/board[a].dtb", "vendor,board-a")
     _release_image("devicetrees_subject", [":devicetree_board_a", ":devicetree_board_b"])
+
+    # Finalizes the two-stage base without dm-verity, so that mkosi could build the UKI before the root partition.
+    mkosi_image(
+        name = "devicetrees_release",
+        base = ":two_stage_base",
+        config_tree = ":two_stage_config_tree",
+        devicetrees = [":devicetree_board_a", ":devicetree_board_b"],
+        image_id = "rules-mkosi-devicetrees",
+        image_version = "1",
+        mode = "release",
+        tags = ["manual"],
+        unified_kernel_image = "unsigned",
+    )
     _staged_test(
         name = "devicetrees_staged_test",
         devicetrees = [":devicetree_board_a", ":devicetree_board_b"],

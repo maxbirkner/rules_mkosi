@@ -40,8 +40,8 @@ def pe_sections(executable: bytes) -> list[tuple[str, bytes]]:
 
 def check_devicetrees(uki: bytes, uki_metadata: pathlib.Path, virt_label: pathlib.Path) -> None:
     devicetrees = json.loads(uki_metadata.read_text())["devicetrees"]
-    # mkosi sorts the selected paths: the label's below /usr/lib/firmware/<kver>/device-tree/rules-mkosi/ comes before
-    # the two that Devicetrees=arm/corstone1000-*.dtb selects below /usr/lib/linux-image-<kver>/.
+    # The label's device tree comes first, ahead of the two that Devicetrees=arm/corstone1000-*.dtb selects below
+    # /usr/lib/linux-image-<kver>/ in sorted order.
     assert [(tree["section"], tree["compatible"]) for tree in devicetrees] == [
         (".dtbauto", ["linux,dummy-virt", "rules-mkosi,uki-devicetree"]),
         (".dtbauto", ["arm,corstone1000-fvp"]),

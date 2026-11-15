@@ -6,13 +6,11 @@ DEVICETREES_DOC = """Compiled device tree blobs (.dtb files) to embed in the ima
 board vendor or another Bazel rule.
 
 Requires release mode and unified_kernel_image. The build checks that each file is a flattened device tree with a
-root compatible string, stages it as /usr/lib/firmware/<kver>/device-tree/rules-mkosi/<file name> for the kernel
-version <kver> that the UKI is built for, and appends the pattern rules-mkosi/<file name> to the configuration's
-Devicetrees=, so it is selected together with the device trees that Devicetrees= selects from packages. One selected
-device tree becomes the UKI's .dtb section, which systemd-stub always installs; several become .dtbauto sections, of
-which systemd-stub installs the one whose first compatible string matches the hardware. The staged files are only in
-the UKI, not in the root file system. File names must be unique and consist of letters, digits, and `.`, `_`, `+`
-and `-`. The files are build inputs, so a changed device tree changes the cache key and a version derived with
+root compatible string, and hands it to ukify together with, and ahead of, the device trees that the configuration's
+Devicetrees= selects from packages. One device tree in total becomes the UKI's .dtb section, which systemd-stub always
+installs; several become .dtbauto sections, of which systemd-stub installs the one whose first compatible string
+matches the hardware. The files are never copied into the image tree, so they are only in the UKI, not in any
+partition or other output. File names must be unique and consist of letters, digits, and `.`, `_`, `+` and `-`. The files are build inputs, so a changed device tree changes the cache key and a version derived with
 image_version_from_inputs; the UKI metadata records their compatible strings and digests.
 """
 

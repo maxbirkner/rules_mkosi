@@ -10,7 +10,6 @@ import datetime
 import hashlib
 import hmac
 import os
-import shutil
 import uuid
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import replace
@@ -93,9 +92,10 @@ def include_base_packages_in_manifest() -> None:
     Manifest.record_deb_packages = record_deb_packages
 
 
-# The directory below a kernel's /usr/lib/firmware/<kver>/device-tree/ that holds the device trees of
-# mkosi_image(devicetrees = ...), and the prefix of the Devicetrees= patterns that select them.
-LABEL_DEVICETREES = "rules-mkosi"
+# The prefix of the Devicetrees= entries that with_label_devicetrees appends for the device trees of
+# mkosi_image(devicetrees = ...). mkosi only selects device trees if Devicetrees= is not empty, and
+# require_selected_devicetrees replaces these entries with the files instead of matching them against the image tree.
+LABEL_DEVICETREES = "rules-mkosi-label:"
 
 
 def require_selected_devicetrees(label_devicetrees: Path | None = None) -> None:
@@ -104,53 +104,50 @@ def require_selected_devicetrees(label_devicetrees: Path | None = None) -> None:
     mkosi v27 only warns when its patterns select nothing, and silently drops a pattern that matches no file, so a
     typo or a kernel package that moved its device trees would build a UKI without them.
 
-    Before mkosi selects the device trees of a kernel, the files in label_devicetrees are copied below its
-    /usr/lib/firmware/<kver>/device-tree/rules-mkosi/, where the patterns of with_label_devicetrees select them. mkosi
-    builds the UKI after the root partition, so they are only in the UKI.
+    The entries of with_label_devicetrees select the files in label_devicetrees, ahead of the device trees that the
+    patterns select in the image tree. They are returned as absolute paths, which build_uki reads as they are, because
+    it joins each path to the image tree, so the files reach only the UKI and never the image tree, from which mkosi
+    fills the root, the ESP and the other partitions and outputs.
     """
     import mkosi
 
     original = mkosi.filter_devicetrees  # type: ignore[attr-defined]
 
     def filter_devicetrees(root: Path, kver: str, *, include: Sequence[str]) -> list[Path]:
-        if label_devicetrees is not None:
-            stage_label_devicetrees(label_devicetrees, Path(root) / "usr/lib/firmware" / kver / "device-tree")
-        selected = original(root, kver, include=include)
+        labels = [
+            (label_devicetrees / entry[len(LABEL_DEVICETREES) :]).resolve()
+            for entry in include
+            if label_devicetrees is not None and entry.startswith(LABEL_DEVICETREES)
+        ]
+        patterns = [entry for entry in include if not entry.startswith(LABEL_DEVICETREES)]
+        selected = original(root, kver, include=patterns) if patterns else []
         unselected = [
             pattern
-            for pattern in include
+            for pattern in patterns
             if not pattern.startswith("-") and not set(original(root, kver, include=[pattern])) & set(selected)
         ]
-        if unselected or not selected:
+        if unselected or not (selected or labels):
             subject = "pattern {} selects".format(unselected[0]) if unselected else "selects"
             raise SystemExit(
                 "release configuration Devicetrees= {} no device tree of kernel {}; mkosi selects .dtb files below "
                 "usr/lib/modules/{}/dtb/, usr/lib/firmware/{}/device-tree/ and usr/lib/linux-image-{}/ of the image, "
                 "and the last matching pattern wins".format(subject, kver, kver, kver, kver)
             )
-        return list(selected)
+        return [*labels, *selected]
 
     mkosi.filter_devicetrees = filter_devicetrees  # type: ignore[attr-defined]
 
 
-def stage_label_devicetrees(label_devicetrees: Path, kernel_devicetrees: Path) -> None:
-    """Copies the device trees of mkosi_image(devicetrees = ...) into a kernel's device tree directory."""
-    destination = kernel_devicetrees / LABEL_DEVICETREES
-    destination.mkdir(parents=True, exist_ok=True)
-    for source in sorted(label_devicetrees.iterdir()):
-        shutil.copyfile(source, destination / source.name)
-
-
 def with_label_devicetrees(images: tuple[MkosiConfig, ...], label_devicetrees: Path | None) -> tuple[MkosiConfig, ...]:
-    """Returns images with Devicetrees= patterns that select the device trees of mkosi_image(devicetrees = ...).
+    """Returns images with Devicetrees= entries for the device trees of mkosi_image(devicetrees = ...).
 
-    The patterns come last, so that no exclusion of the configuration drops them. Only the main image has a UKI.
+    Only the main image has a UKI.
     """
     if label_devicetrees is None:
         return images
-    patterns = ["{}/{}".format(LABEL_DEVICETREES, source.name) for source in sorted(label_devicetrees.iterdir())]
+    entries = [LABEL_DEVICETREES + source.name for source in sorted(label_devicetrees.iterdir())]
     return tuple(
-        replace(config, devicetrees=[*config.devicetrees, *patterns])
+        replace(config, devicetrees=[*config.devicetrees, *entries])
         if getattr(config, "image", "main") == "main"
         else config
         for config in images
