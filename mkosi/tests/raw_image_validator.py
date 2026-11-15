@@ -535,6 +535,17 @@ def validate_bytes(data, physical_ranges=None):
     _validate(io.BytesIO(data), len(data), physical_ranges)
 
 
+def root_ext4_hash_seed(path: pathlib.Path) -> uuid.UUID:
+    """Returns the directory hash seed in the ext4 superblock of the image's first Linux x86-64 root partition."""
+    with path.open("rb") as image:
+        partitions = _gpt_partitions(_read_gpt(image, _total_sectors(path.stat().st_size)))
+        roots = [start for start, _, kind in partitions if kind == LINUX_ROOT_X86_64]
+        if not roots:
+            raise AssertionError("raw image has no Linux x86-64 root partition")
+        superblock = _read_ext4_superblock(image, roots[0] * SECTOR_SIZE)
+    return uuid.UUID(bytes=superblock[236:252])
+
+
 def validate(path):
     stat = path.stat()
     with path.open("rb") as image:
@@ -545,11 +556,20 @@ def validate(path):
     )
 
 
-def main():
-    """Validates the image named by the only command-line argument; exits with a usage message otherwise."""
-    if len(sys.argv) != 2:
-        raise SystemExit("usage: %s IMAGE" % os.path.basename(sys.argv[0]))
-    validate(image_path(sys.argv[1]))
+def main() -> None:
+    """Validates the image named by the first argument and, if a second is given, its root's ext4 hash seed.
+
+    Exits with a usage message on other arguments.
+    """
+    if len(sys.argv) not in (2, 3):
+        raise SystemExit("usage: %s IMAGE [EXT4_HASH_SEED]" % os.path.basename(sys.argv[0]))
+    image = image_path(sys.argv[1])
+    validate(image)
+    if len(sys.argv) == 3:
+        hash_seed = root_ext4_hash_seed(image)
+        if str(hash_seed) != sys.argv[2]:
+            raise AssertionError("root ext4 directory hash seed is {}, expected {}".format(hash_seed, sys.argv[2]))
+        print("validated root ext4 directory hash seed {}".format(hash_seed))
 
 
 if __name__ == "__main__":

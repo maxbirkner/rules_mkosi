@@ -11,8 +11,10 @@ import sys
 import types
 import unittest
 import uuid
+from dataclasses import dataclass, field
 
 SEED = "00000000-0000-4000-8000-000000000015"
+SEED_INT = uuid.UUID(SEED).int
 SNAPSHOT = "20260912T080811Z"
 
 
@@ -99,6 +101,8 @@ def _base_artifacts(root):
 
 class _WrapperTest(unittest.TestCase):
     """Loads run_mkosi.py once and gives every test case its own empty directory."""
+
+    wrapper: types.ModuleType
 
     @classmethod
     def setUpClass(cls):
@@ -450,6 +454,44 @@ class TwoStageReleaseTest(_WrapperTest):
         assert "--sort=name" in tar and "--sparse" not in tar
         assert tar[-4:] == ["--owner=root:0", "--group=root:0", "--exclude=./proc", "."]
         assert "--owner=root:0" not in wrapper.release_patches.tar_command("/work/root", [], 0)
+
+
+@dataclass(frozen=True)
+class _Image:
+    environment: dict[str, str] = field(default_factory=dict)
+
+
+class Ext4HashSeedTest(_WrapperTest):
+    # HMAC-SHA256 keyed with the seed 00000000-0000-4000-8000-000000000015 of b"ext4-hash-seed", as a v4 UUID.
+    DERIVED = "-E hash_seed=72f34218-ff7a-4099-b209-79df0df444ec"
+
+    def _release(self, stage: str) -> object:
+        validation = self.wrapper.release_validation
+        return validation.ReleaseSettings(SEED, 0, "debian", "trixie", SNAPSHOT, stage=stage)
+
+    def test_formatting_stages_derive_the_hash_seed_from_the_release_seed(self) -> None:
+        patches = self.wrapper.release_patches
+        for stage in ("image", "finalize"):
+            with self.subTest(stage=stage):
+                images = patches.with_release_ext4_hash_seed((_Image({"KEEP": "1"}), _Image()), self._release(stage))
+                assert [image.environment for image in images] == [
+                    {"KEEP": "1", "SYSTEMD_REPART_MKFS_OPTIONS_EXT4": self.DERIVED},
+                    {"SYSTEMD_REPART_MKFS_OPTIONS_EXT4": self.DERIVED},
+                ]
+
+    def test_configured_mkfs_options_take_precedence(self) -> None:
+        image = _Image({"SYSTEMD_REPART_MKFS_OPTIONS_EXT4": "-O ^orphan_file"})
+        images = self.wrapper.release_patches.with_release_ext4_hash_seed((image,), self._release("image"))
+        assert images == (image,)
+
+    def test_base_stage_keeps_its_configuration(self) -> None:
+        images = (_Image(),)
+        assert self.wrapper.release_patches.with_release_ext4_hash_seed(images, self._release("base")) == images
+
+    def test_hash_seed_depends_on_the_seed(self) -> None:
+        derive = self.wrapper.release_patches.derive_ext4_hash_seed
+        first, second = derive(uuid.UUID(SEED)), derive(uuid.UUID(int=SEED_INT + 1))
+        assert first != second and first.version == 4 and first.variant == uuid.RFC_4122
 
 
 class BaseInitrdPublicationTest(_WrapperTest):

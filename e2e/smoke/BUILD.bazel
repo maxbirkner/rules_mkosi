@@ -694,6 +694,8 @@ runfiles_sh_test(
         "$(rlocationpath :release_demo_raw)",
         "$(rlocationpath @rules_mkosi//mkosi/tests:raw_image_validator.py)",
         "$(rlocationpath @mkosi_debian_python//:python)",
+        # Derived from the release seed: testdata/release-config does not set mkfs.ext4 options itself.
+        "72f34218-ff7a-4099-b209-79df0df444ec",
     ],
     data = [
         ":release_demo_raw",

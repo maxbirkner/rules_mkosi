@@ -7,12 +7,17 @@ instead of a patch.
 """
 
 import datetime
+import hashlib
+import hmac
 import os
+import uuid
 from dataclasses import replace
 from pathlib import Path
+from typing import Any
 
 from . import mkosi_contract, release_sandbox, tree
 from .release_validation import (
+    ReleaseSettings,
     is_declared,
     release_apt_components,
     validate_ini_section,
@@ -200,6 +205,7 @@ class _ConfigurationValidator(_FirstConfiguration):
 
     def _resolved(self, parsed):
         images = tuple(_without_proxy_certificates(config) for config in parsed[2])
+        images = with_release_ext4_hash_seed(images, self._settings)
         validate_release_configuration(
             tuple(config for config in images if getattr(config, "image", "main") == "main"),
             self._settings,
@@ -222,6 +228,39 @@ class _ConfigurationValidator(_FirstConfiguration):
 def _without_proxy_certificates(config):
     # mkosi defaults ProxyPeerCertificate= to a host CA bundle; a release build uses no proxy, so it needs none.
     return replace(config, proxy_peer_certificate=None, proxy_client_certificate=None, proxy_client_key=None)
+
+
+EXT4_MKFS_OPTIONS_VARIABLE = "SYSTEMD_REPART_MKFS_OPTIONS_EXT4"
+
+
+def derive_ext4_hash_seed(seed: uuid.UUID) -> uuid.UUID:
+    """Returns the ext4 directory hash seed of a release, derived from its Seed= like systemd-repart derives UUIDs.
+
+    systemd-repart formats ext4 with a UUID derived from Seed= but lets mkfs.ext4 pick a random directory hash seed.
+    Like systemd-repart, this keys an HMAC-SHA256 with the seed and marks the first 16 bytes of the digest as a v4
+    UUID.
+    """
+    digest = hmac.new(seed.bytes, b"ext4-hash-seed", hashlib.sha256).digest()
+    return uuid.UUID(bytes=digest[:16], version=4)
+
+
+def with_derived_ext4_hash_seed(config: Any, seed: uuid.UUID) -> Any:
+    """Returns config with mkfs.ext4 options that pin the ext4 directory hash seed, unless it sets its own options."""
+    if EXT4_MKFS_OPTIONS_VARIABLE in config.environment:
+        return config
+    options = "-E hash_seed={}".format(derive_ext4_hash_seed(seed))
+    return replace(config, environment={**config.environment, EXT4_MKFS_OPTIONS_VARIABLE: options})
+
+
+def with_release_ext4_hash_seed(images: tuple[Any, ...], settings: ReleaseSettings) -> tuple[Any, ...]:
+    """Returns images with a derived ext4 hash seed if the release stage formats partitions.
+
+    A base stage only archives its root, so its configuration stays unchanged.
+    """
+    if settings.stage == "base":
+        return images
+    seed = uuid.UUID(settings.seed)
+    return tuple(with_derived_ext4_hash_seed(config, seed) for config in images)
 
 
 def _remove_apt_sources(context, repositories):

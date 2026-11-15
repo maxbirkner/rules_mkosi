@@ -28,6 +28,9 @@ Exactly one of `config` (one file) and `config_tree` is required; release mode r
 <!-- behavior:BHV-IMAGE-SEED -->
 `release_seed` is required only in release mode and must match the resolved `Seed=`.
 
+<!-- behavior:BHV-IMAGE-EXT4-HASH-SEED -->
+Release builds that format partitions derive the ext4 directory hash seed from `release_seed`, unless the configuration sets `SYSTEMD_REPART_MKFS_OPTIONS_EXT4`.
+
 <!-- behavior:BHV-IMAGE-EPOCH -->
 `release_source_date_epoch` is a non-negative value, required only in release mode, that must match the resolved `SourceDateEpoch=`.
 
