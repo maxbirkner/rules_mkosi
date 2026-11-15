@@ -170,6 +170,7 @@ CONTRACTS = {
         fields={
             "mkosi.config:Config": (
                 "architecture",
+                "devicetrees",
                 "image",
                 "release",
                 "repositories",

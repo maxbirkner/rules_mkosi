@@ -360,6 +360,35 @@ class MkosiContractTest(unittest.TestCase):
             ):
                 select("-board-a.dtb")
 
+    def test_release_mode_stages_label_devicetrees_where_its_patterns_select_them(self) -> None:
+        import mkosi
+
+        @dataclasses.dataclass(frozen=True)
+        class Image:
+            devicetrees: list[str]
+            image: str = "main"
+
+        # mypy resolves mkosi to this repository's mkosi/ directory, not to upstream mkosi (see mypy.ini).
+        self._replace(mkosi, "filter_devicetrees", mkosi.filter_devicetrees)  # type: ignore[attr-defined]
+        with tempfile.TemporaryDirectory() as directory:
+            labels = pathlib.Path(directory) / "labels"
+            labels.mkdir()
+            (labels / "board.dtb").write_bytes(b"board")
+            root = pathlib.Path(directory) / "root"
+            root.mkdir()
+            main, sysext = self.release_patches.with_label_devicetrees((Image(["-*"]), Image([], "sysext")), labels)
+            # The label's pattern comes after the configuration's, so that no exclusion drops it.
+            self.assertEqual(["-*", "rules-mkosi/board.dtb"], main.devicetrees)
+            self.assertEqual([], sysext.devicetrees)
+            self.release_patches.require_selected_devicetrees(labels)
+            selected = mkosi.filter_devicetrees(  # type: ignore[attr-defined]
+                root, "6.12.0-arm64", include=main.devicetrees
+            )
+            self.assertEqual(
+                [pathlib.Path("usr/lib/firmware/6.12.0-arm64/device-tree/rules-mkosi/board.dtb")], selected
+            )
+            self.assertEqual(b"board", (root / selected[0]).read_bytes())
+
     def test_parse_ini_reports_the_sections_that_release_mode_validates(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = pathlib.Path(directory) / "mkosi.conf"

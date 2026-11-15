@@ -187,6 +187,8 @@ def _release_stage(preamble: "Preamble") -> str | None:
         raise SystemExit("incomplete Debian snapshot configuration")
     if preamble.extra_packages_repository and not preamble.debian_snapshot_repository:
         raise SystemExit("extra packages require the Debian snapshot repository")
+    if preamble.devicetrees_directory and not any(release):
+        raise SystemExit("device trees require a release build")
     return command_line.release_stage(
         any(release),
         preamble.debian_snapshot_repository,
@@ -279,6 +281,7 @@ def _release_settings(preamble: "Preamble", stage: str) -> "ReleaseSettings":
         base_tree=preamble.release_base_tree,
         base_initrd=preamble.release_initrd,
         architecture=preamble.debian_snapshot_architecture,
+        devicetrees=preamble.devicetrees_directory,
     )
 
 

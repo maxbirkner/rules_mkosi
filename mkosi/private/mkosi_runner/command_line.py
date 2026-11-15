@@ -22,6 +22,7 @@ class Preamble:
     kernel_preflight: str | None = None
     debian_snapshot_repository: str | None = None
     extra_packages_repository: str | None = None
+    devicetrees_directory: str | None = None
     release_seed: str | None = None
     release_source_date_epoch: int | None = None
     release_distribution: str | None = None
@@ -84,6 +85,7 @@ _PREAMBLE_OPTIONS: dict[str, tuple[str, Callable[[str], object]]] = {
     "--kernel-preflight": ("kernel_preflight", os.path.abspath),
     "--debian-snapshot-repository": ("debian_snapshot_repository", os.path.abspath),
     "--extra-packages-repository": ("extra_packages_repository", os.path.abspath),
+    "--devicetrees-directory": ("devicetrees_directory", os.path.abspath),
     "--release-seed": ("release_seed", _verbatim),
     "--release-source-date-epoch": ("release_source_date_epoch", _source_date_epoch),
     "--release-distribution": ("release_distribution", _verbatim),

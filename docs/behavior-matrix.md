@@ -38,6 +38,7 @@ Release builds that format partitions derive the ext4 directory hash seed from `
 
 <!-- behavior:BHV-IMAGE-DEVICETREES -->
 A release build fails if a positive `Devicetrees=` pattern selects no device tree of the image's kernel, or if the patterns select none.
+`mkosi_image.devicetrees` requires release mode and a UKI, rejects duplicate or unsafe file names, files that are not device trees and device trees without a root compatible string, and selects each one after the configuration's `Devicetrees=` patterns from `/usr/lib/firmware/<kver>/device-tree/rules-mkosi/`; the device trees are inputs of the build and of a derived version.
 The UKI metadata lists each `.dtb` and `.dtbauto` section with its root compatible strings, size and SHA-256, and rejects a section that is not a device tree or a `.dtbauto` section without a compatible string.
 
 <!-- behavior:BHV-IMAGE-EPOCH -->

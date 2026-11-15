@@ -381,6 +381,26 @@ The [UKI metadata](#providers) (`MkosiImageInfo.uki_metadata`) lists each `.dtb`
 Building it fails for a section that is not a device tree, or a `.dtbauto` section without a compatible string, which systemd-stub could never select.
 Device tree overlays are not applied: systemd-stub does not apply `.dtbo` files, so merge them into the `.dtb` before it is installed.
 
+A compiled device tree from anywhere else, such as a board vendor's download or another Bazel rule, goes into `devicetrees`:
+
+```starlark
+mkosi_image(
+    name = "board_image",
+    config_tree = ":board_config",
+    debian_snapshot = "@my_debian_arm64//:repository",
+    devicetrees = ["//board:board.dtb"],
+    mode = "release",
+    unified_kernel_image = "unsigned",
+    # ...
+)
+```
+
+The build checks that each file is a flattened device tree (magic `0xd00dfeed`) with a root compatible string, stages it as `/usr/lib/firmware/<kver>/device-tree/rules-mkosi/<file name>` for the UKI's kernel, and appends the pattern `rules-mkosi/<file name>` to `Devicetrees=`, after the configuration's own patterns, so that no exclusion drops it.
+It is therefore selected together with the device trees that `Devicetrees=` selects from packages, and the rules above decide between `.dtb` and `.dtbauto`.
+mkosi builds the UKI after the root partition, so a staged device tree is only in the UKI, not in the root file system.
+`devicetrees` requires release mode and `unified_kernel_image`; file names must end with `.dtb`, be unique, and consist of letters, digits, `.`, `_`, `+` and `-`.
+The files are build inputs, so a changed device tree changes the cache key and a version derived with `image_version_from_inputs`.
+
 ### Image identity
 
 `image_id` and `image_version` (or `image_version_file` for versions only known at build time) set mkosi's `ImageId=` and `ImageVersion=` and expand Make variables.
