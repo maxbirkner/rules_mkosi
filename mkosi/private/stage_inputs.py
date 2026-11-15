@@ -7,18 +7,22 @@ import os
 import pathlib
 import posixpath
 import shutil
+from collections.abc import Collection, Iterable, Mapping, Sequence
+from typing import cast
 
 _EPOCH = (0, 0)
+# A staged path's owning mapping, kind (file, directory or symlink), source path and, for a symlink, its target.
+_Entry = tuple[str, str, pathlib.Path, str | None]
 
 
-def _normalise_relative(path):
+def _normalise_relative(path: str) -> str:
     parts = pathlib.PurePosixPath(path).parts
     if not parts or pathlib.PurePosixPath(path).is_absolute() or any(part in ("", ".", "..") for part in parts):
         raise ValueError("invalid staged path: {}".format(path))
     return "/".join(parts)
 
 
-def _check_link(source_path, root):
+def _check_link(source_path: pathlib.Path, root: pathlib.Path) -> str:
     link_target = os.readlink(source_path)
     if (
         not link_target
@@ -34,7 +38,7 @@ def _check_link(source_path, root):
     return link_target
 
 
-def _tree_item_entry(item, source, owner, generated):
+def _tree_item_entry(item: os.DirEntry[str], source: pathlib.Path, owner: str, generated: bool) -> _Entry:
     source_path = pathlib.Path(item.path)
     if item.is_symlink():
         if generated and os.path.isabs(os.readlink(source_path)):
@@ -49,18 +53,18 @@ def _tree_item_entry(item, source, owner, generated):
     raise ValueError("unsupported entry in declared tree: {}".format(source_path))
 
 
-def _tree_entries(source, destination, owner, generated=False):
+def _tree_entries(source: pathlib.Path, destination: str, owner: str, generated: bool = False) -> dict[str, _Entry]:
     """Returns every entry in a declared tree before touching the output."""
     source = source.resolve()
     if not source.is_dir():
         raise ValueError("{} is not a directory".format(source))
 
-    entries = {}
+    entries: dict[str, _Entry] = {}
     destination = destination.rstrip("/")
     if destination:
         entries[destination] = (owner, "directory", source, None)
 
-    def visit(source_dir, relative):
+    def visit(source_dir: pathlib.Path, relative: str) -> None:
         for item in sorted(os.scandir(source_dir), key=lambda entry: entry.name):
             child = "/".join(part for part in (destination, relative, item.name) if part)
             entries[child] = _tree_item_entry(item, source, owner, generated)
@@ -74,7 +78,7 @@ def _tree_entries(source, destination, owner, generated=False):
 _TREE_ROLES = ("tree", "generated-tree")
 
 
-def _check_source_overlap(canonical_sources, source):
+def _check_source_overlap(canonical_sources: dict[pathlib.Path, pathlib.Path], source: pathlib.Path) -> None:
     """Rejects a source that aliases, contains, or is contained in an earlier mapping source."""
     canonical = source.resolve()
     for prior_canonical, prior_source in canonical_sources.items():
@@ -95,11 +99,11 @@ _MAX_BAZEL_LINKS = 8
 _REPOSITORY_MARKERS = ("MODULE.bazel", "REPO.bazel", "WORKSPACE", "WORKSPACE.bazel")
 
 
-def _is_repository_root(directory):
+def _is_repository_root(directory: pathlib.Path) -> bool:
     return any((directory / name).is_file() for name in _REPOSITORY_MARKERS)
 
 
-def _is_bazel_tree(directory):
+def _is_bazel_tree(directory: pathlib.Path) -> bool:
     """Whether Bazel laid out directory: the execroot, which links the main repository's files, or a fetched
     repository below <output_base>/external, which Bazel marks with @<name>.marker."""
     if any((directory / name).is_symlink() for name in _REPOSITORY_MARKERS):
@@ -108,11 +112,11 @@ def _is_bazel_tree(directory):
     return resolved.parent.name == "external" and (resolved.parent / "@{}.marker".format(resolved.name)).is_file()
 
 
-def _is_source_checkout(directory):
+def _is_source_checkout(directory: pathlib.Path) -> bool:
     return _is_repository_root(directory) and not _is_bazel_tree(directory)
 
 
-def _mirrors(repository, directory):
+def _mirrors(repository: pathlib.Path, directory: pathlib.Path) -> bool:
     """Whether repository links every entry of directory, as new_local_repository lays out a repository."""
     try:
         names = os.listdir(directory)
@@ -124,7 +128,9 @@ def _mirrors(repository, directory):
     )
 
 
-def _bazel_hop(link, parts, index, repository_depth):
+def _bazel_hop(
+    link: pathlib.Path, parts: Sequence[str], index: int, repository_depth: int
+) -> tuple[pathlib.Path, int] | None:
     """Returns (root, consumed parts) to restart from if link is one of Bazel's own, otherwise None.
 
     A sandbox, runfiles or execroot link points at the same path below a repository root or an output base. A link at
@@ -146,7 +152,9 @@ def _bazel_hop(link, parts, index, repository_depth):
     return None
 
 
-def _walk_source_file(root, parts, package_depth, source):
+def _walk_source_file(
+    root: pathlib.Path, parts: Sequence[str], package_depth: int, source: str
+) -> tuple[pathlib.Path, int] | None:
     """Walks parts below root and returns (root, consumed parts) after one of Bazel's links, or None at the file.
 
     Bazel's links are only followed until the walk enters a source checkout, so links inside it fail.
@@ -170,7 +178,7 @@ def _walk_source_file(root, parts, package_depth, source):
     return None
 
 
-def _check_source_file(source, package):
+def _check_source_file(source: str, package: str) -> None:
     """Rejects a declared source file that is, or lies below, a symlink inside its package.
 
     Only Bazel's own sandbox, runfiles, execroot and repository links are followed.
@@ -188,7 +196,7 @@ def _check_source_file(source, package):
     raise ValueError("source file {} is behind too many links".format(source))
 
 
-def _mapping_entries(source, destination, owner, role):
+def _mapping_entries(source: pathlib.Path, destination: str, owner: str, role: str) -> dict[str, _Entry]:
     """Returns the staged entries of one mapping."""
     if role in _TREE_ROLES and not source.is_dir():
         raise ValueError("source-tree mapping must be a directory: {}".format(source))
@@ -205,7 +213,7 @@ def _mapping_entries(source, destination, owner, role):
     return {destination: (owner, "file", source, None)}
 
 
-def _check_prefix_collisions(entries, destination, owner):
+def _check_prefix_collisions(entries: Mapping[str, _Entry], destination: str, owner: str) -> None:
     """Rejects a mapping nested under, or containing, another mapping, even when one side is empty."""
     for prior_path, prior in entries.items():
         if prior[0] == owner or not destination or not prior_path:
@@ -223,7 +231,13 @@ def _check_prefix_collisions(entries, destination, owner):
             raise ValueError("prefix staged collision between '{}' and '{}'".format(destination, prior_path))
 
 
-def _add_mapping(entries, canonical_sources, mapping, merge, shared_owners):
+def _add_mapping(
+    entries: dict[str, _Entry],
+    canonical_sources: dict[pathlib.Path, pathlib.Path],
+    mapping: Sequence[str],
+    merge: bool,
+    shared_owners: dict[str, set[str]],
+) -> None:
     """Adds one mapping; merge allows shared sources and merged directories, but still rejects colliding files.
 
     shared_owners collects every mapping that contributes a merged directory.
@@ -241,7 +255,7 @@ def _add_mapping(entries, canonical_sources, mapping, merge, shared_owners):
         merged = merge and prior is not None and prior[1] == entry[1] == "directory"
         if prior is not None and prior[0] != owner and not merged:
             raise ValueError("exact staged collision at '{}'".format(path))
-        if merged:
+        if merged and prior is not None:
             shared_owners.setdefault(path, {prior[0]}).add(owner)
         else:
             entries[path] = entry
@@ -249,8 +263,11 @@ def _add_mapping(entries, canonical_sources, mapping, merge, shared_owners):
         _check_prefix_collisions(entries, destination, owner)
 
 
-def _check_staged_symlink(entries, path, entry, shared_owners):
-    target = pathlib.PurePosixPath(path).parent / entry[3]
+def _check_staged_symlink(
+    entries: Mapping[str, _Entry], path: str, entry: _Entry, shared_owners: Mapping[str, set[str]]
+) -> None:
+    # Symlink entries always have a link target.
+    target = pathlib.PurePosixPath(path).parent / cast(str, entry[3])
     normalised = pathlib.PurePosixPath(os.path.normpath(str(target)))
     if normalised.is_absolute() or ".." in normalised.parts:
         raise ValueError("staged symlink escapes output root: {}".format(path))
@@ -262,7 +279,7 @@ def _check_staged_symlink(entries, path, entry, shared_owners):
         raise ValueError("staged symlink aliases another mapping at '{}'".format(path))
 
 
-def _check_layout(entries, shared_owners):
+def _check_layout(entries: Mapping[str, _Entry], shared_owners: Mapping[str, set[str]]) -> None:
     """Rejects non-directories with staged children and symlinks that leave their own mapping."""
     paths = sorted(entries)
     for index, path in enumerate(paths):
@@ -276,18 +293,18 @@ def _check_layout(entries, shared_owners):
             _check_staged_symlink(entries, path, entry, shared_owners)
 
 
-def _manifest(mappings, merge=False):
+def _manifest(mappings: Iterable[Sequence[str]], merge: bool = False) -> dict[str, _Entry]:
     """Build and validate the complete staged manifest without writing."""
-    entries = {}
-    canonical_sources = {}
-    shared_owners = {}
+    entries: dict[str, _Entry] = {}
+    canonical_sources: dict[pathlib.Path, pathlib.Path] = {}
+    shared_owners: dict[str, set[str]] = {}
     for mapping in mappings:
         _add_mapping(entries, canonical_sources, mapping, merge, shared_owners)
     _check_layout(entries, shared_owners)
     return entries
 
 
-def _copy_manifest(output, entries, executable_paths):
+def _copy_manifest(output: pathlib.Path, entries: Mapping[str, _Entry], executable_paths: Collection[str]) -> None:
     directories = {output}
     for path, (_, kind, _, _) in entries.items():
         parts = path.split("/")
@@ -304,7 +321,7 @@ def _copy_manifest(output, entries, executable_paths):
         target = output.joinpath(*path.split("/"))
         if kind == "symlink":
             target.parent.mkdir(parents=True, exist_ok=True)
-            target.symlink_to(link_target)
+            target.symlink_to(cast(str, link_target))
             os.utime(target, _EPOCH, follow_symlinks=False)
         elif kind == "file":
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -316,7 +333,7 @@ def _copy_manifest(output, entries, executable_paths):
         os.utime(target, _EPOCH, follow_symlinks=False)
 
 
-def _write_manifest(path, entries, executable_paths):
+def _write_manifest(path: pathlib.Path, entries: Mapping[str, _Entry], executable_paths: Collection[str]) -> None:
     manifest = []
     for staged_path, (_, kind, _, link_target) in sorted(entries.items()):
         manifest.append(
@@ -330,7 +347,7 @@ def _write_manifest(path, entries, executable_paths):
     path.write_text(json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n")
 
 
-def _executable_paths(executables, entries):
+def _executable_paths(executables: Iterable[str], entries: Mapping[str, _Entry]) -> set[str]:
     executable_paths = {_normalise_relative(path) for path in executables}
     for path in executable_paths:
         if path not in entries or entries[path][1] != "file":
@@ -338,7 +355,7 @@ def _executable_paths(executables, entries):
     return executable_paths
 
 
-def _reset_output(output):
+def _reset_output(output: pathlib.Path) -> None:
     if output.exists():
         if not output.is_dir():
             raise ValueError("staging output is not a directory: {}".format(output))
@@ -346,7 +363,7 @@ def _reset_output(output):
     output.mkdir(parents=True, exist_ok=True)
 
 
-def _arguments():
+def _arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", required=True, type=pathlib.Path)
     parser.add_argument(
@@ -377,7 +394,7 @@ def _arguments():
     return args
 
 
-def main():
+def main() -> None:
     args = _arguments()
     if args.output.is_symlink():
         raise ValueError("staging output already exists: {}".format(args.output))

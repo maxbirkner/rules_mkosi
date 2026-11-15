@@ -9,7 +9,9 @@ import runpy
 import struct
 import uuid
 import zlib
+from collections.abc import Iterable, Sequence
 from pathlib import Path
+from typing import IO, TypedDict
 
 _load_sibling = runpy.run_path(str(Path(__file__).with_name("sibling_loader.py")))["load_sibling"]
 gpt = _load_sibling(__file__, "gpt_partitions")
@@ -21,7 +23,52 @@ _MAX_ENTRIES = 1024 * 1024
 _HASH_CHUNK_BYTES = 1024 * 1024
 
 
-def _read_exact(image, offset, size, image_size, description):
+class _HeaderFields(TypedDict):
+    """The location, geometry and partition-array fields of a GPT header."""
+
+    array_crc: int
+    backup: int
+    count: int
+    current: int
+    entries_lba: int
+    entry_size: int
+    first_usable: int
+    last_usable: int
+
+
+class _Header(TypedDict):
+    """A validated GPT header with its raw bytes and partition array."""
+
+    array: bytes
+    array_offset: int
+    count: int
+    disk_guid: bytes
+    entry_size: int
+    entries_lba: int
+    first_usable: int
+    header_offset: int
+    header_size: int
+    last_usable: int
+    raw_header: bytes
+
+
+class _Partition(TypedDict):
+    """The normalized metadata of one populated GPT partition entry."""
+
+    label: str
+    number: int
+    size_bytes: int
+    start_bytes: int
+    type_guid: str
+
+
+class _SlotPartition(_Partition, total=False):
+    """A partition of a versioned A/B image, which also records its unique partition GUID."""
+
+    uuid: str
+
+
+def _read_exact(image: IO[bytes], offset: int, size: int, image_size: int, description: str) -> bytes:
     if offset < 0 or size < 0 or offset > image_size or size > image_size - offset:
         raise ValueError("{} is outside the image".format(description))
     image.seek(offset)
@@ -31,14 +78,14 @@ def _read_exact(image, offset, size, image_size, description):
     return value
 
 
-def _require(checks):
+def _require(checks: Iterable[tuple[bool, str]]) -> None:
     """Raises ValueError with the message of the first failed (passed, message) check."""
     for passed, message in checks:
         if not passed:
             raise ValueError(message)
 
 
-def _check_header_bytes(raw, sector_size, description):
+def _check_header_bytes(raw: bytes, sector_size: int, description: str) -> int:
     """Validates the signature, revision, size, CRC and reserved bytes of one GPT header sector."""
     revision, header_size, header_crc = struct.unpack_from("<III", raw, 8)
     checked = bytearray(raw[:header_size])
@@ -55,7 +102,9 @@ def _check_header_bytes(raw, sector_size, description):
     return header_size
 
 
-def _check_header_geometry(fields, lba, expected_backup, last_lba, description):
+def _check_header_geometry(
+    fields: _HeaderFields, lba: int, expected_backup: int, last_lba: int, description: str
+) -> None:
     """Validates header locations, the usable range and partition-array bounds before the array is read."""
     _require(
         (
@@ -81,7 +130,9 @@ def _check_header_geometry(fields, lba, expected_backup, last_lba, description):
     )
 
 
-def _check_array_location(fields, lba, last_lba, array_last_lba, description):
+def _check_array_location(
+    fields: _HeaderFields, lba: int, last_lba: int, array_last_lba: int, description: str
+) -> None:
     entries_lba = fields["entries_lba"]
     _require(
         (
@@ -101,7 +152,7 @@ def _check_array_location(fields, lba, last_lba, array_last_lba, description):
     )
 
 
-def _header_fields(raw):
+def _header_fields(raw: bytes) -> _HeaderFields:
     current, backup, first_usable, last_usable = struct.unpack_from("<QQQQ", raw, 24)
     entries_lba, count, entry_size, array_crc = struct.unpack_from("<QIII", raw, 72)
     return {
@@ -116,7 +167,9 @@ def _header_fields(raw):
     }
 
 
-def _header(image, image_size, sector_size, lba, expected_backup, description):
+def _header(
+    image: IO[bytes], image_size: int, sector_size: int, lba: int, expected_backup: int, description: str
+) -> _Header:
     raw = _read_exact(image, lba * sector_size, sector_size, image_size, description)
     header_size = _check_header_bytes(raw, sector_size, description)
     fields = _header_fields(raw)
@@ -144,7 +197,7 @@ def _header(image, image_size, sector_size, lba, expected_backup, description):
     }
 
 
-def _sector_size(image, image_size):
+def _sector_size(image: IO[bytes], image_size: int) -> int:
     candidates = []
     for size in (512, 4096):
         if image_size % size == 0 and image_size >= size * 3:
@@ -156,7 +209,7 @@ def _sector_size(image, image_size):
     return candidates[0]
 
 
-def _validated_gpt(path):
+def _validated_gpt(path: str | Path) -> tuple[int, int, _Header, _Header]:
     image_size = os.path.getsize(path)
     with open(path, "rb") as image:
         sector_size = _sector_size(image, image_size)
@@ -177,7 +230,7 @@ def _validated_gpt(path):
     return image_size, sector_size, primary, backup
 
 
-def _validate_ab_slots(partitions, slot_label):
+def _validate_ab_slots(partitions: Sequence[_Partition], slot_label: str) -> None:
     """Requires one populated, versioned slot; other root/verity slots must be inactive."""
     expected = {gpt.ROOT_X86_64: slot_label, gpt.ROOT_X86_64_VERITY: slot_label + "_verity"}
     for type_guid, label in expected.items():
@@ -200,7 +253,9 @@ def _validate_ab_slots(partitions, slot_label):
             )
 
 
-def _check_entry_range(number, first, last, primary, previous):
+def _check_entry_range(
+    number: int, first: int, last: int, primary: _Header, previous: tuple[int, int, int] | None
+) -> None:
     """Validates one partition extent against the usable range and the previous populated entry."""
     if first > last:
         raise ValueError("partition {} has an invalid range".format(number))
@@ -215,7 +270,7 @@ def _check_entry_range(number, first, last, primary, previous):
         raise ValueError("partition {} overlaps partition {}".format(number, previous_number))
 
 
-def _project_entry(entry, number, first, last, sector_size):
+def _project_entry(entry: bytes, number: int, first: int, last: int, sector_size: int) -> _SlotPartition:
     start_bytes = first * sector_size
     if start_bytes % ALIGNMENT:
         raise ValueError("partition {} is not 1 MiB aligned".format(number))
@@ -232,7 +287,7 @@ def _project_entry(entry, number, first, last, sector_size):
     }
 
 
-def _validate_roots(partitions, slot_label):
+def _validate_roots(partitions: Sequence[_Partition], slot_label: str | None) -> None:
     if slot_label is not None:
         _validate_ab_slots(partitions, slot_label)
         return
@@ -243,7 +298,7 @@ def _validate_roots(partitions, slot_label):
         raise ValueError("Linux x86-64 root partition label must be root-x86-64")
 
 
-def _validate_firmware(partitions, firmware):
+def _validate_firmware(partitions: Sequence[_Partition], firmware: str) -> None:
     if firmware == "uefi":
         return
     if firmware != "bios":
@@ -255,11 +310,11 @@ def _validate_firmware(partitions, firmware):
         raise ValueError("GPT BIOS boot partition must be at least 1 MiB")
 
 
-def project_image(path, firmware="uefi", slot_label=None):
+def project_image(path: str | Path, firmware: str = "uefi", slot_label: str | None = None) -> dict[str, object]:
     _, sector_size, primary, _ = _validated_gpt(path)
     entry_size = primary["entry_size"]
-    partitions = []
-    previous = None
+    partitions: list[_SlotPartition] = []
+    previous: tuple[int, int, int] | None = None
     # One linear scan over the entry array; hostile tables can declare up to _MAX_ENTRIES entries.
     for slot in range(primary["count"]):
         entry = primary["array"][slot * entry_size : (slot + 1) * entry_size]
@@ -282,7 +337,7 @@ def project_image(path, firmware="uefi", slot_label=None):
     }
 
 
-def _canonical_header(header, array_crc):
+def _canonical_header(header: _Header, array_crc: int) -> bytes:
     result = bytearray(header["raw_header"])
     result[16:20] = b"\0" * 4
     result[56:72] = b"\0" * 16
@@ -291,7 +346,7 @@ def _canonical_header(header, array_crc):
     return bytes(result)
 
 
-def _hash_bytes(image, digest, size):
+def _hash_bytes(image: IO[bytes], digest: "hashlib._Hash", size: int) -> None:
     """Feeds the next size bytes of image into digest in bounded chunks."""
     while size:
         chunk = image.read(min(_HASH_CHUNK_BYTES, size))
@@ -301,7 +356,7 @@ def _hash_bytes(image, digest, size):
         size -= len(chunk)
 
 
-def _hash_with_patches(path, image_size, patches):
+def _hash_with_patches(path: str | Path, image_size: int, patches: Iterable[tuple[int, bytes]]) -> str:
     digest = hashlib.sha256()
     cursor = 0
     with open(path, "rb") as image:
@@ -316,18 +371,18 @@ def _hash_with_patches(path, image_size, patches):
     return digest.hexdigest()
 
 
-def canonical_image_sha256(path, slot_label=None):
+def canonical_image_sha256(path: str | Path, slot_label: str | None = None) -> str:
     """Hashes every image byte after normalizing only GPT identity and CRC fields.
 
     slot_label is the expected label of a versioned A/B image's populated root slot, as for project_image.
     """
     project_image(path, slot_label=slot_label)
     image_size, _, primary, backup = _validated_gpt(path)
-    array = bytearray(primary["array"])
+    normalized = bytearray(primary["array"])
     for slot in range(primary["count"]):
         offset = slot * primary["entry_size"]
-        array[offset + 16 : offset + 32] = b"\0" * 16
-    array = bytes(array)
+        normalized[offset + 16 : offset + 32] = b"\0" * 16
+    array = bytes(normalized)
     array_crc = zlib.crc32(array)
     patches = [
         (primary["header_offset"], _canonical_header(primary, array_crc)),
@@ -338,7 +393,7 @@ def canonical_image_sha256(path, slot_label=None):
     return _hash_with_patches(path, image_size, patches)
 
 
-def _image_version_from_file(path, slot_label_image_id):
+def _image_version_from_file(path: str, slot_label_image_id: str) -> str:
     """Returns the validated version in path using the sibling image_version.py helper.
 
     The helper is loaded only here, so modules that import this one for GPT projection do not need it.
@@ -350,7 +405,7 @@ def _image_version_from_file(path, slot_label_image_id):
         raise SystemExit("IMAGE_VERSION_INVALID: {}".format(error)) from None
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--image", required=True)
     parser.add_argument("--output", required=True)

@@ -9,8 +9,9 @@ import os
 import runpy
 import struct
 import tempfile
+from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
-from typing import NamedTuple
+from typing import IO, Any, NamedTuple, TypedDict
 
 _load_sibling = runpy.run_path(str(Path(__file__).with_name("sibling_loader.py")))["load_sibling"]
 gpt = _load_sibling(__file__, "gpt_partitions")
@@ -23,14 +24,27 @@ MAX_SPOOL_BYTES = 2 * 1024**3
 SUPERBLOCK_SIZE = 512
 
 
-def _digest_size(algorithm):
+class _Geometry(TypedDict):
+    """The validated hash tree geometry of a dm-verity superblock."""
+
+    algorithm: str
+    data_block_size: int
+    data_blocks: int
+    digest_size: int
+    hash_block_size: int
+    slot_size: int
+    salt: bytes
+    superblock: bytes
+
+
+def _digest_size(algorithm: str) -> int:
     try:
         return hashlib.new(algorithm).digest_size
     except ValueError as error:
         raise ValueError("unsupported dm-verity hash algorithm") from error
 
 
-def _slot_size(data_block_size, hash_block_size, digest_size):
+def _slot_size(data_block_size: int, hash_block_size: int, digest_size: int) -> int:
     """Validates the block sizes and returns the power-of-two slot that holds one digest in a hash block."""
     if data_block_size < 512 or data_block_size > 1024 * 1024 or data_block_size & (data_block_size - 1):
         raise ValueError("invalid dm-verity data block size")
@@ -42,7 +56,7 @@ def _slot_size(data_block_size, hash_block_size, digest_size):
     return slot_size
 
 
-def _read_superblock(path):
+def _read_superblock(path: str | Path) -> _Geometry:
     with open(path, "rb") as source:
         value = source.read(SUPERBLOCK_SIZE)
     if len(value) != SUPERBLOCK_SIZE or value[:8] != b"verity\0\0":
@@ -72,14 +86,14 @@ def _read_superblock(path):
     }
 
 
-def _salted_digest(geometry, data):
+def _salted_digest(geometry: _Geometry, data: bytes | bytearray) -> bytes:
     digest = hashlib.new(geometry["algorithm"])
     digest.update(geometry["salt"])
     digest.update(data)
     return digest.digest()
 
 
-def _leaf_digests(source_path, geometry, output):
+def _leaf_digests(source_path: str | Path, geometry: _Geometry, output: IO[bytes]) -> None:
     block_size = geometry["data_block_size"]
     with open(source_path, "rb") as source:
         for _ in range(geometry["data_blocks"]):
@@ -89,8 +103,8 @@ def _leaf_digests(source_path, geometry, output):
             output.write(_salted_digest(geometry, block))
 
 
-def _level_counts(data_blocks, per_block):
-    counts = []
+def _level_counts(data_blocks: int, per_block: int) -> list[int]:
+    counts: list[int] = []
     digests = data_blocks
     while digests > 1:
         blocks = (digests + per_block - 1) // per_block
@@ -101,11 +115,11 @@ def _level_counts(data_blocks, per_block):
     return counts
 
 
-def _temporary():
+def _temporary() -> IO[bytes]:
     return tempfile.NamedTemporaryFile(prefix=".verity-digests-", dir=".", delete=False)
 
 
-def _check_spool_budget(geometry, counts):
+def _check_spool_budget(geometry: _Geometry, counts: Sequence[int]) -> None:
     """Bounds the two digest spools that exist at once: the leaf level and the first hash level."""
     leaf_bytes = geometry["data_blocks"] * geometry["digest_size"]
     next_bytes = counts[0] * geometry["digest_size"] if counts else 0
@@ -113,7 +127,7 @@ def _check_spool_budget(geometry, counts):
         raise ValueError("dm-verity digest spools exceed the resource limit")
 
 
-def _level_offsets(counts, tree_offset, block_size):
+def _level_offsets(counts: Sequence[int], tree_offset: int, block_size: int) -> tuple[list[int], int]:
     """Returns the emitted offset of every level and the tree size; dm-verity stores the top level first."""
     offsets = []
     preceding = 0
@@ -124,7 +138,7 @@ def _level_offsets(counts, tree_offset, block_size):
     return offsets, preceding * block_size
 
 
-def _expected_block(current, digests, geometry):
+def _expected_block(current: IO[bytes], digests: int, geometry: _Geometry) -> bytearray:
     """Packs the next digests from the current spool into one zero-padded hash block."""
     digest_size = geometry["digest_size"]
     padding = b"\0" * (geometry["slot_size"] - digest_size)
@@ -146,7 +160,9 @@ class _DigestSpool(NamedTuple):
     digest_count: int
 
 
-def _verify_level(level, block_count, below, emitted, geometry, output):
+def _verify_level(
+    level: int, block_count: int, below: _DigestSpool, emitted: IO[bytes], geometry: _Geometry, output: IO[bytes]
+) -> None:
     """Compares one emitted level with the digests of the level below and spools the level's own digests."""
     block_size = geometry["hash_block_size"]
     per_block = block_size // geometry["slot_size"]
@@ -161,7 +177,7 @@ def _verify_level(level, block_count, below, emitted, geometry, output):
             output.write(_salted_digest(geometry, block))
 
 
-def _read_root_digest(path, digest_size):
+def _read_root_digest(path: str, digest_size: int) -> bytes:
     with open(path, "rb") as root:
         verified_root = root.read(digest_size)
         if len(verified_root) != digest_size or root.read(1):
@@ -169,25 +185,27 @@ def _read_root_digest(path, digest_size):
     return verified_root
 
 
-def _new_spool(paths):
+def _new_spool(paths: list[str]) -> IO[bytes]:
     spool = _temporary()
     paths.append(spool.name)
     return spool
 
 
-def _remove_spools(paths):
+def _remove_spools(paths: Iterable[str]) -> None:
     for path in paths:
         with contextlib.suppress(FileNotFoundError):
             os.unlink(path)
 
 
-def _verify_tree(root_image_path, hash_image_path, geometry, tree_offset):
+def _verify_tree(
+    root_image_path: str | Path, hash_image_path: str | Path, geometry: _Geometry, tree_offset: int
+) -> tuple[list[int], bytes, int]:
     """Recomputes every hash level from the root artifact and compares it with the emitted hash tree."""
     block_size = geometry["hash_block_size"]
     counts = _level_counts(geometry["data_blocks"], block_size // geometry["slot_size"])
     _check_spool_budget(geometry, counts)
     level_offsets, tree_size = _level_offsets(counts, tree_offset, block_size)
-    paths = []
+    paths: list[str] = []
     try:
         leaf = _new_spool(paths)
         with leaf:
@@ -207,14 +225,14 @@ def _verify_tree(root_image_path, hash_image_path, geometry, tree_offset):
         _remove_spools(paths)
 
 
-def _all_zero(source):
+def _all_zero(source: IO[bytes]) -> bool:
     return not any(any(chunk) for chunk in iter(lambda: source.read(1024 * 1024), b""))
 
 
-def _root_partitions(partition_metadata_path):
+def _root_partitions(partition_metadata_path: str | Path) -> tuple[dict[str, Any], dict[str, Any]]:
     """Returns the populated root data and verity hash partitions; inactive A/B slots are ignored."""
     partitions = json.loads(Path(partition_metadata_path).read_text())["partitions"]
-    by_type = {}
+    by_type: dict[str, list[dict[str, Any]]] = {}
     slot_types = (gpt.ROOT_X86_64, gpt.ROOT_X86_64_VERITY)
     for partition in partitions:
         if partition.get("label") == gpt.EMPTY_SLOT_LABEL and partition["type_guid"] in slot_types:
@@ -227,7 +245,12 @@ def _root_partitions(partition_metadata_path):
     return by_type[gpt.ROOT_X86_64][0], by_type[gpt.ROOT_X86_64_VERITY][0]
 
 
-def _artifact_sizes(root_image_path, hash_image_path, root_partition, hash_partition):
+def _artifact_sizes(
+    root_image_path: str | Path,
+    hash_image_path: str | Path,
+    root_partition: Mapping[str, Any],
+    hash_partition: Mapping[str, Any],
+) -> tuple[int, int]:
     root_size = os.path.getsize(root_image_path)
     hash_size = os.path.getsize(hash_image_path)
     if root_size > MAX_ARTIFACT_BYTES or hash_size > MAX_ARTIFACT_BYTES:
@@ -239,33 +262,45 @@ def _artifact_sizes(root_image_path, hash_image_path, root_partition, hash_parti
     return root_size, hash_size
 
 
-def _check_superblock_padding(hash_image_path, tree_offset):
+def _check_superblock_padding(hash_image_path: str | Path, tree_offset: int) -> None:
     with open(hash_image_path, "rb") as source:
         header_block = source.read(tree_offset)
         if len(header_block) != tree_offset or any(header_block[SUPERBLOCK_SIZE:]):
             raise ValueError("dm-verity superblock padding is not canonical zero padding")
 
 
-def _check_zero_trailer(path, offset, name):
+def _check_zero_trailer(path: str | Path, offset: int, name: str) -> None:
     with open(path, "rb") as source:
         source.seek(offset)
         if not _all_zero(source):
             raise ValueError("{} artifact has nonzero ambiguous trailing bytes".format(name))
 
 
-def _artifact(path, size):
+def _check_root_coverage(root_image_path: str | Path, root_size: int, geometry: _Geometry) -> None:
+    """Checks that the data blocks fit in the root artifact and that the bytes after them are zero.
+
+    A minimized read-only root covers only its file system; the rest of its partition must be zero.
+    """
+    if geometry["data_blocks"] * geometry["data_block_size"] > root_size:
+        raise ValueError("dm-verity data geometry exceeds the root artifact")
+    _check_zero_trailer(root_image_path, geometry["data_blocks"] * geometry["data_block_size"], "root")
+
+
+def _artifact(path: str | Path, size: int) -> dict[str, object]:
     return {"sha256": file_hashing.sha256_file(path), "size": size}
 
 
-def project(root_hash_path, partition_metadata_path, root_image_path, hash_image_path):
+def project(
+    root_hash_path: str | Path,
+    partition_metadata_path: str | Path,
+    root_image_path: str | Path,
+    hash_image_path: str | Path,
+) -> dict[str, object]:
     root_hash = Path(root_hash_path).read_text().strip().lower()
     root_partition, hash_partition = _root_partitions(partition_metadata_path)
     root_size, hash_size = _artifact_sizes(root_image_path, hash_image_path, root_partition, hash_partition)
     geometry = _read_superblock(hash_image_path)
-    # A minimized read-only root covers only its file system; the rest of its partition must be zero.
-    if geometry["data_blocks"] * geometry["data_block_size"] > root_size:
-        raise ValueError("dm-verity data geometry exceeds the root artifact")
-    _check_zero_trailer(root_image_path, geometry["data_blocks"] * geometry["data_block_size"], "root")
+    _check_root_coverage(root_image_path, root_size, geometry)
     tree_offset = geometry["hash_block_size"]
     _check_superblock_padding(hash_image_path, tree_offset)
     levels, verified_root, tree_size = _verify_tree(root_image_path, hash_image_path, geometry, tree_offset)
@@ -296,7 +331,7 @@ def project(root_hash_path, partition_metadata_path, root_image_path, hash_image
     }
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root-hash", required=True)
     parser.add_argument("--partition-metadata", required=True)

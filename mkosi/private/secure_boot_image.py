@@ -17,7 +17,10 @@ import shlex
 import shutil
 import struct
 import subprocess
+import uuid
+from collections.abc import Collection, Iterable, Mapping, Sequence
 from pathlib import Path
+from typing import TypedDict
 
 _load_sibling = runpy.run_path(str(Path(__file__).with_name("sibling_loader.py")))["load_sibling"]
 efi_auth = _load_sibling(__file__, "efi_auth")
@@ -34,15 +37,26 @@ _LOADER_CONF = "loader/loader.conf"
 _KEYS = "loader/keys/auto"
 # Earliest FAT timestamp; used when the ESP holds no file to take a timestamp from.
 _FAT_EPOCH = 315532800
+# The (signature type, signature data) pairs of the EFI_SIGNATURE_LISTs of an .auth file.
+_SignatureLists = list[tuple[uuid.UUID, list[bytes]]]
 
 
-def _sha256(data):
+class _Replacement(TypedDict):
+    """A verified signed binary, its signer certificate, and the ESP paths of the unsigned binary that it replaces."""
+
+    certificate: bytes
+    name: str
+    paths: list[str]
+    signed: Path
+
+
+def _sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def _replacements(signed_arguments):
+def _replacements(signed_arguments: Iterable[Sequence[str]]) -> dict[str, _Replacement]:
     """Returns the signed binaries keyed by the SHA-256 of the unsigned binary that their request names."""
-    replacements = {}
+    replacements: dict[str, _Replacement] = {}
     for signed, request, certificate in signed_arguments:
         document = json.loads(Path(request).read_text(encoding="utf-8"))
         digest = document["unsigned_sha256"]
@@ -57,7 +71,7 @@ def _replacements(signed_arguments):
     return replacements
 
 
-def _is_unsigned_pe(data):
+def _is_unsigned_pe(data: bytes) -> bool:
     try:
         secure_boot.parse_pe(data, False)
     except (ValueError, struct.error):
@@ -65,7 +79,7 @@ def _is_unsigned_pe(data):
     return True
 
 
-def _entry_binaries(text):
+def _entry_binaries(text: str) -> list[str]:
     """Returns the lowercase ESP paths of the linux and efi keys of a boot loader entry.
 
     Like systemd-boot, splits each line at the first space or tab and strips one pair of surrounding double quotes.
@@ -81,26 +95,26 @@ def _entry_binaries(text):
     return paths
 
 
-def _startable(tree, esp_paths):
+def _startable(tree: Path, esp_paths: Iterable[str]) -> list[str]:
     """Returns the esp_paths that the firmware or systemd-boot can start.
 
     Those are *.efi files, which the firmware's boot options and systemd-boot's discovery name, and the linux and efi
     files of boot loader entries. Other files, such as a kernel that kernel-install left on the ESP, are never started.
     """
-    referenced = set()
+    referenced: set[str] = set()
     for esp_path in esp_files.tree_files(tree):
         if esp_path.lower().startswith("loader/entries/") and esp_path.lower().endswith(".conf"):
             referenced.update(_entry_binaries((tree / esp_path).read_text(encoding="utf-8", errors="replace")))
     return [path for path in esp_paths if path.lower().endswith(".efi") or path.lower() in referenced]
 
 
-def _assign(tree, replacements):
+def _assign(tree: Path, replacements: Mapping[str, _Replacement]) -> list[str]:
     """Records the ESP paths of each replacement and returns the startable, already signed, PE binaries.
 
     Fails if a replacement is unused or an unsigned PE binary would remain.
     """
-    unsigned = []
-    signed = []
+    unsigned: list[str] = []
+    signed: list[str] = []
     for esp_path in esp_files.tree_files(tree):
         data = (tree / esp_path).read_bytes()
         replacement = replacements.get(_sha256(data))
@@ -119,9 +133,9 @@ def _assign(tree, replacements):
     return _startable(tree, signed)
 
 
-def _enrollment_keys(paths):
+def _enrollment_keys(paths: Iterable[str]) -> dict[str, tuple[Path, _SignatureLists]]:
     """Returns the validated .auth files keyed by variable name with their signature lists."""
-    keys = {}
+    keys: dict[str, tuple[Path, _SignatureLists]] = {}
     for path in map(Path, paths):
         if path.suffix != ".auth" or path.stem in keys:
             raise ValueError("auto-enrollment files must be distinct <variable>.auth files, got {}".format(path.name))
@@ -136,7 +150,7 @@ def _enrollment_keys(paths):
     return keys
 
 
-def describe_keys(keys):
+def describe_keys(keys: Mapping[str, tuple[Path, _SignatureLists]]) -> list[dict[str, object]]:
     """Returns the records of the validated .auth files of _enrollment_keys, in PK, KEK, db, dbx order.
 
     Each record holds the file's ESP path, SHA-256 and size, and the SHA-256 fingerprints of the DER X.509
@@ -159,7 +173,7 @@ def describe_keys(keys):
     return records
 
 
-def describe_replacements(replacements):
+def describe_replacements(replacements: Mapping[str, _Replacement]) -> list[dict[str, str]]:
     """Returns the ESP paths of the signed binaries with their digests and signer certificate fingerprint."""
     replaced = [
         {
@@ -174,7 +188,9 @@ def describe_replacements(replacements):
     return sorted(replaced, key=lambda entry: entry["esp_path"])
 
 
-def build_esp_manifest(replacements, keys, mode):
+def build_esp_manifest(
+    replacements: Mapping[str, _Replacement], keys: Mapping[str, tuple[Path, _SignatureLists]], mode: str
+) -> dict[str, object]:
     """Returns the manifest that the ESP holds at ESP_MANIFEST, for tools that inspect a written image."""
     return {
         "auto_enroll_keys": describe_keys(keys),
@@ -184,11 +200,11 @@ def build_esp_manifest(replacements, keys, mode):
     }
 
 
-def _dump_json(document):
+def _dump_json(document: object) -> str:
     return json.dumps(document, indent=2, sort_keys=True) + "\n"
 
 
-def _db_trusts(args, bundle, signer, chain=None):
+def _db_trusts(args: argparse.Namespace, bundle: Path, signer: Path, chain: Path | None = None) -> bool:
     """Returns whether the db certificates in bundle trust signer, through the intermediate certificates in chain."""
     intermediates = ["-untrusted", chain] if chain else []
     try:
@@ -209,7 +225,7 @@ def _db_trusts(args, bundle, signer, chain=None):
     return True
 
 
-def _embedded_signer(args, scratch, tree, esp_path):
+def _embedded_signer(args: argparse.Namespace, scratch: Path, tree: Path, esp_path: str) -> tuple[Path, Path | None]:
     """Returns the files of the verified signer and of all certificates of the Authenticode signature of esp_path."""
     try:
         payload = secure_boot.embedded_authenticode((tree / esp_path).read_bytes())
@@ -228,14 +244,21 @@ def _embedded_signer(args, scratch, tree, esp_path):
     return signer, chain if chain.stat().st_size else None
 
 
-def _untrusted(paths):
+def _untrusted(paths: Iterable[str]) -> ValueError:
     return ValueError(
         "db.auth does not trust the certificate that signed {}; enrolling it would make the device refuse to "
         "boot".format(", ".join(paths))
     )
 
 
-def _check_db_trusts(args, scratch, db_lists, replacements, tree, presigned):
+def _check_db_trusts(
+    args: argparse.Namespace,
+    scratch: Path,
+    db_lists: _SignatureLists,
+    replacements: Mapping[str, _Replacement],
+    tree: Path,
+    presigned: Iterable[str],
+) -> None:
     """Fails unless db holds, or holds an issuer of, the signer of every signed binary on the ESP.
 
     That covers the imported signed binaries and the already signed binaries, such as a distribution-signed boot loader.
@@ -253,12 +276,12 @@ def _check_db_trusts(args, scratch, db_lists, replacements, tree, presigned):
             raise _untrusted([esp_path])
 
 
-def _find(tree_paths, esp_path):
+def _find(tree_paths: Iterable[str], esp_path: str) -> str | None:
     """Returns the existing path that a case-insensitive FAT lookup of esp_path finds, or None."""
     return next((path for path in tree_paths if path.lower() == esp_path.lower()), None)
 
 
-def _loader_conf(tree, mode):
+def _loader_conf(tree: Path, mode: str) -> tuple[str, str]:
     """Returns the ESP path and content of loader.conf with exactly one secure-boot-enroll line."""
     existing = _find(esp_files.tree_files(tree), _LOADER_CONF)
     lines = (tree / existing).read_text(encoding="utf-8").splitlines() if existing else []
@@ -266,13 +289,19 @@ def _loader_conf(tree, mode):
     return existing or _LOADER_CONF, "\n".join([*kept, "secure-boot-enroll " + mode]) + "\n"
 
 
-def _changes(args, scratch, tree, replacements, presigned):
+def _changes(
+    args: argparse.Namespace,
+    scratch: Path,
+    tree: Path,
+    replacements: Mapping[str, _Replacement],
+    presigned: Iterable[str],
+) -> tuple[dict[str, Path], dict[str, object]]:
     """Returns the new ESP files as {ESP path: source file} and the ESP manifest after validating every input."""
-    changes = {}
+    changes: dict[str, Path] = {}
     for replacement in replacements.values():
         for esp_path in replacement["paths"]:
             changes[esp_path] = replacement["signed"]
-    keys = {}
+    keys: dict[str, tuple[Path, _SignatureLists]] = {}
     if args.auto_enroll_key:
         keys = _enrollment_keys(args.auto_enroll_key)
         _check_db_trusts(args, scratch, keys["db"][1], replacements, tree, presigned)
@@ -289,14 +318,14 @@ def _changes(args, scratch, tree, replacements, presigned):
     return changes, manifest
 
 
-def _missing_directories(tree, changes):
+def _missing_directories(tree: Path, changes: Iterable[str]) -> list[str]:
     """Returns the ESP directories that the changed files need and the ESP lacks, parents first."""
     existing = {str(path.relative_to(tree)).lower() for path in tree.rglob("*") if path.is_dir()}
     needed = {str(parent) for esp_path in changes for parent in Path(esp_path).parents if str(parent) != "."}
     return sorted((directory for directory in needed if directory.lower() not in existing), key=len)
 
 
-def _apply(args, scratch, esp_image, tree, changes):
+def _apply(args: argparse.Namespace, scratch: Path, esp_image: Path, tree: Path, changes: Mapping[str, Path]) -> None:
     """Copies the changes into esp_image with stable timestamps and copies the result to scratch/verify."""
     timestamps = [int((tree / path).stat().st_mtime) for path in esp_files.tree_files(tree)]
     epoch = max(timestamps, default=_FAT_EPOCH)
@@ -317,7 +346,7 @@ def _apply(args, scratch, esp_image, tree, changes):
     esp_files.run_script(args.tools, scratch, lines, {"SOURCE_DATE_EPOCH": str(epoch), "TZ": "UTC"})
 
 
-def _verify(scratch, changes):
+def _verify(scratch: Path, changes: Mapping[str, Path]) -> None:
     """Fails unless every changed ESP file now holds its source's bytes."""
     verify = scratch / "verify"
     files = esp_files.tree_files(verify)
@@ -327,7 +356,7 @@ def _verify(scratch, changes):
             raise ValueError("the rewritten ESP does not hold {}".format(esp_path))
 
 
-def _metadata(manifest, changes):
+def _metadata(manifest: dict[str, object], changes: Collection[str]) -> dict[str, object]:
     """Returns the record of the build: the ESP manifest's fields with the changed ESP paths."""
     return manifest | {
         "changed_esp_paths": sorted(changes),
@@ -336,7 +365,7 @@ def _metadata(manifest, changes):
     }
 
 
-def sign_image(args):
+def sign_image(args: argparse.Namespace) -> None:
     scratch = Path(args.scratch)
     shutil.rmtree(scratch, ignore_errors=True)
     scratch.mkdir(mode=0o700, parents=True)
@@ -360,7 +389,7 @@ def sign_image(args):
         shutil.rmtree(scratch, ignore_errors=True)
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ("tools", "image", "partition-metadata", "scratch", "output", "metadata"):
         parser.add_argument("--" + name, required=True)

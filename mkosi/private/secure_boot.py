@@ -16,7 +16,9 @@ import shutil
 import struct
 import subprocess
 import uuid
+from collections.abc import Callable, Mapping
 from pathlib import Path
+from typing import TypedDict
 
 _load_sibling = runpy.run_path(str(Path(__file__).with_name("sibling_loader.py")))["load_sibling"]
 efi_auth = _load_sibling(__file__, "efi_auth")
@@ -47,7 +49,18 @@ _DER_TIMES = {
 }
 
 
-def isolated_certificate_der(data):
+class PeLayout(TypedDict):
+    """The offsets of the PE/COFF fields and the section ranges that the Authenticode hash covers or skips."""
+
+    certificate_offset: int
+    certificate_size: int
+    checksum: int
+    security_directory: int
+    sections: list[tuple[int, int]]
+    size_headers: int
+
+
+def isolated_certificate_der(data: bytes) -> bytes:
     begin = b"-----BEGIN CERTIFICATE-----"
     end_marker = b"-----END CERTIFICATE-----"
     if begin in data or end_marker in data:
@@ -67,17 +80,17 @@ def isolated_certificate_der(data):
     return data
 
 
-def certificate_der(path):
+def certificate_der(path: str | Path) -> bytes:
     return isolated_certificate_der(Path(path).read_bytes())
 
 
-def certificate_pem(data):
+def certificate_pem(data: bytes) -> bytes:
     body = base64.b64encode(data)
     lines = [body[index : index + 64] for index in range(0, len(body), 64)]
     return b"-----BEGIN CERTIFICATE-----\n" + b"\n".join(lines) + b"\n-----END CERTIFICATE-----\n"
 
 
-def _openssl_der(openssl, source):
+def _openssl_der(openssl: str, source: Path) -> bytes:
     """Returns OpenSSL's DER re-encoding of the X.509 certificate in source."""
     result = run_tool(
         openssl, "/usr/bin/openssl", "x509", "-inform", "DER", "-in", source, "-outform", "DER", capture=True
@@ -88,7 +101,7 @@ def _openssl_der(openssl, source):
     return canonical
 
 
-def canonical_certificate(openssl, der):
+def canonical_certificate(openssl: str, der: bytes) -> bytes:
     """Validates one isolated DER object as X.509 with the declared OpenSSL."""
     scratch = Path(".secure-boot-x509-{}-{}".format(os.getpid(), next(_SCRATCH_IDS)))
     if scratch.exists():
@@ -107,15 +120,15 @@ def canonical_certificate(openssl, der):
         shutil.rmtree(scratch, ignore_errors=True)
 
 
-def write_json(path, document):
+def write_json(path: str | Path, document: object) -> None:
     Path(path).write_text(json.dumps(document, indent=2, sort_keys=True) + "\n")
 
 
-def request_digest(document):
+def request_digest(document: object) -> str:
     return hashlib.sha256((json.dumps(document, sort_keys=True, separators=(",", ":")) + "\n").encode()).hexdigest()
 
 
-def _pe_optional_header(data):
+def _pe_optional_header(data: bytes) -> tuple[int, int, int, int]:
     """Returns the optional header offset, its size, its fixed-field size and the section count."""
     if len(data) < 64 or data[:2] != b"MZ":
         raise ValueError("UKI is not a PE/COFF image")
@@ -136,7 +149,7 @@ def _pe_optional_header(data):
     return optional, optional_size, fixed_size, section_count
 
 
-def _security_directory(data, optional, optional_size, fixed_size):
+def _security_directory(data: bytes, optional: int, optional_size: int, fixed_size: int) -> int:
     """Returns the offset of the security (certificate table) data directory entry."""
     directory = optional + fixed_size
     directory_count = struct.unpack_from("<I", data, optional + fixed_size - 4)[0]
@@ -147,7 +160,7 @@ def _security_directory(data, optional, optional_size, fixed_size):
     return directory + 32
 
 
-def _header_layout(data, optional, optional_size, section_count):
+def _header_layout(data: bytes, optional: int, optional_size: int, section_count: int) -> tuple[int, int, int]:
     """Returns the section table offset, SizeOfHeaders and FileAlignment after validating them."""
     file_alignment = struct.unpack_from("<I", data, optional + 36)[0]
     size_headers = struct.unpack_from("<I", data, optional + 60)[0]
@@ -162,7 +175,9 @@ def _header_layout(data, optional, optional_size, section_count):
     return section_table, size_headers, file_alignment
 
 
-def _section_ranges(data, section_table, section_count, size_headers, file_alignment):
+def _section_ranges(
+    data: bytes, section_table: int, section_count: int, size_headers: int, file_alignment: int
+) -> list[tuple[int, int]]:
     """Returns the sorted, non-overlapping (offset, size) raw data ranges of all sections."""
     sections = []
     for index in range(section_count):
@@ -179,7 +194,7 @@ def _section_ranges(data, section_table, section_count, size_headers, file_align
     return sections
 
 
-def _certificate_table(data, security_directory, signed):
+def _certificate_table(data: bytes, security_directory: int, signed: bool) -> tuple[int, int]:
     certificate_offset, certificate_size = struct.unpack_from("<II", data, security_directory)
     if signed:
         if not certificate_offset or certificate_offset % 8 or certificate_size < 8:
@@ -191,7 +206,7 @@ def _certificate_table(data, security_directory, signed):
     return certificate_offset, certificate_size
 
 
-def parse_pe(data, signed):
+def parse_pe(data: bytes, signed: bool) -> PeLayout:
     optional, optional_size, fixed_size, section_count = _pe_optional_header(data)
     security_directory = _security_directory(data, optional, optional_size, fixed_size)
     section_table, size_headers, file_alignment = _header_layout(data, optional, optional_size, section_count)
@@ -207,7 +222,7 @@ def parse_pe(data, signed):
     }
 
 
-def is_pe(data):
+def is_pe(data: bytes) -> bool:
     """Returns whether data has PE/COFF headers, signed or not."""
     try:
         _pe_optional_header(data)
@@ -216,13 +231,13 @@ def is_pe(data):
     return True
 
 
-def embedded_authenticode(data):
+def embedded_authenticode(data: bytes) -> bytes:
     """Returns the DER PKCS#7 of the one Authenticode signature of a signed PE/COFF image; raises ValueError."""
     layout = parse_pe(data, True)
     return authenticode_payload(data, layout["certificate_offset"], layout["certificate_size"])
 
 
-def authenticode_payload(signed_data, certificate_offset, certificate_size):
+def authenticode_payload(signed_data: bytes, certificate_offset: int, certificate_size: int) -> bytes:
     cursor = certificate_offset
     end = certificate_offset + certificate_size
     certificates = []
@@ -244,7 +259,7 @@ def authenticode_payload(signed_data, certificate_offset, certificate_size):
     return certificates[0]
 
 
-def _der_object(payload):
+def _der_object(payload: bytes) -> bytes:
     item, end = der_read(payload)
     if item.tag != 0x30:
         raise ValueError("Authenticode payload is not DER SignedData")
@@ -253,7 +268,7 @@ def _der_object(payload):
     return payload[:end]
 
 
-def prove_equivalence(unsigned_data, signed_data):
+def prove_equivalence(unsigned_data: bytes, signed_data: bytes) -> bytes:
     unsigned = parse_pe(unsigned_data, False)
     signed = parse_pe(signed_data, True)
     if (unsigned["checksum"], unsigned["security_directory"]) != (signed["checksum"], signed["security_directory"]):
@@ -273,7 +288,7 @@ def prove_equivalence(unsigned_data, signed_data):
     return authenticode_payload(signed_data, certificate_offset, certificate_size)
 
 
-def authenticode_hash(data, pe):
+def authenticode_hash(data: bytes, pe: PeLayout) -> bytes:
     digest = hashlib.sha256()
     checksum = pe["checksum"]
     security = pe["security_directory"]
@@ -294,15 +309,15 @@ def authenticode_hash(data, pe):
 
 
 class Der:
-    def __init__(self, tag, value, depth):
+    def __init__(self, tag: int, value: bytes, depth: int) -> None:
         self.tag = tag
         self.value = value
         self.depth = depth
 
-    def children(self):
+    def children(self) -> list["Der"]:
         if self.depth >= MAX_DER_DEPTH:
             raise ValueError("DER nesting exceeds limit")
-        result = []
+        result: list[Der] = []
         cursor = 0
         while cursor < len(self.value):
             if len(result) >= MAX_DER_CHILDREN:
@@ -312,7 +327,7 @@ class Der:
         return result
 
 
-def der_read(data, offset=0, depth=0):
+def der_read(data: bytes, offset: int = 0, depth: int = 0) -> tuple[Der, int]:
     if len(data) > MAX_DER_BYTES or depth > MAX_DER_DEPTH:
         raise ValueError("DER resource limit exceeded")
     if offset + 2 > len(data):
@@ -338,7 +353,7 @@ def der_read(data, offset=0, depth=0):
     return Der(tag, data[cursor:end], depth), end
 
 
-def der_oid(item):
+def der_oid(item: Der) -> str:
     if item.tag != 0x06 or not item.value or len(item.value) > 256:
         raise ValueError("expected DER object identifier")
     subidentifiers = []
@@ -370,14 +385,14 @@ def der_oid(item):
     return ".".join(map(str, values))
 
 
-def algorithm_oid(item):
+def algorithm_oid(item: Der) -> str:
     children = item.children()
     if item.tag != 0x30 or not children:
         raise ValueError("invalid AlgorithmIdentifier")
     return der_oid(children[0])
 
 
-def der_time(item):
+def der_time(item: Der) -> int:
     """Returns the Unix time of a DER UTCTime or GeneralizedTime in whole seconds of UTC."""
     pattern = _DER_TIMES.get(item.tag)
     match = pattern.fullmatch(item.value) if pattern else None
@@ -391,7 +406,7 @@ def der_time(item):
     return calendar.timegm(moment.timetuple())
 
 
-def certificate_validity(certificate):
+def certificate_validity(certificate: bytes) -> tuple[int, int]:
     """Returns the notBefore and notAfter Unix times of a DER X.509 certificate."""
     tbs = der_read(certificate)[0].children()[0].children()
     if tbs and tbs[0].tag == 0xA0:
@@ -402,12 +417,12 @@ def certificate_validity(certificate):
     return der_time(validity[0]), der_time(validity[1])
 
 
-def utc_time(seconds):
+def utc_time(seconds: int) -> str:
     """Returns Unix time seconds as YYYY-MM-DD hh:mm:ss in UTC."""
     return datetime.datetime.fromtimestamp(seconds, datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
 
-def faketime_variables(signing_time):
+def faketime_variables(signing_time: int) -> dict[str, str]:
     """Returns the variables with which libfaketime stops the wall clock of a program at signing_time, in Unix seconds.
 
     libfaketime reads FAKETIME in the local time zone, which TZ sets to UTC. Monotonic clocks keep running, so that
@@ -416,7 +431,7 @@ def faketime_variables(signing_time):
     return {"FAKETIME": utc_time(signing_time), "FAKETIME_DONT_FAKE_MONOTONIC": "1", "TZ": "UTC0"}
 
 
-def sbsign_command(signing_time, *arguments):
+def sbsign_command(signing_time: int | None, *arguments: str | os.PathLike[str]) -> list[str | os.PathLike[str]]:
     """Returns the command that runs the pinned systemd-sbsign with arguments in the Debian tools.
 
     systemd-sbsign signs with OpenSSL, which adds the current time as the signingTime attribute of the signature. With a
@@ -430,7 +445,7 @@ def sbsign_command(signing_time, *arguments):
     return ["/bin/sh", "-c", 'exec /usr/bin/env "$@"', "sh", *assignments, SYSTEMD_SBSIGN, *arguments]
 
 
-def parse_signed_data(payload):
+def parse_signed_data(payload: bytes) -> list[Der]:
     """Returns the SignedData fields of a DER PKCS#7 ContentInfo."""
     outer, end = der_read(payload)
     outer_children = outer.children()
@@ -450,7 +465,7 @@ def parse_signed_data(payload):
     return signed
 
 
-def _image_digest(content_info):
+def _image_digest(content_info: Der) -> Der:
     """Returns the image digest DER item from the SpcIndirectDataContent in content_info."""
     content = content_info.children()
     if len(content) != 2 or der_oid(content[0]) != OID_SPC_INDIRECT_DATA or content[1].tag != 0xA0:
@@ -467,7 +482,7 @@ def _image_digest(content_info):
     return digest_info[1]
 
 
-def _check_signer_info(signer_infos):
+def _check_signer_info(signer_infos: Der) -> None:
     signers = signer_infos.children()
     if signer_infos.tag != 0x31 or len(signers) != 1:
         raise ValueError("AuthentiCode must have exactly one SignerInfo")
@@ -483,18 +498,18 @@ def _check_signer_info(signer_infos):
         raise ValueError("missing SignerInfo signature")
 
 
-def authenticode_facts(payload):
+def authenticode_facts(payload: bytes) -> bytes:
     signed = parse_signed_data(payload)
     image_digest = _image_digest(signed[2])
     _check_signer_info(signed[-1])
     return image_digest.value
 
 
-def _context(esp_path):
+def _context(esp_path: str) -> str:
     return ESP_FILE_CONTEXT if esp_path else UKI_CONTEXT
 
 
-def create_request(args):
+def create_request(args: argparse.Namespace) -> None:
     if args.algorithm != ALGORITHM:
         raise ValueError("unsupported signing algorithm")
     if args.esp_path:
@@ -524,7 +539,7 @@ _REQUEST_FIELDS = {
 }
 
 
-def validate_request(request, recorded_request_digest):
+def validate_request(request: object, recorded_request_digest: str) -> None:
     """Raises ValueError unless request is a signing request document whose canonical digest is recorded."""
     if not isinstance(request, dict) or set(request) != _REQUEST_FIELDS or request["format_version"] != REQUEST_FORMAT:
         raise ValueError("invalid signing request schema")
@@ -534,7 +549,7 @@ def validate_request(request, recorded_request_digest):
         raise ValueError("wrong signing context or algorithm")
 
 
-def _load_request(args):
+def _load_request(args: argparse.Namespace) -> tuple[dict[str, str], str]:
     """Returns the signing request and its recorded digest after checking both against the unsigned binary."""
     request = json.loads(Path(args.request).read_text())
     recorded_request_digest = Path(args.request_digest).read_text().strip()
@@ -544,7 +559,7 @@ def _load_request(args):
     return request, recorded_request_digest
 
 
-def verify_embedded_digest(unsigned_data, signed_data):
+def verify_embedded_digest(unsigned_data: bytes, signed_data: bytes) -> bytes:
     """Returns the Authenticode payload of signed_data after checking it signs exactly unsigned_data."""
     payload = prove_equivalence(unsigned_data, signed_data)
     embedded_digest = authenticode_facts(payload)
@@ -554,7 +569,7 @@ def verify_embedded_digest(unsigned_data, signed_data):
     return payload
 
 
-def _select_signed(args):
+def _select_signed(args: argparse.Namespace) -> tuple[str, bytes]:
     """Returns the signed candidate that signs the requested binary and its Authenticode payload.
 
     Production imports pass one candidate. An ephemeral test fixture signs several binaries with one key and passes
@@ -573,7 +588,7 @@ def _select_signed(args):
     raise ValueError("none of the {} signed binaries is the requested binary: {}".format(len(errors), errors))
 
 
-def _verify_signer(args, payload, expected_certificate):
+def _verify_signer(args: argparse.Namespace, payload: bytes, expected_certificate: bytes) -> None:
     """Checks the PKCS#7 signature with OpenSSL and that its signer is the requested certificate."""
     Path(args.pkcs7).write_bytes(payload)
     Path(args.expected_pem).write_bytes(certificate_pem(expected_certificate))
@@ -600,7 +615,7 @@ def _verify_signer(args, payload, expected_certificate):
         raise ValueError("verified SignerInfo certificate does not match request")
 
 
-def verify(args):
+def verify(args: argparse.Namespace) -> None:
     request, recorded_request_digest = _load_request(args)
     expected_certificate = canonical_certificate(args.openssl, certificate_der(args.certificate))
     fingerprint = hashlib.sha256(expected_certificate).hexdigest()
@@ -623,7 +638,7 @@ def verify(args):
     )
 
 
-def extract(args):
+def extract(args: argparse.Namespace) -> None:
     """Copies one file from the EFI system partition of a release disk image."""
     esp_files.validate_esp_path(args.esp_path)
     scratch = Path(args.scratch)
@@ -637,7 +652,9 @@ def extract(args):
     parse_pe(Path(args.output).read_bytes(), False)
 
 
-def _sbsign(args, key, unsigned, signed, signing_time):
+def _sbsign(
+    args: argparse.Namespace, key: Path, unsigned: str | Path, signed: str | Path, signing_time: int | None
+) -> None:
     run_tool(
         args.sbsign,
         *sbsign_command(
@@ -654,7 +671,7 @@ def _sbsign(args, key, unsigned, signed, signing_time):
     )
 
 
-def _create_key_pair(openssl, key, certificate, common_name):
+def _create_key_pair(openssl: str, key: Path, certificate: str | Path, common_name: str) -> None:
     run_tool(
         openssl, "/usr/bin/openssl", "genpkey", "-algorithm", "RSA", "-pkeyopt", "rsa_keygen_bits:2048", "-out", key
     )
@@ -675,7 +692,7 @@ def _create_key_pair(openssl, key, certificate, common_name):
     )
 
 
-def _detached_signed_data(openssl, scratch, signer, payload):
+def _detached_signed_data(openssl: str, scratch: Path, signer: tuple[Path, Path], payload: bytes) -> bytes:
     """Returns the DER PKCS#7 SignedData, without its ContentInfo, of a detached signature over payload."""
     source = scratch / "payload.bin"
     signature = scratch / "signature.der"
@@ -708,7 +725,7 @@ def _detached_signed_data(openssl, scratch, signer, payload):
     return children[1].value
 
 
-def _write_auto_enroll_keys(args, scratch, signers):
+def _write_auto_enroll_keys(args: argparse.Namespace, scratch: Path, signers: Mapping[str, tuple[Path, Path]]) -> None:
     """Writes PK.auth (self-signed), KEK.auth (signed by PK) and db.auth (signed by KEK) to args.auto_enroll_dir."""
     owner = uuid.UUID("00000000-0000-4000-8000-000000000157")
     timestamp = efi_auth.efi_time(2026)
@@ -721,7 +738,7 @@ def _write_auto_enroll_keys(args, scratch, signers):
         (output / (name + ".auth")).write_bytes(efi_auth.auth_file(timestamp, signed_data, data))
 
 
-def ephemeral_fixture(args):
+def ephemeral_fixture(args: argparse.Namespace) -> None:
     """Signs binaries with a new db key; with --auto-enroll-dir, also writes auto-enrollment files for new PK and KEK.
 
     Every private key stays in the scratch directory, which is overwritten and removed before returning.
@@ -754,7 +771,7 @@ def ephemeral_fixture(args):
         shutil.rmtree(scratch, ignore_errors=True)
 
 
-def _parser():
+def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     commands = parser.add_subparsers(required=True)
     request = commands.add_parser("request")
@@ -792,7 +809,7 @@ def _parser():
     return parser
 
 
-def report_errors(function, args):
+def report_errors(function: Callable[[argparse.Namespace], None], args: argparse.Namespace) -> None:
     """Calls function(args) and turns an invalid input or a failed tool into a SECURE_BOOT_INVALID exit."""
     try:
         function(args)
@@ -803,7 +820,7 @@ def report_errors(function, args):
         raise SystemExit("SECURE_BOOT_INVALID: {}".format(detail or error)) from error
 
 
-def main():
+def main() -> None:
     args = _parser().parse_args()
     report_errors(args.function, args)
 

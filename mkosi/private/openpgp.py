@@ -9,6 +9,7 @@ import base64
 import hashlib
 import re
 import struct
+from collections.abc import Callable
 
 TAG_SIGNATURE = 2
 TAG_SECRET_KEY = 5
@@ -26,7 +27,7 @@ _ARMOR = re.compile(
 )
 
 
-def crc24(data):
+def crc24(data: bytes) -> int:
     """Returns the CRC-24 checksum of ASCII armor (RFC 4880 section 6.1)."""
     crc = 0xB704CE
     for byte in data:
@@ -38,7 +39,7 @@ def crc24(data):
     return crc & 0xFFFFFF
 
 
-def dearmor(data, label):
+def dearmor(data: bytes, label: str) -> bytes:
     """Returns binary OpenPGP data, decoding one ASCII-armored block with the given label.
 
     Raises:
@@ -59,7 +60,7 @@ def dearmor(data, label):
     return binary
 
 
-def _header(data, offset):
+def _header(data: bytes, offset: int) -> tuple[int, int, int]:
     """Returns the tag, body offset and body length of the packet at offset."""
     first = data[offset]
     if not first & 0x80:
@@ -80,7 +81,7 @@ def _header(data, offset):
     raise ValueError("partial OpenPGP packet lengths are not supported")
 
 
-def packets(data):
+def packets(data: bytes) -> list[tuple[int, bytes]]:
     """Returns the (tag, body) pairs of binary OpenPGP data.
 
     Raises:
@@ -102,7 +103,7 @@ def packets(data):
     return result
 
 
-def packet(tag, body):
+def packet(tag: int, body: bytes) -> bytes:
     """Returns a new-format packet."""
     if len(body) < 192:
         length = bytes([len(body)])
@@ -113,14 +114,14 @@ def packet(tag, body):
     return bytes([0xC0 | tag]) + length + body
 
 
-def fingerprint(public_key_body):
+def fingerprint(public_key_body: bytes) -> str:
     """Returns the uppercase hexadecimal fingerprint of a version 4 public key packet body."""
     if not public_key_body or public_key_body[0] != 4:
         raise ValueError("only version 4 OpenPGP keys are supported")
     return hashlib.sha1(b"\x99" + struct.pack(">H", len(public_key_body)) + public_key_body).hexdigest().upper()
 
 
-def certificate(data):
+def certificate(data: bytes) -> tuple[bytes, str]:
     """Returns the binary form and primary key fingerprint of one transferable public key (OpenPGP certificate).
 
     Raises:
@@ -138,7 +139,7 @@ def certificate(data):
     return binary, fingerprint(parsed[0][1])
 
 
-def detached_signature(data):
+def detached_signature(data: bytes) -> bytes:
     """Returns the binary form of a detached signature that holds exactly one signature packet.
 
     systemd-pull (systemd 257) passes the signature to `gpg --verify` and rejects the download unless gpg succeeds,
@@ -156,21 +157,28 @@ def detached_signature(data):
     return binary
 
 
-def mpi(value):
+def mpi(value: int) -> bytes:
     """Returns an OpenPGP multiprecision integer."""
     return struct.pack(">H", value.bit_length()) + value.to_bytes((value.bit_length() + 7) // 8, "big")
 
 
-def rsa_public_key(modulus, exponent, created):
+def rsa_public_key(modulus: int, exponent: int, created: int) -> bytes:
     """Returns the body of a version 4 RSA public key packet."""
     return struct.pack(">BIB", 4, created, 1) + mpi(modulus) + mpi(exponent)
 
 
-def _subpacket(kind, value):
+def _subpacket(kind: int, value: bytes) -> bytes:
     return bytes([len(value) + 1, kind]) + value
 
 
-def rsa_sha256_signature(public_key_body, signature_type, created, signed_data, sign_digest, key_flags=None):
+def rsa_sha256_signature(
+    public_key_body: bytes,
+    signature_type: int,
+    created: int,
+    signed_data: bytes,
+    sign_digest: Callable[[bytes], int],
+    key_flags: int | None = None,
+) -> bytes:
     """Returns the body of a version 4 RSA/SHA-256 signature packet by the key of public_key_body.
 
     signed_data is the data that RFC 4880 section 5.2.4 hashes before the signature fields, and sign_digest returns the
@@ -186,7 +194,7 @@ def rsa_sha256_signature(public_key_body, signature_type, created, signed_data, 
     return fields + struct.pack(">H", len(unhashed)) + unhashed + digest[:2] + mpi(sign_digest(digest))
 
 
-def user_id_certification_data(public_key_body, user_id):
+def user_id_certification_data(public_key_body: bytes, user_id: bytes) -> bytes:
     """Returns the data that a certification of user_id on the key hashes."""
     key = b"\x99" + struct.pack(">H", len(public_key_body)) + public_key_body
     return key + b"\xb4" + struct.pack(">I", len(user_id)) + user_id
