@@ -25,3 +25,6 @@ bazel-*
 /.vscode/
 *~
 *.swp
+
+# Python bytecode caches, for example of helpers imported by host Python
+__pycache__/

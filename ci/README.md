@@ -38,10 +38,16 @@ Comments, system `#include` lines, and `MODULE.bazel` files, which cannot share 
 
 ## Type checking
 
-`prek run --all-files` type-checks the Python files in `ci/`, `mkosi/`, and `tools/` with [mypy](https://mypy-lang.org/) and the settings in `mypy.ini`.
-mypy only checks the bodies of annotated functions, so ruff's `ANN` rules in `ruff.toml` require annotations on every Python function, also in `e2e/`.
-Files written before that rule are exempt through `[lint.per-file-ignores]` in `ruff.toml`; never add a file there.
-When you change an exempt file, prefer annotating it fully and deleting its line.
+`prek run --all-files` type-checks the Python files in `ci/`, `e2e/`, `mkosi/`, and `tools/` with [mypy](https://mypy-lang.org/) and the settings in `mypy.ini`.
+`mypy.ini` selects the files, so `prek run mypy --all-files` and `prek run mypy --files <path>` both check all of them, while `prek run mypy` alone skips mypy unless a staged file matches.
+mypy only checks the bodies of annotated functions, so ruff's `ANN` rules in `ruff.toml` require annotations on every Python function, without exemptions.
+
+- Host scripts in `ci/` and `tools/` run on the CI runners' Python 3.10.
+- Bazel actions and tests under `mkosi/` and `e2e/` run on Python 3.14: actions on the Debian tools' Python, tests on the `rules_python` toolchain.
+- mypy targets Python 3.10 for every file, so an API from Python 3.11 or newer needs a targeted `# type: ignore[<code>]` with the reason, like `hashlib.file_digest` in `mkosi/private/file_hashing.py`.
+- Upstream mkosi is not installed for mypy; annotate its objects with the `MkosiConfig` and `MkosiObject` aliases in `mkosi/private/mkosi_runner/mkosi_contract.py`.
+- A script that imports a sibling by its short name needs that name in the `ignore_missing_imports` section of `mypy.ini`.
+- Annotations, docstrings, and comments count towards the 40-line limit of the function-size hook; when wrapping a signature pushes a function over it, extract a helper instead of raising the baseline.
 
 ## Manual image artifacts
 
