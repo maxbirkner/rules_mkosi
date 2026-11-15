@@ -8,6 +8,7 @@ load(
     "validate_input_version_slot_labels",
     "validate_slot_labels",
 )
+load(":devicetrees.bzl", "DEVICETREES_DOC", "add_devicetrees_arguments", "stage_devicetrees")
 load(
     ":extra_packages.bzl",
     "EXTRA_PACKAGES_ATTRS",
@@ -487,6 +488,7 @@ def _image_settings(ctx):
         snapshot = snapshot,
         architecture = _image_architecture(ctx, snapshot),
         extra_packages = _image_extra_packages(ctx, base, snapshot),
+        devicetrees = stage_devicetrees(ctx, modes),
         image_id = identity.image_id,
         image_version = identity.image_version,
         image_version_file = identity.image_version_file,
@@ -543,6 +545,7 @@ def _image_runner_arguments(ctx, settings, staging):
         add_extra_packages_arguments(arguments, settings.extra_packages)
     if settings.release:
         add_release_arguments(arguments, settings.release, settings.firmware)
+    add_devicetrees_arguments(arguments, settings.devicetrees)
     if base:
         arguments.add("--release-base-tree")
         arguments.add(base.root_tree.path)
@@ -637,6 +640,7 @@ def _image_build_inputs(ctx, settings, staging, bios_partition_definition):
         ([settings.snapshot.repository] if settings.snapshot and not base else []) +
         (architecture_inputs(ctx, settings.snapshot) if settings.snapshot else []) +
         ([settings.extra_packages.repository] if settings.extra_packages else []) +
+        ([settings.devicetrees] if settings.devicetrees else []) +
         ([staging.tree, staging.manifest] if staging else [])
     )
 
@@ -756,6 +760,10 @@ kernel command line.
             providers = [DebianSnapshotInfo],
             doc = """Authenticated Debian snapshot to install packages from with the network blocked. Required in release
 mode unless base is set; optional in tracer mode.""",
+        ),
+        "devicetrees": attr.label_list(
+            allow_files = [".dtb"],
+            doc = DEVICETREES_DOC,
         ),
         "extra_packages": attr.label_list(
             allow_files = True,

@@ -90,11 +90,21 @@ sysupdate_transfers(
     image_id = "rules-mkosi-arm64",
 )
 
-# The reusable arm64 release fixture: a UKI, a dm-verity protected erofs root, and A/B slots.
+# A device tree that no machine is compatible with, built without a device tree compiler.
+genrule(
+    name = "test_board_dtb",
+    outs = ["rules-mkosi-test-board.dtb"],
+    cmd = "$(execpath //mkosi/tests:encode_device_tree) --compatible rules-mkosi,test-board $@",
+    tools = ["//mkosi/tests:encode_device_tree"],
+)
+
+# The reusable arm64 release fixture: a UKI with device trees from a label and from the kernel package, a dm-verity
+# protected erofs root, and A/B slots.
 mkosi_image(
     name = "uki_release",
     config_tree = ":release_config",
     debian_snapshot = "@mkosi_debian_snapshot_arm64//:repository",
+    devicetrees = [":test_board_dtb"],
     image_id = "rules-mkosi-arm64",
     image_version = "1",
     mode = "release",
@@ -141,8 +151,10 @@ py_test(
         "$(rootpath :uki_release_uki)",
         "$(rootpath :uki_release_payload)",
         "$(rootpath :uki_release_uki_metadata)",
+        "$(rootpath :test_board_dtb)",
     ],
     data = [
+        ":test_board_dtb",
         ":uki_release_partition_metadata",
         ":uki_release_payload",
         ":uki_release_raw_image",

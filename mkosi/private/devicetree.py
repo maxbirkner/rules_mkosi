@@ -1,10 +1,15 @@
 """Reads flattened device tree (FDT) blobs, the .dtb files that firmware and systemd-stub hand to the kernel.
 
 The format is specified in chapter 5 of the Devicetree Specification (https://www.devicetree.org/specifications/).
+As a script, it validates the device trees of mkosi_image(devicetrees = ...) and stages them for the image build.
 """
 
+import argparse
+import shutil
 import struct
+from collections.abc import Sequence
 from dataclasses import dataclass
+from pathlib import Path
 
 FDT_MAGIC = 0xD00DFEED
 
@@ -120,3 +125,35 @@ def _string_list(value: bytes) -> tuple[str, ...]:
 
 def _aligned(offset: int) -> int:
     return (offset + 3) & ~3
+
+
+def stage_device_trees(sources: Sequence[Path], directory: Path) -> None:
+    """Copies device tree blobs into directory by file name, after checking that each one can be selected.
+
+    Raises SystemExit naming the file if one is not a flattened device tree, has no root compatible string, or has the
+    file name of another one.
+    """
+    directory.mkdir(parents=True, exist_ok=True)
+    for source in sources:
+        try:
+            tree = parse_device_tree(source.read_bytes())
+        except DeviceTreeError as error:
+            raise SystemExit("devicetrees: {}: {}".format(source, error)) from error
+        if not tree.compatible:
+            raise SystemExit("devicetrees: {}: the root node has no compatible string".format(source))
+        target = directory / source.name
+        if target.exists():
+            raise SystemExit("devicetrees: {}: another device tree has the file name {}".format(source, source.name))
+        shutil.copyfile(source, target)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--output-directory", type=Path, required=True)
+    parser.add_argument("sources", nargs="+", type=Path)
+    arguments = parser.parse_args()
+    stage_device_trees(arguments.sources, arguments.output_directory)
+
+
+if __name__ == "__main__":
+    main()

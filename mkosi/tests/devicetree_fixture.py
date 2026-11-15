@@ -1,7 +1,12 @@
-"""Encodes small flattened device tree (FDT) blobs for tests, without a device tree compiler."""
+"""Encodes small flattened device tree (FDT) blobs for tests, without a device tree compiler.
 
+As a script, it writes a blob whose root node has the given compatible strings and string properties.
+"""
+
+import argparse
 import struct
 from collections.abc import Mapping, Sequence
+from pathlib import Path
 
 _FDT_MAGIC = 0xD00DFEED
 _HEADER_SIZE = 40
@@ -49,3 +54,20 @@ def encode_strings(values: Sequence[str]) -> bytes:
 
 def _padded(value: bytes) -> bytes:
     return value + bytes(-len(value) % 4)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--compatible", action="append", required=True)
+    parser.add_argument("--string-property", action="append", default=[], metavar="NAME=VALUE")
+    parser.add_argument("output", type=Path)
+    arguments = parser.parse_args()
+    properties = dict(item.split("=", 1) for item in arguments.string_property)
+    blob = encode_device_tree(
+        arguments.compatible, {name: encode_strings([value]) for name, value in properties.items()}
+    )
+    arguments.output.write_bytes(blob)
+
+
+if __name__ == "__main__":
+    main()

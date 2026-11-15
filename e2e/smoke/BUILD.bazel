@@ -190,11 +190,26 @@ mkosi_config_tree(
     strip_prefix = "testdata/arm64-release-config",
 )
 
+py_binary(
+    name = "device_tree_encoder",
+    srcs = ["@rules_mkosi//mkosi/tests:devicetree_fixture.py"],
+    main = "@rules_mkosi//mkosi/tests:devicetree_fixture.py",
+)
+
+# A board's device tree from another Bazel rule.
+genrule(
+    name = "consumer_board_dtb",
+    outs = ["consumer-board.dtb"],
+    cmd = "$(execpath :device_tree_encoder) --compatible consumer,board $@",
+    tools = [":device_tree_encoder"],
+)
+
 # Cross-built on Linux x86-64 execution platforms: its maintainer scripts run under the toolchain's arm64 emulator.
 mkosi_image(
     name = "arm64_demo",
     config_tree = ":arm64_release_config_tree",
     debian_snapshot = "@mkosi_debian_snapshot_arm64//:repository",
+    devicetrees = [":consumer_board_dtb"],
     mode = "release",
     release_seed = "00000000-0000-4000-8000-000000000206",
     release_source_date_epoch = 0,

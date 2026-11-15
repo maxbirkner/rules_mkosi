@@ -1,5 +1,5 @@
 """Proves that an arm64 release image boots through arm64 EFI binaries, has arm64 A/B root slots, and that its UKI
-carries the device trees that Devicetrees= selects from the kernel package.
+carries the device trees of its devicetrees label and those that Devicetrees= selects from the kernel package.
 """
 
 import hashlib
@@ -38,10 +38,12 @@ def pe_sections(executable: bytes) -> list[tuple[str, bytes]]:
     return sections
 
 
-def check_devicetrees(uki: bytes, uki_metadata: pathlib.Path) -> None:
+def check_devicetrees(uki: bytes, uki_metadata: pathlib.Path, test_board: pathlib.Path) -> None:
     devicetrees = json.loads(uki_metadata.read_text())["devicetrees"]
-    # Devicetrees=arm/corstone1000-*.dtb selects two device trees of Debian's arm64 kernel package, in sorted order.
+    # The label's device tree comes first, ahead of the two that Devicetrees=arm/corstone1000-*.dtb selects below
+    # /usr/lib/linux-image-<kver>/ in sorted order.
     assert [(tree["section"], tree["compatible"]) for tree in devicetrees] == [
+        (".dtbauto", ["rules-mkosi,test-board"]),
         (".dtbauto", ["arm,corstone1000-fvp"]),
         (".dtbauto", ["arm,corstone1000-mps3"]),
     ], devicetrees
@@ -51,17 +53,20 @@ def check_devicetrees(uki: bytes, uki_metadata: pathlib.Path) -> None:
         size = struct.unpack_from(">I", content, 4)[0]
         assert tree["size"] == size, (tree, size)
         assert tree["sha256"] == hashlib.sha256(content[:size]).hexdigest(), tree
+    assert devicetrees[0]["sha256"] == hashlib.sha256(test_board.read_bytes()).hexdigest(), devicetrees[0]
 
 
 def main() -> None:
-    image, partition_metadata, uki, payload, uki_metadata = (resolve_runfile(path) for path in sys.argv[1:6])
+    image, partition_metadata, uki, payload, uki_metadata, test_board = (
+        resolve_runfile(path) for path in sys.argv[1:7]
+    )
 
     esp_paths = {file.path for file in esp_manifest.list_esp_files(image)}
     for path in ("EFI/BOOT/BOOTAA64.EFI", "EFI/systemd/systemd-bootaa64.efi", "EFI/Linux/rules-mkosi-arm64_1.efi"):
         assert path in esp_paths, sorted(esp_paths)
         assert pe_machine(esp_manifest.read_esp_file(image, path)) == _MACHINE_ARM64, path
     assert pe_machine(uki.read_bytes()) == _MACHINE_ARM64
-    check_devicetrees(uki.read_bytes(), uki_metadata)
+    check_devicetrees(uki.read_bytes(), uki_metadata, test_board)
 
     metadata = json.loads(partition_metadata.read_text())
     assert metadata["architecture"] == "arm64", metadata

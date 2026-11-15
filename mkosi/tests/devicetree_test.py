@@ -1,6 +1,8 @@
 """Tests reading device tree blobs and recording the device tree sections of a UKI."""
 
 import hashlib
+import pathlib
+import tempfile
 import unittest
 
 from mkosi.private import devicetree, uki_metadata
@@ -29,6 +31,41 @@ class DeviceTreeTest(unittest.TestCase):
         for message, case in cases.items():
             with self.subTest(message=message), self.assertRaisesRegex(devicetree.DeviceTreeError, message):
                 devicetree.parse_device_tree(case)
+
+
+class StageDeviceTreesTest(unittest.TestCase):
+    def setUp(self) -> None:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.directory = pathlib.Path(directory.name)
+
+    def _source(self, path: str, blob: bytes) -> pathlib.Path:
+        source = self.directory / "sources" / path
+        source.parent.mkdir(parents=True, exist_ok=True)
+        source.write_bytes(blob)
+        return source
+
+    def test_copies_device_trees_by_file_name(self) -> None:
+        blobs = {"a/board-a.dtb": encode_device_tree(["vendor,board-a"]), "board-b.dtb": encode_device_tree(["b"])}
+        sources = [self._source(path, blob) for path, blob in blobs.items()]
+        devicetree.stage_device_trees(sources, self.directory / "staged")
+        self.assertEqual(blobs["a/board-a.dtb"], (self.directory / "staged/board-a.dtb").read_bytes())
+        self.assertEqual(blobs["board-b.dtb"], (self.directory / "staged/board-b.dtb").read_bytes())
+
+    def test_rejects_device_trees_that_cannot_be_selected(self) -> None:
+        cases = {
+            r"not-a-tree\.dtb: not a flattened device tree": [self._source("not-a-tree.dtb", b"\0" * 64)],
+            r"generic\.dtb: the root node has no compatible string": [
+                self._source("generic.dtb", encode_device_tree([]))
+            ],
+            r"b/board\.dtb: another device tree has the file name board\.dtb": [
+                self._source("a/board.dtb", encode_device_tree(["vendor,a"])),
+                self._source("b/board.dtb", encode_device_tree(["vendor,b"])),
+            ],
+        }
+        for message, sources in cases.items():
+            with self.subTest(message=message), self.assertRaisesRegex(SystemExit, message):
+                devicetree.stage_device_trees(sources, self.directory / message)
 
 
 class DeviceTreeSectionTest(unittest.TestCase):
