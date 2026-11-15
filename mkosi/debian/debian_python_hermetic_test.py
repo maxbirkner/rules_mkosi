@@ -4,7 +4,7 @@ import struct
 import unittest
 
 
-def _repository_file(apparent, relative):
+def _repository_file(apparent: str, relative: str) -> pathlib.Path:
     runfiles = pathlib.Path(os.environ["RUNFILES_DIR"])
     mapping = runfiles / "_repo_mapping"
     for line in mapping.read_text(encoding="utf-8").splitlines():
@@ -17,12 +17,12 @@ def _repository_file(apparent, relative):
     raise AssertionError("%s is absent from runfiles mapping" % apparent)
 
 
-def _python_executable():
+def _python_executable() -> pathlib.Path:
     return _repository_file("mkosi_debian_python", "python")
 
 
 class DebianPythonHermeticTest(unittest.TestCase):
-    def _assert_static(self, executable):
+    def _assert_static(self, executable: pathlib.Path) -> None:
         data = executable.read_bytes()
         self.assertEqual(data[:4], b"\x7fELF")
         self.assertEqual(data[4], 2)
@@ -42,12 +42,12 @@ class DebianPythonHermeticTest(unittest.TestCase):
                 dynamic = True
         self.assertFalse(dynamic, "static managed Python unexpectedly has PT_DYNAMIC")
 
-    def test_static_bootstrap_has_no_interpreter_or_needed_libraries(self):
+    def test_static_bootstrap_has_no_interpreter_or_needed_libraries(self) -> None:
         self._assert_static(_python_executable())
         for host_library in (b"libc.so", b"libm.so", b"libpthread.so", b"ld-linux"):
             self.assertNotIn(host_library, _python_executable().read_bytes())
 
-    def test_static_namespace_bootstrap_has_no_interpreter_or_needed_libraries(self):
+    def test_static_namespace_bootstrap_has_no_interpreter_or_needed_libraries(self) -> None:
         self._assert_static(_repository_file("mkosi_debian_tools", "namespace_runner"))
         self._assert_static(_repository_file("mkosi_debian_tools", "launcher"))
 

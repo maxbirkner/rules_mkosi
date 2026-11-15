@@ -10,6 +10,8 @@ import os
 import stat
 import sys
 import tarfile
+from collections.abc import Mapping, Sequence
+from typing import IO
 
 # These links are intentionally dangling in the flattened Debian package
 # set.  The service masks become valid when bubblewrap supplies /dev/null;
@@ -37,7 +39,7 @@ _EMPTY_DIRECTORY_SYMLINK_TARGETS = {
 }
 
 
-def member_path(name, kind="archive"):
+def member_path(name: str, kind: str = "archive") -> str:
     """Returns the relative path of a tar member name, or "" for the archive root.
 
     Raises ValueError for absolute names and for empty, ".", or ".." components; kind names the archive in the error.
@@ -57,7 +59,7 @@ def member_path(name, kind="archive"):
     return os.path.join(*parts)
 
 
-def _parent(root, relative):
+def _parent(root: str, relative: str) -> str:
     parent = root
     for part in os.path.dirname(relative).split(os.sep):
         if not part:
@@ -72,7 +74,7 @@ def _parent(root, relative):
     return parent
 
 
-def _link_target(relative, linkname):
+def _link_target(relative: str, linkname: str) -> str:
     if linkname.startswith("/"):
         target = member_path(linkname[1:])
         return target
@@ -82,7 +84,7 @@ def _link_target(relative, linkname):
     return target
 
 
-def _hardlink_target(linkname):
+def _hardlink_target(linkname: str) -> str:
     # GNU tar records hardlink names relative to the archive root, unlike
     # symlink names which are interpreted relative to their containing path.
     if linkname.startswith("/"):
@@ -90,7 +92,7 @@ def _hardlink_target(linkname):
     return member_path(linkname)
 
 
-def sha256_stream(source):
+def sha256_stream(source: IO[bytes]) -> str:
     """Returns the hex SHA-256 of the rest of a binary stream."""
     hasher = hashlib.sha256()
     while True:
@@ -101,7 +103,7 @@ def sha256_stream(source):
     return hasher.hexdigest()
 
 
-def _prepare_mount_roots(root):
+def _prepare_mount_roots(root: str) -> None:
     for relative in ("etc", "root", "tmp", "proc", "dev", "workspace", "inputs", "outputs"):
         destination = os.path.join(root, relative)
         if os.path.lexists(destination):
@@ -122,7 +124,7 @@ def _prepare_mount_roots(root):
         os.chmod(resolv, 0o644)
 
 
-def set_deterministic_metadata(root):
+def set_deterministic_metadata(root: str) -> None:
     for directory, dirnames, names in os.walk(root, topdown=False):
         for name in names + dirnames:
             path = os.path.join(directory, name)
@@ -131,7 +133,7 @@ def set_deterministic_metadata(root):
     os.utime(root, (0, 0), follow_symlinks=False)
 
 
-def _write_ca_bundle(root):
+def _write_ca_bundle(root: str) -> None:
     certificates = []
     certificate_root = os.path.join(root, "usr/share/ca-certificates")
     if os.path.isdir(certificate_root):
@@ -153,7 +155,7 @@ def _write_ca_bundle(root):
         os.chmod(bundle, 0o644)
 
 
-def _materialize_runtime_link_targets(root):
+def _materialize_runtime_link_targets(root: str) -> None:
     # TreeArtifacts cannot contain dangling links.  These placeholders are
     # hidden by the runtime /dev mount or only serve the package's documented
     # compatibility link; their link names remain preserved.
@@ -172,7 +174,7 @@ def _materialize_runtime_link_targets(root):
             os.chmod(path, 0o644)
 
 
-def _materialize_empty_directory_symlink_targets(root, symlinks):
+def _materialize_empty_directory_symlink_targets(root: str, symlinks: Mapping[str, tarfile.TarInfo]) -> None:
     for relative, (target, expected_linkname) in _EMPTY_DIRECTORY_SYMLINK_TARGETS.items():
         member = symlinks.get(relative)
         if member is None or member.linkname != expected_linkname:
@@ -187,16 +189,18 @@ def _materialize_empty_directory_symlink_targets(root, symlinks):
             os.chmod(marker, 0o644)
 
 
-def _raw_link_components(relative, linkname):
+def _raw_link_components(relative: str, linkname: str) -> list[str]:
     if linkname.startswith("/"):
         return linkname.split("/")
     parent = os.path.dirname(relative).split(os.sep) if os.path.dirname(relative) else []
     return parent + linkname.split("/")
 
 
-def _resolve_link_path(relative, symlinks, members_by_path):
+def _resolve_link_path(
+    relative: str, symlinks: Mapping[str, tarfile.TarInfo], members_by_path: Mapping[str, tarfile.TarInfo]
+) -> tuple[str, list[str]]:
     components = _raw_link_components(relative, symlinks[relative].linkname)
-    resolved_components = []
+    resolved_components: list[str] = []
     dependencies = []
     seen = set()
     resolutions = 0
@@ -226,13 +230,15 @@ def _resolve_link_path(relative, symlinks, members_by_path):
     return (os.path.join(*resolved_components) if resolved_components else ""), dependencies
 
 
-def _validate_symlink_graph(root, symlinks, members_by_path):
+def _validate_symlink_graph(
+    root: str, symlinks: Mapping[str, tarfile.TarInfo], members_by_path: Mapping[str, tarfile.TarInfo]
+) -> tuple[dict[str, str], dict[str, list[str]]]:
     """Resolves every link depth-first; returns the resolved targets and each link's symlink dependencies."""
-    state = {}
-    resolved = {}
-    dependencies = {}
+    state: dict[str, str] = {}
+    resolved: dict[str, str] = {}
+    dependencies: dict[str, list[str]] = {}
 
-    def visit(relative):
+    def visit(relative: str) -> None:
         if state.get(relative) == "visiting":
             raise ValueError("symlink cycle involving: %s" % relative)
         if state.get(relative) == "done":
@@ -254,12 +260,14 @@ def _validate_symlink_graph(root, symlinks, members_by_path):
     return resolved, dependencies
 
 
-def _resolve_symlink_graph(root, symlinks, members_by_path):
+def _resolve_symlink_graph(
+    root: str, symlinks: Mapping[str, tarfile.TarInfo], members_by_path: Mapping[str, tarfile.TarInfo]
+) -> None:
     resolved, dependencies = _validate_symlink_graph(root, symlinks, members_by_path)
 
     # Validation above checks every edge before any link is created.  Create
     # links in graph order so forward chains work regardless of tar order.
-    def depth(relative):
+    def depth(relative: str) -> int:
         return max((depth(dependency) for dependency in dependencies[relative]), default=0) + 1
 
     for relative in sorted(symlinks, key=lambda item: (depth(item), item)):
@@ -279,11 +287,13 @@ def _resolve_symlink_graph(root, symlinks, members_by_path):
         os.symlink(linkname, destination)
 
 
-def _resolve_hardlink_graph(root, hardlinks, members_by_path):
-    state = {}
-    targets = {}
+def _resolve_hardlink_graph(
+    root: str, hardlinks: Mapping[str, tarfile.TarInfo], members_by_path: Mapping[str, tarfile.TarInfo]
+) -> None:
+    state: dict[str, str] = {}
+    targets: dict[str, str] = {}
 
-    def visit(relative):
+    def visit(relative: str) -> str:
         if state.get(relative) == "visiting":
             raise ValueError("hardlink cycle involving: %s" % relative)
         if state.get(relative) == "done":
@@ -310,7 +320,7 @@ def _resolve_hardlink_graph(root, hardlinks, members_by_path):
         os.link(os.path.join(root, target), destination)
 
 
-def _authenticate(archive_stream, expected_digest):
+def _authenticate(archive_stream: IO[bytes], expected_digest: str) -> None:
     actual_digest = sha256_stream(archive_stream)
     if actual_digest != expected_digest:
         raise ValueError(
@@ -319,7 +329,7 @@ def _authenticate(archive_stream, expected_digest):
     archive_stream.seek(0)
 
 
-def _index_members(source):
+def _index_members(source: tarfile.TarFile) -> tuple[list[tuple[tarfile.TarInfo, str]], dict[str, tarfile.TarInfo]]:
     members = []
     members_by_path = {}
     for member in source:
@@ -333,7 +343,7 @@ def _index_members(source):
     return members, members_by_path
 
 
-def _materialize_directory(root, relative, member):
+def _materialize_directory(root: str, relative: str, member: tarfile.TarInfo) -> None:
     destination = os.path.join(root, relative)
     _parent(root, relative)
     if os.path.lexists(destination) and not stat.S_ISDIR(os.lstat(destination).st_mode):
@@ -343,7 +353,7 @@ def _materialize_directory(root, relative, member):
     os.chmod(destination, stat.S_IMODE(member.mode))
 
 
-def _materialize_file(source, root, relative, member):
+def _materialize_file(source: tarfile.TarFile, root: str, relative: str, member: tarfile.TarInfo) -> None:
     destination = os.path.join(root, relative)
     _parent(root, relative)
     if os.path.lexists(destination):
@@ -360,7 +370,9 @@ def _materialize_file(source, root, relative, member):
     os.chmod(destination, stat.S_IMODE(member.mode))
 
 
-def _materialize_regular_members(source, root, members):
+def _materialize_regular_members(
+    source: tarfile.TarFile, root: str, members: Sequence[tuple[tarfile.TarInfo, str]]
+) -> None:
     # Materialize real directories and files first.  In particular, no
     # archive symlink can redirect a later parent creation.
     for member, relative in sorted(members, key=lambda item: (item[1].count(os.sep), item[1])):
@@ -372,7 +384,7 @@ def _materialize_regular_members(source, root, members):
             raise ValueError("unsupported archive member: %s" % relative)
 
 
-def _extract_members(source, root):
+def _extract_members(source: tarfile.TarFile, root: str) -> None:
     members, members_by_path = _index_members(source)
     symlinks = {relative: member for member, relative in members if member.issym()}
     hardlinks = {relative: member for member, relative in members if member.islnk()}
@@ -392,7 +404,7 @@ _LEGACY_MERGED_USR_LINKS = (
 )
 
 
-def _link_legacy_merged_usr(root):
+def _link_legacy_merged_usr(root: str) -> None:
     for legacy, target in _LEGACY_MERGED_USR_LINKS:
         path = os.path.join(root, legacy)
         if os.path.islink(path):
@@ -404,7 +416,7 @@ def _link_legacy_merged_usr(root):
         os.symlink(target, path)
 
 
-def _reject_populated_tmp(root):
+def _reject_populated_tmp(root: str) -> None:
     # The package archive contains tmp.mount metadata, but /tmp is a runtime
     # tmpfs and must never retain package files.
     temporary = os.path.join(root, "tmp")
@@ -413,7 +425,7 @@ def _reject_populated_tmp(root):
             raise ValueError("package content unexpectedly populated /tmp: %s" % name)
 
 
-def extract(archive, root, expected_digest):
+def extract(archive: str, root: str, expected_digest: str) -> None:
     if not expected_digest:
         raise ValueError("expected archive digest is required")
     archive_path = os.path.realpath(archive)
@@ -434,7 +446,7 @@ def extract(archive, root, expected_digest):
     set_deterministic_metadata(root)
 
 
-def main():
+def main() -> None:
     if len(sys.argv) != 4:
         raise SystemExit("usage: extract_tree.py ARCHIVE ROOT EXPECTED_SHA256")
     extract(sys.argv[1], sys.argv[2], sys.argv[3])

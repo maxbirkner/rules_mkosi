@@ -10,7 +10,9 @@ import shutil
 import stat
 import subprocess
 import sys
-from typing import NamedTuple
+import types
+from collections.abc import Sequence
+from typing import IO, Any, NamedTuple
 
 import click
 from python.runfiles import runfiles
@@ -48,6 +50,12 @@ _RUNFILES = {
 sys.dont_write_bytecode = True
 
 
+# (source, destination, source device, source inode, source is a directory) of one validated bind mount.
+_Bind = tuple[str, str, int, int, bool]
+# The validated read-only and read-write binds.
+_Binds = tuple[list[_Bind], list[_Bind]]
+
+
 class RuntimeFiles(NamedTuple):
     archive: str
     archive_sha256: str
@@ -55,19 +63,19 @@ class RuntimeFiles(NamedTuple):
     namespace_runner: str
 
 
-def _inside_root(root, path):
+def _inside_root(root: str, path: str) -> bool:
     root = os.path.realpath(root)
     resolved = os.path.realpath(path)
     return resolved == root or resolved.startswith(root + os.sep)
 
 
-def _require_directory(root, relative, allow_symlink=False):
+def _require_directory(root: str, relative: str, allow_symlink: bool = False) -> None:
     path = os.path.join(root, relative.lstrip("/"))
     if not os.path.isdir(path) or (os.path.islink(path) and not allow_symlink) or not _inside_root(root, path):
         raise RuntimeError("Debian tools root has an invalid directory: %s" % relative)
 
 
-def _require_executable(root, relative, description):
+def _require_executable(root: str, relative: str, description: str) -> str:
     path = os.path.join(root, relative.lstrip("/"))
     if not os.path.isfile(path) or not os.access(path, os.X_OK) or not _inside_root(root, path):
         raise RuntimeError("%s is missing or not executable: %s" % (description, relative))
@@ -88,7 +96,7 @@ _LIBRARY_DIRECTORIES = (
 )
 
 
-def _require_ca_bundle(root):
+def _require_ca_bundle(root: str) -> None:
     bundle = os.path.join(root, "etc/ssl/certs/ca-certificates.crt")
     if (
         not os.path.isfile(bundle)
@@ -99,7 +107,7 @@ def _require_ca_bundle(root):
         raise RuntimeError("packaged CA bundle is missing or invalid: %s" % bundle)
 
 
-def _find_loader(root):
+def _find_loader(root: str) -> str:
     for candidate in _LOADER_CANDIDATES:
         path = os.path.join(root, candidate)
         if os.path.isfile(path) and os.access(path, os.X_OK) and _inside_root(root, path):
@@ -107,7 +115,7 @@ def _find_loader(root):
     raise RuntimeError("Debian bootstrap loader is missing from extracted root")
 
 
-def _require_tools(root, tool):
+def _require_tools(root: str, tool: str) -> str:
     """Requires every mapped tool to be executable inside root and returns the path of tool."""
     if tool not in TOOLS.values():
         raise RuntimeError("unknown or unmapped Debian tool: %s" % tool)
@@ -116,10 +124,12 @@ def _require_tools(root, tool):
         mapped_executable = _require_executable(root, mapped_tool, "mapped Debian executable")
         if mapped_tool == tool:
             executable = mapped_executable
+    if executable is None:
+        raise RuntimeError("unknown or unmapped Debian tool: %s" % tool)
     return executable
 
 
-def _validate_root(root, tool):
+def _validate_root(root: str, tool: str) -> tuple[str, str]:
     if not os.path.isdir(root) or os.path.islink(root):
         raise RuntimeError("Debian tools extraction did not produce a physical root")
     for relative in (*_MOUNT_ROOTS, "/etc", "/usr", "/usr/bin", "/usr/sbin"):
@@ -132,7 +142,7 @@ def _validate_root(root, tool):
     return loader, executable
 
 
-def _canonical_destination(destination):
+def _canonical_destination(destination: str) -> str:
     if not destination.startswith("/") or "\x00" in destination:
         raise RuntimeError("namespace destination must be absolute: %s" % destination)
     if posixpath.normpath(destination) != destination:
@@ -143,11 +153,11 @@ def _canonical_destination(destination):
     return destination
 
 
-def _under(destination, parent):
+def _under(destination: str, parent: str) -> bool:
     return destination == parent or destination.startswith(parent + "/")
 
 
-def _parse_bind(kind, specification):
+def _parse_bind(kind: str, specification: str) -> _Bind:
     """Returns (source, destination, device, inode, source is directory) for one SRC:DEST bind."""
     source, destination = specification.split(":", 1)
     if not source.startswith("/") or "\x00" in source:
@@ -167,10 +177,10 @@ def _parse_bind(kind, specification):
     return bind
 
 
-def _validate_binds(arguments):
-    ro_binds = []
-    rw_binds = []
-    destinations = []
+def _validate_binds(arguments: list[str]) -> _Binds:
+    ro_binds: list[_Bind] = []
+    rw_binds: list[_Bind] = []
+    destinations: list[str] = []
     while arguments and arguments[0] in ("--ro-bind", "--rw-bind"):
         kind = arguments.pop(0)
         if not arguments or ":" not in arguments[0]:
@@ -185,7 +195,7 @@ def _validate_binds(arguments):
     return ro_binds, rw_binds
 
 
-def _prepare_mountpoint(base, destination, source_is_directory):
+def _prepare_mountpoint(base: str, destination: str, source_is_directory: bool) -> None:
     relative = destination.lstrip("/").split("/")
     current = base
     for part in relative[:-1]:
@@ -209,14 +219,14 @@ def _prepare_mountpoint(base, destination, source_is_directory):
         os.chmod(path, 0o644)
 
 
-def _scratch_parent_setting():
+def _scratch_parent_setting() -> str:
     scratch_parent = os.environ.get("MKOSI_DEBIAN_TOOLS_SCRATCH") or os.environ.get("TEST_TMPDIR")
     if not scratch_parent:
         raise RuntimeError("MKOSI_DEBIAN_TOOLS_SCRATCH or TEST_TMPDIR is required")
     return os.path.abspath(scratch_parent)
 
 
-def _private_scratch():
+def _private_scratch() -> str:
     scratch_parent = _scratch_parent_setting()
     current = os.path.sep
     for component in scratch_parent.strip(os.path.sep).split(os.path.sep):
@@ -236,7 +246,7 @@ def _private_scratch():
     return scratch_parent
 
 
-def _required_runfile(resolver, logical, executable=False):
+def _required_runfile(resolver: runfiles.Runfiles, logical: str, executable: bool = False) -> str:
     path = resolver.Rlocation(logical)
     valid = path and os.path.isfile(path)
     if not valid or (executable and not os.access(path, os.X_OK)):
@@ -244,7 +254,7 @@ def _required_runfile(resolver, logical, executable=False):
     return path
 
 
-def _runtime_files():
+def _runtime_files() -> RuntimeFiles:
     resolver = runfiles.Create()
     if resolver is None:
         raise RuntimeError("unable to initialize Debian launcher runfiles")
@@ -268,7 +278,7 @@ def _runtime_files():
     )
 
 
-def _load_extractor(extractor_path):
+def _load_extractor(extractor_path: str) -> types.ModuleType:
     """Loads extract_tree.py from its runfile path; it is a data file of the launcher, not an importable dependency."""
     extractor_path = os.path.realpath(extractor_path)
     spec = importlib.util.spec_from_file_location("mkosi_debian_extract_tree", extractor_path)
@@ -279,7 +289,7 @@ def _load_extractor(extractor_path):
     return extractor
 
 
-def _write_completion_marker(partial, expected_digest):
+def _write_completion_marker(partial: str, expected_digest: str) -> None:
     marker = os.path.join(partial, ".complete")
     with open(marker, "w", encoding="utf-8") as complete:
         complete.write("mkosi-debian-tools-v1\n" + expected_digest + "\n")
@@ -290,7 +300,9 @@ def _write_completion_marker(partial, expected_digest):
         os.fsync(complete.fileno())
 
 
-def _materialize_root(archive, expected_digest, tool, binds, extractor_path, partial):
+def _materialize_root(
+    archive: str, expected_digest: str, tool: str, binds: _Binds, extractor_path: str, partial: str
+) -> None:
     """Extracts and validates the tools tree in partial, including mountpoints for every bind."""
     extractor = _load_extractor(extractor_path)
     extractor.extract(archive, partial, expected_digest)
@@ -302,7 +314,7 @@ def _materialize_root(archive, expected_digest, tool, binds, extractor_path, par
     os.utime(partial, (0, 0))
 
 
-def _extract_root(archive, expected_digest, tool, binds, extractor_path):
+def _extract_root(archive: str, expected_digest: str, tool: str, binds: _Binds, extractor_path: str) -> str:
     if not expected_digest:
         raise RuntimeError("Debian tools archive digest is required")
     if os.environ.get("MKOSI_DEBIAN_TOOLS_SCRATCH_FORMAT", "physical-v5") != "physical-v5":
@@ -334,14 +346,14 @@ def _extract_root(archive, expected_digest, tool, binds, extractor_path):
     return root
 
 
-def _runtime_directory(parent, name, mode=0o700):
+def _runtime_directory(parent: str, name: str, mode: int = 0o700) -> str:
     path = os.path.join(parent, name)
     os.mkdir(path, mode)
     os.chmod(path, mode)
     return path
 
 
-def _prepare_rw_mountpoints(workspace, outputs, rw_binds):
+def _prepare_rw_mountpoints(workspace: str, outputs: str, rw_binds: Sequence[_Bind]) -> None:
     for _, destination, _, _, source_is_directory in rw_binds:
         base = workspace if _under(destination, "/workspace") else outputs
         prefix = "/workspace" if base == workspace else "/outputs"
@@ -352,7 +364,7 @@ def _prepare_rw_mountpoints(workspace, outputs, rw_binds):
         )
 
 
-def _mount_arguments(ro_binds, rw_binds):
+def _mount_arguments(ro_binds: list[_Bind], rw_binds: list[_Bind]) -> list[str]:
     """Returns namespace runner arguments: OPTION SOURCE DESTINATION DEVICE INODE dir|file per bind."""
     mount_arguments = []
     for index, bind in enumerate(ro_binds + rw_binds):
@@ -362,13 +374,13 @@ def _mount_arguments(ro_binds, rw_binds):
 
 
 def _run(
-    tool,
-    arguments,
-    root,
-    binds,
-    scratch_parent,
-    namespace_runner,
-):
+    tool: str,
+    arguments: list[str],
+    root: str,
+    binds: _Binds,
+    scratch_parent: str,
+    namespace_runner: str,
+) -> int:
     """Runs tool in the namespace runner; binds is the pair of validated read-only and read-write binds."""
     ro_binds, rw_binds = binds
     runtime = os.path.join(scratch_parent, ".runtime")
@@ -404,7 +416,7 @@ def _run(
 class _ToolPath(click.ParamType):
     name = "tool"
 
-    def convert(self, value, param, ctx):
+    def convert(self, value: object, param: click.Parameter | None, ctx: click.Context | None) -> object:
         if value not in TOOLS.values():
             self.fail("unknown or unmapped Debian tool: %s" % value, param, ctx)
         return value
@@ -413,11 +425,11 @@ class _ToolPath(click.ParamType):
 class _LauncherSetupError(click.ClickException):
     exit_code = 1
 
-    def show(self, file=None):
+    def show(self, file: IO[Any] | None = None) -> None:
         click.echo("Debian launcher setup failed: %s" % self.message, file=file, err=True)
 
 
-def _bind_arguments(ro_bind_specs, rw_bind_specs):
+def _bind_arguments(ro_bind_specs: Sequence[str], rw_bind_specs: Sequence[str]) -> list[str]:
     arguments = []
     for option, specifications in (
         ("--ro-bind", ro_bind_specs),

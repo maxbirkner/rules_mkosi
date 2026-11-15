@@ -8,14 +8,18 @@ import shutil
 import stat
 import sys
 import tarfile
+from collections.abc import Iterator, Mapping, MutableMapping, Sequence
+from typing import IO, cast
 
 # extract_tree.py owns the member path validation and stream hashing; the archive action stages it next to this script.
 _extract_tree = runpy.run_path(os.path.join(os.path.dirname(__file__), "extract_tree.py"))
 _member_path = _extract_tree["member_path"]
 _sha256 = _extract_tree["sha256_stream"]
+# (kind, mode, extracted file, link name) of one package member; see _member_object.
+_PackageObject = tuple[str, int, str | None, str | None]
 
 
-def _ar_members(data):
+def _ar_members(data: bytes) -> Iterator[tuple[str, bytes]]:
     if not data.startswith(b"!<arch>\n"):
         raise ValueError("not a Debian ar archive")
     offset = 8
@@ -35,7 +39,7 @@ def _ar_members(data):
         offset = end + (end & 1)
 
 
-def _package_data(package):
+def _package_data(package: IO[bytes]) -> bytes:
     data = package.read()
     for name, member in _ar_members(data):
         if name.startswith("data.tar"):
@@ -43,7 +47,7 @@ def _package_data(package):
     raise ValueError("Debian package has no data archive")
 
 
-def _ensure_parent(objects, relative):
+def _ensure_parent(objects: MutableMapping[str, _PackageObject], relative: str) -> None:
     parent = os.path.dirname(relative)
     if not parent:
         return
@@ -54,7 +58,7 @@ def _ensure_parent(objects, relative):
             objects[current] = ("dir", 0o755, None, None)
 
 
-def _read_manifest(manifest):
+def _read_manifest(manifest: str) -> dict[str, str]:
     """Returns the expected SHA-256 of every package keyed by file name."""
     expected = {}
     with open(manifest, encoding="utf-8") as entries:
@@ -66,7 +70,7 @@ def _read_manifest(manifest):
     return expected
 
 
-def _open_authenticated(package, expected_digest):
+def _open_authenticated(package: str, expected_digest: str) -> io.BufferedReader:
     """Opens package without following symlinks and verifies its digest before it is parsed."""
     name = os.path.basename(package)
     fd = os.open(os.path.realpath(package), os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
@@ -81,7 +85,9 @@ def _open_authenticated(package, expected_digest):
     return stream
 
 
-def _authenticated_streams(packages, expected, stack):
+def _authenticated_streams(
+    packages: Sequence[str], expected: Mapping[str, str], stack: contextlib.ExitStack
+) -> list[tuple[str, io.BufferedReader]]:
     """Opens and authenticates every package; stack closes each opened stream, including on errors."""
     if len(expected) != len(packages):
         raise ValueError("package manifest does not match package inputs")
@@ -100,7 +106,7 @@ def _authenticated_streams(packages, expected, stack):
     return streams
 
 
-def _extract_file(source, member, relative, work):
+def _extract_file(source: tarfile.TarFile, member: tarfile.TarInfo, relative: str, work: str) -> str:
     destination = os.path.join(work, relative)
     os.makedirs(os.path.dirname(destination), exist_ok=True)
     source_file = source.extractfile(member)
@@ -111,7 +117,7 @@ def _extract_file(source, member, relative, work):
     return destination
 
 
-def _member_object(source, member, relative, work):
+def _member_object(source: tarfile.TarFile, member: tarfile.TarInfo, relative: str, work: str) -> _PackageObject:
     """Returns the (kind, mode, extracted file, link name) record of one package member."""
     mode = stat.S_IMODE(member.mode)
     if member.isdir():
@@ -125,7 +131,7 @@ def _member_object(source, member, relative, work):
     raise ValueError("unsupported package member: %s" % relative)
 
 
-def _collect_package(stream, objects, work):
+def _collect_package(stream: IO[bytes], objects: MutableMapping[str, _PackageObject], work: str) -> None:
     with tarfile.open(fileobj=io.BytesIO(_package_data(stream)), mode="r:*") as source:
         for member in source:
             relative = _member_path(member.name, "package")
@@ -135,18 +141,19 @@ def _collect_package(stream, objects, work):
             objects[relative] = _member_object(source, member, relative, work)
 
 
-def _collect(packages, manifest, work):
+def _collect(packages: Sequence[str], manifest: str, work: str) -> dict[str, _PackageObject]:
     expected = _read_manifest(manifest)
-    objects = {}
+    objects: dict[str, _PackageObject] = {}
     with contextlib.ExitStack() as stack:
         for _, stream in _authenticated_streams(packages, expected, stack):
             _collect_package(stream, objects, work)
     return objects
 
 
-def _archive(output, objects):
+def _archive(output: str, objects: Mapping[str, _PackageObject]) -> None:
     with tarfile.open(output, "w", format=tarfile.PAX_FORMAT) as destination:
         for relative in sorted(objects, key=lambda item: (item.count(os.sep), item)):
+            # _member_object records the extracted file of every regular file and the link name of every link.
             kind, mode, source, linkname = objects[relative]
             member = tarfile.TarInfo("./" + relative)
             member.mode = mode
@@ -159,20 +166,20 @@ def _archive(output, objects):
                 member.type = tarfile.DIRTYPE
                 destination.addfile(member)
             elif kind == "file":
-                member.size = os.path.getsize(source)
-                with open(source, "rb") as contents:
+                member.size = os.path.getsize(cast(str, source))
+                with open(cast(str, source), "rb") as contents:
                     destination.addfile(member, contents)
             elif kind == "symlink":
                 member.type = tarfile.SYMTYPE
-                member.linkname = linkname
+                member.linkname = cast(str, linkname)
                 destination.addfile(member)
             else:
                 member.type = tarfile.LNKTYPE
-                member.linkname = linkname
+                member.linkname = cast(str, linkname)
                 destination.addfile(member)
 
 
-def main():
+def main() -> None:
     if len(sys.argv) < 4:
         raise SystemExit("usage: package_archive.py OUTPUT MANIFEST PACKAGE...")
     output = os.path.abspath(sys.argv[1])
