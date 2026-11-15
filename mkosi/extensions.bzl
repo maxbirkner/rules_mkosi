@@ -2,6 +2,8 @@
 
 load(
     "//mkosi:qemu_versions.bzl",
+    "AAVMF_CODE_SHA256",
+    "AAVMF_VARS_SHA256",
     "OVMF_CODE_SHA256",
     "OVMF_INTEGRITY",
     "OVMF_SHA256",
@@ -10,6 +12,8 @@ load(
     "OVMF_URL",
     "OVMF_VARS_SHA256",
     "OVMF_VERSION",
+    "QEMU_SYSTEM_AARCH64_SHA256",
+    "QEMU_SYSTEM_AARCH64_URL",
     "QEMU_SYSTEM_INTEGRITY",
     "QEMU_SYSTEM_SHA256",
     "QEMU_SYSTEM_URL",
@@ -21,6 +25,11 @@ load("//mkosi:versions.bzl", "DEFAULT_MKOSI_VERSION", "MKOSI_VERSIONS")
 load("//mkosi/private:toolchains_repo.bzl", "mkosi_source_repo", "ovmf_repo", "seabios_repo", "toolchains_repo")
 
 _QEMU_REPOSITORY_ATTRS = {
+    "aarch64_qemu_sha256": QEMU_SYSTEM_AARCH64_SHA256,
+    "aarch64_qemu_source_url": QEMU_SYSTEM_AARCH64_URL,
+    "aarch64_qemu_system": "@qemu_system_bin_prebuilt_linux_amd64_aarch64_softmmu//:qemu-system-aarch64",
+    "aavmf_code_sha256": AAVMF_CODE_SHA256,
+    "aavmf_vars_sha256": AAVMF_VARS_SHA256,
     "ovmf_code_sha256": OVMF_CODE_SHA256,
     "ovmf_integrity": OVMF_INTEGRITY,
     "ovmf_repo": "@mkosi_ovmf",

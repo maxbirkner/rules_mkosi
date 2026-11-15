@@ -11,6 +11,10 @@ QEMU_IMG_URL = "https://github.com/hermeticbuild/qemu-prebuilt/releases/download
 QEMU_IMG_SHA256 = "b58c4eb7e8e13a100dba36f4b871cfa7848fdbfece08bad8bbc9ec57cfeaca13"
 QEMU_SYSTEM_DATA_URL = "https://github.com/hermeticbuild/qemu-prebuilt/releases/download/11.0.0.1/qemu-system-data-linux-amd64-11.0.0.1.tar.zst"
 QEMU_SYSTEM_DATA_SHA256 = "2525218347b647962bed5d0b37d3093e434b8c83e5fd78de910d43bec6154fff"
+
+# qemu-system-aarch64 for Linux x86-64 hosts, from the same qemu-prebuilt release, for arm64 guests.
+QEMU_SYSTEM_AARCH64_URL = "https://github.com/hermeticbuild/qemu-prebuilt/releases/download/11.0.0.1/qemu-system-bin-linux-amd64-aarch64-softmmu-11.0.0.1.tar.zst"
+QEMU_SYSTEM_AARCH64_SHA256 = "47385316ca599ad1cd11b212ee34ba39315231484ddf0aca735ee999509ece4c"
 SEABIOS_VERSION = "rel-1.17.0-0-gb52ca86e094d-prebuilt.qemu.org"
 SEABIOS_SHA256 = "ae6f6aa973aaccc143f57aa960fb035fd9de4daee4ad0cd713322f8c259e7650"
 
@@ -22,6 +26,10 @@ OVMF_INTEGRITY = "sha256-iuTS1zFhzCM19WddO4tu36BkIwFnl2SiRpQEiOo84g0="
 OVMF_CODE_SHA256 = "f891b100aecb131adff4c8504cd39cab07b709efeea9be415feb1864a408b2d5"
 OVMF_VARS_SHA256 = "5d2ac383371b408398accee7ec27c8c09ea5b74a0de0ceea6513388b15be5d1e"
 OVMF_SHELL_SHA256 = "045c497402920ae83c8f5f501b48debdeefe2c051c0b778c87b8168b9708f083"
+
+# The aarch64 UEFI firmware (AAVMF) of the same OVMF archive, for arm64 guests.
+AAVMF_CODE_SHA256 = "96ed22314dbe15d1baa9a7918089dca0f451019cb135b1036692f544b3a82e47"
+AAVMF_VARS_SHA256 = "b3b855c5a80310168051164986855692d1bdb06e67619856177965cd87c6774f"
 
 # Secure Boot capable OVMF (Secure Boot and SMM enabled) for qemu_ovmf_boot_test(secure_boot = True), from the Debian
 # 13 snapshot that the Debian tools use. Its OVMF_VARS_4M.fd is an empty variable store, so firmware starts in Setup Mode.
