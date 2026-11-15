@@ -123,7 +123,7 @@ def _signed_image_test_impl(ctx):
         file.basename
         for file in groups.secure_boot_metadata.to_list()
     ])
-    for field in ("uki", "partition_metadata", "root_hash", "image_id", "firmware"):
+    for field in ("uki", "partition_metadata", "root_hash", "image_id", "firmware", "architecture"):
         asserts.equals(env, getattr(image, field), getattr(signed, field), field)
     return analysistest.end(env)
 
