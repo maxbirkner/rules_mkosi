@@ -65,6 +65,8 @@ cc_binary(
     deps = ["@rules_cc//cc/runfiles"],
     features = ["fully_static_link"],
     linkopts = ["-static", "-Wl,--strip-debug", "-Wl,--build-id=none"],
+    # Any Linux execution platform links or symlinks them; a Linux x86-64 one also cross-builds the arm64 ones.
+    exec_compatible_with = ["@platforms//os:linux"],
     target_compatible_with = [
         "@platforms//os:linux",
         "{cpu_constraint}",
@@ -79,6 +81,8 @@ bootstrap_binary(
         ":python",
         ":python_runtime",
     ],
+    # Any Linux execution platform links or symlinks them; a Linux x86-64 one also cross-builds the arm64 ones.
+    exec_compatible_with = ["@platforms//os:linux"],
     target_compatible_with = [
         "@platforms//os:linux",
         "{cpu_constraint}",
@@ -95,6 +99,8 @@ cc_binary(
     ],
     features = ["fully_static_link"],
     linkopts = ["-static", "-Wl,--strip-debug", "-Wl,--build-id=none"],
+    # Any Linux execution platform links or symlinks them; a Linux x86-64 one also cross-builds the arm64 ones.
+    exec_compatible_with = ["@platforms//os:linux"],
     target_compatible_with = [
         "@platforms//os:linux",
         "{cpu_constraint}",
@@ -104,6 +110,8 @@ cc_binary(
 bootstrap_binary(
     name = "namespace_runner",
     binary = ":namespace_runner_binary",
+    # Any Linux execution platform links or symlinks them; a Linux x86-64 one also cross-builds the arm64 ones.
+    exec_compatible_with = ["@platforms//os:linux"],
     target_compatible_with = [
         "@platforms//os:linux",
         "{cpu_constraint}",
