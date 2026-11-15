@@ -9,29 +9,41 @@ import runpy
 import shutil
 import subprocess
 import sys
+from collections.abc import Iterable, Iterator, Mapping, Sequence
+from typing import TypeAlias
 
 _load_sibling = runpy.run_path(str(pathlib.Path(__file__).with_name("sibling_loader.py")))["load_sibling"]
 debian_control = _load_sibling(__file__, "debian_control")
 file_hashing = _load_sibling(__file__, "file_hashing")
 
+StrPath: TypeAlias = str | os.PathLike[str]
+# (component, architecture, path in the snapshot, SHA-256, input file) of a Packages.xz index.
+_Index: TypeAlias = tuple[str, str, str, str, str]
+# A staged, decompressed Packages index and its architecture.
+_StagedIndex: TypeAlias = tuple[pathlib.Path, str]
+# (name, version, architecture) of a package.
+_PackageKey: TypeAlias = tuple[str, str, str]
+# (filename, size, SHA-256, local name) of a locked package.
+_LockedPackage: TypeAlias = tuple[str, int, str, str]
 
-def _verify_digest(path, expected, description):
+
+def _verify_digest(path: StrPath, expected: str, description: str) -> None:
     actual = file_hashing.sha256_file(path)
     if actual != expected:
         raise ValueError("%s digest mismatch: expected=%s actual=%s" % (description, expected, actual))
 
 
-def _verify_package(path, expected_digest, expected_size, description):
+def _verify_package(path: StrPath, expected_digest: str, expected_size: int, description: str) -> None:
     _verify_digest(path, expected_digest, description)
     actual_size = os.stat(path).st_size
     if actual_size != expected_size:
         raise ValueError("%s size mismatch: expected=%d actual=%d" % (description, expected_size, actual_size))
 
 
-def _sha256_entries(release):
+def _sha256_entries(release: bytes) -> Iterator[tuple[str, int, str]]:
     """Yields (digest, size, path) of every entry in the SHA256 field of a Release file."""
     in_sha256 = False
-    seen = set()
+    seen: set[str] = set()
     for line in release.decode("utf-8").splitlines():
         if not line:
             continue
@@ -54,7 +66,7 @@ def _sha256_entries(release):
         yield digest, int(size), entry_path
 
 
-def _release_hash(release, relative_path, expected_size, expected_digest):
+def _release_hash(release: bytes, relative_path: str, expected_size: int, expected_digest: str) -> None:
     path = relative_path
     if path.startswith("dists/"):
         path = path.split("/", 2)[2]
@@ -71,7 +83,14 @@ def _release_hash(release, relative_path, expected_size, expected_digest):
 _SQV_KEYRING = "--keyring=/usr/share/keyrings/debian-archive-keyring.gpg"
 
 
-def _run_sqv(launcher, binds, sqv_arguments, environment, scratch, description):
+def _run_sqv(
+    launcher: str,
+    binds: Iterable[tuple[str, str, str]],
+    sqv_arguments: Sequence[str],
+    environment: Mapping[str, str],
+    scratch: str,
+    description: str,
+) -> None:
     """Runs sqv from the Debian tools tree with the pinned archive keyring and the given namespace binds."""
     command = [launcher]
     for option, source, destination in binds:
@@ -89,7 +108,7 @@ def _run_sqv(launcher, binds, sqv_arguments, environment, scratch, description):
         )
 
 
-def _verify_signature(launcher, inrelease, release, release_gpg, output, scratch):
+def _verify_signature(launcher: str, inrelease: str, release: str, release_gpg: str, output: str, scratch: str) -> None:
     scratch = os.path.abspath(scratch)
     environment = {"PATH": ""}
     for variable in ("RUNFILES_DIR", "RUNFILES_MANIFEST_FILE", "RUNFILES_MANIFEST_ONLY"):
@@ -119,13 +138,13 @@ def _verify_signature(launcher, inrelease, release, release_gpg, output, scratch
     )
 
 
-def _copy(source, destination):
+def _copy(source: StrPath, destination: pathlib.Path) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(source, destination)
     os.chmod(destination, 0o644)
 
 
-def _safe_package_path(filename):
+def _safe_package_path(filename: str) -> pathlib.PurePosixPath:
     relative = pathlib.PurePosixPath(filename)
     if (
         relative.is_absolute()
@@ -137,14 +156,14 @@ def _safe_package_path(filename):
     return relative
 
 
-def _decompress(source, destination):
+def _decompress(source: StrPath, destination: pathlib.Path) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
     with lzma.open(source, "rb") as compressed, open(destination, "wb") as output:
         shutil.copyfileobj(compressed, output)
     os.chmod(destination, 0o644)
 
 
-def _set_deterministic_metadata(root):
+def _set_deterministic_metadata(root: pathlib.Path) -> None:
     for directory, dirnames, names in os.walk(root, topdown=False):
         for name in names:
             path = os.path.join(directory, name)
@@ -161,8 +180,10 @@ def _set_deterministic_metadata(root):
     os.utime(root, (0, 0), follow_symlinks=False)
 
 
-def _read_package_metadata(indexes, expected):
-    actual = {}
+def _read_package_metadata(
+    indexes: Iterable[tuple[StrPath, str]], expected: Mapping[_PackageKey, object]
+) -> dict[_PackageKey, tuple[str, int, str]]:
+    actual: dict[_PackageKey, tuple[str, int, str]] = {}
     for package_index, index_architecture in indexes:
         with open(package_index, "rb") as source:
             for paragraph in debian_control.paragraphs(source.read().decode("utf-8")):
@@ -191,14 +212,14 @@ def _read_package_metadata(indexes, expected):
     return actual
 
 
-def _authenticated_release_matches(payload, release):
+def _authenticated_release_matches(payload: bytes, release: bytes) -> bool:
     return payload == release or payload + b"\n" == release
 
 
-def _component_indexes(args):
+def _component_indexes(args: argparse.Namespace) -> list[_Index]:
     if len(args.component_indexes) != len(args.component_index_files):
         raise ValueError("--component-index and --component-index-file counts differ")
-    indexes = [
+    indexes: list[_Index] = [
         ("main", "amd64", args.packages_path, args.packages_xz_sha256, args.packages_xz),
         ("main", "all", args.packages_all_path, args.packages_all_xz_sha256, args.packages_all_xz),
     ]
@@ -208,7 +229,7 @@ def _component_indexes(args):
             raise ValueError("component index record must have four fields")
         component, architecture, relative, digest = fields
         indexes.append((component, architecture, relative, digest, path))
-    seen = set()
+    seen: set[tuple[str, str]] = set()
     for component, architecture, relative, _, _ in indexes:
         if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", component):
             raise ValueError("invalid Debian component: %s" % component)
@@ -226,7 +247,7 @@ def _component_indexes(args):
     return indexes
 
 
-def _verify_input_digests(args, indexes):
+def _verify_input_digests(args: argparse.Namespace, indexes: Iterable[_Index]) -> None:
     _verify_digest(args.inrelease, args.inrelease_sha256, "InRelease")
     _verify_digest(args.release, args.release_sha256, "Release")
     _verify_digest(args.release_gpg, args.release_gpg_sha256, "Release.gpg")
@@ -234,7 +255,7 @@ def _verify_input_digests(args, indexes):
         _verify_digest(path, digest, "Packages %s/%s" % (component, architecture))
 
 
-def _verify_authenticated_release(verified, release, indexes):
+def _verify_authenticated_release(verified: pathlib.Path, release: str, indexes: Iterable[_Index]) -> None:
     """Checks that the signature-verified InRelease payload is the locked Release and lists every index."""
     authenticated_release = verified.read_bytes()
     if not _authenticated_release_matches(authenticated_release, pathlib.Path(release).read_bytes()):
@@ -243,13 +264,15 @@ def _verify_authenticated_release(verified, release, indexes):
         _release_hash(authenticated_release, relative, len(pathlib.Path(path).read_bytes()), digest)
 
 
-def _stage_release_files(args, indexes, destination):
+def _stage_release_files(
+    args: argparse.Namespace, indexes: Iterable[_Index], destination: pathlib.Path
+) -> list[_StagedIndex]:
     """Copies the release files and decompresses every Packages index; returns the staged indexes."""
     dists = destination / "dists" / args.codename
     _copy(args.inrelease, dists / "InRelease")
     _copy(args.release, dists / "Release")
     _copy(args.release_gpg, dists / "Release.gpg")
-    staged_indexes = []
+    staged_indexes: list[_StagedIndex] = []
     for _, architecture, relative, _, path in indexes:
         staged = destination / relative[: -len(".xz")]
         _decompress(path, staged)
@@ -257,11 +280,11 @@ def _stage_release_files(args, indexes, destination):
     return staged_indexes
 
 
-def _locked_packages(package_records):
+def _locked_packages(package_records: Iterable[str]) -> dict[_PackageKey, _LockedPackage]:
     """Returns (filename, size, digest, local name) of every locked package keyed by (name, version, arch)."""
-    expected = {}
-    filenames = set()
-    local_names = set()
+    expected: dict[_PackageKey, _LockedPackage] = {}
+    filenames: set[str] = set()
+    local_names: set[str] = set()
     for package in package_records:
         fields = package.split("|")
         if len(fields) != 7:
@@ -283,7 +306,9 @@ def _locked_packages(package_records):
     return expected
 
 
-def _verify_package_metadata(staged_indexes, expected):
+def _verify_package_metadata(
+    staged_indexes: Iterable[_StagedIndex], expected: Mapping[_PackageKey, _LockedPackage]
+) -> None:
     actual = _read_package_metadata(staged_indexes, expected)
     if actual.keys() != expected.keys():
         raise ValueError("locked packages do not match Packages metadata")
@@ -292,7 +317,9 @@ def _verify_package_metadata(staged_indexes, expected):
             raise ValueError("package metadata disagrees with lock: %s" % key[0])
 
 
-def _stage_packages(args, expected, destination):
+def _stage_packages(
+    args: argparse.Namespace, expected: Mapping[_PackageKey, _LockedPackage], destination: pathlib.Path
+) -> None:
     records_by_name = {value[3]: (key, value) for key, value in expected.items()}
     if set(records_by_name) != set(args.package_names):
         raise ValueError("package inputs do not match lock package names")
@@ -303,7 +330,7 @@ def _stage_packages(args, expected, destination):
         _copy(package, destination / relative)
 
 
-def stage(args):
+def stage(args: argparse.Namespace) -> None:
     if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", args.codename):
         raise ValueError("invalid Debian codename: %s" % args.codename)
     indexes = _component_indexes(args)
@@ -327,7 +354,7 @@ def stage(args):
     _set_deterministic_metadata(destination)
 
 
-def _parser():
+def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     parser.add_argument("--inrelease", required=True)
     parser.add_argument("--release", required=True)
@@ -358,7 +385,7 @@ def _parser():
     return parser
 
 
-def main():
+def main() -> int:
     parser = _parser()
     args = parser.parse_args()
     if len(args.packages) != len(args.package_names):

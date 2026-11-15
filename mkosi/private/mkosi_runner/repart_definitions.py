@@ -1,12 +1,14 @@
 """Reads the systemd-repart partition definitions of an image the way systemd-repart merges them."""
 
+import os
+from collections.abc import Iterable, Iterator, Mapping
 from pathlib import Path
 
 # Minimize= values that systemd-repart parses as off: the empty value, "off" and the false booleans.
 _MINIMIZE_OFF = frozenset(("", "off", "0", "no", "n", "false", "f"))
 
 
-def unsized_verity_hash_definitions(directories):
+def unsized_verity_hash_definitions(directories: Iterable[str | os.PathLike[str]]) -> list[Path]:
     """Returns the definitions of Verity=hash partitions that set neither SizeMinBytes= nor Minimize=.
 
     systemd-repart 257.13 and newer reserve no default size for a verity partition, and mkosi sizes the disk to the
@@ -16,17 +18,17 @@ def unsized_verity_hash_definitions(directories):
     return [path for path, settings in _definitions(directories) if _is_unsized_verity_hash(settings)]
 
 
-def _definitions(directories):
+def _definitions(directories: Iterable[str | os.PathLike[str]]) -> Iterator[tuple[Path, dict[str, str]]]:
     """Yields each effective definition and its [Partition] settings, including '<name>.d/*.conf' drop-ins."""
-    directories = [Path(directory) for directory in directories]
-    for name, path in sorted(_first_by_name(directories).items()):
-        dropins = _first_by_name([directory / (name + ".d") for directory in directories])
+    paths = [Path(directory) for directory in directories]
+    for name, path in sorted(_first_by_name(paths).items()):
+        dropins = _first_by_name([directory / (name + ".d") for directory in paths])
         yield path, _partition_settings([path, *(dropins[dropin] for dropin in sorted(dropins))])
 
 
-def _first_by_name(directories):
+def _first_by_name(directories: Iterable[Path]) -> dict[str, Path]:
     # A file in an earlier directory overrides a file of the same name in a later one.
-    files = {}
+    files: dict[str, Path] = {}
     for directory in directories:
         for path in sorted(directory.glob("*.conf")) if directory.is_dir() else ():
             if not path.is_dir():
@@ -34,8 +36,8 @@ def _first_by_name(directories):
     return files
 
 
-def _partition_settings(paths):
-    settings = {}
+def _partition_settings(paths: Iterable[Path]) -> dict[str, str]:
+    settings: dict[str, str] = {}
     for path in paths:
         section = None
         for line in path.read_text().splitlines():
@@ -48,7 +50,7 @@ def _partition_settings(paths):
     return settings
 
 
-def _is_unsized_verity_hash(settings):
+def _is_unsized_verity_hash(settings: Mapping[str, str]) -> bool:
     return (
         settings.get("Verity") == "hash"
         and not settings.get("SizeMinBytes")
