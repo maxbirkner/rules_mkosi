@@ -16,17 +16,24 @@ import socket
 import subprocess
 import sys
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterable, Mapping, Sequence
+from typing import Any, BinaryIO, NoReturn, TypeAlias
 
 _load_sibling = runpy.run_path(str(pathlib.Path(__file__).with_name("sibling_loader.py")))["load_sibling"]
 diagnostics = _load_sibling(__file__, "diagnostics")
+
+StrPath: TypeAlias = str | os.PathLike[str]
+# A file or directory, or a mapping of a directory's relative file names to files when only a runfiles manifest lists
+# them.
+_ShareSource: TypeAlias = str | dict[str, str]
 
 
 class QmpHandshakeError(RuntimeError):
     """QEMU did not complete its management initialization handshake."""
 
 
-def _resolve_runfile(path):
+# diagnostics.fail() exits, but mypy cannot see its NoReturn type through the sibling loader.
+def _resolve_runfile(path: str) -> str:  # type: ignore[return]
     if os.path.isabs(path):
         return path
     manifest = os.environ.get("RUNFILES_MANIFEST_FILE")
@@ -52,14 +59,14 @@ def _resolve_runfile(path):
     )
 
 
-def _read_log(path):
+def _read_log(path: StrPath) -> bytes:
     try:
         return pathlib.Path(path).read_bytes()
     except OSError:
         return b"<log unavailable>\n"
 
 
-def _bounded_content(data, limit):
+def _bounded_content(data: bytes, limit: int) -> bytes:
     if len(data) <= limit:
         return data
     marker = b"\n--- bounded log: middle omitted ---\n"
@@ -70,7 +77,9 @@ def _bounded_content(data, limit):
     return data[:head] + marker + data[-(remaining - head) :]
 
 
-def _actual_boot_evidence(firmware, serial, limit, markers=(), accelerator=None):
+def _actual_boot_evidence(
+    firmware: bytes, serial: bytes, limit: int, markers: Iterable[str] = (), accelerator: str | None = None
+) -> bytes:
     stages = (
         ("firmware", firmware, (b"SeaBIOS", b"Booting from Hard Disk", b"Booting from 0000:7c00")),
         (
@@ -87,14 +96,21 @@ def _actual_boot_evidence(firmware, serial, limit, markers=(), accelerator=None)
         ),
     )
     output = [b"[qemu] accelerator: " + (accelerator or "unknown").encode()]
-    for source, content, markers in stages:
+    for source, content, stage_markers in stages:
         for line in content.splitlines():
-            if any(marker in line for marker in markers):
+            if any(marker in line for marker in stage_markers):
                 output.append(b"[" + source.encode() + b"] " + line)
     return _bounded_content(b"\n".join(output) + b"\n", limit)
 
 
-def _export_boot_logs(serial_log, firmware_log, qemu_log, diagnostic_bytes, markers=(), accelerator=None):
+def _export_boot_logs(
+    serial_log: StrPath,
+    firmware_log: StrPath,
+    qemu_log: StrPath,
+    diagnostic_bytes: int,
+    markers: Iterable[str] = (),
+    accelerator: str | None = None,
+) -> None:
     output_directory = os.environ.get("TEST_UNDECLARED_OUTPUTS_DIR")
     if not output_directory:
         return
@@ -120,13 +136,13 @@ def _export_boot_logs(serial_log, firmware_log, qemu_log, diagnostic_bytes, mark
 
 
 def _diagnose(
-    kind,
-    message,
-    serial_log,
-    qemu_log,
-    diagnostic_bytes,
-    firmware_log=None,
-):
+    kind: str,
+    message: str,
+    serial_log: StrPath,
+    qemu_log: StrPath,
+    diagnostic_bytes: int,
+    firmware_log: StrPath | None = None,
+) -> NoReturn:
     diagnostics.report("VM_FAILURE", "{}: {}".format(kind, message))
     logs = [("serial log", serial_log)]
     if firmware_log:
@@ -141,7 +157,7 @@ def _diagnose(
     raise SystemExit(1)
 
 
-def _read_qmp_message(reader, description):
+def _read_qmp_message(reader: BinaryIO, description: str) -> object:
     line = reader.readline()
     if not line:
         raise QmpHandshakeError("{} was empty".format(description))
@@ -151,7 +167,7 @@ def _read_qmp_message(reader, description):
         raise QmpHandshakeError("{} was not valid JSON".format(description)) from error
 
 
-def _perform_qmp_handshake(connection, timeout):
+def _perform_qmp_handshake(connection: socket.socket, timeout: float) -> str:
     connection.settimeout(timeout)
     reader = connection.makefile("rb")
     try:
@@ -176,7 +192,7 @@ def _perform_qmp_handshake(connection, timeout):
         reader.close()
 
 
-def _accelerator_from_query_kvm(reply):
+def _accelerator_from_query_kvm(reply: object) -> str:
     """Returns the accelerator QEMU selected, "kvm" or "tcg", from a QMP query-kvm reply."""
     result = reply.get("return") if isinstance(reply, dict) else None
     enabled = result.get("enabled") if isinstance(result, dict) else None
@@ -185,7 +201,13 @@ def _accelerator_from_query_kvm(reply):
     return "kvm" if enabled else "tcg"
 
 
-def _qmp_handshake(process, socket_path, timeout, monotonic=time.monotonic, sleep=time.sleep):
+def _qmp_handshake(
+    process: subprocess.Popen[bytes],
+    socket_path: str,
+    timeout: float,
+    monotonic: Callable[[], float] = time.monotonic,
+    sleep: Callable[[float], None] = time.sleep,
+) -> str:
     """Completes the QMP handshake and returns the accelerator QEMU selected."""
     deadline = monotonic() + timeout
     last_error = "QMP socket was not ready"
@@ -207,7 +229,7 @@ def _qmp_handshake(process, socket_path, timeout, monotonic=time.monotonic, slee
     raise QmpHandshakeError(last_error)
 
 
-def _ordered_progress(serial, markers):
+def _ordered_progress(serial: bytes, markers: Sequence[str]) -> tuple[int, int | None]:
     """Returns the offset after the last ordered progress marker and the first missing marker index."""
     offset = 0
     for index, marker in enumerate(markers):
@@ -218,11 +240,11 @@ def _ordered_progress(serial, markers):
     return offset, None
 
 
-def _resolve_runfile_directory(path):
+def _resolve_runfile_directory(path: str) -> _ShareSource:
     """Returns a runfiles directory, or a mapping of its relative file names when only a manifest lists them."""
     manifest = os.environ.get("RUNFILES_MANIFEST_FILE")
     if manifest and os.path.isfile(manifest):
-        files = {}
+        files: dict[str, str] = {}
         prefixes = (path, "../" + path, "external/" + path)
         with open(manifest, encoding="utf-8") as entries:
             for line in entries:
@@ -237,7 +259,7 @@ def _resolve_runfile_directory(path):
     return _resolve_runfile(path)
 
 
-def _link_or_copy(source, destination):
+def _link_or_copy(source: StrPath, destination: pathlib.Path) -> None:
     """Hard-links or copies source to destination, failing if a share already provides a file of that name."""
     destination.parent.mkdir(parents=True, exist_ok=True)
     try:
@@ -249,7 +271,7 @@ def _link_or_copy(source, destination):
             shutil.copyfileobj(original, copy)
 
 
-def _materialize_share(source, destination):
+def _materialize_share(source: _ShareSource, destination: pathlib.Path) -> None:
     """Recreates a share as regular files, hard-linking them where possible.
 
     Bazel may present tree artifacts as directories of symlinks into the output base, or only list their files
@@ -270,9 +292,9 @@ def _materialize_share(source, destination):
             _link_or_copy(path, destination / entry)
 
 
-def _virtfs_arguments(shares, scratch):
+def _virtfs_arguments(shares: Iterable[tuple[_ShareSource, str]], scratch: pathlib.Path) -> list[str]:
     """Returns QEMU arguments exposing each (directory, mount tag) pair as a read-only virtio-9p share."""
-    arguments = []
+    arguments: list[str] = []
     for directory, mount_tag in shares:
         materialized = scratch / "shares" / mount_tag
         shutil.rmtree(materialized, ignore_errors=True)
@@ -292,7 +314,7 @@ HTTP_ADDRESS = "10.0.2.100"
 HTTP_LOG = "http-share.log"
 
 
-def _http_arguments(shares, scratch):
+def _http_arguments(shares: Sequence[tuple[str, Iterable[_ShareSource]]], scratch: pathlib.Path) -> list[str]:
     """Returns QEMU arguments serving each (URL path, sources) pair at http://HTTP_ADDRESS/<path>/.
 
     A source is a directory, whose files appear at the top of its path, a manifest mapping of one, or a file.
@@ -319,11 +341,11 @@ def _http_arguments(shares, scratch):
     ]
 
 
-def _guest_started(serial):
+def _guest_started(serial: bytes) -> bool:
     return b"Linux version" in serial or b"systemd[" in serial
 
 
-def _classify_pre_readiness_failure(serial, firmware, firmware_kind):
+def _classify_pre_readiness_failure(serial: bytes, firmware: bytes, firmware_kind: str) -> str:
     combined = serial + b"\n" + firmware
     if _guest_started(serial):
         return "GUEST_FAILURE"
@@ -343,19 +365,19 @@ def _classify_pre_readiness_failure(serial, firmware, firmware_kind):
 
 
 def _classify_process_exit(
-    qemu_initialized,
-    serial,
-    returncode,
-    firmware=b"",
-    firmware_kind="",
-):
+    qemu_initialized: bool,
+    serial: bytes,
+    returncode: int | None,
+    firmware: bytes = b"",
+    firmware_kind: str = "",
+) -> str:
     del returncode
     if not qemu_initialized:
         return "QEMU_INITIALIZATION_FAILURE"
     return _classify_pre_readiness_failure(serial, firmware, firmware_kind)
 
 
-def _qemu_environment(scratch):
+def _qemu_environment(scratch: pathlib.Path) -> dict[str, str]:
     return {
         "HOME": str(scratch),
         "LANG": "C.UTF-8",
@@ -364,12 +386,12 @@ def _qemu_environment(scratch):
     }
 
 
-def _has_clean_shutdown(serial_log, markers):
+def _has_clean_shutdown(serial_log: StrPath, markers: Iterable[str]) -> bool:
     serial = _read_log(serial_log)
     return all(marker.encode() in serial for marker in markers)
 
 
-def _stop_process(process, timeout=5):
+def _stop_process(process: subprocess.Popen[bytes], timeout: float = 5) -> bool:
     if process.poll() is not None:
         return True
     process.terminate()
@@ -393,22 +415,22 @@ class _BootFiles:
     diagnostic_bytes: int
 
     @property
-    def vars_copy(self):
+    def vars_copy(self) -> pathlib.Path:
         return self.scratch / "firmware-vars.fd"
 
     @property
-    def serial_log(self):
+    def serial_log(self) -> pathlib.Path:
         return self.scratch / "guest-serial.log"
 
     @property
-    def qemu_log(self):
+    def qemu_log(self) -> pathlib.Path:
         return self.scratch / "qemu.log"
 
     @property
-    def firmware_log(self):
+    def firmware_log(self) -> pathlib.Path:
         return self.scratch / "firmware.log"
 
-    def fail(self, kind, message, include_firmware_log=True):
+    def fail(self, kind: str, message: str, include_firmware_log: bool = True) -> NoReturn:
         _diagnose(
             kind,
             message,
@@ -422,7 +444,7 @@ class _BootFiles:
 _QMP_SOCKET = "qmp.sock"
 
 
-def _absolute_or_none(path):
+def _absolute_or_none(path: str | None) -> str | None:
     return os.path.abspath(path) if path else path
 
 
@@ -444,8 +466,8 @@ class _BootOptions:
     expected_failure_marker: str = ""
     stop_after_readiness: bool = False
     allow_reboot: bool = False
-    read_only_shares: tuple = ()
-    http_shares: tuple = ()
+    read_only_shares: Sequence[tuple[_ShareSource, str]] = ()
+    http_shares: Sequence[tuple[str, Sequence[_ShareSource]]] = ()
     shutdown_markers: tuple = ()
     boot_timeout_seconds: float = 180
     qmp_initialization_timeout_seconds: float = 15
@@ -466,7 +488,9 @@ class _BootHost:
 _HOST = _BootHost()
 
 
-def _qemu_command(files, image, qemu, system_data, options, share_arguments):
+def _qemu_command(
+    files: _BootFiles, image: str, qemu: str, system_data: str, options: _BootOptions, share_arguments: list[str]
+) -> list[str]:
     """Returns the QEMU command line; options carries absolute firmware paths."""
     expanded_arguments = [
         argument.replace("{firmware_code}", options.firmware_code or "")
@@ -504,7 +528,7 @@ def _qemu_command(files, image, qemu, system_data, options, share_arguments):
     )
 
 
-def _share_arguments(files, options):
+def _share_arguments(files: _BootFiles, options: _BootOptions) -> list[str]:
     try:
         return _virtfs_arguments(options.read_only_shares, files.scratch) + _http_arguments(
             options.http_shares, files.scratch
@@ -513,7 +537,12 @@ def _share_arguments(files, options):
         files.fail("SHARE_FAILURE", "cannot prepare read-only share: {}".format(error), include_firmware_log=False)
 
 
-def _start_qemu(files, process_factory, command, output):
+def _start_qemu(
+    files: _BootFiles,
+    process_factory: Callable[..., subprocess.Popen[bytes]],
+    command: Sequence[str],
+    output: BinaryIO,
+) -> subprocess.Popen[bytes]:
     try:
         return process_factory(
             command,
@@ -526,7 +555,14 @@ def _start_qemu(files, process_factory, command, output):
         files.fail("QEMU_EXEC_FAILURE", str(error))
 
 
-def _initialize_qmp(files, process, qmp_handshake, timeout, monotonic, sleep):
+def _initialize_qmp(
+    files: _BootFiles,
+    process: subprocess.Popen[bytes],
+    qmp_handshake: Callable[..., str | None],
+    timeout: float,
+    monotonic: Callable[[], float],
+    sleep: Callable[[float], None],
+) -> str | None:
     """Completes the QMP handshake from the scratch directory, keeping the socket path short."""
     original_cwd = os.open(".", os.O_RDONLY)
     try:
@@ -561,7 +597,7 @@ class _SerialObservation:
     failure_offset: int
 
 
-def _observe(files, readiness):
+def _observe(files: _BootFiles, readiness: _Readiness) -> _SerialObservation:
     serial = _read_log(files.serial_log)
     firmware_output = _read_log(files.firmware_log)
     progress_offset, missing_progress = _ordered_progress(serial, readiness.progress_markers)
@@ -572,14 +608,16 @@ def _observe(files, readiness):
     return _SerialObservation(serial, firmware_output, missing_progress, readiness_offset, failure_offset)
 
 
-def _print_expected_failure(observation, expected_failure_marker):
+def _print_expected_failure(observation: _SerialObservation, expected_failure_marker: str) -> None:
     serial = observation.serial
     excerpt_start = max(0, observation.failure_offset - 256)
     excerpt_end = min(len(serial), observation.failure_offset + len(expected_failure_marker) + 256)
     print("Expected failure evidence:\n{}".format(serial[excerpt_start:excerpt_end].decode(errors="replace")))
 
 
-def _expected_failure_observed(files, observation, expected_failure_marker):
+def _expected_failure_observed(
+    files: _BootFiles, observation: _SerialObservation, expected_failure_marker: str
+) -> bool:
     """Returns whether the exact failure marker appeared first; readiness before it fails the test."""
     failure_offset = observation.failure_offset
     readiness_offset = observation.readiness_offset
@@ -595,7 +633,7 @@ def _expected_failure_observed(files, observation, expected_failure_marker):
     return False
 
 
-def _fail_readiness_timeout(files, observation, readiness):
+def _fail_readiness_timeout(files: _BootFiles, observation: _SerialObservation, readiness: _Readiness) -> NoReturn:
     firmware_output = _read_log(files.firmware_log)
     timeout_kind = "READINESS_TIMEOUT"
     if not readiness.expected_failure_marker:
@@ -608,7 +646,13 @@ def _fail_readiness_timeout(files, observation, readiness):
     files.fail(timeout_kind, "did not observe exact serial marker %r" % missing_marker)
 
 
-def _await_readiness(files, process, readiness, monotonic, sleep):
+def _await_readiness(
+    files: _BootFiles,
+    process: subprocess.Popen[bytes],
+    readiness: _Readiness,
+    monotonic: Callable[[], float],
+    sleep: Callable[[float], None],
+) -> bool:
     """Polls the serial log until readiness; returns True when the test already finished and QEMU was stopped."""
     deadline = monotonic() + readiness.timeout_seconds
     while True:
@@ -634,7 +678,12 @@ def _await_readiness(files, process, readiness, monotonic, sleep):
         sleep(0.1)
 
 
-def _await_clean_shutdown(files, process, shutdown_markers, shutdown_timeout_seconds):
+def _await_clean_shutdown(
+    files: _BootFiles,
+    process: subprocess.Popen[bytes],
+    shutdown_markers: Iterable[str],
+    shutdown_timeout_seconds: float,
+) -> None:
     try:
         process.wait(timeout=shutdown_timeout_seconds)
     except subprocess.TimeoutExpired:
@@ -646,7 +695,7 @@ def _await_clean_shutdown(files, process, shutdown_markers, shutdown_timeout_sec
         files.fail("SHUTDOWN_FAILURE", "guest exited without the exact shutdown markers")
 
 
-def _print_boot_evidence(files, markers, accelerator):
+def _print_boot_evidence(files: _BootFiles, markers: Iterable[str], accelerator: str | None) -> None:
     evidence = _actual_boot_evidence(
         _read_log(files.firmware_log),
         _read_log(files.serial_log),
@@ -659,19 +708,19 @@ def _print_boot_evidence(files, markers, accelerator):
     print("guest readiness and clean shutdown verified")
 
 
-def _ensure_stopped(files, process):
+def _ensure_stopped(files: _BootFiles, process: subprocess.Popen[bytes]) -> None:
     if process.poll() is None and not _stop_process(process):
         files.fail("SHUTDOWN_FAILURE", "QEMU did not exit after the kill deadline")
 
 
-def _validate_deadlines(**deadlines):
+def _validate_deadlines(**deadlines: float) -> None:
     """Raises ValueError unless every deadline is a positive number of seconds."""
     for name, seconds in deadlines.items():
         if not seconds > 0:
             raise ValueError("%s must be positive, got %r" % (name, seconds))
 
 
-def _boot(image, qemu, system_data, options, host=_HOST):
+def _boot(image: str, qemu: str, system_data: str, options: _BootOptions, host: _BootHost = _HOST) -> None:
     _validate_deadlines(
         boot_timeout_seconds=options.boot_timeout_seconds,
         qmp_initialization_timeout_seconds=options.qmp_initialization_timeout_seconds,
@@ -695,7 +744,7 @@ def _boot(image, qemu, system_data, options, host=_HOST):
         options.firmware_kind,
         options.boot_timeout_seconds,
     )
-    accelerator = None
+    accelerator: str | None = None
     try:
         if options.kernel_preflight:
             diagnostics.run_kernel_preflight(options.kernel_preflight, "QEMU boot test")
@@ -736,11 +785,11 @@ def _boot(image, qemu, system_data, options, host=_HOST):
             (scratch / _QMP_SOCKET).unlink()
 
 
-def _optional_runfile(config, key):
+def _optional_runfile(config: Mapping[str, Any], key: str) -> str | None:
     return _resolve_runfile(config[key]) if config.get(key) else None
 
 
-def main():
+def main() -> None:
     if len(sys.argv) != 2:
         raise SystemExit("usage: boot_test.py CONFIG")
     config = json.loads(pathlib.Path(_resolve_runfile(sys.argv[1])).read_text())

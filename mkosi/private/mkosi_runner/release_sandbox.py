@@ -1,6 +1,7 @@
 """Prepares the fixed sandbox files and the local Debian mirror of a build that runs without network."""
 
 import os
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -53,7 +54,7 @@ class SnapshotMirror:
     directory: Path
     sandbox_tree: Path
 
-    def write_sources(self, release, components):
+    def write_sources(self, release: str, components: Iterable[str]) -> None:
         """Lists the mirror as the only APT source of the build, with the release suite and the given components."""
         tree.write_file(
             self.sandbox_tree / _MIRROR_SOURCES,
@@ -63,7 +64,7 @@ class SnapshotMirror:
         )
 
 
-def configure_release_sandbox(workspace, arguments):
+def configure_release_sandbox(workspace: str | os.PathLike[str], arguments: list[str]) -> Path:
     """Supplies fixed sandbox files instead of host /etc state to a build that runs without network."""
     sandbox_tree = Path(workspace) / "release-sandbox"
     for path, content in _SANDBOX_FILES:
@@ -72,7 +73,9 @@ def configure_release_sandbox(workspace, arguments):
     return sandbox_tree
 
 
-def configure_release_mirror(source, workspace, arguments):
+def configure_release_mirror(
+    source: str | os.PathLike[str], workspace: str | os.PathLike[str], arguments: list[str]
+) -> SnapshotMirror:
     """Copies the Debian snapshot into the workspace and returns it as the build's SnapshotMirror.
 
     Its write_sources() must run once the parsed configuration has selected the components, before mkosi copies the

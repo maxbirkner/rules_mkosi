@@ -19,9 +19,9 @@ import re
 import runpy
 import stat
 import sys
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeAlias
 
 _load_sibling = runpy.run_path(str(Path(__file__).with_name("sibling_loader.py")))["load_sibling"]
 file_hashing = _load_sibling(__file__, "file_hashing")
@@ -33,13 +33,16 @@ VERSION_LENGTH = 16
 COMMAND_LINE_MARKER = "--command-line"
 _CONFIGURATION_SEGMENT = re.compile(r"bazel-out/[^/]+/bin/")
 
+# A [path, kind, digest, executable] input entry.
+_Entry: TypeAlias = list[str | bool]
 
-def stable_path(value):
+
+def stable_path(value: str) -> str:
     """Returns value with every bazel-out/<config>/bin/ prefix replaced by bazel-out/bin/."""
     return _CONFIGURATION_SEGMENT.sub("bazel-out/bin/", value)
 
 
-def _file_entry(path, name):
+def _file_entry(path: str, name: str) -> _Entry:
     """Returns the entry of a regular file, following symlinks."""
     mode = os.stat(path).st_mode
     if not stat.S_ISREG(mode):
@@ -47,20 +50,20 @@ def _file_entry(path, name):
     return [name, "file", file_hashing.sha256_file(path), bool(mode & 0o111)]
 
 
-def _directory_entries(path, name, ancestors):
+def _directory_entries(path: str, name: str, ancestors: frozenset[tuple[int, int]]) -> list[_Entry]:
     """Returns the entries of a directory and its descendants, following symlinks."""
     status = os.stat(path)
     identity = (status.st_dev, status.st_ino)
     if identity in ancestors:
         raise ValueError("symlink cycle in input directory: {}".format(path))
     ancestors = ancestors | {identity}
-    entries = [[name, "directory", "", False]]
+    entries: list[_Entry] = [[name, "directory", "", False]]
     for child in sorted(os.listdir(path)):
         entries.extend(_entries(os.path.join(path, child), name + "/" + child, ancestors))
     return entries
 
 
-def _entries(path, name, ancestors):
+def _entries(path: str, name: str, ancestors: frozenset[tuple[int, int]]) -> list[_Entry]:
     if not os.path.exists(path):
         raise ValueError("input does not exist or is a dangling symlink: {}".format(path))
     if os.path.isdir(path):
@@ -68,7 +71,7 @@ def _entries(path, name, ancestors):
     return [_file_entry(path, name)]
 
 
-def input_entries(paths, symlinks=()):
+def input_entries(paths: Iterable[str], symlinks: Iterable[str] = ()) -> list[_Entry]:
     """Returns the sorted [path, kind, digest, executable] entries of the input files, directories and symlinks.
 
     paths are followed to their content. symlinks are artifacts that Bazel declared as symlinks and identifies by
@@ -83,7 +86,7 @@ def input_entries(paths, symlinks=()):
     return sorted(entries)
 
 
-def _stable_json(value):
+def _stable_json(value: object) -> object:
     """Returns value with stable_path applied to every string in it."""
     if isinstance(value, str):
         return stable_path(value)
