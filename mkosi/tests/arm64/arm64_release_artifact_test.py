@@ -38,12 +38,12 @@ def pe_sections(executable: bytes) -> list[tuple[str, bytes]]:
     return sections
 
 
-def check_devicetrees(uki: bytes, uki_metadata: pathlib.Path, test_board: pathlib.Path) -> None:
+def check_devicetrees(uki: bytes, uki_metadata: pathlib.Path, virt_label: pathlib.Path) -> None:
     devicetrees = json.loads(uki_metadata.read_text())["devicetrees"]
     # mkosi sorts the selected paths: the label's below /usr/lib/firmware/<kver>/device-tree/rules-mkosi/ comes before
     # the two that Devicetrees=arm/corstone1000-*.dtb selects below /usr/lib/linux-image-<kver>/.
     assert [(tree["section"], tree["compatible"]) for tree in devicetrees] == [
-        (".dtbauto", ["rules-mkosi,test-board"]),
+        (".dtbauto", ["linux,dummy-virt", "rules-mkosi,uki-devicetree"]),
         (".dtbauto", ["arm,corstone1000-fvp"]),
         (".dtbauto", ["arm,corstone1000-mps3"]),
     ], devicetrees
@@ -53,11 +53,11 @@ def check_devicetrees(uki: bytes, uki_metadata: pathlib.Path, test_board: pathli
         size = struct.unpack_from(">I", content, 4)[0]
         assert tree["size"] == size, (tree, size)
         assert tree["sha256"] == hashlib.sha256(content[:size]).hexdigest(), tree
-    assert devicetrees[0]["sha256"] == hashlib.sha256(test_board.read_bytes()).hexdigest(), devicetrees[0]
+    assert devicetrees[0]["sha256"] == hashlib.sha256(virt_label.read_bytes()).hexdigest(), devicetrees[0]
 
 
 def main() -> None:
-    image, partition_metadata, uki, payload, uki_metadata, test_board = (
+    image, partition_metadata, uki, payload, uki_metadata, virt_label = (
         resolve_runfile(path) for path in sys.argv[1:7]
     )
 
@@ -66,7 +66,7 @@ def main() -> None:
         assert path in esp_paths, sorted(esp_paths)
         assert pe_machine(esp_manifest.read_esp_file(image, path)) == _MACHINE_ARM64, path
     assert pe_machine(uki.read_bytes()) == _MACHINE_ARM64
-    check_devicetrees(uki.read_bytes(), uki_metadata, test_board)
+    check_devicetrees(uki.read_bytes(), uki_metadata, virt_label)
 
     metadata = json.loads(partition_metadata.read_text())
     assert metadata["architecture"] == "arm64", metadata

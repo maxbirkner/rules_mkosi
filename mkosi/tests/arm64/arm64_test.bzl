@@ -49,3 +49,50 @@ def _arm64_boot_config_test_impl(ctx):
     return analysistest.end(env)
 
 arm64_boot_config_test = analysistest.make(_arm64_boot_config_test_impl)
+
+def _virt_device_tree_impl(ctx):
+    guest = ctx.toolchains["//mkosi/toolchain:qemu_toolchain_type"].qemu.guests["arm64"]
+    dumped = ctx.actions.declare_file(ctx.label.name + ".qemu.dtb")
+
+    # Without dtb-randomness=off, QEMU writes random rng-seed and kaslr-seed properties.
+    ctx.actions.run(
+        executable = guest.qemu_files_to_run,
+        arguments = [
+            "-machine",
+            "{},acpi=off,dtb-randomness=off,dumpdtb={}".format(guest.machine, dumped.path),
+            "-m",
+            guest.memory,
+            "-nodefaults",
+            "-display",
+            "none",
+        ] + guest.cpu_args,
+        outputs = [dumped],
+        mnemonic = "QemuDumpDeviceTree",
+        progress_message = "Dumping the device tree of QEMU's virt machine for %{label}",
+    )
+    output = ctx.actions.declare_file(ctx.label.name + ".dtb")
+    arguments = ctx.actions.args()
+    arguments.add("--input", dumped)
+    arguments.add_all(ctx.attr.compatible, format_each = "--compatible=%s")
+    arguments.add("--string-property=model=" + ctx.attr.model)
+    arguments.add(output)
+    ctx.actions.run(
+        executable = ctx.executable._encoder,
+        arguments = [arguments],
+        inputs = [dumped],
+        outputs = [output],
+        mnemonic = "EditDeviceTree",
+    )
+    return [DefaultInfo(files = depset([output]))]
+
+virt_device_tree = rule(
+    implementation = _virt_device_tree_impl,
+    doc = """The device tree that QEMU's arm64 `virt` machine without ACPI passes to the firmware, with another root model
+and compatible strings, so that a booted kernel shows whether it used this device tree or the firmware's.""",
+    attrs = {
+        "compatible": attr.string_list(mandatory = True, doc = "Root compatible strings, most specific first."),
+        "model": attr.string(mandatory = True, doc = "Root model, which Linux prints as `Machine model: <model>`."),
+        "_encoder": attr.label(default = "//mkosi/tests:encode_device_tree", executable = True, cfg = "exec"),
+    },
+    toolchains = ["//mkosi/toolchain:qemu_toolchain_type"],
+)

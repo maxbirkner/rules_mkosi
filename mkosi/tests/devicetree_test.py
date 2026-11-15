@@ -6,7 +6,7 @@ import tempfile
 import unittest
 
 from mkosi.private import devicetree, uki_metadata
-from mkosi.tests.devicetree_fixture import encode_device_tree
+from mkosi.tests.devicetree_fixture import encode_device_tree, encode_strings, with_root_properties
 
 
 class DeviceTreeTest(unittest.TestCase):
@@ -16,6 +16,12 @@ class DeviceTreeTest(unittest.TestCase):
             devicetree.DeviceTree(size=len(blob), compatible=("vendor,board-b", "vendor,board")),
             devicetree.parse_device_tree(blob + bytes(512)),
         )
+
+    def test_fixture_replaces_and_adds_root_properties(self) -> None:
+        blob = encode_device_tree(["vendor,board"], {"model": b"Board\0"}) + bytes(4096)
+        edited = with_root_properties(blob, {"compatible": encode_strings(["vendor,board", "test"]), "x": b"\0"})
+        self.assertEqual(("vendor,board", "test"), devicetree.parse_device_tree(edited).compatible)
+        self.assertEqual(encode_device_tree(["vendor,board", "test"], {"model": b"Board\0", "x": b"\0"}), edited)
 
     def test_root_without_compatible_has_no_compatible_strings(self) -> None:
         self.assertEqual((), devicetree.parse_device_tree(encode_device_tree([])).compatible)
