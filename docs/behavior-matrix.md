@@ -221,6 +221,7 @@ Release builds use only the authenticated snapshot, block the network, remove AP
 <!-- behavior:BHV-SYSUPDATE-LIFECYCLE -->
 A versioned UEFI image updates itself from a read-only payload into its `_empty` slots, boots the new release from its compressed erofs verity root, and blesses it at `boot-complete.target`.
 A release whose health check fails falls back to the previous release.
+A cross-built arm64 release downloads, boots and blesses its successor under TCG the same way.
 
 <!-- behavior:BHV-RELEASE-EXAMPLE -->
 The [release example](../e2e/smoke/example/README.md) builds a release image with UKI, dm-verity, an erofs root, A/B partitions, and transfers from a consumer-owned locked snapshot, together with its update payload, and boots it.

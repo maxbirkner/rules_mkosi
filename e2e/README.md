@@ -13,6 +13,8 @@ Its `MODULE.bazel` is a working example of the [consumer setup](../README.md#set
 | `release_demo`, `immutable_demo`, `bios_release_demo` | Release images from the built-in snapshot: plain, with UKI and dm-verity, and legacy BIOS. `immutable_demo` uses an assembled `mkosi_config_tree` that shares an executable generator with the default initrd. |
 | `consumer_snapshot_demo` | A release image from the consumer-owned `@consumer_debian` lock, which adds `amd64-microcode` from `non-free-firmware`. |
 | `sysupdate_base`, `sysupdate_v1` to `sysupdate_v3`, `sysupdate_lifecycle_test` | Three A/B releases finalized from one `mkosi_base` with the example's snapshot and partitions; the test applies an update and a failing update and checks the rollback (see [A/B updates](../docs/sysupdate-ab.md)). |
+| `arm64_demo`, `arm64_demo_boot_test` | An arm64 release image with UKI and dm-verity, cross-built from the built-in arm64 snapshot, and its boot under TCG. |
+| `arm64_sysupdate_base`, `arm64_sysupdate_v1`, `arm64_sysupdate_v2`, `arm64_sysupdate_lifecycle_test` | Two arm64 A/B releases finalized from one `mkosi_base` with the consumer-owned `@consumer_debian_arm64` lock; under TCG, release 1 downloads release 2, reboots into it, and blesses it. |
 | `uefi_boot_test`, `bios_boot_test` | Boot tests; `uefi_boot_test` always uses TCG. |
 | `mkosi_python_override_test` | A consumer-registered Python 3.14 toolchain replaces the default. |
 | `*_public_provider_test`, `*_metadata_test`, `*_artifact_test` | Provider fields and generated artifacts, selected only through public providers. |
