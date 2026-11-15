@@ -89,6 +89,16 @@ use_repo(
     "mkosi_debian_tools",
 )
 
+# A package outside the example snapshot's lock that the A/B base installs
+# through extra_packages, pinned by its digest like a vendor package would be.
+http_file = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_file")
+
+http_file(
+    name = "debian_hello_deb",
+    sha256 = "4536aabbb75ec21ffe161099ee4b97274945770bdb0682e25ec322421211ca5e",
+    urls = ["https://snapshot.debian.org/archive/debian/20250814T000000Z/pool/main/h/hello/hello_2.10-5_amd64.deb"],
+)
+
 register_toolchains(
     "@mkosi_toolchains//:qemu_linux_x86_64",
     "@mkosi_toolchains//:all",

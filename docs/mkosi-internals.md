@@ -27,6 +27,10 @@ The mirror's APT sources use a documented mkosi behaviour instead of a patch.
 mkosi [does not overwrite](https://github.com/systemd/mkosi/blob/v27.1/mkosi/resources/man/mkosi.1.md#debian-and-other-deb-based-distributions) a `/etc/apt/sources.list.d/mkosi.sources` that the sandbox tree provides.
 `//mkosi/tests:mkosi_contract_test` checks this behaviour against the pinned mkosi.
 
+The `extra_packages` of a build need no patch either.
+They form a flat repository in the mirror copy, which the same sources file lists before the snapshot, and an APT preferences file in the sandbox tree pins that repository's `Release` label to priority 1100, so that an extra package replaces a snapshot package of the same name.
+mkosi's own [`PackageDirectories=`](https://github.com/systemd/mkosi/blob/v27.1/mkosi/resources/man/mkosi.1.md) would not work: it indexes the whole local repository, the snapshot included, with `apt-ftparchive` and pins every package of a `file:` source.
+
 [Issue #90](https://github.com/maxbirkner/rules_mkosi/issues/90) tracks the upstream changes that would make patches unnecessary.
 
 ## Upgrading mkosi

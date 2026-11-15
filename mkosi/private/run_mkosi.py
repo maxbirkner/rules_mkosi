@@ -8,6 +8,11 @@ import subprocess
 import sys
 import traceback
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from mkosi.private.mkosi_runner.command_line import Preamble
+    from mkosi.private.mkosi_runner.release_sandbox import SnapshotMirror
 
 sys.dont_write_bytecode = True
 
@@ -135,7 +140,7 @@ def _mkosi_arguments(preamble, mkosi_arguments):
     return command_line.with_image_version(command_line.absolute_paths(mkosi_arguments), image_version)
 
 
-def _release_stage(preamble):
+def _release_stage(preamble: "Preamble") -> str | None:
     """Rejects partial option groups and returns the release stage, or None for a tracer build."""
     debian_tools = preamble.debian_tools_options()
     if any(debian_tools) and not all(debian_tools):
@@ -145,6 +150,8 @@ def _release_stage(preamble):
         raise SystemExit("incomplete release configuration")
     if (any(release) or preamble.debian_snapshot_repository) and preamble.debian_snapshot_components is None:
         raise SystemExit("incomplete Debian snapshot configuration")
+    if preamble.extra_packages_repository and not preamble.debian_snapshot_repository:
+        raise SystemExit("extra packages require the Debian snapshot repository")
     return command_line.release_stage(
         any(release),
         preamble.debian_snapshot_repository,
@@ -173,11 +180,17 @@ def _extract_debian_tools(preamble, arguments):
     extractor.extract(preamble.debian_tools_archive, tools_root, preamble.debian_tools_sha256)
 
 
-def _prepare_release_sandbox(preamble, arguments, stage):
-    """Adds the fixed sandbox, and the Debian snapshot mirror that it returns if the build installs packages from it."""
+def _prepare_release_sandbox(preamble: "Preamble", arguments: list[str], stage: str | None) -> "SnapshotMirror | None":
+    """Adds the fixed sandbox, and the Debian snapshot mirror that it returns if the build installs packages from it.
+
+    The mirror also serves the repository of the extra packages, if the build has any.
+    """
     if preamble.debian_snapshot_repository:
         return release_sandbox.configure_release_mirror(
-            preamble.debian_snapshot_repository, _workspace(arguments), arguments
+            preamble.debian_snapshot_repository,
+            _workspace(arguments),
+            arguments,
+            preamble.extra_packages_repository,
         )
     if stage == "finalize":
         release_sandbox.configure_release_sandbox(_workspace(arguments), arguments)

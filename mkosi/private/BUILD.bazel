@@ -59,6 +59,7 @@ exports_files([
     "debian_snapshot.bzl",
     "debian_snapshot_repo.bzl",
     "debian_snapshot.py",
+    "extra_packages.py",
 ])
 
 # Modules that run_mkosi.py loads from its own directory.

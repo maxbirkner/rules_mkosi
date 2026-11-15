@@ -21,6 +21,7 @@ class Preamble:
     debian_tools_sha256: str | None = None
     kernel_preflight: str | None = None
     debian_snapshot_repository: str | None = None
+    extra_packages_repository: str | None = None
     release_seed: str | None = None
     release_source_date_epoch: int | None = None
     release_distribution: str | None = None
@@ -75,6 +76,7 @@ _PREAMBLE_OPTIONS: dict[str, tuple[str, Callable[[str], object]]] = {
     "--debian-tools-sha256": ("debian_tools_sha256", _verbatim),
     "--kernel-preflight": ("kernel_preflight", os.path.abspath),
     "--debian-snapshot-repository": ("debian_snapshot_repository", os.path.abspath),
+    "--extra-packages-repository": ("extra_packages_repository", os.path.abspath),
     "--release-seed": ("release_seed", _verbatim),
     "--release-source-date-epoch": ("release_source_date_epoch", _source_date_epoch),
     "--release-distribution": ("release_distribution", _verbatim),

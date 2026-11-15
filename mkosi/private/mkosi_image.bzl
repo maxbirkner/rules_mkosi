@@ -9,6 +9,13 @@ load(
     "validate_slot_labels",
 )
 load(
+    ":extra_packages.bzl",
+    "EXTRA_PACKAGES_ATTRS",
+    "EXTRA_PACKAGES_DOC",
+    "add_extra_packages_arguments",
+    "extra_packages_repository",
+)
+load(
     ":image_metadata.bzl",
     "IMAGE_METADATA_ATTRS",
     "project_partition_metadata",
@@ -49,6 +56,11 @@ version files image_version_file and input_digest are in the image_version outpu
 
 It records the mode and the output roles, the snapshot and its lock digest when the image is built from
 debian_snapshot or base, and the seed and source date epoch of release images.""",
+        "extra_packages_metadata": """JSON metadata of the extra_packages that the image, or the base that it finalizes,
+installs, or None.
+
+Schema mkosi-extra-packages-v1: the snapshot architecture and, sorted by name, each package's name, version,
+architecture, size, SHA-256 and file name in the build's repository.""",
         "firmware": "Firmware tier: uefi or bios.",
         "format_version": "Contract version, currently mkosi-image-v3.",
         "image": "Deprecated alias for raw_image.",
@@ -98,6 +110,8 @@ mkosi_image(base = ...) finalizes it for one image version.
 """,
     fields = {
         "debian_snapshot": "DebianSnapshotInfo of the packages in root_tree and initrd.",
+        "extra_packages_metadata": """JSON metadata of the extra_packages installed into root_tree and initrd, or None;
+see MkosiImageInfo.extra_packages_metadata.""",
         "format_version": "Contract version, currently mkosi-base-v1.",
         "initrd": "mkosi's default initrd for root_tree, used as mkosi Initrds=.",
         "release_seed": "Seed= UUID shared by the base and its finalization.",
@@ -221,11 +235,16 @@ def _mkosi_reproducibility_manifest_impl(ctx):
     image = ctx.attr.image[MkosiImageInfo]
     if image.raw_image == None or image.build_metadata == None or image.partition_metadata == None:
         fail("image must provide raw_image, build_metadata, and partition_metadata")
-    split_artifacts = [
-        (role, getattr(image, role))
-        for role in ["root_image", "root_hash", "root_hash_image", "uki", "uki_metadata", "verity_metadata"]
-        if getattr(image, role) != None
+    roles = [
+        "root_image",
+        "root_hash",
+        "root_hash_image",
+        "uki",
+        "uki_metadata",
+        "verity_metadata",
+        "extra_packages_metadata",
     ]
+    split_artifacts = [(role, getattr(image, role, None)) for role in roles if getattr(image, role, None) != None]
     output = ctx.actions.declare_file(ctx.label.name + ".reproducibility.json")
     arguments = _reproducibility_arguments(ctx, image, split_artifacts, output)
     run_python(
@@ -252,7 +271,8 @@ mkosi_reproducibility_manifest = rule(
         "image": attr.label(
             mandatory = True,
             providers = [MkosiImageInfo],
-            doc = "Release image whose immutable outputs are hashed.",
+            doc = """Release image whose immutable outputs are hashed. The normalized manifests include the metadata of its
+extra_packages as extra_packages_metadata.""",
         ),
         "_gpt_partitions": attr.label(
             cfg = "exec",
@@ -426,6 +446,16 @@ def _snapshot(ctx, release):
         return release.snapshot
     return ctx.attr.debian_snapshot[DebianSnapshotInfo] if ctx.attr.debian_snapshot else None
 
+def _image_extra_packages(ctx, base, snapshot):
+    """Validates extra_packages and returns their repository, or None."""
+    if not ctx.attr.extra_packages:
+        return None
+    if base:
+        fail("extra_packages cannot be combined with base, which installs no packages; set them on the mkosi_base")
+    if not snapshot:
+        fail("extra_packages require debian_snapshot, the package source that they extend")
+    return extra_packages_repository(ctx, snapshot)
+
 def _image_settings(ctx):
     """Validates the mkosi_image attributes and returns the resolved build settings."""
     modes = _output_modes(ctx)
@@ -434,6 +464,7 @@ def _image_settings(ctx):
     config, config_info = _config(ctx, modes.release_mode)
     if modes.firmware == "bios" and release.snapshot.architecture != "amd64":
         fail("bios firmware requires an amd64 Debian snapshot")
+    snapshot = _snapshot(ctx, release)
     return struct(
         mode = modes.mode,
         release_mode = modes.release_mode,
@@ -442,7 +473,8 @@ def _image_settings(ctx):
         verity = modes.verity,
         base = base,
         release = release,
-        snapshot = _snapshot(ctx, release),
+        snapshot = snapshot,
+        extra_packages = _image_extra_packages(ctx, base, snapshot),
         image_id = identity.image_id,
         image_version = identity.image_version,
         image_version_file = identity.image_version_file,
@@ -471,7 +503,13 @@ def _declare_outputs(ctx, settings):
         uki_metadata = _declare_file(ctx, ".uki.json", settings.uki),
         verity_metadata = _declare_file(ctx, ".verity.json", settings.verity),
         build_metadata = _declare_file(ctx, ".mkosi-image-info.json"),
+        extra_packages_metadata = _extra_packages_metadata(settings),
     )
+
+def _extra_packages_metadata(settings):
+    if settings.extra_packages:
+        return settings.extra_packages.metadata
+    return settings.base.extra_packages_metadata if settings.base else None
 
 def _bios_partition_definition(ctx):
     output = ctx.actions.declare_directory(ctx.label.name + ".bios-repart")
@@ -489,6 +527,7 @@ def _image_runner_arguments(ctx, settings, staging):
     base = settings.base
     if settings.snapshot:
         add_snapshot_arguments(arguments, settings.snapshot, repository = not base)
+        add_extra_packages_arguments(arguments, settings.extra_packages)
     if settings.release:
         add_release_arguments(arguments, settings.release, settings.firmware)
     if base:
@@ -583,6 +622,7 @@ def _image_build_inputs(ctx, settings, staging, bios_partition_definition):
         ([bios_partition_definition] if bios_partition_definition else []) +
         ([base.root_tree, base.initrd] if base else []) +
         ([settings.snapshot.repository] if settings.snapshot and not base else []) +
+        ([settings.extra_packages.repository] if settings.extra_packages else []) +
         ([staging.tree, staging.manifest] if staging else [])
     )
 
@@ -627,6 +667,7 @@ _ARTIFACT_FIELDS = [
     "uki_metadata",
     "verity_metadata",
     "build_metadata",
+    "extra_packages_metadata",
 ]
 
 def _image_providers(settings, outputs):
@@ -700,6 +741,12 @@ kernel command line.
             providers = [DebianSnapshotInfo],
             doc = """Authenticated Debian snapshot to install packages from with the network blocked. Required in release
 mode unless base is set; optional in tracer mode.""",
+        ),
+        "extra_packages": attr.label_list(
+            allow_files = True,
+            doc = EXTRA_PACKAGES_DOC + """
+Requires debian_snapshot and excludes base: set the extra packages of a two-stage release on its mkosi_base.
+""",
         ),
         "firmware": attr.string(
             default = "uefi",
@@ -838,7 +885,7 @@ material.
             default = "//mkosi/private:write_bios_repart.py",
             allow_single_file = True,
         ),
-    } | MKOSI_BUILD_ATTRS | IMAGE_METADATA_ATTRS | INPUT_VERSION_ATTRS,
+    } | MKOSI_BUILD_ATTRS | IMAGE_METADATA_ATTRS | INPUT_VERSION_ATTRS | EXTRA_PACKAGES_ATTRS,
     doc = """Builds a raw disk image with the pinned mkosi and Debian toolchains.
 
 Tracer mode is never cached and installs packages from the network, or from debian_snapshot with the network
@@ -858,13 +905,15 @@ to find the inputs that changed the version.
     exec_compatible_with = MKOSI_BUILD_EXEC_CONSTRAINTS,
 )
 
-def _base_arguments(ctx, release, config_info, rootfs_payloads, staging, root_tree, initrd):
+def _base_arguments(ctx, release, extra_packages, staging, staged_executables, outputs):
+    root_tree, initrd = outputs
     output_directory = root_tree.dirname
     workspace = output_directory + ".workspace"
     arguments = mkosi_arguments(ctx)
     add_snapshot_arguments(arguments, release.snapshot, repository = True)
+    add_extra_packages_arguments(arguments, extra_packages)
     add_release_arguments(arguments, release, "uefi")
-    add_staging_arguments(arguments, executable_paths(config_info, {}, rootfs_payloads), staging)
+    add_staging_arguments(arguments, staged_executables, staging)
     arguments.add("--release-base-initrd-output")
     arguments.add(initrd.path)
     arguments.add("--")
@@ -890,12 +939,15 @@ def _mkosi_base_impl(ctx):
     config_info = ctx.attr.config_tree[MkosiConfigTreeInfo]
     rootfs_payloads = [target[MkosiRootfsPayloadInfo] for target in ctx.attr.rootfs_payloads]
     staging = stage_inputs(ctx, config_info.tree, config_info, {}, rootfs_payloads)
+    staged_executables = executable_paths(config_info, {}, rootfs_payloads)
+    extra_packages = extra_packages_repository(ctx, release.snapshot)
     root_tree = ctx.actions.declare_file(ctx.label.name + ".mkosi-base/root.tar")
     initrd = ctx.actions.declare_file(ctx.label.name + ".initrd")
     run_mkosi(
         ctx,
-        arguments = _base_arguments(ctx, release, config_info, rootfs_payloads, staging, root_tree, initrd),
-        inputs = [config_info.tree, release.snapshot.repository, staging.tree, staging.manifest] + mkosi_tool_inputs(ctx),
+        arguments = _base_arguments(ctx, release, extra_packages, staging, staged_executables, (root_tree, initrd)),
+        inputs = [config_info.tree, release.snapshot.repository, staging.tree, staging.manifest] +
+                 ([extra_packages.repository] if extra_packages else []) + mkosi_tool_inputs(ctx),
         outputs = [root_tree, initrd],
         release = release,
         offline = True,
@@ -909,6 +961,7 @@ def _mkosi_base_impl(ctx):
             root_tree = root_tree,
             initrd = initrd,
             debian_snapshot = release.snapshot,
+            extra_packages_metadata = extra_packages.metadata if extra_packages else None,
             release_seed = release.seed,
             release_source_date_epoch = release.source_date_epoch,
         ),
@@ -926,7 +979,11 @@ mkosi.extra content. It is built with Format=tar and Bootable=no and must not se
         "debian_snapshot": attr.label(
             mandatory = True,
             providers = [DebianSnapshotInfo],
-            doc = "Authenticated Debian snapshot; the only package source of the network-blocked build.",
+            doc = "Authenticated Debian snapshot; the package source of the network-blocked build, with extra_packages.",
+        ),
+        "extra_packages": attr.label_list(
+            allow_files = True,
+            doc = EXTRA_PACKAGES_DOC,
         ),
         "release_seed": attr.string(
             doc = "Required fixed UUID matching the configuration's resolved Seed=.",
@@ -939,12 +996,12 @@ mkosi.extra content. It is built with Format=tar and Bootable=no and must not se
             providers = [MkosiRootfsPayloadInfo],
             doc = "Version-independent mkosi_rootfs_payload targets installed into the image root.",
         ),
-    } | MKOSI_BUILD_ATTRS,
+    } | MKOSI_BUILD_ATTRS | EXTRA_PACKAGES_ATTRS,
     doc = """Builds the version-independent root and default initrd of a release image.
 
-Packages are installed from the authenticated debian_snapshot with the network blocked. The base has no partitions,
-boot loader or UKI, so it does not depend on an image version: mkosi_image(base = ...) finalizes it for one version,
-and a new version reuses the cached base.
+Packages are installed from the authenticated debian_snapshot and from extra_packages with the network blocked. The
+base has no partitions, boot loader or UKI, so it does not depend on an image version: mkosi_image(base = ...)
+finalizes it for one version, and a new version reuses the cached base.
 """,
     provides = [MkosiBaseInfo],
     toolchains = MKOSI_BUILD_TOOLCHAINS,

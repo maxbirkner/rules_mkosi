@@ -55,15 +55,15 @@ Declare it through the debian_tools.snapshot module extension, which generates t
 <pre>
 load("@rules_mkosi//mkosi:defs.bzl", "mkosi_base")
 
-mkosi_base(<a href="#mkosi_base-name">name</a>, <a href="#mkosi_base-config_tree">config_tree</a>, <a href="#mkosi_base-debian_snapshot">debian_snapshot</a>, <a href="#mkosi_base-release_seed">release_seed</a>, <a href="#mkosi_base-release_source_date_epoch">release_source_date_epoch</a>,
-           <a href="#mkosi_base-rootfs_payloads">rootfs_payloads</a>)
+mkosi_base(<a href="#mkosi_base-name">name</a>, <a href="#mkosi_base-config_tree">config_tree</a>, <a href="#mkosi_base-debian_snapshot">debian_snapshot</a>, <a href="#mkosi_base-extra_packages">extra_packages</a>, <a href="#mkosi_base-release_seed">release_seed</a>,
+           <a href="#mkosi_base-release_source_date_epoch">release_source_date_epoch</a>, <a href="#mkosi_base-rootfs_payloads">rootfs_payloads</a>)
 </pre>
 
 Builds the version-independent root and default initrd of a release image.
 
-Packages are installed from the authenticated debian_snapshot with the network blocked. The base has no partitions,
-boot loader or UKI, so it does not depend on an image version: mkosi_image(base = ...) finalizes it for one version,
-and a new version reuses the cached base.
+Packages are installed from the authenticated debian_snapshot and from extra_packages with the network blocked. The
+base has no partitions, boot loader or UKI, so it does not depend on an image version: mkosi_image(base = ...)
+finalizes it for one version, and a new version reuses the cached base.
 
 **ATTRIBUTES**
 
@@ -72,7 +72,8 @@ and a new version reuses the cached base.
 | :------------- | :------------- | :------------- | :------------- | :------------- |
 | <a id="mkosi_base-name"></a>name |  A unique name for this target.   | <a href="https://bazel.build/concepts/labels#target-names">Name</a> | required |  |
 | <a id="mkosi_base-config_tree"></a>config_tree |  Configuration of the version-independent part of a release, such as Packages=, RemoveFiles= and mkosi.extra content. It is built with Format=tar and Bootable=no and must not set ImageVersion=.   | <a href="https://bazel.build/concepts/labels">Label</a> | required |  |
-| <a id="mkosi_base-debian_snapshot"></a>debian_snapshot |  Authenticated Debian snapshot; the only package source of the network-blocked build.   | <a href="https://bazel.build/concepts/labels">Label</a> | required |  |
+| <a id="mkosi_base-debian_snapshot"></a>debian_snapshot |  Authenticated Debian snapshot; the package source of the network-blocked build, with extra_packages.   | <a href="https://bazel.build/concepts/labels">Label</a> | required |  |
+| <a id="mkosi_base-extra_packages"></a>extra_packages |  Debian binary packages (.deb files) to install in addition to the packages of the Debian snapshot, such as a patched kernel or a vendor's firmware.<br><br>The build serves them to APT as a local repository next to the snapshot mirror, so the configuration selects them with Packages= like snapshot packages, and dpkg installs them with their maintainer scripts. An extra package takes precedence over a snapshot package of the same name whatever their versions, so it can replace one, such as linux-image-amd64. Their dependencies must be in the snapshot or in extra_packages; APT resolves them offline and fails with PACKAGE_RESOLUTION_FAILURE otherwise. mkosi's default initrd is built from the same repositories.<br><br>Each file must be a Debian binary package for the snapshot's architecture or for all, and no two may have the same package name; the file name does not matter, so http_file's default `downloaded` works. The files are build inputs, so they are part of the cache key and of a version derived with image_version_from_inputs; pin downloaded files by hash, for example with http_file(sha256 = ...). The provider's extra_packages_metadata lists them.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
 | <a id="mkosi_base-release_seed"></a>release_seed |  Required fixed UUID matching the configuration's resolved Seed=.   | String | optional |  `""`  |
 | <a id="mkosi_base-release_source_date_epoch"></a>release_source_date_epoch |  Required non-negative timestamp matching the configuration's resolved SourceDateEpoch=.   | Integer | optional |  `-1`  |
 | <a id="mkosi_base-rootfs_payloads"></a>rootfs_payloads |  Version-independent mkosi_rootfs_payload targets installed into the image root.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
@@ -114,10 +115,11 @@ that collide with directories fail, at analysis time where the paths are known.
 <pre>
 load("@rules_mkosi//mkosi:defs.bzl", "mkosi_image")
 
-mkosi_image(<a href="#mkosi_image-name">name</a>, <a href="#mkosi_image-base">base</a>, <a href="#mkosi_image-config">config</a>, <a href="#mkosi_image-config_tree">config_tree</a>, <a href="#mkosi_image-debian_snapshot">debian_snapshot</a>, <a href="#mkosi_image-firmware">firmware</a>, <a href="#mkosi_image-image_id">image_id</a>, <a href="#mkosi_image-image_version">image_version</a>,
-            <a href="#mkosi_image-image_version_file">image_version_file</a>, <a href="#mkosi_image-image_version_from_inputs">image_version_from_inputs</a>, <a href="#mkosi_image-manifest">manifest</a>, <a href="#mkosi_image-mode">mode</a>, <a href="#mkosi_image-release_seed">release_seed</a>,
-            <a href="#mkosi_image-release_source_date_epoch">release_source_date_epoch</a>, <a href="#mkosi_image-rootfs_payloads">rootfs_payloads</a>, <a href="#mkosi_image-source_trees">source_trees</a>, <a href="#mkosi_image-unified_kernel_image">unified_kernel_image</a>, <a href="#mkosi_image-verity">verity</a>,
-            <a href="#mkosi_image-version_auto_enroll_keys">version_auto_enroll_keys</a>, <a href="#mkosi_image-version_inputs">version_inputs</a>, <a href="#mkosi_image-version_signing_certificates">version_signing_certificates</a>)
+mkosi_image(<a href="#mkosi_image-name">name</a>, <a href="#mkosi_image-base">base</a>, <a href="#mkosi_image-config">config</a>, <a href="#mkosi_image-config_tree">config_tree</a>, <a href="#mkosi_image-debian_snapshot">debian_snapshot</a>, <a href="#mkosi_image-extra_packages">extra_packages</a>, <a href="#mkosi_image-firmware">firmware</a>, <a href="#mkosi_image-image_id">image_id</a>,
+            <a href="#mkosi_image-image_version">image_version</a>, <a href="#mkosi_image-image_version_file">image_version_file</a>, <a href="#mkosi_image-image_version_from_inputs">image_version_from_inputs</a>, <a href="#mkosi_image-manifest">manifest</a>, <a href="#mkosi_image-mode">mode</a>,
+            <a href="#mkosi_image-release_seed">release_seed</a>, <a href="#mkosi_image-release_source_date_epoch">release_source_date_epoch</a>, <a href="#mkosi_image-rootfs_payloads">rootfs_payloads</a>, <a href="#mkosi_image-source_trees">source_trees</a>,
+            <a href="#mkosi_image-unified_kernel_image">unified_kernel_image</a>, <a href="#mkosi_image-verity">verity</a>, <a href="#mkosi_image-version_auto_enroll_keys">version_auto_enroll_keys</a>, <a href="#mkosi_image-version_inputs">version_inputs</a>,
+            <a href="#mkosi_image-version_signing_certificates">version_signing_certificates</a>)
 </pre>
 
 Builds a raw disk image with the pinned mkosi and Debian toolchains.
@@ -144,6 +146,7 @@ to find the inputs that changed the version.
 | <a id="mkosi_image-config"></a>config |  A single mkosi configuration file. Set exactly one of config and config_tree; release mode requires config_tree.   | <a href="https://bazel.build/concepts/labels">Label</a> | optional |  `None`  |
 | <a id="mkosi_image-config_tree"></a>config_tree |  A complete mkosi configuration tree from mkosi_config_tree.   | <a href="https://bazel.build/concepts/labels">Label</a> | optional |  `None`  |
 | <a id="mkosi_image-debian_snapshot"></a>debian_snapshot |  Authenticated Debian snapshot to install packages from with the network blocked. Required in release mode unless base is set; optional in tracer mode.   | <a href="https://bazel.build/concepts/labels">Label</a> | optional |  `None`  |
+| <a id="mkosi_image-extra_packages"></a>extra_packages |  Debian binary packages (.deb files) to install in addition to the packages of the Debian snapshot, such as a patched kernel or a vendor's firmware.<br><br>The build serves them to APT as a local repository next to the snapshot mirror, so the configuration selects them with Packages= like snapshot packages, and dpkg installs them with their maintainer scripts. An extra package takes precedence over a snapshot package of the same name whatever their versions, so it can replace one, such as linux-image-amd64. Their dependencies must be in the snapshot or in extra_packages; APT resolves them offline and fails with PACKAGE_RESOLUTION_FAILURE otherwise. mkosi's default initrd is built from the same repositories.<br><br>Each file must be a Debian binary package for the snapshot's architecture or for all, and no two may have the same package name; the file name does not matter, so http_file's default `downloaded` works. The files are build inputs, so they are part of the cache key and of a version derived with image_version_from_inputs; pin downloaded files by hash, for example with http_file(sha256 = ...). The provider's extra_packages_metadata lists them.<br><br>Requires debian_snapshot and excludes base: set the extra packages of a two-stage release on its mkosi_base.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
 | <a id="mkosi_image-firmware"></a>firmware |  "uefi" (default) or "bios", a release-only x86-64 tier that boots with GRUB i386-pc from a GPT BIOS boot partition.   | String | optional |  `"uefi"`  |
 | <a id="mkosi_image-image_id"></a>image_id |  os-release IMAGE_ID passed to mkosi as ImageId=, overriding the configuration.<br><br>Lowercase letters, digits, '.', '-' and '_' only. Make variables are expanded.   | String | optional |  `""`  |
 | <a id="mkosi_image-image_version"></a>image_version |  os-release IMAGE_VERSION passed to mkosi as ImageVersion=, overriding the configuration.<br><br>Requires image_id and excludes image_version_file. Letters, digits and '.' only, so that systemd-sysupdate can split '<image_id>_<image_version>' and '+'/'-' stay free for systemd-boot boot counting. Make variables are expanded, e.g. image_version = "$(OS_VERSION)" with a TemplateVariableInfo target in `toolchains`.<br><br>With verity = "hash", the populated root and verity partitions must be labelled '<image_id>_<image_version>' and '<image_id>_<image_version>_verity' (repart Label=%M_%A and Label=%M_%A_verity), and inactive A/B slots '_empty', as sysupdate_transfers and sysupdate_payload expect. The verity label must fit the 36-character GPT partition name limit.   | String | optional |  `""`  |
@@ -180,7 +183,7 @@ Writes a normalized JSON manifest of the content hashes of a release image's imm
 | Name  | Description | Type | Mandatory | Default |
 | :------------- | :------------- | :------------- | :------------- | :------------- |
 | <a id="mkosi_reproducibility_manifest-name"></a>name |  A unique name for this target.   | <a href="https://bazel.build/concepts/labels#target-names">Name</a> | required |  |
-| <a id="mkosi_reproducibility_manifest-image"></a>image |  Release image whose immutable outputs are hashed.   | <a href="https://bazel.build/concepts/labels">Label</a> | required |  |
+| <a id="mkosi_reproducibility_manifest-image"></a>image |  Release image whose immutable outputs are hashed. The normalized manifests include the metadata of its extra_packages as extra_packages_metadata.   | <a href="https://bazel.build/concepts/labels">Label</a> | required |  |
 
 
 <a id="mkosi_rootfs_payload"></a>
@@ -779,8 +782,8 @@ Managed interpreter test launcher contract.
 <pre>
 load("@rules_mkosi//mkosi:defs.bzl", "MkosiBaseInfo")
 
-MkosiBaseInfo(<a href="#MkosiBaseInfo-debian_snapshot">debian_snapshot</a>, <a href="#MkosiBaseInfo-format_version">format_version</a>, <a href="#MkosiBaseInfo-initrd">initrd</a>, <a href="#MkosiBaseInfo-release_seed">release_seed</a>, <a href="#MkosiBaseInfo-release_source_date_epoch">release_source_date_epoch</a>,
-              <a href="#MkosiBaseInfo-root_tree">root_tree</a>)
+MkosiBaseInfo(<a href="#MkosiBaseInfo-debian_snapshot">debian_snapshot</a>, <a href="#MkosiBaseInfo-extra_packages_metadata">extra_packages_metadata</a>, <a href="#MkosiBaseInfo-format_version">format_version</a>, <a href="#MkosiBaseInfo-initrd">initrd</a>, <a href="#MkosiBaseInfo-release_seed">release_seed</a>,
+              <a href="#MkosiBaseInfo-release_source_date_epoch">release_source_date_epoch</a>, <a href="#MkosiBaseInfo-root_tree">root_tree</a>)
 </pre>
 
 Version-independent root and initrd of a release image, built by mkosi_base.
@@ -792,6 +795,7 @@ mkosi_image(base = ...) finalizes it for one image version.
 | Name  | Description |
 | :------------- | :------------- |
 | <a id="MkosiBaseInfo-debian_snapshot"></a>debian_snapshot |  DebianSnapshotInfo of the packages in root_tree and initrd.    |
+| <a id="MkosiBaseInfo-extra_packages_metadata"></a>extra_packages_metadata |  JSON metadata of the extra_packages installed into root_tree and initrd, or None; see MkosiImageInfo.extra_packages_metadata.    |
 | <a id="MkosiBaseInfo-format_version"></a>format_version |  Contract version, currently mkosi-base-v1.    |
 | <a id="MkosiBaseInfo-initrd"></a>initrd |  mkosi's default initrd for root_tree, used as mkosi Initrds=.    |
 | <a id="MkosiBaseInfo-release_seed"></a>release_seed |  Seed= UUID shared by the base and its finalization.    |
@@ -827,9 +831,9 @@ An mkosi configuration directory.
 <pre>
 load("@rules_mkosi//mkosi:defs.bzl", "MkosiImageInfo")
 
-MkosiImageInfo(<a href="#MkosiImageInfo-build_metadata">build_metadata</a>, <a href="#MkosiImageInfo-firmware">firmware</a>, <a href="#MkosiImageInfo-format_version">format_version</a>, <a href="#MkosiImageInfo-image">image</a>, <a href="#MkosiImageInfo-image_id">image_id</a>, <a href="#MkosiImageInfo-image_version">image_version</a>,
-               <a href="#MkosiImageInfo-image_version_file">image_version_file</a>, <a href="#MkosiImageInfo-input_digest">input_digest</a>, <a href="#MkosiImageInfo-manifest">manifest</a>, <a href="#MkosiImageInfo-partition_metadata">partition_metadata</a>, <a href="#MkosiImageInfo-raw_image">raw_image</a>, <a href="#MkosiImageInfo-root_hash">root_hash</a>,
-               <a href="#MkosiImageInfo-root_hash_image">root_hash_image</a>, <a href="#MkosiImageInfo-root_image">root_image</a>, <a href="#MkosiImageInfo-uki">uki</a>, <a href="#MkosiImageInfo-uki_metadata">uki_metadata</a>, <a href="#MkosiImageInfo-verity_metadata">verity_metadata</a>,
+MkosiImageInfo(<a href="#MkosiImageInfo-build_metadata">build_metadata</a>, <a href="#MkosiImageInfo-extra_packages_metadata">extra_packages_metadata</a>, <a href="#MkosiImageInfo-firmware">firmware</a>, <a href="#MkosiImageInfo-format_version">format_version</a>, <a href="#MkosiImageInfo-image">image</a>, <a href="#MkosiImageInfo-image_id">image_id</a>,
+               <a href="#MkosiImageInfo-image_version">image_version</a>, <a href="#MkosiImageInfo-image_version_file">image_version_file</a>, <a href="#MkosiImageInfo-input_digest">input_digest</a>, <a href="#MkosiImageInfo-manifest">manifest</a>, <a href="#MkosiImageInfo-partition_metadata">partition_metadata</a>,
+               <a href="#MkosiImageInfo-raw_image">raw_image</a>, <a href="#MkosiImageInfo-root_hash">root_hash</a>, <a href="#MkosiImageInfo-root_hash_image">root_hash_image</a>, <a href="#MkosiImageInfo-root_image">root_image</a>, <a href="#MkosiImageInfo-uki">uki</a>, <a href="#MkosiImageInfo-uki_metadata">uki_metadata</a>, <a href="#MkosiImageInfo-verity_metadata">verity_metadata</a>,
                <a href="#MkosiImageInfo-version_auto_enroll_keys">version_auto_enroll_keys</a>, <a href="#MkosiImageInfo-version_inputs">version_inputs</a>, <a href="#MkosiImageInfo-version_signing_certificates">version_signing_certificates</a>)
 </pre>
 
@@ -845,6 +849,7 @@ version files image_version_file and input_digest are in the image_version outpu
 | Name  | Description |
 | :------------- | :------------- |
 | <a id="MkosiImageInfo-build_metadata"></a>build_metadata |  JSON build metadata, schema mkosi-image-build-metadata-v3.<br><br>It records the mode and the output roles, the snapshot and its lock digest when the image is built from debian_snapshot or base, and the seed and source date epoch of release images.    |
+| <a id="MkosiImageInfo-extra_packages_metadata"></a>extra_packages_metadata |  JSON metadata of the extra_packages that the image, or the base that it finalizes, installs, or None.<br><br>Schema mkosi-extra-packages-v1: the snapshot architecture and, sorted by name, each package's name, version, architecture, size, SHA-256 and file name in the build's repository.    |
 | <a id="MkosiImageInfo-firmware"></a>firmware |  Firmware tier: uefi or bios.    |
 | <a id="MkosiImageInfo-format_version"></a>format_version |  Contract version, currently mkosi-image-v3.    |
 | <a id="MkosiImageInfo-image"></a>image |  Deprecated alias for raw_image.    |

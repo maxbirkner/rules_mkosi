@@ -10,6 +10,12 @@ _ACTIONS = {
     "KERNEL_CAPABILITY_FAILURE": "select a Linux runner that satisfies the kernel contract",
     "TOOLCHAIN_FAILURE": "register the required Bazel toolchain",
     "NETWORK_FAILURE": "allow the declared package network access",
+    "PACKAGE_RESOLUTION_FAILURE": (
+        "add the missing package or dependency to the Debian snapshot lock or to extra_packages"
+    ),
+    "EXTRA_PACKAGE_FAILURE": (
+        "pass extra_packages only Debian binary packages with unique names for the snapshot's architecture or all"
+    ),
     "ASSEMBLY_FAILURE": "inspect the preserved mkosi output",
     "VM_FAILURE": "inspect the preserved serial, firmware, and QEMU logs",
 }
@@ -61,6 +67,18 @@ def child_exit_code(returncode: int) -> int:
 def classify_mkosi_output(output: bytes) -> str:
     """Classify a failed mkosi child without hiding its original diagnostics."""
     text = output.decode(errors="replace").lower()
+    # APT reports a package or dependency that neither the snapshot mirror nor extra_packages provide as unmet, and
+    # one that the snapshot's Packages index lists but its lock does not as a missing file of the local mirror. Both
+    # outputs also contain network signals, such as "fetch", so they are checked first.
+    package_signals = (
+        "unmet dependencies",
+        "is not installable",
+        "has no installation candidate",
+        "unable to locate package",
+        "failed to fetch file:/repository/",
+    )
+    if any(signal in text for signal in package_signals):
+        return "PACKAGE_RESOLUTION_FAILURE"
     network_signals = (
         "network",
         "connection",
