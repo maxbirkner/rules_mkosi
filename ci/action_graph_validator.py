@@ -9,6 +9,8 @@ import json
 import pathlib
 import re
 import sys
+from collections.abc import Collection, Sequence
+from typing import TypedDict
 
 _FIXED_TOOL_PATH = "/bin:/usr/bin:/usr/local/bin"
 _HOST_TOOL_BASENAMES = {
@@ -32,7 +34,49 @@ _HERMETIC_PATH_ACTIONS = {
 }
 
 
-def action_identity(action):
+class KeyValuePair(TypedDict, total=False):
+    key: str
+    value: str
+
+
+class Action(TypedDict, total=False):
+    """An action of a jsonproto aquery graph."""
+
+    actionKey: str
+    mnemonic: str
+    arguments: list[str]
+    environmentVariables: list[KeyValuePair]
+    inputDepSetIds: list[int]
+    outputIds: list[int]
+
+
+class Artifact(TypedDict):
+    id: int
+    pathFragmentId: int
+
+
+class PathFragment(TypedDict, total=False):
+    id: int
+    label: str
+    parentId: int
+
+
+class DepSetOfFiles(TypedDict, total=False):
+    id: int
+    directArtifactIds: list[int]
+    transitiveDepSetIds: list[int]
+
+
+class AqueryGraph(TypedDict, total=False):
+    """The fields of `bazel aquery --output=jsonproto` that the audit reads."""
+
+    actions: list[Action]
+    artifacts: list[Artifact]
+    pathFragments: list[PathFragment]
+    depSetOfFiles: list[DepSetOfFiles]
+
+
+def action_identity(action: Action) -> tuple[int, ...]:
     """Return a key that distinguishes every action in an aquery graph.
 
     Bazel derives `actionKey` from an action's behavior rather than its artifacts, so distinct actions such as two
@@ -47,7 +91,7 @@ def action_identity(action):
     return tuple(sorted(outputs))
 
 
-def validate_action_environment(action, input_paths):
+def validate_action_environment(action: Action, input_paths: Collection[str]) -> None:
     """Reject host-resolved executables exposed through action environments."""
     mnemonic = action["mnemonic"]
     arguments = action.get("arguments", [])
@@ -141,7 +185,7 @@ _HOST_TOKENS = (
 class ActionGraph:
     """Resolves the artifact paths, inputs, and producing actions of a jsonproto aquery graph."""
 
-    def __init__(self, graph):
+    def __init__(self, graph: AqueryGraph) -> None:
         self.actions = graph.get("actions", [])
         fragments = {fragment["id"]: fragment for fragment in graph.get("pathFragments", [])}
         self.paths = {
@@ -151,19 +195,19 @@ class ActionGraph:
         self.producers = {artifact: action for action in self.actions for artifact in action.get("outputIds", [])}
 
     @staticmethod
-    def _path(fragments, fragment_id):
-        parts = []
+    def _path(fragments: dict[int, PathFragment], fragment_id: int | None) -> str:
+        parts: list[str] = []
         while fragment_id:
             fragment = fragments[fragment_id]
             parts.append(fragment["label"])
             fragment_id = fragment.get("parentId")
         return "/".join(reversed(parts))
 
-    def input_ids(self, action):
+    def input_ids(self, action: Action) -> set[int]:
         """Returns the IDs of every artifact in the transitive input dep sets of action."""
-        artifacts = set()
+        artifacts: set[int] = set()
         pending = list(action.get("inputDepSetIds", []))
-        seen = set()
+        seen: set[int] = set()
         while pending:
             dep_set_id = pending.pop()
             if dep_set_id in seen:
@@ -175,7 +219,7 @@ class ActionGraph:
         return artifacts
 
 
-def validate_executable(action, input_paths):
+def validate_executable(action: Action, input_paths: Collection[str]) -> None:
     """Rejects an action whose mnemonic is not modeled or whose process is not its declared in-build executable."""
     mnemonic = action.get("mnemonic")
     arguments = action.get("arguments", [])
@@ -192,7 +236,7 @@ def validate_executable(action, input_paths):
         raise ValueError(f"executable is not a declared input: {mnemonic} {executable}")
 
 
-def validate_arguments(action):
+def validate_arguments(action: Action) -> None:
     """Rejects absolute paths and host toolchain names in the arguments of an action."""
     mnemonic = action.get("mnemonic")
     arguments = action.get("arguments", [])
@@ -203,7 +247,7 @@ def validate_arguments(action):
             raise ValueError(f"host path in arguments: {mnemonic} {token}")
 
 
-def validate_inputs(graph, action):
+def validate_inputs(graph: ActionGraph, action: Action) -> None:
     """Rejects inputs outside the managed repositories and bazel-out inputs that no action in the graph produces."""
     mnemonic = action.get("mnemonic")
     for artifact_id in graph.input_ids(action):
@@ -220,14 +264,14 @@ def validate_inputs(graph, action):
             raise ValueError(f"input outside the managed roots: {mnemonic} {path}")
 
 
-def audit(graph_json):
+def audit(graph_json: AqueryGraph) -> dict[str, int]:
     """Validates every action of the graph and returns the number of actions per mnemonic.
 
     Raises:
         ValueError: If an action is unmodeled or depends on the host, or a required action is missing.
     """
     graph = ActionGraph(graph_json)
-    counts = {}
+    counts: dict[str, int] = {}
     for action in graph.actions:
         action_identity(action)
         input_paths = {graph.paths[artifact_id] for artifact_id in graph.input_ids(action)}
@@ -242,7 +286,7 @@ def audit(graph_json):
     return counts
 
 
-def main(argv):
+def main(argv: Sequence[str]) -> None:
     if len(argv) != 2:
         raise SystemExit("usage: action_graph_validator.py GRAPH.json")
     with open(argv[1], encoding="utf-8") as graph_file:
