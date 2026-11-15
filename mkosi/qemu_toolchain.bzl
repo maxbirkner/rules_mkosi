@@ -6,6 +6,12 @@ MkosiQemuToolchainInfo = provider(
         "execution_cpu": "Execution CPU constraint.",
         "execution_os": "Execution operating system constraint.",
         "format_version": "String identifying the toolchain output contract.",
+        "guests": """Dict from the Debian architecture of a guest image, `amd64` or `arm64`, to a struct with the QEMU
+system emulator that boots it (`qemu_system`, `qemu_files_to_run`, `qemu_runfiles`, `qemu_source_url`, `qemu_sha256`), its
+UEFI firmware
+(`firmware_code`, `firmware_vars`, `firmware_code_sha256`, `firmware_vars_sha256`), and the QEMU arguments of its
+machine: `machine`, `memory`, `cpu_args`, `serial_args` (to attach the character device `serial0` as the first serial port),
+and `native`, whether KVM can run it on the execution platform. The other fields describe the amd64 guest.""",
         "ovmf_code": "OVMF_CODE firmware artifact.",
         "ovmf_code_sha256": "SHA-256 hash of OVMF_CODE.fd.",
         "ovmf_integrity": "SRI integrity string of the OVMF artifact.",
@@ -79,6 +85,66 @@ qemu_executable = rule(
     doc = "Wraps a QEMU system emulator binary and its runtime data as an executable target.",
 )
 
+# The arguments of each guest architecture's machine. Implementation-defined pointer authentication is much cheaper to
+# emulate than the architected algorithm of `-cpu max`. Debian's arm64 kernel stub loads the UKI's initrd, which holds
+# far more modules than the amd64 one, below 512 MiB fails, so arm64 guests get 1 GiB.
+_GUEST_MACHINES = {
+    "amd64": struct(machine = "q35", memory = "512M", cpu = "x86_64", cpu_args = [], serial_args = [
+        "-serial",
+        "none",
+        "-device",
+        "isa-serial,chardev=serial0",
+    ]),
+    "arm64": struct(machine = "virt", memory = "1G", cpu = "aarch64", cpu_args = ["-cpu", "max,pauth-impdef=on"], serial_args = [
+        "-serial",
+        "chardev:serial0",
+    ]),
+}
+
+def _guest(architecture, executable, qemu_pin, firmware_code, firmware_vars, code_sha256, vars_sha256):
+    machine = _GUEST_MACHINES[architecture]
+    qemu = executable[DefaultInfo]
+    qemu_source_url, qemu_sha256 = qemu_pin
+    return struct(
+        qemu_system = executable[QemuExecutableInfo].source,
+        qemu_files_to_run = qemu.files_to_run,
+        qemu_runfiles = qemu.default_runfiles,
+        qemu_source_url = qemu_source_url,
+        qemu_sha256 = qemu_sha256,
+        firmware_code = firmware_code,
+        firmware_vars = firmware_vars,
+        firmware_code_sha256 = code_sha256,
+        firmware_vars_sha256 = vars_sha256,
+        machine = machine.machine,
+        memory = machine.memory,
+        cpu_args = machine.cpu_args,
+        serial_args = machine.serial_args,
+        # The toolchain runs on Linux x86-64.
+        native = machine.cpu == "x86_64",
+    )
+
+def _collect_guests(ctx):
+    return {
+        "amd64": _guest(
+            "amd64",
+            ctx.attr.qemu_system,
+            (ctx.attr.qemu_source_url, ctx.attr.qemu_sha256),
+            ctx.file.ovmf_code,
+            ctx.file.ovmf_vars,
+            ctx.attr.ovmf_code_sha256,
+            ctx.attr.ovmf_vars_sha256,
+        ),
+        "arm64": _guest(
+            "arm64",
+            ctx.attr.aarch64_qemu_system,
+            (ctx.attr.aarch64_qemu_source_url, ctx.attr.aarch64_qemu_sha256),
+            ctx.file.aavmf_code,
+            ctx.file.aavmf_vars,
+            ctx.attr.aavmf_code_sha256,
+            ctx.attr.aavmf_vars_sha256,
+        ),
+    }
+
 def _qemu_ovmf_toolchain_impl(ctx):
     qemu = ctx.attr.qemu_system[DefaultInfo]
     qemu_system = ctx.attr.qemu_system[QemuExecutableInfo].source
@@ -109,6 +175,7 @@ def _qemu_ovmf_toolchain_impl(ctx):
         ovmf_code_sha256 = ctx.attr.ovmf_code_sha256,
         ovmf_vars_sha256 = ctx.attr.ovmf_vars_sha256,
         ovmf_shell_sha256 = ctx.attr.ovmf_shell_sha256,
+        guests = _collect_guests(ctx),
     )
     return [
         platform_common.ToolchainInfo(qemu = info),
@@ -124,6 +191,18 @@ def _pinned_file(doc):
 qemu_ovmf_toolchain = rule(
     implementation = _qemu_ovmf_toolchain_impl,
     attrs = {
+        "aarch64_qemu_sha256": _pinned_string("qemu-system-aarch64 SHA-256 hash."),
+        "aarch64_qemu_source_url": _pinned_string("Immutable qemu-system-aarch64 URL."),
+        "aarch64_qemu_system": attr.label(
+            cfg = "exec",
+            executable = True,
+            mandatory = True,
+            doc = "The qemu_executable target of qemu-system-aarch64, which boots arm64 guests.",
+        ),
+        "aavmf_code": _pinned_file("AAVMF code firmware of arm64 guests."),
+        "aavmf_code_sha256": _pinned_string("AAVMF code hash."),
+        "aavmf_vars": _pinned_file("AAVMF variable store template of arm64 guests."),
+        "aavmf_vars_sha256": _pinned_string("AAVMF variable store hash."),
         "format_version": attr.string(
             default = "qemu-ovmf-v1",
             doc = "Output contract implemented by this toolchain.",
@@ -165,5 +244,5 @@ qemu_ovmf_toolchain = rule(
             doc = "QEMU runtime data directory.",
         ),
     },
-    doc = "Defines a Linux x86-64 QEMU and OVMF test toolchain.",
+    doc = "Defines a Linux x86-64 QEMU and UEFI firmware test toolchain for amd64 and arm64 guests.",
 )

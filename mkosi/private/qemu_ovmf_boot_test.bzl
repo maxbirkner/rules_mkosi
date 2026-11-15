@@ -74,12 +74,14 @@ def _http_shares(shares):
             fail("http_shares key %s provides no files" % target.label)
     return sorted(validated.items())
 
-def _firmware(ctx, qemu):
-    """Returns the OVMF code and variable store files and the QEMU arguments that the firmware needs."""
+def _firmware(ctx, guest, architecture):
+    """Returns the UEFI code and variable store files and the QEMU arguments that the firmware needs."""
     if (ctx.file.secure_boot_code == None) != (ctx.file.secure_boot_vars == None):
         fail("secure_boot_code and secure_boot_vars must be set together")
     if ctx.file.secure_boot_code == None:
-        return qemu.ovmf_code, qemu.ovmf_vars, []
+        return guest.firmware_code, guest.firmware_vars, []
+    if architecture != "amd64":
+        fail("secure_boot = True boots only amd64 images; there is no pinned Secure Boot firmware for " + architecture)
 
     # The Secure Boot firmware keeps its authenticated variables in SMM-protected flash.
     return ctx.file.secure_boot_code, ctx.file.secure_boot_vars, [
@@ -105,8 +107,19 @@ def _shares(ctx):
     }
     return config, [directory for directory, _ in shares] + [file for _, files in http_shares for file in files]
 
+def _select_guest(ctx, info):
+    """Returns the image's architecture and the QEMU toolchain's guest settings for it."""
+
+    # MkosiImageInfo values constructed outside mkosi_image may lack the architecture.
+    architecture = getattr(info, "architecture", None) or "amd64"
+    guests = ctx.toolchains[QEMU_TOOLCHAIN_TYPE].qemu.guests
+    if architecture not in guests:
+        fail("the QEMU toolchain cannot boot %s images" % architecture)
+    return architecture, guests[architecture]
+
 def _qemu_ovmf_boot_config_impl(ctx):
-    image = ctx.attr.image[MkosiImageInfo].raw_image
+    info = ctx.attr.image[MkosiImageInfo]
+    image = info.raw_image
     if image == None:
         fail("image must provide MkosiImageInfo.raw_image for the OVMF raw-disk adapter")
     validate_lifecycle(ctx)
@@ -116,9 +129,10 @@ def _qemu_ovmf_boot_config_impl(ctx):
         fail("progress_markers cannot be combined with expected_failure_marker")
     share_config, share_files = _shares(ctx)
     validate_deadlines(ctx)
-    qemu = ctx.toolchains[QEMU_TOOLCHAIN_TYPE].qemu
-    firmware_code, firmware_vars, firmware_args = _firmware(ctx, qemu)
-    config = boot_config(ctx, qemu, image, firmware_args + [
+
+    architecture, guest = _select_guest(ctx, info)
+    firmware_code, firmware_vars, firmware_args = _firmware(ctx, guest, architecture)
+    config = boot_config(ctx, guest, image, firmware_args + [
         "-drive",
         "if=pflash,format=raw,readonly=on,file={firmware_code}",
         "-drive",
@@ -133,7 +147,7 @@ def _qemu_ovmf_boot_config_impl(ctx):
     }
     return boot_config_outputs(
         ctx,
-        qemu,
+        guest,
         config,
         image,
         firmware_files = [firmware_code, firmware_vars],
@@ -147,7 +161,7 @@ qemu_ovmf_boot_config = rule(
 Use it directly only to inspect the validated deadlines through QemuBootConfigInfo.""",
     attrs = adapter_attrs(
         readiness_marker = "systemd[1]: Hostname set to <rules-mkosi-tracer>.",
-        machine = "q35",
+        machine = None,
         shutdown_timeout_seconds = 30,
     ) | {
         "allow_reboot": attr.bool(

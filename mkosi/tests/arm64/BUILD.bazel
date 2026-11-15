@@ -7,6 +7,8 @@ load(
     "mkosi_config_tree",
     "mkosi_image",
     "mkosi_reproducibility_manifest",
+    "qemu_ovmf_boot_config",
+    "qemu_ovmf_boot_test",
     "secure_boot_ephemeral_test_fixture",
     "secure_boot_import_response",
     "secure_boot_signed_image",
@@ -14,8 +16,9 @@ load(
     "sysupdate_payload",
     "sysupdate_transfers",
 )
+load("//mkosi/tests:analysis_test_helpers.bzl", "expected_failure_test")
 load("//mkosi/tests:mkosi_image_test.bzl", "image_field_file", "raw_image_file")
-load(":arm64_test.bzl", "arm64_image_test", "foreign_architecture_test")
+load(":arm64_test.bzl", "arm64_boot_config_test", "arm64_image_test", "foreign_architecture_test")
 
 package(default_visibility = ["//mkosi/tests:__subpackages__"])
 
@@ -216,4 +219,33 @@ arm64_image_test(
     name = "uki_release_secure_boot_provider_test",
     projected = False,
     target_under_test = ":uki_release_secure_boot",
+)
+
+# On Linux x86-64 the arm64 guest runs under TCG.
+qemu_ovmf_boot_test(
+    name = "uki_release_boot_test",
+    image = ":uki_release",
+    # Only the root file system's systemd logs it, after the switch from the initrd.
+    readiness_marker = "systemd[1]: Detected first boot.",
+)
+
+arm64_boot_config_test(
+    name = "uki_release_boot_config_test",
+    target_under_test = ":uki_release_boot_test_config",
+)
+
+# Analysis only: there is no pinned Secure Boot firmware for arm64 guests.
+qemu_ovmf_boot_config(
+    name = "uki_release_secure_boot_config",
+    testonly = True,
+    image = ":uki_release",
+    secure_boot_code = "release-config/README.md",
+    secure_boot_vars = "release-config/README.md",
+    tags = ["manual"],
+)
+
+expected_failure_test(
+    name = "uki_release_secure_boot_rejected_test",
+    expected_error = "secure_boot = True boots only amd64 images",
+    target_under_test = ":uki_release_secure_boot_config",
 )

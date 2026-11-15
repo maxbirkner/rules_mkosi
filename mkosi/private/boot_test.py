@@ -460,6 +460,9 @@ class _BootOptions:
     firmware_kind: str = ""
     disk_interface: str = "virtio"
     accelerator_args: tuple = ()
+    # Attach the character device serial0 as the guest's first serial port: an ISA port on amd64, the default PL011 on
+    # arm64.
+    serial_args: tuple = ("-serial", "none", "-device", "isa-serial,chardev=serial0")
     kernel_preflight: str | None = None
     readiness_marker: str = ""
     progress_markers: tuple = ()
@@ -513,13 +516,9 @@ def _qemu_command(
         ]
         + ([] if options.allow_reboot else ["-no-reboot"])
         + share_arguments
+        + ["-chardev", "file,id=serial0,path=%s" % files.serial_log]
+        + list(options.serial_args)
         + [
-            "-serial",
-            "none",
-            "-chardev",
-            "file,id=serial0,path=%s" % files.serial_log,
-            "-device",
-            "isa-serial,chardev=serial0",
             "-qmp",
             "unix:%s,server=on,wait=off" % _QMP_SOCKET,
             "-drive",
@@ -805,6 +804,7 @@ def main() -> None:
             firmware_kind=config.get("firmware_kind", "ovmf"),
             disk_interface=config.get("disk_interface", "virtio"),
             accelerator_args=config["accelerator_args"],
+            serial_args=tuple(config.get("serial_args", _BootOptions.serial_args)),
             kernel_preflight=_resolve_runfile(config["kernel_preflight"]),
             readiness_marker=config["readiness_marker"],
             progress_markers=config.get("progress_markers", ()),
