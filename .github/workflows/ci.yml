@@ -139,7 +139,8 @@ jobs:
           set -o pipefail
           server-identity bazel test --config=kernel_preflight \
             "${preflight_configs[@]}" //... 2>&1 | tee kernel-preflight.log
-          grep -F "Executed 1 out of 1 test" kernel-preflight.log
+          # The namespace and mount contract and the private binfmt_misc registration of foreign-architecture builds.
+          grep -F "Executed 2 out of 2 tests" kernel-preflight.log
           if grep -F "(cached)" kernel-preflight.log; then
             echo "kernel preflight result was cached" >&2
             exit 1

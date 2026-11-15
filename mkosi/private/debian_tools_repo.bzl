@@ -131,6 +131,12 @@ filegroup(
     srcs = ["@mkosi_debian_python//:runtime"],
 )
 
+# rules_qemu's static qemu-aarch64 for Linux x86-64 hosts, which runs the arm64 programs of cross-built images.
+alias(
+    name = "arm64_user_mode_emulator",
+    actual = "@qemu_user_prebuilt_linux_amd64_aarch64//:qemu-aarch64",
+)
+
 debian_tools_toolchain(
     name = "toolchain",
     release = "13",
@@ -150,6 +156,7 @@ debian_tools_toolchain(
     provenance = ":provenance",
     components = ":components",
     required_components = {required_components},
+    user_mode_emulators = {{"arm64": ":arm64_user_mode_emulator"}},
 )
 
 toolchain(
