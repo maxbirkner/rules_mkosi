@@ -167,7 +167,7 @@ The lock records the digest of its normalized specification, so a `debian_lock` 
 Release images install from the components selected by `Repositories=` and reject components absent from the snapshot.
 
 <!-- behavior:BHV-DEBIAN-TOOLS-PROVIDER -->
-`DebianToolsInfo` exposes the Debian tools identity, archive, launcher and runfiles, provenance, and component inventory.
+`DebianToolsInfo` exposes the Debian tools identity, archive, launcher and runfiles, provenance, component inventory, and the user-mode emulator of each foreign architecture that the execution platform can build images for.
 
 <!-- behavior:BHV-MKOSI-TOOLCHAIN-PROVIDER -->
 `MkosiToolchainInfo` exposes mkosi provenance, its runfiles, `pefile`, and the selected Python 3.14 runtime.

@@ -61,7 +61,7 @@ Plain `bazel test //...` runs the complete suite on a capable host.
 
 | Config | Use |
 | --- | --- |
-| `kernel_preflight` | Runs only the host-kernel preflight (`requires_kernel_contract`); CI runs it before every suite. |
+| `kernel_preflight` | Runs only the host-kernel preflights (`requires_kernel_contract`), including the `binfmt_misc` check for foreign-architecture images; CI runs them before every suite. |
 | `qualified` | Linux sandbox, no cached test results, preflight excluded. CI's Bazel 8 lane. |
 | `portable` | Like `qualified`, but skips `requires-network` targets. CI's Bazel 9 lane. |
 | `manifest` | Runs only `manifest`-tagged tests with `--enable_runfiles=no`. |
@@ -70,6 +70,9 @@ Plain `bazel test //...` runs the complete suite on a capable host.
 | `bazel9` | `--lockfile_mode=off` for Bazel 9. |
 
 Executable tests use only the semantic tags `requires-network`, `requires_kernel_contract`, and `manifest`.
+
+On hosts that restrict unprivileged user namespaces with AppArmor, such as Ubuntu 24.04 with `kernel.apparmor_restrict_unprivileged_userns=1`, plain `unshare -Ur` in a shell may fail, for example with `write failed /proc/self/uid_map: Operation not permitted`, while the same namespace operations succeed in actions and tests under Bazel's Linux sandbox.
+Try namespace behavior in a Bazel test, such as the `kernel_preflight` tests, rather than with `unshare` in a shell.
 `manual` is reserved for analysis-test subjects that must not run on their own.
 
 Images that tests build set `debian_snapshot`, so builds never download packages and do not depend on `snapshot.debian.org` being available.

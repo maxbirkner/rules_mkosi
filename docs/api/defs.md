@@ -722,7 +722,7 @@ load("@rules_mkosi//mkosi:defs.bzl", "DebianToolsInfo")
 DebianToolsInfo(<a href="#DebianToolsInfo-architecture">architecture</a>, <a href="#DebianToolsInfo-archive_sha256">archive_sha256</a>, <a href="#DebianToolsInfo-codename">codename</a>, <a href="#DebianToolsInfo-components">components</a>, <a href="#DebianToolsInfo-distribution">distribution</a>, <a href="#DebianToolsInfo-extractor">extractor</a>,
                 <a href="#DebianToolsInfo-format_version">format_version</a>, <a href="#DebianToolsInfo-launcher">launcher</a>, <a href="#DebianToolsInfo-launcher_script">launcher_script</a>, <a href="#DebianToolsInfo-lock_sha256">lock_sha256</a>, <a href="#DebianToolsInfo-provenance">provenance</a>, <a href="#DebianToolsInfo-python">python</a>,
                 <a href="#DebianToolsInfo-python_files_to_run">python_files_to_run</a>, <a href="#DebianToolsInfo-python_version">python_version</a>, <a href="#DebianToolsInfo-release">release</a>, <a href="#DebianToolsInfo-required_components">required_components</a>, <a href="#DebianToolsInfo-snapshot">snapshot</a>,
-                <a href="#DebianToolsInfo-snapshot_url">snapshot_url</a>, <a href="#DebianToolsInfo-tree">tree</a>, <a href="#DebianToolsInfo-tree_files_to_run">tree_files_to_run</a>, <a href="#DebianToolsInfo-tree_root">tree_root</a>, <a href="#DebianToolsInfo-tree_runfiles">tree_runfiles</a>)
+                <a href="#DebianToolsInfo-snapshot_url">snapshot_url</a>, <a href="#DebianToolsInfo-tree">tree</a>, <a href="#DebianToolsInfo-tree_files_to_run">tree_files_to_run</a>, <a href="#DebianToolsInfo-tree_root">tree_root</a>, <a href="#DebianToolsInfo-tree_runfiles">tree_runfiles</a>, <a href="#DebianToolsInfo-user_mode_emulators">user_mode_emulators</a>)
 </pre>
 
 Pinned Debian userspace tools and provenance.
@@ -753,6 +753,7 @@ Pinned Debian userspace tools and provenance.
 | <a id="DebianToolsInfo-tree_files_to_run"></a>tree_files_to_run |  FilesToRunProvider preserving tree mappings.    |
 | <a id="DebianToolsInfo-tree_root"></a>tree_root |  Extracted Debian tools TreeArtifact.    |
 | <a id="DebianToolsInfo-tree_runfiles"></a>tree_runfiles |  Runfiles for the package tree.    |
+| <a id="DebianToolsInfo-user_mode_emulators"></a>user_mode_emulators |  Dict from a foreign Debian architecture, such as `arm64`, to the static user-mode emulator that runs programs of that architecture on the execution platform.    |
 
 
 <a id="ManagedPythonTestInfo"></a>
