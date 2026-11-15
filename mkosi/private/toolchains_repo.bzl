@@ -65,6 +65,12 @@ qemu_executable(
     system_data = {system_data},
 )
 
+qemu_executable(
+    name = "aarch64_qemu_system_executable",
+    qemu = {aarch64_qemu_system},
+    system_data = {system_data},
+)
+
 qemu_ovmf_toolchain(
     name = "qemu_ovmf_toolchain",
     qemu_version = {qemu_version},
@@ -88,6 +94,13 @@ qemu_ovmf_toolchain(
     ovmf_code_sha256 = {ovmf_code_sha256},
     ovmf_vars_sha256 = {ovmf_vars_sha256},
     ovmf_shell_sha256 = {ovmf_shell_sha256},
+    aarch64_qemu_system = ":aarch64_qemu_system_executable",
+    aarch64_qemu_sha256 = {aarch64_qemu_sha256},
+    aarch64_qemu_source_url = {aarch64_qemu_source_url},
+    aavmf_code = "{ovmf_repo}//:aarch64/code.fd",
+    aavmf_vars = "{ovmf_repo}//:aarch64/vars.fd",
+    aavmf_code_sha256 = {aavmf_code_sha256},
+    aavmf_vars_sha256 = {aavmf_vars_sha256},
 )
 
 filegroup(
@@ -132,6 +145,11 @@ _MKOSI_BUILD_ATTRS = [
 ]
 
 _QEMU_BUILD_ATTRS = [
+    "aarch64_qemu_sha256",
+    "aarch64_qemu_source_url",
+    "aarch64_qemu_system",
+    "aavmf_code_sha256",
+    "aavmf_vars_sha256",
     "qemu_system",
     "qemu_img",
     "system_data",
@@ -163,7 +181,7 @@ filegroup(
 
 _OVMF_BUILD = '''package(default_visibility = ["//visibility:public"])
 
-exports_files(["x64/code.fd", "x64/vars.fd", "x64/shell.efi"])
+exports_files(["x64/code.fd", "x64/vars.fd", "x64/shell.efi", "aarch64/code.fd", "aarch64/vars.fd"])
 '''
 
 _SEABIOS_BUILD = '''package(default_visibility = ["//visibility:public"])
@@ -199,6 +217,11 @@ def _write_toolchains_build(repository_ctx):
 toolchains_repo = repository_rule(
     implementation = _write_toolchains_build,
     attrs = {
+        "aarch64_qemu_sha256": attr.string(mandatory = True),
+        "aarch64_qemu_source_url": attr.string(mandatory = True),
+        "aarch64_qemu_system": attr.string(mandatory = True),
+        "aavmf_code_sha256": attr.string(mandatory = True),
+        "aavmf_vars_sha256": attr.string(mandatory = True),
         "ovmf_code_sha256": attr.string(mandatory = True),
         "ovmf_integrity": attr.string(mandatory = True),
         "ovmf_repo": attr.string(mandatory = True),

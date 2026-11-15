@@ -541,6 +541,17 @@ class BootLifecycleTest(unittest.TestCase):
                 )
             self.assertIn("did not observe exact serial marker 'SECOND'", stderr.getvalue())
 
+    def test_serial_port_is_attached_by_the_architecture_arguments(self) -> None:
+        command = self._lifecycle_boot(b"READY\nSHUTDOWN\n")
+        chardev = command.index("-chardev")
+        self.assertEqual(
+            ["-serial", "none", "-device", "isa-serial,chardev=serial0"], command[chardev + 2 : chardev + 6]
+        )
+        command = self._lifecycle_boot(b"READY\nSHUTDOWN\n", serial_args=("-serial", "chardev:serial0"))
+        chardev = command.index("-chardev")
+        self.assertEqual(["-serial", "chardev:serial0", "-qmp"], command[chardev + 2 : chardev + 5])
+        self.assertNotIn("isa-serial,chardev=serial0", command)
+
     def test_allow_reboot_keeps_qemu_running_across_guest_reboots(self) -> None:
         command = self._lifecycle_boot(b"READY\nSHUTDOWN\n", allow_reboot=True)
         self.assertNotIn("-no-reboot", command)

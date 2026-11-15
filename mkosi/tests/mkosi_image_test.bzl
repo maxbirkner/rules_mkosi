@@ -195,6 +195,20 @@ def _toolchain_provider_test_impl(ctx):
 
 _toolchain_provider_test = analysistest.make(_toolchain_provider_test_impl)
 
+def _assert_qemu_guests(env, info):
+    """Asserts that the amd64 guest reuses the toolchain's QEMU and OVMF and that arm64 guests get AAVMF."""
+    asserts.equals(env, ["amd64", "arm64"], sorted(info.guests.keys()))
+    asserts.equals(env, info.qemu_system, info.guests["amd64"].qemu_system)
+    asserts.equals(env, info.ovmf_code, info.guests["amd64"].firmware_code)
+    asserts.true(env, info.guests["amd64"].native)
+    arm64 = info.guests["arm64"]
+    asserts.equals(env, "qemu-system-aarch64", arm64.qemu_system.basename)
+    asserts.equals(env, "47385316ca599ad1cd11b212ee34ba39315231484ddf0aca735ee999509ece4c", arm64.qemu_sha256)
+    asserts.equals(env, "aarch64/code.fd", arm64.firmware_code.short_path.split("/", 2)[-1])
+    asserts.equals(env, "aarch64/vars.fd", arm64.firmware_vars.short_path.split("/", 2)[-1])
+    asserts.equals(env, "virt", arm64.machine)
+    asserts.false(env, arm64.native)
+
 def _qemu_toolchain_provider_test_impl(ctx):
     env = analysistest.begin(ctx)
     target = analysistest.target_under_test(env)
@@ -226,6 +240,7 @@ def _qemu_toolchain_provider_test_impl(ctx):
         info.ovmf_sha256,
     )
     asserts.true(env, info.qemu_system.basename == "qemu-system-x86_64")
+    _assert_qemu_guests(env, info)
     asserts.true(env, info.qemu_files_to_run.executable != None)
     asserts.true(env, info.ovmf_code.basename == "code.fd")
     asserts.true(env, info.ovmf_vars.basename == "vars.fd")

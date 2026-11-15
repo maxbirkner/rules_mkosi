@@ -95,11 +95,17 @@ Both boot adapters require `MkosiImageInfo.raw_image`; the SeaBIOS adapter also 
 `readiness_marker` and every `shutdown_markers` entry are nonempty exact serial markers that gate readiness and clean shutdown.
 
 <!-- behavior:BHV-BOOT-MACHINE -->
-`machine_args` precede the adapter's firmware arguments: OVMF flash drives, or the SeaBIOS ROM and debug console.
+`machine_args` precede the CPU model of the image's architecture and the adapter's firmware arguments: OVMF flash drives, or the SeaBIOS ROM and debug console.
+`qemu_ovmf_boot_test` leaves `machine_args` empty by default, which selects the machine and memory of the image's architecture.
 
 <!-- behavior:BHV-BOOT-ACCELERATOR -->
 `accelerator` on both boot adapters and `qemu_ovmf_smoke_test` defaults to `auto` (KVM when `/dev/kvm` is accessible, else TCG), accepts `tcg`, and rejects other values.
 The accelerator QEMU selected is logged and is the first line of the boot evidence.
+
+<!-- behavior:BHV-BOOT-ARCHITECTURE -->
+`qemu_ovmf_boot_test` boots an image with the QEMU system emulator, UEFI firmware, machine, memory, CPU model, and serial port of `MkosiImageInfo.architecture`: `qemu-system-x86_64`, OVMF, `q35` with 512 MiB, and an ISA serial port for amd64; `qemu-system-aarch64`, AAVMF, `virt` with 1 GiB, the `max` CPU, and the PL011 serial port for arm64.
+`auto` selects TCG for a guest of another architecture than the execution platform.
+`secure_boot = True` fails during analysis for arm64 images.
 
 <!-- behavior:BHV-BOOT-DEADLINES -->
 The QMP, boot, and shutdown deadlines are positive, and their sum plus cleanup fits the timeout category, boundary included.
@@ -187,7 +193,7 @@ The snapshot repository verifies and serves the `binary-<architecture>` and `bin
 `MkosiToolchainInfo` exposes mkosi provenance, its runfiles, `pefile`, and the selected Python 3.14 runtime.
 
 <!-- behavior:BHV-QEMU-TOOLCHAIN-PROVIDER -->
-`MkosiQemuToolchainInfo` exposes QEMU, its system data, OVMF, and SeaBIOS with their provenance.
+`MkosiQemuToolchainInfo` exposes QEMU, its system data, OVMF, SeaBIOS, and the QEMU system emulator, UEFI firmware and machine settings of each guest architecture in `guests`, with their provenance.
 
 <!-- behavior:BHV-BOOT-PROVIDER -->
 `QemuBootConfigInfo` exposes the validated timeout category, deadlines, and cleanup margin.
