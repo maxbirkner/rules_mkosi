@@ -7,12 +7,15 @@ import runpy
 import subprocess
 import sys
 import traceback
+import types
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from mkosi.private.mkosi_runner.command_line import Preamble
     from mkosi.private.mkosi_runner.release_sandbox import SnapshotMirror
+    from mkosi.private.mkosi_runner.release_validation import ReleaseSettings
 
 sys.dont_write_bytecode = True
 
@@ -20,7 +23,7 @@ _RELEASE_CHILD_VARIABLE = "RULES_MKOSI_RELEASE_CHILD"
 _RELEASE_PARENT_OPTIONS = ("--debian-snapshot-repository", "--release-base-tree")
 
 
-def _load_module(name, path, failure):
+def _load_module(name: str, path: str | Path, failure: BaseException) -> types.ModuleType:
     """Loads a module from an explicit path, because Bazel declares these files as inputs but not on sys.path."""
     spec = importlib.util.spec_from_file_location(name, path)
     if spec is None or spec.loader is None:
@@ -33,7 +36,7 @@ def _load_module(name, path, failure):
     return module
 
 
-def _load_sibling(name, filename, description):
+def _load_sibling(name: str, filename: str, description: str) -> types.ModuleType:
     path = Path(__file__).parent / filename
     return _load_module(name, path, RuntimeError("{} cannot be loaded: {}".format(description, path)))
 
@@ -48,7 +51,7 @@ release_validation = _package.release_validation
 tree = _package.tree
 
 
-def _image_version_from_file(path, slot_label_image_id=None):
+def _image_version_from_file(path: str, slot_label_image_id: str | None = None) -> str:
     """Returns the validated version in path using the sibling image_version.py helper."""
     module = _load_sibling("rules_mkosi_image_version", "image_version.py", "image version helper")
     try:
@@ -57,9 +60,14 @@ def _image_version_from_file(path, slot_label_image_id=None):
         raise SystemExit("IMAGE_VERSION_INVALID: {}".format(error)) from None
 
 
-def _run_mkosi(script, arguments, runner=subprocess.run, environment=None):
+def _run_mkosi(
+    script: str,
+    arguments: Sequence[str],
+    runner: Callable[..., subprocess.CompletedProcess[bytes]] = subprocess.run,
+    environment: Mapping[str, str] | None = None,
+) -> None:
     """Run mkosi and classify process-boundary failures without masking exit status."""
-    options = {"check": False, "stdout": subprocess.PIPE, "stderr": subprocess.PIPE}
+    options: dict[str, Any] = {"check": False, "stdout": subprocess.PIPE, "stderr": subprocess.PIPE}
     if environment is not None:
         options["env"] = environment
     try:
@@ -71,7 +79,7 @@ def _run_mkosi(script, arguments, runner=subprocess.run, environment=None):
     _forward_output(completed)
 
 
-def _fail_mkosi(completed):
+def _fail_mkosi(completed: subprocess.CompletedProcess[bytes]) -> None:
     original = completed.stdout + completed.stderr
     tail = original.decode(errors="replace").strip().splitlines()[-8:]
     diagnostics.fail(
@@ -82,7 +90,7 @@ def _fail_mkosi(completed):
     )
 
 
-def _forward_output(completed):
+def _forward_output(completed: subprocess.CompletedProcess[bytes]) -> None:
     for stream, content in ((sys.stdout, completed.stdout), (sys.stderr, completed.stderr)):
         binary_stream = getattr(stream, "buffer", None)
         if binary_stream is None:
@@ -91,7 +99,7 @@ def _forward_output(completed):
             binary_stream.write(content)
 
 
-def _run_release_parent(argv):
+def _run_release_parent(argv: Sequence[str]) -> None:
     """Runs a release build, or a build from the Debian snapshot, in a child process that patches mkosi.
 
     The child runs mkosi in-process, so the parent classifies its failures like those of any other mkosi run, and the
@@ -111,7 +119,7 @@ def _run_release_parent(argv):
         _publish_base_initrd(output_directory, base_initrd_output)
 
 
-def _publish_base_initrd(output_directory, destination):
+def _publish_base_initrd(output_directory: str, destination: str) -> None:
     """Moves mkosi's default initrd, which it names through a relative symlink, to the declared output."""
     link = Path(output_directory) / "initrd"
     if not link.is_symlink():
@@ -123,7 +131,7 @@ def _publish_base_initrd(output_directory, destination):
     os.replace(source, destination)
 
 
-def _absolutize_python_path():
+def _absolutize_python_path() -> None:
     """Makes PYTHONPATH entries absolute, so that they stay valid after mkosi changes its working directory."""
     if not os.environ.get("PYTHONPATH"):
         return
@@ -132,7 +140,7 @@ def _absolutize_python_path():
     sys.path[:] = [os.path.abspath(path) if path in python_paths else path for path in sys.path]
 
 
-def _mkosi_arguments(preamble, mkosi_arguments):
+def _mkosi_arguments(preamble: "Preamble", mkosi_arguments: Sequence[str]) -> list[str]:
     if preamble.image_version_file is None:
         return command_line.absolute_paths(mkosi_arguments)
     # An invalid version fails before mkosi's option table is read.
@@ -161,11 +169,13 @@ def _release_stage(preamble: "Preamble") -> str | None:
     )
 
 
-def _workspace(arguments):
+def _workspace(arguments: Sequence[str]) -> Path:
     return Path(command_line.value_after(arguments, "--workspace-directory"))
 
 
-def _extract_debian_tools(preamble, arguments):
+def _extract_debian_tools(preamble: "Preamble", arguments: Sequence[str]) -> None:
+    if preamble.debian_tools_extractor is None:
+        raise SystemExit("incomplete Debian tools archive configuration")
     workspace = _workspace(arguments)
     tools_root = Path(command_line.value_after(arguments, "--tools-tree"))
     if tools_root != workspace / "debian-tools":
@@ -199,7 +209,7 @@ def _prepare_release_sandbox(preamble: "Preamble", arguments: list[str], stage: 
     return None
 
 
-def _stage_configuration(preamble, arguments):
+def _stage_configuration(preamble: "Preamble", arguments: list[str]) -> Path | None:
     """Points mkosi at a normalized copy of the -C configuration directory and returns that copy, if any."""
     directory_option = command_line.configuration_directory(arguments)
     if directory_option is None:
@@ -214,13 +224,13 @@ def _stage_configuration(preamble, arguments):
     return staged
 
 
-def _redirect_paths(arguments, directory, staged):
+def _redirect_paths(arguments: list[str], directory: str, staged: str) -> None:
     """Points the arguments, and the paths of path options in any spelling, inside directory into staged."""
 
-    def redirect(path):
+    def redirect(path: str) -> str:
         return staged + path[len(directory) :] if path.startswith(directory + os.sep) else path
 
-    path_indices = set()
+    path_indices: set[int] = set()
     for occurrence in command_line.path_occurrences(arguments):
         occurrence.replace(arguments, occurrence.option.map_paths(occurrence.value, redirect))
         path_indices.add(occurrence.index)
@@ -229,7 +239,7 @@ def _redirect_paths(arguments, directory, staged):
             arguments[index] = redirect(argument)
 
 
-def _release_settings(preamble, stage):
+def _release_settings(preamble: "Preamble", stage: str) -> "ReleaseSettings":
     return release_validation.ReleaseSettings(
         seed=preamble.release_seed,
         source_date_epoch=preamble.release_source_date_epoch,
@@ -244,7 +254,9 @@ def _release_settings(preamble, stage):
     )
 
 
-def _activate_release_mode(preamble, arguments, stage, mirror, staged):
+def _activate_release_mode(
+    preamble: "Preamble", arguments: Sequence[str], stage: str, mirror: "SnapshotMirror | None", staged: Path | None
+) -> None:
     if staged is None:
         raise SystemExit("a release build requires a staged -C configuration directory")
     if stage == "finalize":
@@ -258,7 +270,7 @@ def _activate_release_mode(preamble, arguments, stage, mirror, staged):
     )
 
 
-def _run_mkosi_in_process(script, arguments):
+def _run_mkosi_in_process(script: str, arguments: Sequence[str]) -> None:
     sys.argv[:] = [script, *arguments]
     try:
         runpy.run_path(script, run_name="__main__")
@@ -272,14 +284,14 @@ def _run_mkosi_in_process(script, arguments):
         raise
 
 
-def _requests_release_parent(preamble_arguments):
+def _requests_release_parent(preamble_arguments: Sequence[str]) -> bool:
     """Returns whether run_mkosi.py's own options, not the mkosi arguments after --, request a release child."""
     return any(
         command_line.preamble_value(preamble_arguments, option) is not None for option in _RELEASE_PARENT_OPTIONS
     )
 
 
-def main():
+def main() -> None:
     if len(sys.argv) < 3:
         raise SystemExit(command_line.USAGE)
     release_child = os.environ.get(_RELEASE_CHILD_VARIABLE) == "1"

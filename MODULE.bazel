@@ -42,6 +42,7 @@ use_repo(
     "qemu_system_bin_prebuilt_linux_amd64_x86_64_softmmu",
     "qemu_system_data_prebuilt_linux_amd64",
     "qemu_system_toolchains",
+    "qemu_user_prebuilt_linux_amd64_aarch64",
     "qemu_user_toolchains",
 )
 

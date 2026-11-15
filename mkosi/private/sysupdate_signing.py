@@ -14,7 +14,9 @@ import runpy
 import shutil
 import subprocess
 import time
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 _load_sibling = runpy.run_path(str(Path(__file__).with_name("sibling_loader.py")))["load_sibling"]
 openpgp = _load_sibling(__file__, "openpgp")
@@ -27,9 +29,9 @@ _RSA_BITS = 3072
 _RSA_EXPONENT = 65537
 
 
-def manifest_files(manifest):
+def manifest_files(manifest: bytes) -> dict[str, str]:
     """Returns the file digests of a SHA256SUMS manifest that sysupdate_payload wrote, keyed by file name."""
-    files = {}
+    files: dict[str, str] = {}
     for line in manifest.decode("ascii").splitlines():
         match = _MANIFEST_LINE.fullmatch(line)
         if not match or match[2] in files:
@@ -40,7 +42,7 @@ def manifest_files(manifest):
     return files
 
 
-def create_request(args):
+def create_request(args: argparse.Namespace) -> None:
     """Writes the manifest, the normalized public certificate and the request that binds them."""
     manifest = (Path(args.payload) / "SHA256SUMS").read_bytes()
     files = manifest_files(manifest)
@@ -60,7 +62,7 @@ def create_request(args):
     Path(args.output).write_text(json.dumps(request, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
-def _scratch(name):
+def _scratch(name: str) -> Path:
     """Returns a new private directory below the working directory, which the Debian tools launcher binds."""
     scratch = Path(".{}-{}".format(name, os.getpid()))
     shutil.rmtree(scratch, ignore_errors=True)
@@ -68,7 +70,7 @@ def _scratch(name):
     return scratch
 
 
-def _sqv_error(sqv, certificate, signature, manifest):
+def _sqv_error(sqv: str, certificate: bytes, signature: bytes, manifest: bytes) -> str | None:
     """Returns None if sqv verifies signature over manifest with certificate, else its error message."""
     scratch = _scratch("sysupdate-sqv")
     try:
@@ -91,7 +93,7 @@ def _sqv_error(sqv, certificate, signature, manifest):
         shutil.rmtree(scratch, ignore_errors=True)
 
 
-def _checked_request(args):
+def _checked_request(args: argparse.Namespace) -> tuple[dict[str, Any], bytes, bytes]:
     """Returns the request, manifest and certificate after checking that they belong together."""
     request = json.loads(Path(args.request).read_text(encoding="utf-8"))
     if request.get("format_version") != FORMAT_VERSION or request.get("context") != CONTEXT:
@@ -107,10 +109,10 @@ def _checked_request(args):
     return request, manifest, certificate
 
 
-def verify(args):
+def verify(args: argparse.Namespace) -> None:
     """Writes the first candidate that is a valid detached signature of the requested manifest by the requested key."""
     request, manifest, certificate = _checked_request(args)
-    errors = []
+    errors: list[str] = []
     for candidate in args.signature:
         try:
             signature = openpgp.detached_signature(Path(candidate).read_bytes())
@@ -129,10 +131,10 @@ def verify(args):
     )
 
 
-def _rsa_signer(openssl, scratch, key):
+def _rsa_signer(openssl: str, scratch: Path, key: Path) -> Callable[[bytes], int]:
     """Returns a function that PKCS #1 v1.5-signs a SHA-256 digest with key and returns the signature as an integer."""
 
-    def sign(digest):
+    def sign(digest: bytes) -> int:
         (scratch / "digest").write_bytes(digest)
         run_tool(
             openssl,
@@ -153,7 +155,7 @@ def _rsa_signer(openssl, scratch, key):
     return sign
 
 
-def _new_rsa_key(openssl, key):
+def _new_rsa_key(openssl: str, key: Path) -> int:
     """Generates an RSA key in key and returns its modulus."""
     run_tool(
         openssl,
@@ -174,7 +176,7 @@ def _new_rsa_key(openssl, key):
     return int(output.decode("ascii").strip().removeprefix("Modulus="), 16)
 
 
-def _write_certificate(args, public_key, sign, created):
+def _write_certificate(args: argparse.Namespace, public_key: bytes, sign: Callable[[bytes], int], created: int) -> None:
     user_id = b"rules_mkosi ephemeral sysupdate test signer"
     certification = openpgp.rsa_sha256_signature(
         public_key, 0x13, created, openpgp.user_id_certification_data(public_key, user_id), sign, key_flags=0x03
@@ -190,14 +192,14 @@ def _write_certificate(args, public_key, sign, created):
     (keyring / "import-pubring.gpg").write_bytes(certificate)
 
 
-def _remove_private(scratch, key):
+def _remove_private(scratch: Path, key: Path) -> None:
     """Overwrites the private key and removes the scratch directory that holds it."""
     if key.exists():
         key.write_bytes(bytes(key.stat().st_size))
     shutil.rmtree(scratch, ignore_errors=True)
 
 
-def ephemeral_fixture(args):
+def ephemeral_fixture(args: argparse.Namespace) -> None:
     """Signs the SHA256SUMS of payloads with a new RSA key and writes its certificate.
 
     The private key stays in the scratch directory, which is overwritten and removed before returning.
@@ -227,7 +229,7 @@ _COMMANDS = {
 }
 
 
-def _parser():
+def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     commands = parser.add_subparsers(required=True)
     for command, (function, options) in _COMMANDS.items():
@@ -242,7 +244,7 @@ def _parser():
     return parser
 
 
-def main():
+def main() -> None:
     args = _parser().parse_args()
     try:
         args.function(args)

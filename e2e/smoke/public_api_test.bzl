@@ -23,6 +23,7 @@ def _public_api_test_impl(ctx):
     asserts.equals(env, "13", target[DebianToolsInfo].release)
     asserts.equals(env, DEBIAN_TOOLS_PYTHON_VERSION, target[DebianToolsInfo].python_version)
     asserts.true(env, target[DebianToolsInfo].launcher.executable != None)
+    asserts.equals(env, ["arm64"], target[DebianToolsInfo].user_mode_emulators.keys())
     return analysistest.end(env)
 
 public_api_test = analysistest.make(_public_api_test_impl)

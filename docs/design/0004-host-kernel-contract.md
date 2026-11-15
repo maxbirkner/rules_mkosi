@@ -55,6 +55,23 @@ A privileged starting namespace is rejected, and the capability check is repeate
 The checks are limited to the operations of mkosi v27's offline sandbox.
 Image actions set `MKOSI_FORCE_USERNS_FALLBACK=1`, so mkosi always uses this unprivileged user namespace and never asks the host's `systemd-nsresourced`.
 
+## Foreign-architecture images
+
+Building an image for another architecture than the execution platform's, such as an arm64 image on Linux x86-64, also needs one kernel feature: a `binfmt_misc` instance in an unprivileged user namespace, which Linux 6.7 introduced.
+The image action registers the Debian tools toolchain's pinned static user-mode emulator in an instance that only its own namespaces see, with the `F` flag, so that the image's maintainer scripts run under emulation also inside chroots that do not contain the emulator; see [arm64 images](0005-arm64-images.md#cross-from-x86-64).
+No host `binfmt_misc` registration is read, required or changed, and the host's registrations are not visible to the action.
+Qualify a host for these builds with:
+
+```console
+bazel test --config=kernel_preflight //mkosi/private:binfmt_runner_host_test
+```
+
+| Check | Requirement | Remediation |
+| --- | --- | --- |
+| Private `binfmt_misc` | In a new user namespace, `binfmt_misc` mounts, accepts a registration with the `F` flag, and the registered emulator runs a static program of the foreign architecture; the command then runs with the caller's uid, gid and no capabilities. | Use Linux 6.7 or newer; load the `binfmt_misc` module if it is not built in; or build on an execution platform of the image's architecture. |
+
+`binfmt_misc` accepts registrations only from the root of the instance's user namespace, so the runner maps the caller to root in an outer namespace, registers the emulator, and runs the build in a nested namespace that maps the caller's uid and gid back.
+
 ## Limits
 
 A runner that reports `EPERM` for any check is not a valid image runner.

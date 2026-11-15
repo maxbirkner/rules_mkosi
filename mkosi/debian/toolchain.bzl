@@ -27,6 +27,8 @@ DebianToolsInfo = provider(
         "tree_files_to_run": "FilesToRunProvider preserving tree mappings.",
         "tree_root": "Extracted Debian tools TreeArtifact.",
         "tree_runfiles": "Runfiles for the package tree.",
+        "user_mode_emulators": """Dict from a foreign Debian architecture, such as `arm64`, to the static user-mode
+emulator that runs programs of that architecture on the execution platform.""",
     },
 )
 
@@ -226,6 +228,10 @@ def _debian_tools_toolchain_impl(ctx):
         provenance = ctx.file.provenance,
         components = ctx.file.components,
         required_components = ctx.attr.required_components,
+        user_mode_emulators = {
+            architecture: emulator.files.to_list()[0]
+            for architecture, emulator in ctx.attr.user_mode_emulators.items()
+        },
     )
     return [platform_common.ToolchainInfo(debian_tools = info), info]
 
@@ -251,6 +257,11 @@ debian_tools_toolchain = rule(
         "snapshot_url": attr.string(mandatory = True),
         "tree": attr.label(mandatory = True, allow_single_file = True),
         "tree_root": attr.label(mandatory = True),
+        "user_mode_emulators": attr.string_keyed_label_dict(
+            allow_files = True,
+            cfg = "exec",
+            doc = "Static user-mode emulator of each foreign Debian architecture, such as `arm64`.",
+        ),
     },
     doc = "Defines the pinned Debian userspace toolchain.",
 )

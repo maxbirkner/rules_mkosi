@@ -10,19 +10,6 @@ ignore = ["UP031", "UP032"]
 # Every function needs type annotations, which also make mypy check its body. The files below predate this rule and
 # are exempt; never add a file. Annotating a file fully means deleting its line, so the list only shrinks.
 [lint.per-file-ignores]
-"mkosi/private/openpgp.py" = ["ANN"]
-"mkosi/private/partition_metadata.py" = ["ANN"]
-"mkosi/private/reproducibility_manifest.py" = ["ANN"]
-"mkosi/private/run_mkosi.py" = ["ANN"]
-"mkosi/private/secure_boot.py" = ["ANN"]
-"mkosi/private/secure_boot_image.py" = ["ANN"]
-"mkosi/private/secure_boot_signer.py" = ["ANN"]
-"mkosi/private/sibling_loader.py" = ["ANN"]
-"mkosi/private/stage_inputs.py" = ["ANN"]
-"mkosi/private/sysupdate.py" = ["ANN"]
-"mkosi/private/sysupdate_signing.py" = ["ANN"]
-"mkosi/private/uki_metadata.py" = ["ANN"]
-"mkosi/private/verity_metadata.py" = ["ANN"]
 
 [lint.isort]
 # Upstream mkosi shares its top-level package name with this repository's mkosi/ directory.

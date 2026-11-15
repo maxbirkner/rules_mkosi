@@ -2,6 +2,7 @@ load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test")
 load("@rules_python//python:defs.bzl", "py_binary")
 load("//mkosi:toolchain.bzl", "managed_python_tool")
 load("//mkosi:versions.bzl", "DEFAULT_PYTHON_VERSION")
+load("//mkosi/tests:runfiles_sh_test.bzl", "runfiles_sh_test")
 load(":c_options.bzl", "C_WARNINGS")
 
 package(default_visibility = ["//visibility:private"])
@@ -168,6 +169,49 @@ cc_test(
     linkstatic = True,
     tags = ["requires_kernel_contract"],
     deps = [":kernel_preflight_lib"],
+)
+
+cc_library(
+    name = "binfmt_registration",
+    srcs = ["binfmt_registration.c"],
+    hdrs = ["binfmt_registration.h"],
+    copts = C_WARNINGS,
+    deps = [":write_all"],
+)
+
+# Registers a user-mode emulator in a binfmt_misc instance private to the image action, for foreign-architecture images.
+cc_binary(
+    name = "binfmt_runner",
+    srcs = ["binfmt_runner_main.c"],
+    copts = C_WARNINGS,
+    linkstatic = True,
+    visibility = ["//visibility:public"],
+    deps = [
+        ":binfmt_registration",
+        ":write_all",
+    ],
+)
+
+runfiles_sh_test(
+    name = "binfmt_runner_host_test",
+    src = "binfmt_runner_host_test.sh",
+    args = [
+        "$(rlocationpath :binfmt_runner)",
+        "$(rlocationpath @mkosi_debian_tools//:arm64_user_mode_emulator)",
+    ],
+    data = [
+        ":binfmt_runner",
+        "@mkosi_debian_tools//:arm64_user_mode_emulator",
+    ],
+    tags = ["requires_kernel_contract"],
+)
+
+cc_test(
+    name = "binfmt_registration_test",
+    srcs = ["binfmt_registration_test.c"],
+    copts = C_WARNINGS,
+    linkstatic = True,
+    deps = [":binfmt_registration"],
 )
 
 filegroup(

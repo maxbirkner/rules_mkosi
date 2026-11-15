@@ -6,10 +6,11 @@ rather than through sys.path. Scripts bootstrap this module with
 """
 
 import importlib.util
+import types
 from pathlib import Path
 
 
-def load_sibling(script, name):
+def load_sibling(script: str, name: str) -> types.ModuleType:
     """Executes name.py from the directory of script as a fresh module named rules_mkosi_<name>.
 
     Raises RuntimeError if the file cannot be loaded as Python source.
