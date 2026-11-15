@@ -97,6 +97,7 @@ behavior_targets(
         ":consumer_snapshot_provider_test",
         ":debian_snapshot_public_provider_test",
         ":debian_tools_public_provider_test",
+        ":arm64_demo_boot_test",
         ":arm64_demo_public_provider_test",
         ":arm64_demo_test",
         ":demo_artifact_test",
@@ -229,6 +230,14 @@ image_partition_metadata_file(
 image_uki_metadata_file(
     name = "arm64_demo_uki_metadata",
     image = ":arm64_demo",
+)
+
+# Under TCG on Linux x86-64 execution platforms.
+qemu_ovmf_boot_test(
+    name = "arm64_demo_boot_test",
+    image = ":arm64_demo",
+    # Only the root file system's systemd logs it, after the switch from the initrd.
+    readiness_marker = "systemd[1]: Detected first boot.",
 )
 
 image_architecture_test(

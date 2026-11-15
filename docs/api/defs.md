@@ -278,7 +278,7 @@ Use it directly only to inspect the validated deadlines through QemuBootConfigIn
 | Name  | Description | Type | Mandatory | Default |
 | :------------- | :------------- | :------------- | :------------- | :------------- |
 | <a id="qemu_ovmf_boot_config-name"></a>name |  A unique name for this target.   | <a href="https://bazel.build/concepts/labels#target-names">Name</a> | required |  |
-| <a id="qemu_ovmf_boot_config-accelerator"></a>accelerator |  QEMU accelerator: `auto` (default) or `tcg`.<br><br>`auto` uses KVM when the test can open `/dev/kvm` for reading and writing, and TCG software emulation otherwise. `tcg` always uses TCG. Both use the same guest CPU model. The test log records the accelerator QEMU used.   | String | optional |  `"auto"`  |
+| <a id="qemu_ovmf_boot_config-accelerator"></a>accelerator |  QEMU accelerator: `auto` (default) or `tcg`.<br><br>`auto` uses KVM when the test can open `/dev/kvm` for reading and writing, and TCG software emulation otherwise; for a guest of another architecture than the execution platform, such as an arm64 image on Linux x86-64, it uses TCG. `tcg` always uses TCG. Both use the same guest CPU model. The test log records the accelerator QEMU used.   | String | optional |  `"auto"`  |
 | <a id="qemu_ovmf_boot_config-allow_reboot"></a>allow_reboot |  Keep QEMU running across guest reboots instead of treating a reboot as an exit.<br><br>The image snapshot and the copied OVMF variables persist across reboots for the lifetime of the test.   | Boolean | optional |  `False`  |
 | <a id="qemu_ovmf_boot_config-boot_timeout_seconds"></a>boot_timeout_seconds |  Seconds that QEMU may take after QMP is ready until readiness_marker appears on the serial console.   | Integer | optional |  `180`  |
 | <a id="qemu_ovmf_boot_config-credentials"></a>credentials |  systemd system credentials for the guest, keyed by credential name.<br><br>Each becomes the SMBIOS Type 11 string `io.systemd.credential:<name>=<value>`, which systemd imports at boot, also with Secure Boot enabled. Do not escape commas or line breaks in values: each comma is doubled, which QEMU reads as one literal comma, and line breaks reach the guest, so a value can hold a unit drop-in. For example, `{"systemd.unit-dropin.multi-user.target": "[Unit]\nWants=ready.service\n"}` starts a readiness unit that the image does not enable; see docs/secure-boot.md. Names are letters, digits, and `._-@~+\`.   | <a href="https://bazel.build/rules/lib/core/dict">Dictionary: String -> String</a> | optional |  `{}`  |
@@ -286,7 +286,7 @@ Use it directly only to inspect the validated deadlines through QemuBootConfigIn
 | <a id="qemu_ovmf_boot_config-expected_failure_marker"></a>expected_failure_marker |  Exact serial marker that makes an intentionally failing boot pass before readiness.   | String | optional |  `""`  |
 | <a id="qemu_ovmf_boot_config-http_shares"></a>http_shares |  Targets whose files the guest can download from http://10.0.2.100/<path>/, keyed to their path.<br><br>The files of a directory appear at the top of its path. The guest gets a virtio network interface on QEMU's user network, which reaches only this server; configure it with the static address 10.0.2.15/24 or DHCP.<br><br>Successful file responses carry `Content-Digest: sha-256=:<base64>:` (RFC 9530) with the SHA-256 of the whole file, also for a byte range. A single byte range of a GET or HEAD request gets 206 Partial Content, or 416 if it starts at or after the end of the file or is `bytes=-0`; several ranges get the whole file.   | <a href="https://bazel.build/rules/lib/core/dict">Dictionary: Label -> String</a> | optional |  `{}`  |
 | <a id="qemu_ovmf_boot_config-image"></a>image |  mkosi_image whose raw_image is booted through a QEMU snapshot, leaving the image unchanged.   | <a href="https://bazel.build/concepts/labels">Label</a> | required |  |
-| <a id="qemu_ovmf_boot_config-machine_args"></a>machine_args |  QEMU machine and memory arguments.   | List of strings | optional |  `["-machine", "q35", "-m", "512M"]`  |
+| <a id="qemu_ovmf_boot_config-machine_args"></a>machine_args |  QEMU machine and memory arguments.<br><br>Empty, the default, selects the machine and memory of the image's architecture: `q35` with 512 MiB for amd64, `virt` with 1 GiB for arm64. The CPU model and the serial port of the architecture are added either way.   | List of strings | optional |  `[]`  |
 | <a id="qemu_ovmf_boot_config-progress_markers"></a>progress_markers |  Exact serial markers that must appear in this order before readiness_marker.   | List of strings | optional |  `[]`  |
 | <a id="qemu_ovmf_boot_config-qmp_initialization_timeout_seconds"></a>qmp_initialization_timeout_seconds |  Seconds that QEMU may take to accept QMP connections.   | Integer | optional |  `15`  |
 | <a id="qemu_ovmf_boot_config-read_only_shares"></a>read_only_shares |  Directory targets exposed to the guest as read-only virtio-9p shares, keyed to their mount tags.   | <a href="https://bazel.build/rules/lib/core/dict">Dictionary: Label -> String</a> | optional |  `{}`  |
@@ -317,7 +317,7 @@ Starts a minimal QEMU/OVMF process and terminates through QMP.
 | Name  | Description | Type | Mandatory | Default |
 | :------------- | :------------- | :------------- | :------------- | :------------- |
 | <a id="qemu_ovmf_smoke_test-name"></a>name |  A unique name for this target.   | <a href="https://bazel.build/concepts/labels#target-names">Name</a> | required |  |
-| <a id="qemu_ovmf_smoke_test-accelerator"></a>accelerator |  QEMU accelerator: `auto` (default) or `tcg`.<br><br>`auto` uses KVM when the test can open `/dev/kvm` for reading and writing, and TCG software emulation otherwise. `tcg` always uses TCG. Both use the same guest CPU model. The test log records the accelerator QEMU used.   | String | optional |  `"auto"`  |
+| <a id="qemu_ovmf_smoke_test-accelerator"></a>accelerator |  QEMU accelerator: `auto` (default) or `tcg`.<br><br>`auto` uses KVM when the test can open `/dev/kvm` for reading and writing, and TCG software emulation otherwise; for a guest of another architecture than the execution platform, such as an arm64 image on Linux x86-64, it uses TCG. `tcg` always uses TCG. Both use the same guest CPU model. The test log records the accelerator QEMU used.   | String | optional |  `"auto"`  |
 
 
 <a id="qemu_ovmf_toolchain"></a>
@@ -327,14 +327,15 @@ Starts a minimal QEMU/OVMF process and terminates through QMP.
 <pre>
 load("@rules_mkosi//mkosi:defs.bzl", "qemu_ovmf_toolchain")
 
-qemu_ovmf_toolchain(<a href="#qemu_ovmf_toolchain-name">name</a>, <a href="#qemu_ovmf_toolchain-format_version">format_version</a>, <a href="#qemu_ovmf_toolchain-ovmf_code">ovmf_code</a>, <a href="#qemu_ovmf_toolchain-ovmf_code_sha256">ovmf_code_sha256</a>, <a href="#qemu_ovmf_toolchain-ovmf_integrity">ovmf_integrity</a>, <a href="#qemu_ovmf_toolchain-ovmf_sha256">ovmf_sha256</a>,
-                    <a href="#qemu_ovmf_toolchain-ovmf_shell">ovmf_shell</a>, <a href="#qemu_ovmf_toolchain-ovmf_shell_sha256">ovmf_shell_sha256</a>, <a href="#qemu_ovmf_toolchain-ovmf_source_url">ovmf_source_url</a>, <a href="#qemu_ovmf_toolchain-ovmf_vars">ovmf_vars</a>, <a href="#qemu_ovmf_toolchain-ovmf_vars_sha256">ovmf_vars_sha256</a>,
-                    <a href="#qemu_ovmf_toolchain-ovmf_version">ovmf_version</a>, <a href="#qemu_ovmf_toolchain-qemu_img">qemu_img</a>, <a href="#qemu_ovmf_toolchain-qemu_integrity">qemu_integrity</a>, <a href="#qemu_ovmf_toolchain-qemu_sha256">qemu_sha256</a>, <a href="#qemu_ovmf_toolchain-qemu_source_url">qemu_source_url</a>, <a href="#qemu_ovmf_toolchain-qemu_system">qemu_system</a>,
-                    <a href="#qemu_ovmf_toolchain-qemu_version">qemu_version</a>, <a href="#qemu_ovmf_toolchain-seabios">seabios</a>, <a href="#qemu_ovmf_toolchain-seabios_sha256">seabios_sha256</a>, <a href="#qemu_ovmf_toolchain-seabios_version">seabios_version</a>, <a href="#qemu_ovmf_toolchain-system_data">system_data</a>,
-                    <a href="#qemu_ovmf_toolchain-system_data_anchor">system_data_anchor</a>)
+qemu_ovmf_toolchain(<a href="#qemu_ovmf_toolchain-name">name</a>, <a href="#qemu_ovmf_toolchain-aarch64_qemu_sha256">aarch64_qemu_sha256</a>, <a href="#qemu_ovmf_toolchain-aarch64_qemu_source_url">aarch64_qemu_source_url</a>, <a href="#qemu_ovmf_toolchain-aarch64_qemu_system">aarch64_qemu_system</a>,
+                    <a href="#qemu_ovmf_toolchain-aavmf_code">aavmf_code</a>, <a href="#qemu_ovmf_toolchain-aavmf_code_sha256">aavmf_code_sha256</a>, <a href="#qemu_ovmf_toolchain-aavmf_vars">aavmf_vars</a>, <a href="#qemu_ovmf_toolchain-aavmf_vars_sha256">aavmf_vars_sha256</a>, <a href="#qemu_ovmf_toolchain-format_version">format_version</a>,
+                    <a href="#qemu_ovmf_toolchain-ovmf_code">ovmf_code</a>, <a href="#qemu_ovmf_toolchain-ovmf_code_sha256">ovmf_code_sha256</a>, <a href="#qemu_ovmf_toolchain-ovmf_integrity">ovmf_integrity</a>, <a href="#qemu_ovmf_toolchain-ovmf_sha256">ovmf_sha256</a>, <a href="#qemu_ovmf_toolchain-ovmf_shell">ovmf_shell</a>,
+                    <a href="#qemu_ovmf_toolchain-ovmf_shell_sha256">ovmf_shell_sha256</a>, <a href="#qemu_ovmf_toolchain-ovmf_source_url">ovmf_source_url</a>, <a href="#qemu_ovmf_toolchain-ovmf_vars">ovmf_vars</a>, <a href="#qemu_ovmf_toolchain-ovmf_vars_sha256">ovmf_vars_sha256</a>, <a href="#qemu_ovmf_toolchain-ovmf_version">ovmf_version</a>,
+                    <a href="#qemu_ovmf_toolchain-qemu_img">qemu_img</a>, <a href="#qemu_ovmf_toolchain-qemu_integrity">qemu_integrity</a>, <a href="#qemu_ovmf_toolchain-qemu_sha256">qemu_sha256</a>, <a href="#qemu_ovmf_toolchain-qemu_source_url">qemu_source_url</a>, <a href="#qemu_ovmf_toolchain-qemu_system">qemu_system</a>, <a href="#qemu_ovmf_toolchain-qemu_version">qemu_version</a>,
+                    <a href="#qemu_ovmf_toolchain-seabios">seabios</a>, <a href="#qemu_ovmf_toolchain-seabios_sha256">seabios_sha256</a>, <a href="#qemu_ovmf_toolchain-seabios_version">seabios_version</a>, <a href="#qemu_ovmf_toolchain-system_data">system_data</a>, <a href="#qemu_ovmf_toolchain-system_data_anchor">system_data_anchor</a>)
 </pre>
 
-Defines a Linux x86-64 QEMU and OVMF test toolchain.
+Defines a Linux x86-64 QEMU and UEFI firmware test toolchain for amd64 and arm64 guests.
 
 **ATTRIBUTES**
 
@@ -342,6 +343,13 @@ Defines a Linux x86-64 QEMU and OVMF test toolchain.
 | Name  | Description | Type | Mandatory | Default |
 | :------------- | :------------- | :------------- | :------------- | :------------- |
 | <a id="qemu_ovmf_toolchain-name"></a>name |  A unique name for this target.   | <a href="https://bazel.build/concepts/labels#target-names">Name</a> | required |  |
+| <a id="qemu_ovmf_toolchain-aarch64_qemu_sha256"></a>aarch64_qemu_sha256 |  qemu-system-aarch64 SHA-256 hash.   | String | required |  |
+| <a id="qemu_ovmf_toolchain-aarch64_qemu_source_url"></a>aarch64_qemu_source_url |  Immutable qemu-system-aarch64 URL.   | String | required |  |
+| <a id="qemu_ovmf_toolchain-aarch64_qemu_system"></a>aarch64_qemu_system |  The qemu_executable target of qemu-system-aarch64, which boots arm64 guests.   | <a href="https://bazel.build/concepts/labels">Label</a> | required |  |
+| <a id="qemu_ovmf_toolchain-aavmf_code"></a>aavmf_code |  AAVMF code firmware of arm64 guests.   | <a href="https://bazel.build/concepts/labels">Label</a> | required |  |
+| <a id="qemu_ovmf_toolchain-aavmf_code_sha256"></a>aavmf_code_sha256 |  AAVMF code hash.   | String | required |  |
+| <a id="qemu_ovmf_toolchain-aavmf_vars"></a>aavmf_vars |  AAVMF variable store template of arm64 guests.   | <a href="https://bazel.build/concepts/labels">Label</a> | required |  |
+| <a id="qemu_ovmf_toolchain-aavmf_vars_sha256"></a>aavmf_vars_sha256 |  AAVMF variable store hash.   | String | required |  |
 | <a id="qemu_ovmf_toolchain-format_version"></a>format_version |  Output contract implemented by this toolchain.   | String | optional |  `"qemu-ovmf-v1"`  |
 | <a id="qemu_ovmf_toolchain-ovmf_code"></a>ovmf_code |  OVMF_CODE firmware.   | <a href="https://bazel.build/concepts/labels">Label</a> | required |  |
 | <a id="qemu_ovmf_toolchain-ovmf_code_sha256"></a>ovmf_code_sha256 |  OVMF_CODE hash.   | String | required |  |
@@ -388,7 +396,7 @@ Use it directly only to inspect the validated deadlines through QemuBootConfigIn
 | Name  | Description | Type | Mandatory | Default |
 | :------------- | :------------- | :------------- | :------------- | :------------- |
 | <a id="qemu_seabios_boot_config-name"></a>name |  A unique name for this target.   | <a href="https://bazel.build/concepts/labels#target-names">Name</a> | required |  |
-| <a id="qemu_seabios_boot_config-accelerator"></a>accelerator |  QEMU accelerator: `auto` (default) or `tcg`.<br><br>`auto` uses KVM when the test can open `/dev/kvm` for reading and writing, and TCG software emulation otherwise. `tcg` always uses TCG. Both use the same guest CPU model. The test log records the accelerator QEMU used.   | String | optional |  `"auto"`  |
+| <a id="qemu_seabios_boot_config-accelerator"></a>accelerator |  QEMU accelerator: `auto` (default) or `tcg`.<br><br>`auto` uses KVM when the test can open `/dev/kvm` for reading and writing, and TCG software emulation otherwise; for a guest of another architecture than the execution platform, such as an arm64 image on Linux x86-64, it uses TCG. `tcg` always uses TCG. Both use the same guest CPU model. The test log records the accelerator QEMU used.   | String | optional |  `"auto"`  |
 | <a id="qemu_seabios_boot_config-boot_timeout_seconds"></a>boot_timeout_seconds |  Seconds that QEMU may take after QMP is ready until readiness_marker appears on the serial console.   | Integer | optional |  `180`  |
 | <a id="qemu_seabios_boot_config-diagnostic_bytes"></a>diagnostic_bytes |  Bytes of the end of each log printed on failure; the retained test outputs are capped at 256 KiB.   | Integer | optional |  `65536`  |
 | <a id="qemu_seabios_boot_config-image"></a>image |  mkosi_image whose raw_image is booted through a QEMU snapshot, leaving the image unchanged.   | <a href="https://bazel.build/concepts/labels">Label</a> | required |  |
@@ -883,12 +891,12 @@ version files image_version_file and input_digest are in the image_version outpu
 <pre>
 load("@rules_mkosi//mkosi:defs.bzl", "MkosiQemuToolchainInfo")
 
-MkosiQemuToolchainInfo(<a href="#MkosiQemuToolchainInfo-execution_cpu">execution_cpu</a>, <a href="#MkosiQemuToolchainInfo-execution_os">execution_os</a>, <a href="#MkosiQemuToolchainInfo-format_version">format_version</a>, <a href="#MkosiQemuToolchainInfo-ovmf_code">ovmf_code</a>, <a href="#MkosiQemuToolchainInfo-ovmf_code_sha256">ovmf_code_sha256</a>,
-                       <a href="#MkosiQemuToolchainInfo-ovmf_integrity">ovmf_integrity</a>, <a href="#MkosiQemuToolchainInfo-ovmf_sha256">ovmf_sha256</a>, <a href="#MkosiQemuToolchainInfo-ovmf_shell">ovmf_shell</a>, <a href="#MkosiQemuToolchainInfo-ovmf_shell_sha256">ovmf_shell_sha256</a>, <a href="#MkosiQemuToolchainInfo-ovmf_source_url">ovmf_source_url</a>,
-                       <a href="#MkosiQemuToolchainInfo-ovmf_vars">ovmf_vars</a>, <a href="#MkosiQemuToolchainInfo-ovmf_vars_sha256">ovmf_vars_sha256</a>, <a href="#MkosiQemuToolchainInfo-ovmf_version">ovmf_version</a>, <a href="#MkosiQemuToolchainInfo-qemu_files_to_run">qemu_files_to_run</a>, <a href="#MkosiQemuToolchainInfo-qemu_img">qemu_img</a>,
-                       <a href="#MkosiQemuToolchainInfo-qemu_integrity">qemu_integrity</a>, <a href="#MkosiQemuToolchainInfo-qemu_runfiles">qemu_runfiles</a>, <a href="#MkosiQemuToolchainInfo-qemu_sha256">qemu_sha256</a>, <a href="#MkosiQemuToolchainInfo-qemu_source_url">qemu_source_url</a>, <a href="#MkosiQemuToolchainInfo-qemu_system">qemu_system</a>,
-                       <a href="#MkosiQemuToolchainInfo-qemu_version">qemu_version</a>, <a href="#MkosiQemuToolchainInfo-seabios">seabios</a>, <a href="#MkosiQemuToolchainInfo-seabios_sha256">seabios_sha256</a>, <a href="#MkosiQemuToolchainInfo-seabios_version">seabios_version</a>, <a href="#MkosiQemuToolchainInfo-system_data_anchor">system_data_anchor</a>,
-                       <a href="#MkosiQemuToolchainInfo-system_data_files">system_data_files</a>)
+MkosiQemuToolchainInfo(<a href="#MkosiQemuToolchainInfo-execution_cpu">execution_cpu</a>, <a href="#MkosiQemuToolchainInfo-execution_os">execution_os</a>, <a href="#MkosiQemuToolchainInfo-format_version">format_version</a>, <a href="#MkosiQemuToolchainInfo-guests">guests</a>, <a href="#MkosiQemuToolchainInfo-ovmf_code">ovmf_code</a>,
+                       <a href="#MkosiQemuToolchainInfo-ovmf_code_sha256">ovmf_code_sha256</a>, <a href="#MkosiQemuToolchainInfo-ovmf_integrity">ovmf_integrity</a>, <a href="#MkosiQemuToolchainInfo-ovmf_sha256">ovmf_sha256</a>, <a href="#MkosiQemuToolchainInfo-ovmf_shell">ovmf_shell</a>, <a href="#MkosiQemuToolchainInfo-ovmf_shell_sha256">ovmf_shell_sha256</a>,
+                       <a href="#MkosiQemuToolchainInfo-ovmf_source_url">ovmf_source_url</a>, <a href="#MkosiQemuToolchainInfo-ovmf_vars">ovmf_vars</a>, <a href="#MkosiQemuToolchainInfo-ovmf_vars_sha256">ovmf_vars_sha256</a>, <a href="#MkosiQemuToolchainInfo-ovmf_version">ovmf_version</a>, <a href="#MkosiQemuToolchainInfo-qemu_files_to_run">qemu_files_to_run</a>,
+                       <a href="#MkosiQemuToolchainInfo-qemu_img">qemu_img</a>, <a href="#MkosiQemuToolchainInfo-qemu_integrity">qemu_integrity</a>, <a href="#MkosiQemuToolchainInfo-qemu_runfiles">qemu_runfiles</a>, <a href="#MkosiQemuToolchainInfo-qemu_sha256">qemu_sha256</a>, <a href="#MkosiQemuToolchainInfo-qemu_source_url">qemu_source_url</a>,
+                       <a href="#MkosiQemuToolchainInfo-qemu_system">qemu_system</a>, <a href="#MkosiQemuToolchainInfo-qemu_version">qemu_version</a>, <a href="#MkosiQemuToolchainInfo-seabios">seabios</a>, <a href="#MkosiQemuToolchainInfo-seabios_sha256">seabios_sha256</a>, <a href="#MkosiQemuToolchainInfo-seabios_version">seabios_version</a>,
+                       <a href="#MkosiQemuToolchainInfo-system_data_anchor">system_data_anchor</a>, <a href="#MkosiQemuToolchainInfo-system_data_files">system_data_files</a>)
 </pre>
 
 Information used by tests to execute QEMU with OVMF.
@@ -900,6 +908,7 @@ Information used by tests to execute QEMU with OVMF.
 | <a id="MkosiQemuToolchainInfo-execution_cpu"></a>execution_cpu |  Execution CPU constraint.    |
 | <a id="MkosiQemuToolchainInfo-execution_os"></a>execution_os |  Execution operating system constraint.    |
 | <a id="MkosiQemuToolchainInfo-format_version"></a>format_version |  String identifying the toolchain output contract.    |
+| <a id="MkosiQemuToolchainInfo-guests"></a>guests |  Dict from the Debian architecture of a guest image, `amd64` or `arm64`, to a struct with the QEMU system emulator that boots it (`qemu_system`, `qemu_files_to_run`, `qemu_runfiles`, `qemu_source_url`, `qemu_sha256`), its UEFI firmware (`firmware_code`, `firmware_vars`, `firmware_code_sha256`, `firmware_vars_sha256`), and the QEMU arguments of its machine: `machine`, `memory`, `cpu_args`, `serial_args` (to attach the character device `serial0` as the first serial port), and `native`, whether KVM can run it on the execution platform. The other fields describe the amd64 guest.    |
 | <a id="MkosiQemuToolchainInfo-ovmf_code"></a>ovmf_code |  OVMF_CODE firmware artifact.    |
 | <a id="MkosiQemuToolchainInfo-ovmf_code_sha256"></a>ovmf_code_sha256 |  SHA-256 hash of OVMF_CODE.fd.    |
 | <a id="MkosiQemuToolchainInfo-ovmf_integrity"></a>ovmf_integrity |  SRI integrity string of the OVMF artifact.    |

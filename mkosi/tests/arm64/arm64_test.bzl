@@ -32,3 +32,20 @@ def _arm64_image_test_impl(ctx):
     return analysistest.end(env)
 
 arm64_image_test = analysistest.make(_arm64_image_test_impl)
+
+def _arm64_boot_config_test_impl(ctx):
+    env = analysistest.begin(ctx)
+    writes = [action for action in analysistest.target_actions(env) if action.mnemonic == "FileWrite"]
+    asserts.equals(env, 1, len(writes))
+    config = json.decode(writes[0].content)
+    asserts.true(env, config["qemu"].endswith("/aarch64_qemu_system_executable"), config["qemu"])
+    asserts.true(env, config["firmware_code"].endswith("/aarch64/code.fd"), config["firmware_code"])
+    asserts.true(env, config["firmware_vars"].endswith("/aarch64/vars.fd"), config["firmware_vars"])
+    asserts.equals(env, ["-machine", "virt", "-m", "1G", "-cpu", "max,pauth-impdef=on"], config["qemu_args"][:6])
+    asserts.equals(env, ["-serial", "chardev:serial0"], config["serial_args"])
+
+    # KVM cannot run an arm64 guest on the Linux x86-64 execution platform.
+    asserts.equals(env, ["-accel", "tcg"], config["accelerator_args"])
+    return analysistest.end(env)
+
+arm64_boot_config_test = analysistest.make(_arm64_boot_config_test_impl)
