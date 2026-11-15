@@ -5,23 +5,24 @@ import json
 import struct
 import sys
 import unittest
+from collections.abc import Sequence
 from pathlib import Path
 
 _SECURITY_DIRECTORY = 4
 
 
-def _sha256(path):
+def _sha256(path: str | Path) -> str:
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
-def _by_suffix(paths, suffix):
+def _by_suffix(paths: Sequence[str], suffix: str) -> Path:
     matches = [Path(path) for path in paths if path.endswith(suffix)]
     if len(matches) != 1:
         raise AssertionError("expected one {} in {}".format(suffix, paths))
     return matches[0]
 
 
-def _certificate_table(data):
+def _certificate_table(data: bytes) -> tuple[int, int]:
     """Returns the offset and size of the PE certificate table."""
     pe = struct.unpack_from("<I", data, 0x3C)[0]
     optional = pe + 24
@@ -30,7 +31,7 @@ def _certificate_table(data):
 
 
 class SignedBinary:
-    def __init__(self, request_outputs, import_outputs):
+    def __init__(self, request_outputs: Sequence[str], import_outputs: Sequence[str]) -> None:
         self.request = json.loads(_by_suffix(request_outputs, ".secure-boot-request.json").read_text())
         self.unsigned = _by_suffix(request_outputs, ".efi")
         self.signed = _by_suffix(import_outputs, ".signed.efi")
@@ -38,7 +39,7 @@ class SignedBinary:
 
 
 class SignedBinariesTest(unittest.TestCase):
-    def check(self, binary, esp_path, context):
+    def check(self, binary: SignedBinary, esp_path: str, context: str) -> None:
         self.assertEqual(binary.request["esp_path"], esp_path)
         self.assertEqual(binary.request["context"], context)
         self.assertEqual(binary.request["format_version"], "mkosi-secure-boot-signing-request-v3")
@@ -54,10 +55,10 @@ class SignedBinariesTest(unittest.TestCase):
         self.assertGreaterEqual(offset, len(unsigned))
         self.assertEqual(offset + size, len(signed))
 
-    def test_uki(self):
+    def test_uki(self) -> None:
         self.check(UKI, "", "uefi-secure-boot-uki")
 
-    def test_systemd_boot(self):
+    def test_systemd_boot(self) -> None:
         self.check(SYSTEMD_BOOT, "EFI/systemd/systemd-bootx64.efi", "uefi-secure-boot-esp-file")
         self.assertIn(b"systemd-boot", SYSTEMD_BOOT.unsigned.read_bytes())
         self.assertLess(SYSTEMD_BOOT.unsigned.stat().st_size, UKI.unsigned.stat().st_size)

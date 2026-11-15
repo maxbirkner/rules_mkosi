@@ -1,47 +1,15 @@
 """Inspects typed payloads in the independent consumer's release rootfs."""
 
-import itertools
 import json
 import os
 import pathlib
 import re
-import subprocess
 import sys
 
-_REQUESTS = itertools.count()
+from rootfs_debugfs import run_debugfs
 
 
-def debugfs(launcher, directory, request):
-    environment = dict(os.environ)
-    environment["MKOSI_DEBIAN_TOOLS_SCRATCH"] = str(directory / "launcher-{}".format(next(_REQUESTS)))
-    result = subprocess.run(
-        [
-            launcher,
-            "--ro-bind",
-            "{}:/inputs/payload-test".format(directory),
-            "/usr/sbin/debugfs",
-            "-R",
-            request,
-            "/inputs/payload-test/rootfs.ext4",
-        ],
-        check=False,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        env=environment,
-    )
-    if result.returncode:
-        raise AssertionError(
-            "debugfs request {!r} failed with {}: {}".format(
-                request,
-                result.returncode,
-                result.stdout,
-            )
-        )
-    return result.stdout
-
-
-def main():
+def main() -> None:
     image_path, metadata_path, launcher = sys.argv[1:]
     metadata = json.loads(pathlib.Path(metadata_path).read_text())
     roots = [partition for partition in metadata["partitions"] if partition["label"] == "root-x86-64"]
@@ -73,21 +41,17 @@ def main():
         "/opt/generated/config": "generated TreeArtifact configuration\n",
     }
     for path, expected in expected_content.items():
-        content = debugfs(launcher, directory, "cat {}".format(path))
+        content = run_debugfs(launcher, directory, "payload-test", "cat {}".format(path))
         if expected not in content:
             raise AssertionError("{} has unexpected content: {!r}".format(path, content))
-        stat = debugfs(launcher, directory, "stat {}".format(path))
+        stat = run_debugfs(launcher, directory, "payload-test", "stat {}".format(path))
         if not re.search(r"User:\s+0\b", stat) or not re.search(r"Group:\s+0\b", stat):
             raise AssertionError("{} is not root-owned: {}".format(path, stat))
 
-    executable = debugfs(launcher, directory, "stat /usr/local/bin/example")
+    executable = run_debugfs(launcher, directory, "payload-test", "stat /usr/local/bin/example")
     if not re.search(r"Mode:\s+0755\b", executable):
         raise AssertionError("binary is not executable: {}".format(executable))
-    link = debugfs(
-        launcher,
-        directory,
-        "stat /opt/generated/config-link",
-    )
+    link = run_debugfs(launcher, directory, "payload-test", "stat /opt/generated/config-link")
     if 'Fast link dest: "config"' not in link:
         raise AssertionError("relative payload symlink is invalid: {}".format(link))
 

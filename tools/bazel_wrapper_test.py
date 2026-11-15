@@ -8,6 +8,7 @@ import stat
 import subprocess
 import sys
 import unittest
+from collections.abc import Sequence
 
 _FAKE_BAZEL = r"""#!/usr/bin/env bash
 set -euo pipefail
@@ -16,8 +17,13 @@ printf '%s\0' "$PWD" "${USE_BAZEL_VERSION:-}" "$@" >"$CAPTURE_FILE"
 
 
 class BazelWrapperTest(unittest.TestCase):
+    wrapper: pathlib.Path
+    work: pathlib.Path
+    backend_dir: pathlib.Path
+    backend: pathlib.Path
+
     @classmethod
-    def setUpClass(cls):
+    def setUpClass(cls) -> None:
         cls.wrapper = pathlib.Path(sys.argv[1]).resolve()
         cls.work = pathlib.Path(os.environ["TEST_TMPDIR"]) / "bazel-wrapper-test"
         shutil.rmtree(cls.work, ignore_errors=True)
@@ -28,13 +34,13 @@ class BazelWrapperTest(unittest.TestCase):
         cls.backend.write_text(_FAKE_BAZEL, encoding="utf-8")
         cls.backend.chmod(cls.backend.stat().st_mode | stat.S_IXUSR)
 
-    def setUp(self):
+    def setUp(self) -> None:
         self.case = self.work / self._testMethodName
         shutil.rmtree(self.case, ignore_errors=True)
         self.case.mkdir()
         self.capture = self.case / "capture"
 
-    def module(self, relative, bazelrc=False):
+    def module(self, relative: str, bazelrc: bool = False) -> pathlib.Path:
         root = self.case / relative
         root.mkdir(parents=True)
         (root / "MODULE.bazel").write_text(
@@ -48,7 +54,7 @@ class BazelWrapperTest(unittest.TestCase):
             )
         return root
 
-    def invoke(self, cwd, version, *arguments):
+    def invoke(self, cwd: pathlib.Path, version: str, *arguments: str) -> list[str]:
         env = os.environ.copy()
         env.update(
             {
@@ -72,10 +78,10 @@ class BazelWrapperTest(unittest.TestCase):
         fields = self.capture.read_bytes().split(b"\0")
         return [field.decode() for field in fields[:-1]]
 
-    def assert_invocation(self, actual, cwd, version, arguments):
+    def assert_invocation(self, actual: list[str], cwd: pathlib.Path, version: str, arguments: Sequence[str]) -> None:
         self.assertEqual(actual, [str(cwd), version, *arguments])
 
-    def rc_option(self, root):
+    def rc_option(self, root: pathlib.Path) -> str:
         rc = root / ".cache" / "bazel-wrapper.bazelrc"
         self.assertTrue(rc.is_file())
         self.assertEqual(stat.S_IMODE(rc.stat().st_mode), 0o600)
@@ -89,7 +95,7 @@ class BazelWrapperTest(unittest.TestCase):
         )
         return f"--bazelrc={rc}"
 
-    def test_nested_cwd_preserves_labels_and_arguments(self):
+    def test_nested_cwd_preserves_labels_and_arguments(self) -> None:
         root = self.module("module with spaces", bazelrc=True)
         nested = root / "pkg" / "nested directory"
         nested.mkdir(parents=True)
@@ -110,7 +116,7 @@ class BazelWrapperTest(unittest.TestCase):
         self.assertFalse((root / ".cache" / "bazel-disk").exists())
         self.assertFalse((nested / ".cache").exists())
 
-    def test_nearest_module_without_bazelrc_owns_cache(self):
+    def test_nearest_module_without_bazelrc_owns_cache(self) -> None:
         outer = self.module("outer", bazelrc=True)
         fixture = outer / "fixtures" / "standalone"
         fixture.mkdir(parents=True)
@@ -135,7 +141,7 @@ class BazelWrapperTest(unittest.TestCase):
         self.assertFalse((outer / ".cache").exists())
         self.assertFalse((nested / ".cache").exists())
 
-    def test_client_information_modes_remain_transparent(self):
+    def test_client_information_modes_remain_transparent(self) -> None:
         root = self.module("module")
         for argument in ("-h", "--help", "--version"):
             with self.subTest(argument=argument):
@@ -148,7 +154,7 @@ class BazelWrapperTest(unittest.TestCase):
                 )
         self.assertFalse((root / ".cache").exists())
 
-    def test_path_containing_wrapper_does_not_recurse(self):
+    def test_path_containing_wrapper_does_not_recurse(self) -> None:
         root = self.module("module")
         actual = self.invoke(root, "9.3.1", "info", "workspace")
         self.assert_invocation(
@@ -162,7 +168,7 @@ class BazelWrapperTest(unittest.TestCase):
             ),
         )
 
-    def test_rejects_symlinked_cache_directory(self):
+    def test_rejects_symlinked_cache_directory(self) -> None:
         root = self.module("module")
         target = self.case / "attacker-cache"
         target.mkdir()
@@ -171,7 +177,7 @@ class BazelWrapperTest(unittest.TestCase):
             self.invoke(root, "8.8.2", "info", "workspace")
         self.assertFalse(self.capture.exists())
 
-    def test_rejects_symlinked_disk_cache(self):
+    def test_rejects_symlinked_disk_cache(self) -> None:
         root = self.module("module")
         cache = root / ".cache"
         cache.mkdir()
@@ -182,7 +188,7 @@ class BazelWrapperTest(unittest.TestCase):
             self.invoke(root, "8.8.2", "info", "workspace")
         self.assertFalse(self.capture.exists())
 
-    def test_rejects_symlinked_rc(self):
+    def test_rejects_symlinked_rc(self) -> None:
         root = self.module("module")
         cache = root / ".cache"
         cache.mkdir()
@@ -194,7 +200,7 @@ class BazelWrapperTest(unittest.TestCase):
         self.assertEqual(target.read_text(encoding="utf-8"), "sentinel\n")
         self.assertFalse(self.capture.exists())
 
-    def test_physical_module_root_anchors_symlinked_cwd(self):
+    def test_physical_module_root_anchors_symlinked_cwd(self) -> None:
         root = self.module("physical-module")
         package = root / "package"
         package.mkdir()

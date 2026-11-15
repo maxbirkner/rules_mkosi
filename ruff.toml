@@ -9,22 +9,7 @@ ignore = ["UP031", "UP032"]
 
 # Every function needs type annotations, which also make mypy check its body. The files below predate this rule and
 # are exempt; never add a file. Annotating a file fully means deleting its line, so the list only shrinks.
-# hardware_qualification_schemas.py is annotated, but its JSON schema helpers still take typing.Any.
 [lint.per-file-ignores]
-"ci/action_graph_validator.py" = ["ANN"]
-"ci/action_graph_validator_test.py" = ["ANN"]
-"ci/check_function_size_test.py" = ["ANN"]
-"ci/hardware_qualification_schemas.py" = ["ANN401"]
-"ci/hardware_qualification_schemas_test.py" = ["ANN"]
-"ci/verify_reproducibility_execution.py" = ["ANN"]
-"ci/verify_reproducibility_execution_test.py" = ["ANN"]
-"ci/verify_two_stage_cache.py" = ["ANN"]
-"ci/verify_two_stage_cache_test.py" = ["ANN"]
-"e2e/smoke/consumer_snapshot_artifact_test.py" = ["ANN"]
-"e2e/smoke/rootfs_payload_artifact_test.py" = ["ANN"]
-"e2e/smoke/secure_boot_signed_binaries_test.py" = ["ANN"]
-"e2e/smoke/secure_boot_signed_image_test.py" = ["ANN"]
-"e2e/smoke/secure_boot_signing_manifest_test.py" = ["ANN"]
 "mkosi/debian/debian_launcher.py" = ["ANN"]
 "mkosi/debian/debian_launcher_cli_test.py" = ["ANN"]
 "mkosi/debian/debian_python_hermetic_test.py" = ["ANN"]
@@ -98,8 +83,6 @@ ignore = ["UP031", "UP032"]
 "mkosi/tests/sysupdate_signing_test.py" = ["ANN"]
 "mkosi/tests/sysupdate_test.py" = ["ANN"]
 "mkosi/tests/verity_metadata_test.py" = ["ANN"]
-"tools/bazel" = ["ANN"]
-"tools/bazel_wrapper_test.py" = ["ANN"]
 
 [lint.isort]
 # Upstream mkosi shares its top-level package name with this repository's mkosi/ directory.

@@ -3,31 +3,40 @@
 import pathlib
 import sys
 import unittest
+from collections.abc import Sequence
+from typing import TypedDict
 
 sys.path.insert(0, str(pathlib.Path(__file__).parent))
-from action_graph_validator import action_identity, audit, validate_action_environment
+from action_graph_validator import (
+    Action,
+    AqueryGraph,
+    DepSetOfFiles,
+    action_identity,
+    audit,
+    validate_action_environment,
+)
 
 
 class ActionIdentityTest(unittest.TestCase):
-    def test_distinguishes_actions_sharing_an_action_key(self):
-        launcher = {"actionKey": "symlink", "mnemonic": "ExecutableSymlink", "outputIds": [7]}
-        header = {"actionKey": "symlink", "mnemonic": "Symlink", "outputIds": [3]}
+    def test_distinguishes_actions_sharing_an_action_key(self) -> None:
+        launcher: Action = {"actionKey": "symlink", "mnemonic": "ExecutableSymlink", "outputIds": [7]}
+        header: Action = {"actionKey": "symlink", "mnemonic": "Symlink", "outputIds": [3]}
 
         self.assertNotEqual(action_identity(launcher), action_identity(header))
 
-    def test_ignores_output_order(self):
+    def test_ignores_output_order(self) -> None:
         self.assertEqual(
             action_identity({"outputIds": [2, 1]}),
             action_identity({"outputIds": [1, 2]}),
         )
 
-    def test_rejects_action_without_outputs(self):
+    def test_rejects_action_without_outputs(self) -> None:
         with self.assertRaisesRegex(ValueError, "without outputs.*Middleman"):
             action_identity({"mnemonic": "Middleman", "outputIds": []})
 
 
 class ActionGraphValidatorTest(unittest.TestCase):
-    def action(self, executable, mnemonic="CppCompile"):
+    def action(self, executable: str, mnemonic: str = "CppCompile") -> Action:
         return {
             "mnemonic": mnemonic,
             "arguments": [executable, "-c", "source.cc"],
@@ -36,32 +45,32 @@ class ActionGraphValidatorTest(unittest.TestCase):
             ],
         }
 
-    def test_rejects_host_tool_basename_with_nonempty_path(self):
+    def test_rejects_host_tool_basename_with_nonempty_path(self) -> None:
         with self.assertRaisesRegex(ValueError, "host-tool basename.*gcc"):
             validate_action_environment(self.action("gcc"), {"source.cc"})
 
-    def test_accepts_declared_hermetic_compiler(self):
+    def test_accepts_declared_hermetic_compiler(self) -> None:
         executable = _COMPILER
         validate_action_environment(
             self.action(executable),
             {executable, "source.cc"},
         )
 
-    def test_accepts_declared_hermetic_archiver(self):
+    def test_accepts_declared_hermetic_archiver(self) -> None:
         executable = "external/llvm++llvm_toolchain_minimal+llvm-toolchain-minimal-linux-amd64/bin/llvm-ar"
         validate_action_environment(
             self.action(executable, mnemonic="CppArchive"),
             {executable, "source.cc"},
         )
 
-    def test_accepts_declared_python_zipper(self):
+    def test_accepts_declared_python_zipper(self) -> None:
         executable = "external/bazel_tools/tools/zip/zipper/zipper"
         validate_action_environment(
             self.action(executable, mnemonic="PythonZipper"),
             {executable, "source.cc"},
         )
 
-    def test_rejects_undeclared_executable(self):
+    def test_rejects_undeclared_executable(self) -> None:
         with self.assertRaisesRegex(ValueError, "not a declared input"):
             validate_action_environment(
                 self.action("external/llvm/bin/clang++"),
@@ -76,11 +85,22 @@ _PYTHON = "external/+debian_tools+mkosi_debian_python/python"
 _OBJECT = "bazel-out/k8-fastbuild/bin/external/+debian_tools+mkosi_debian_tools/_objs/launcher_main.o"
 
 
-def _action(mnemonic, arguments=(), inputs=(), outputs=()):
+class _PathAction(TypedDict):
+    """An action that names its input and output artifacts by path instead of by ID."""
+
+    mnemonic: str
+    arguments: list[str]
+    inputs: Sequence[str]
+    outputs: Sequence[str]
+
+
+def _action(
+    mnemonic: str, arguments: Sequence[str] = (), inputs: Sequence[str] = (), outputs: Sequence[str] = ()
+) -> _PathAction:
     return {"mnemonic": mnemonic, "arguments": list(arguments), "inputs": inputs, "outputs": outputs}
 
 
-def _managed_actions():
+def _managed_actions() -> list[_PathAction]:
     """Returns a minimal graph of the actions that build the Debian tools archive and launcher."""
     return [
         _action(
@@ -110,15 +130,15 @@ def _managed_actions():
     ]
 
 
-def _graph(actions):
+def _graph(actions: Sequence[_PathAction]) -> AqueryGraph:
     """Encodes actions with input and output paths as a jsonproto aquery graph."""
-    ids = {}
+    ids: dict[str, int] = {}
 
-    def artifact_id(path):
+    def artifact_id(path: str) -> int:
         return ids.setdefault(path, len(ids) + 1)
 
-    graph_actions = []
-    dep_sets = []
+    graph_actions: list[Action] = []
+    dep_sets: list[DepSetOfFiles] = []
     for action in actions:
         dep_sets.append(
             {"id": len(dep_sets) + 1, "directArtifactIds": [artifact_id(path) for path in action["inputs"]]}
@@ -136,13 +156,13 @@ def _graph(actions):
 
 
 class AuditTest(unittest.TestCase):
-    def test_accepts_managed_actions(self):
+    def test_accepts_managed_actions(self) -> None:
         counts = audit(_graph(_managed_actions()))
         self.assertEqual(counts["CppCompile"], 1)
         self.assertEqual(counts["CcStrip"], 1)
         self.assertEqual(counts["CopyFile"], 1)
 
-    def test_rejects_injected_host_helpers(self):
+    def test_rejects_injected_host_helpers(self) -> None:
         cases = [
             ("unmodeled action mnemonic: Genrule", "Genrule", ["/bin/bash", "-c", "tar cf $@"], []),
             ("unexpected executable for CppCompile", "CppCompile", ["/usr/bin/gcc"], ["/usr/bin/gcc"]),
@@ -170,7 +190,7 @@ class AuditTest(unittest.TestCase):
             with self.subTest(message), self.assertRaisesRegex(ValueError, message):
                 audit(_graph([*_managed_actions(), injected]))
 
-    def test_rejects_graph_without_the_archive_action(self):
+    def test_rejects_graph_without_the_archive_action(self) -> None:
         actions = [action for action in _managed_actions() if action["mnemonic"] != "BuildDebianToolsArchive"]
         with self.assertRaisesRegex(ValueError, "required actions are missing: BuildDebianToolsArchive"):
             audit(_graph(actions))
