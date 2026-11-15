@@ -156,7 +156,8 @@ exports_files(["mkosi/__main__.py"])
 
 filegroup(
     name = "mkosi_sources",
-    srcs = glob(["mkosi/**/*.py", "mkosi/resources/**"]),
+    # Bytecode that an interpreter writes next to the sources is not part of mkosi.
+    srcs = glob(["mkosi/**/*.py", "mkosi/resources/**"], exclude = ["**/__pycache__/**"]),
 )
 '''
 

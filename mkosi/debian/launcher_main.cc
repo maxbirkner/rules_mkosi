@@ -127,9 +127,12 @@ int main(int argc, char** argv) {
   setenv("PYTHONHOME", python_home.c_str(), 1);
 
   std::vector<char*> python_argv;
-  python_argv.reserve(static_cast<std::size_t>(argc) + 3);
+  python_argv.reserve(static_cast<std::size_t>(argc) + 4);
   python_argv.push_back(const_cast<char*>(python.c_str()));
   python_argv.push_back(const_cast<char*>("-I"));
+  // Outside a sandbox, the runtime resolves to its external repository, which
+  // must not gain bytecode files.
+  python_argv.push_back(const_cast<char*>("-B"));
   python_argv.push_back(const_cast<char*>(cli.c_str()));
   for (int index = 1; index < argc; ++index) {
     python_argv.push_back(argv[index]);

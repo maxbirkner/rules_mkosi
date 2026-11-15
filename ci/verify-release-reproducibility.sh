@@ -40,11 +40,35 @@ targets=(
   //mkosi/tests:two_stage_reproducibility
 )
 
+# A reused output base, such as that of a persistent CI runner, has run tools outside the sandbox, for example the
+# reference Secure Boot signer through the Debian tools launcher, and a new server analyzes the build again. Release
+# outputs and derived image versions must not depend on that history.
+reuse_output_base() {
+  local output_root="$1"
+  bazel \
+    --output_user_root="$output_root" \
+    run \
+    --config=qualified \
+    --lockfile_mode=error \
+    --disk_cache="$output_root/action-cache" \
+    --remote_cache= \
+    --noremote_accept_cached \
+    --noremote_upload_local_results \
+    --script_path="$results/debian-tools-launcher.sh" \
+    @mkosi_debian_tools//:launcher
+  "$results/debian-tools-launcher.sh" --help >/dev/null
+  bazel --output_user_root="$output_root" shutdown
+}
+
 build_once() {
   local name="$1"
+  local reuse="${2:-}"
   local output_root="$workspace/.reproducibility-output-$name"
   make_removable "$output_root"
   rm -rf "$output_root"
+  if [[ -n "$reuse" ]]; then
+    reuse_output_base "$output_root"
+  fi
   bazel \
     --output_user_root="$output_root" \
     build \
@@ -80,7 +104,7 @@ build_once() {
 }
 
 build_once first
-build_once second
+build_once second reuse
 
 if ! diff -ru "$results/first" "$results/second"; then
   echo "release reproducibility mismatch: immutable hashes or normalized manifests differ" >&2
