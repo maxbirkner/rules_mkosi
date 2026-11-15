@@ -13,7 +13,7 @@ Bazel rules for building bootable Linux OS images with [mkosi](https://github.co
 | Requirement | Supported |
 | --- | --- |
 | Bazel | 8 and 9 (the current and previous LTS majors). The minimum is 8.8.2. |
-| Host | Linux x86-64. With local execution, the host is the execution platform, and rules_mkosi's default bootstrap execution platform always declares Linux x86-64, so on another host the `llvm` module's Linux x86-64 compiler fails when it runs. |
+| Host | Linux x86-64. With local execution, the host is the execution platform; rules_mkosi's default bootstrap platforms follow the host's CPU (see [static bootstrap toolchain](#static-bootstrap-toolchain)). |
 | Execution platform | Linux x86-64, kernel 5.12 or newer, unprivileged user and mount namespaces under Bazel's Linux sandbox (see [host-kernel contract](docs/design/0004-host-kernel-contract.md)). |
 | Bazel server | Any unprivileged user; neither sudo nor a server without supplementary groups is needed (see [supplementary groups](#supplementary-groups)). |
 | Images | Debian 13 (trixie), amd64 and [arm64](#arm64-images). On Linux x86-64, arm64 images need Linux 6.7 or newer. |
