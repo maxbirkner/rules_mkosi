@@ -34,6 +34,7 @@ chmod +x "$workspace_status"
 targets=(
   //mkosi/tests:erofs_release_payload
   //mkosi/tests:erofs_release_reproducibility
+  //mkosi/tests:extra_packages_reproducibility
   //mkosi/tests:release_reproducibility
   //mkosi/tests:two_stage_base
   //mkosi/tests:two_stage_input_version_reproducibility

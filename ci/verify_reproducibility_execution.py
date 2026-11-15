@@ -23,6 +23,12 @@ SUBJECTS = {
             "//mkosi/tests:erofs_release_reproducibility",
         ),
         ("MkosiSysupdatePayload", "//mkosi/tests:erofs_release_payload"),
+        ("MkosiExtraPackages", "//mkosi/tests:extra_packages_release"),
+        ("MkosiImage", "//mkosi/tests:extra_packages_release"),
+        (
+            "MkosiReproducibilityManifest",
+            "//mkosi/tests:extra_packages_reproducibility",
+        ),
         ("MkosiBase", "//mkosi/tests:two_stage_base"),
         ("MkosiImage", "//mkosi/tests:two_stage_release"),
         (

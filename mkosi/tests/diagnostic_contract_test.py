@@ -34,6 +34,8 @@ class DiagnosticContractTest(unittest.TestCase):
             "KERNEL_CAPABILITY_FAILURE": "select a Linux runner that satisfies the kernel contract",
             "TOOLCHAIN_FAILURE": "register the required Bazel toolchain",
             "NETWORK_FAILURE": "allow the declared package network access",
+            "PACKAGE_RESOLUTION_FAILURE": "add the missing package or dependency to the Debian snapshot lock",
+            "EXTRA_PACKAGE_FAILURE": "pass extra_packages only Debian binary packages with unique names",
             "ASSEMBLY_FAILURE": "inspect the preserved mkosi output",
             "VM_FAILURE": "inspect the preserved serial, firmware, and QEMU logs",
         }
@@ -55,6 +57,13 @@ class DiagnosticContractTest(unittest.TestCase):
             b"could not download Packages": "NETWORK_FAILURE",
             b"systemd-repart: not found": "TOOLCHAIN_FAILURE",
             b"mkosi configuration is invalid": "ASSEMBLY_FAILURE",
+            # APT's own outputs mention fetching, but a release build fails them only for packages it lacks.
+            b"The following packages have unmet dependencies:\n"
+            b" vendor-kernel : Depends: kmod but it is not installable\n": "PACKAGE_RESOLUTION_FAILURE",
+            b"E: Failed to fetch file:/repository/pool/main/h/hello/hello_2.10-5_amd64.deb  File not found": (
+                "PACKAGE_RESOLUTION_FAILURE"
+            ),
+            b"E: Unable to locate package vendor-firmware": "PACKAGE_RESOLUTION_FAILURE",
         }
         for output, expected in cases.items():
             self.assertEqual(expected, self.diagnostics.classify_mkosi_output(output))

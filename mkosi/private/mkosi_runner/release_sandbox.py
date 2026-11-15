@@ -41,6 +41,18 @@ _SANDBOX_FILES = (
 # mkosi writes its own APT sources only if the sandbox tree does not provide this file.
 _MIRROR_SOURCES = "etc/apt/sources.list.d/mkosi.sources"
 
+# The flat APT repository of the extra_packages inside the mirror, and the Origin and Label of its Release file, which
+# extra_packages.py writes.
+EXTRA_PACKAGES_DIRECTORY = "rules-mkosi-extra-packages"
+EXTRA_PACKAGES_ORIGIN = "rules_mkosi"
+EXTRA_PACKAGES_LABEL = "rules-mkosi-extra-packages"
+_EXTRA_PACKAGES_PREFERENCES = "etc/apt/preferences.d/rules-mkosi-extra-packages.pref"
+# A priority above 1000 makes APT install an extra package instead of a snapshot package of the same name, even if the
+# snapshot's version is higher, like mkosi's own PackageDirectories= repository.
+EXTRA_PACKAGES_PIN = "Package: *\nPin: release o={},l={}\nPin-Priority: 1100\n".format(
+    EXTRA_PACKAGES_ORIGIN, EXTRA_PACKAGES_LABEL
+)
+
 
 @dataclass(frozen=True)
 class SnapshotMirror:
@@ -49,19 +61,29 @@ class SnapshotMirror:
     Attributes:
         directory: The copy, which release_patches.py mounts read-only at mkosi's in-sandbox /repository path.
         sandbox_tree: The --sandbox-tree that receives the APT sources of the mirror.
+        extra_packages: Whether the copy contains the flat repository of the extra_packages in
+            EXTRA_PACKAGES_DIRECTORY.
     """
 
     directory: Path
     sandbox_tree: Path
+    extra_packages: bool = False
 
     def write_sources(self, release: str, components: Iterable[str]) -> None:
-        """Lists the mirror as the only APT source of the build, with the release suite and the given components."""
-        tree.write_file(
-            self.sandbox_tree / _MIRROR_SOURCES,
-            "Types: deb\nURIs: file:///repository\nSuites: {}\nComponents: {}\nTrusted: yes\n".format(
-                release, " ".join(components)
-            ),
+        """Lists the mirror as the only APT source of the build, with the release suite and the given components.
+
+        The extra packages come first: for a version that both repositories list, APT then reads the extra package's
+        file.
+        """
+        snapshot = "Types: deb\nURIs: file:///repository\nSuites: {}\nComponents: {}\nTrusted: yes\n".format(
+            release, " ".join(components)
         )
+        if not self.extra_packages:
+            tree.write_file(self.sandbox_tree / _MIRROR_SOURCES, snapshot)
+            return
+        extra = "Types: deb\nURIs: file:///repository/{}\nSuites: ./\nTrusted: yes\n".format(EXTRA_PACKAGES_DIRECTORY)
+        tree.write_file(self.sandbox_tree / _MIRROR_SOURCES, extra + "\n" + snapshot)
+        tree.write_file(self.sandbox_tree / _EXTRA_PACKAGES_PREFERENCES, EXTRA_PACKAGES_PIN)
 
 
 def configure_release_sandbox(workspace: str | os.PathLike[str], arguments: list[str]) -> Path:
@@ -74,13 +96,22 @@ def configure_release_sandbox(workspace: str | os.PathLike[str], arguments: list
 
 
 def configure_release_mirror(
-    source: str | os.PathLike[str], workspace: str | os.PathLike[str], arguments: list[str]
+    source: str | os.PathLike[str],
+    workspace: str | os.PathLike[str],
+    arguments: list[str],
+    extra_packages: str | os.PathLike[str] | None = None,
 ) -> SnapshotMirror:
-    """Copies the Debian snapshot into the workspace and returns it as the build's SnapshotMirror.
+    """Copies the Debian snapshot, and the extra packages' repository if any, into the workspace as the build's mirror.
 
     Its write_sources() must run once the parsed configuration has selected the components, before mkosi copies the
     sandbox tree.
     """
     directory = Path(workspace) / "debian-snapshot"
     tree.materialize_tree(source, directory)
-    return SnapshotMirror(directory, configure_release_sandbox(workspace, arguments))
+    if extra_packages is not None:
+        destination = directory / EXTRA_PACKAGES_DIRECTORY
+        if destination.exists() or destination.is_symlink():
+            raise SystemExit("the Debian snapshot repository already contains {}".format(EXTRA_PACKAGES_DIRECTORY))
+        tree.materialize_tree(extra_packages, destination)
+        tree.normalize(directory, 0o755)
+    return SnapshotMirror(directory, configure_release_sandbox(workspace, arguments), extra_packages is not None)

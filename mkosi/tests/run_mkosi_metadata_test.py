@@ -12,6 +12,7 @@ import types
 import unittest
 import uuid
 from dataclasses import dataclass, field
+from typing import Any
 
 SEED = "00000000-0000-4000-8000-000000000015"
 SEED_INT = uuid.UUID(SEED).int
@@ -217,6 +218,53 @@ class ReleaseSandboxTest(_WrapperTest):
         )
         assert sources.stat().st_mtime == 0
 
+    # The SnapshotMirror class belongs to the runner that the test loads at run time.
+    def _extra_packages_mirror(self) -> Any:
+        repository, extra = self.root / "repository", self.root / "extra"
+        (repository / "dists").mkdir(parents=True)
+        extra.mkdir()
+        (extra / "Packages").write_text("Package: vendor-kernel\n")
+        return self.wrapper.release_sandbox.configure_release_mirror(repository, self.root / "workspace", [], extra)
+
+    def test_extra_packages_are_listed_before_the_snapshot_and_pinned(self) -> None:
+        mirror = self._extra_packages_mirror()
+        assert (mirror.directory / "rules-mkosi-extra-packages/Packages").read_text() == "Package: vendor-kernel\n"
+        assert mirror.directory.stat().st_mtime == 0
+        mirror.write_sources("trixie", ("main",))
+        apt = mirror.sandbox_tree / "etc/apt"
+        assert (apt / "sources.list.d/mkosi.sources").read_text() == (
+            "Types: deb\nURIs: file:///repository/rules-mkosi-extra-packages\nSuites: ./\nTrusted: yes\n\n"
+            "Types: deb\nURIs: file:///repository\nSuites: trixie\nComponents: main\nTrusted: yes\n"
+        )
+        assert (apt / "preferences.d/rules-mkosi-extra-packages.pref").read_text() == (
+            "Package: *\nPin: release o=rules_mkosi,l=rules-mkosi-extra-packages\nPin-Priority: 1100\n"
+        )
+
+    def test_snapshot_mirror_without_extra_packages_pins_nothing(self) -> None:
+        repository = self.root / "repository"
+        repository.mkdir()
+        mirror = self.wrapper.release_sandbox.configure_release_mirror(repository, self.root / "workspace", [])
+        mirror.write_sources("trixie", ("main",))
+        assert not (mirror.directory / "rules-mkosi-extra-packages").exists()
+        assert not (mirror.sandbox_tree / "etc/apt/preferences.d").exists()
+
+    def test_extra_packages_cannot_shadow_snapshot_content(self) -> None:
+        (self.root / "repository/rules-mkosi-extra-packages").mkdir(parents=True)
+        _expect_exit(self._extra_packages_mirror, "already contains rules-mkosi-extra-packages")
+
+    def test_pinned_origin_and_label_are_those_of_the_extra_packages_release_file(self) -> None:
+        spec = importlib.util.spec_from_file_location(
+            "extra_packages", pathlib.Path(inspect.getfile(self.wrapper)).with_name("extra_packages.py")
+        )
+        assert spec is not None and spec.loader is not None
+        indexer = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(indexer)
+        sandbox = self.wrapper.release_sandbox
+        assert (indexer.REPOSITORY_ORIGIN, indexer.REPOSITORY_LABEL) == (
+            sandbox.EXTRA_PACKAGES_ORIGIN,
+            sandbox.EXTRA_PACKAGES_LABEL,
+        )
+
     def test_release_patches_do_not_read_host_identity_files(self):
         release_setup = inspect.getsource(self.wrapper.release_patches)
         for host_file in ("/etc/passwd", "/etc/group", "/etc/hosts"):
@@ -342,6 +390,13 @@ class CommandLineTest(_WrapperTest):
         _expect_exit(lambda: self.wrapper._release_stage(preamble), "incomplete Debian snapshot configuration")
         preamble.debian_snapshot_components = ("main",)
         assert self.wrapper._release_stage(preamble) is None
+
+    def test_extra_packages_require_the_snapshot_repository(self) -> None:
+        preamble, _ = self.wrapper.command_line.parse_preamble(
+            ["--kernel-preflight", "preflight", "--extra-packages-repository", "extra", "--"]
+        )
+        assert preamble.extra_packages_repository == os.path.abspath("extra")
+        _expect_exit(lambda: self.wrapper._release_stage(preamble), "extra packages require the Debian snapshot")
 
 
 class ReleaseConfigurationTest(_WrapperTest):
