@@ -26,6 +26,7 @@ load(
 load(":input_version.bzl", "INPUT_VERSION_ATTRS", "derive_image_version")
 load(
     ":mkosi_action.bzl",
+    "DEBIAN_TOOLS_TOOLCHAIN_TYPE",
     "MKOSI_BUILD_ATTRS",
     "MKOSI_BUILD_EXEC_CONSTRAINTS",
     "MKOSI_BUILD_TOOLCHAINS",
@@ -54,6 +55,8 @@ images add partition_metadata, and UEFI release images add their UKI, split dm-v
 version files image_version_file and input_digest are in the image_version output group instead of DefaultInfo.
 """,
     fields = {
+        "architecture": """Debian architecture of the image, such as `amd64` or `arm64`: that of its debian_snapshot or
+base, or, for a tracer image that installs packages from the network, that of the Debian tools.""",
         "build_metadata": """JSON build metadata, schema mkosi-image-build-metadata-v3.
 
 It records the mode and the output roles, the snapshot and its lock digest when the image is built from
@@ -458,6 +461,12 @@ def _image_extra_packages(ctx, base, snapshot):
         fail("extra_packages require debian_snapshot, the package source that they extend")
     return extra_packages_repository(ctx, snapshot)
 
+def _image_architecture(ctx, snapshot):
+    """Returns the Debian architecture of the snapshot, or of the Debian tools for a build from the network."""
+    if snapshot:
+        return snapshot.architecture
+    return ctx.toolchains[DEBIAN_TOOLS_TOOLCHAIN_TYPE].debian_tools.architecture
+
 def _image_settings(ctx):
     """Validates the mkosi_image attributes and returns the resolved build settings."""
     modes = _output_modes(ctx)
@@ -476,6 +485,7 @@ def _image_settings(ctx):
         base = base,
         release = release,
         snapshot = snapshot,
+        architecture = _image_architecture(ctx, snapshot),
         extra_packages = _image_extra_packages(ctx, base, snapshot),
         image_id = identity.image_id,
         image_version = identity.image_version,
@@ -681,6 +691,7 @@ def _image_providers(settings, outputs):
         DefaultInfo(files = depset([artifact for artifact in artifacts.values() if artifact != None])),
         MkosiImageInfo(
             format_version = "mkosi-image-v3",
+            architecture = settings.architecture,
             firmware = settings.firmware,
             image_id = settings.image_id,
             image_version = settings.image_version,

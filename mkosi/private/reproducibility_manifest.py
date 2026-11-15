@@ -121,7 +121,9 @@ def project(
             "build_metadata": _artifact_projection(build_metadata),
             "partition_metadata": partition_artifact,
             "raw_image": {
-                "canonical_sha256": partition_metadata.canonical_image_sha256(raw_image, _slot_label(metadata)),
+                "canonical_sha256": partition_metadata.canonical_image_sha256(
+                    raw_image, _slot_label(metadata), partitions.get("architecture", "amd64")
+                ),
                 "size": raw_image.stat().st_size,
             },
         },

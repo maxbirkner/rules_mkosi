@@ -451,6 +451,7 @@ secure_boot_import_response; the import selects the fixture's binary that matche
 )
 
 _MKOSI_IMAGE_FIELDS = [
+    "architecture",
     "build_metadata",
     "firmware",
     "format_version",

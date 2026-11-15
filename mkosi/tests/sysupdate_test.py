@@ -62,6 +62,14 @@ class TransferTest(unittest.TestCase):
                     _section(content, "Target"),
                 )
 
+    def test_arm64_transfers_target_arm64_partitions(self) -> None:
+        transfers = sysupdate.transfers("os", boot_attempts=3, instances=2, architecture="arm64")
+        self.assertEqual("root-arm64", _section(transfers["10-root.transfer"], "Target")["MatchPartitionType"])
+        self.assertEqual(
+            "root-arm64-verity", _section(transfers["20-root-verity.transfer"], "Target")["MatchPartitionType"]
+        )
+        self.assertEqual(sysupdate.transfers("os", 3, 2)["90-uki.transfer"], transfers["90-uki.transfer"])
+
     def test_url_transfers_download_signed_payloads(self) -> None:
         transfers = sysupdate.transfers("os", boot_attempts=3, instances=2, url="https://updates.example/os-%A")
         for name, pattern in (
@@ -129,17 +137,20 @@ class PayloadTest(unittest.TestCase):
     def tearDown(self) -> None:
         self.directory.cleanup()
 
-    def write_partitions(self, root_uuid: str, verity_uuid: str, root_label: str = "os_7") -> None:
+    def write_partitions(
+        self, root_uuid: str, verity_uuid: str, root_label: str = "os_7", architecture: str = "amd64"
+    ) -> None:
+        types = gpt_partitions.root_types(architecture)
         partitions = [
-            {"label": root_label, "type_guid": gpt_partitions.ROOT_X86_64, "uuid": root_uuid},
-            {"label": "os_7_verity", "type_guid": gpt_partitions.ROOT_X86_64_VERITY, "uuid": verity_uuid},
+            {"label": root_label, "type_guid": types.root, "uuid": root_uuid},
+            {"label": "os_7_verity", "type_guid": types.verity, "uuid": verity_uuid},
             {
                 "label": "_empty",
-                "type_guid": gpt_partitions.ROOT_X86_64,
+                "type_guid": types.root,
                 "uuid": "92f2ab90-254e-4065-973c-9d971ad97d58",
             },
         ]
-        (self.root / "partitions.json").write_text(json.dumps({"partitions": partitions}))
+        (self.root / "partitions.json").write_text(json.dumps({"architecture": architecture, "partitions": partitions}))
 
     def write_verity_metadata(self, data_blocks: int, tree_size: int) -> None:
         metadata = {"data_block_size": 4096, "data_blocks": data_blocks, "tree_offset": 4096, "tree_size": tree_size}
@@ -293,6 +304,10 @@ class PayloadTest(unittest.TestCase):
     def test_signed_uki_without_signing_request_is_rejected(self) -> None:
         with self.assertRaisesRegex(SystemExit, "must be given together"):
             self.run_payload(self.signed_args()[0])
+
+    def test_arm64_payload_reads_the_arm64_slots(self) -> None:
+        self.write_partitions(ROOT_UUID, VERITY_UUID, architecture="arm64")
+        self.assertIn("SHA256SUMS", [path.name for path in self.run_payload().iterdir()])
 
     def test_unlabelled_root_slot_is_rejected(self) -> None:
         self.write_partitions(ROOT_UUID, VERITY_UUID, root_label="root-x86-64")

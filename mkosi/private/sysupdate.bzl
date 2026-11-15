@@ -60,6 +60,7 @@ def _sysupdate_transfers_impl(ctx):
     arguments.add("--instances", str(ctx.attr.instances))
     if ctx.attr.url:
         arguments.add("--url", ctx.attr.url)
+    arguments.add("--architecture", ctx.attr.architecture)
     arguments.add("--output", output.path)
     _run_sysupdate(ctx, arguments, [], output, "MkosiSysupdateTransfers")
     return [
@@ -76,6 +77,11 @@ def _sysupdate_transfers_impl(ctx):
 sysupdate_transfers = rule(
     implementation = _sysupdate_transfers_impl,
     attrs = {
+        "architecture": attr.string(
+            default = "amd64",
+            values = ["amd64", "arm64"],
+            doc = "Debian architecture of the image, which selects the GPT types of its root partitions.",
+        ),
         "boot_attempts": attr.int(
             default = 3,
             doc = "systemd-boot boot-counting attempts (TriesLeft=) of a newly installed UKI; 0 disables boot counting.",

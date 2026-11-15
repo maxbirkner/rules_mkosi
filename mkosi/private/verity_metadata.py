@@ -231,18 +231,19 @@ def _all_zero(source: IO[bytes]) -> bool:
 
 def _root_partitions(partition_metadata_path: str | Path) -> tuple[dict[str, Any], dict[str, Any]]:
     """Returns the populated root data and verity hash partitions; inactive A/B slots are ignored."""
-    partitions = json.loads(Path(partition_metadata_path).read_text())["partitions"]
+    metadata = json.loads(Path(partition_metadata_path).read_text())
+    # Partition metadata without an architecture predates arm64 images.
+    types = gpt.root_types(metadata.get("architecture", "amd64"))
     by_type: dict[str, list[dict[str, Any]]] = {}
-    slot_types = (gpt.ROOT_X86_64, gpt.ROOT_X86_64_VERITY)
-    for partition in partitions:
-        if partition.get("label") == gpt.EMPTY_SLOT_LABEL and partition["type_guid"] in slot_types:
+    for partition in metadata["partitions"]:
+        if partition.get("label") == gpt.EMPTY_SLOT_LABEL and partition["type_guid"] in (types.root, types.verity):
             continue
         by_type.setdefault(partition["type_guid"], []).append(partition)
-    if len(by_type.get(gpt.ROOT_X86_64, [])) != 1 or len(by_type.get(gpt.ROOT_X86_64_VERITY, [])) != 1:
-        raise ValueError("exactly one x86-64 root data and verity hash partition is required")
-    if by_type.get(gpt.ROOT_X86_64_VERITY_SIG):
+    if len(by_type.get(types.root, [])) != 1 or len(by_type.get(types.verity, [])) != 1:
+        raise ValueError("exactly one {} data and verity hash partition is required".format(types.name))
+    if by_type.get(types.verity_sig):
         raise ValueError("verity signature partitions require signing support tracked by #23")
-    return by_type[gpt.ROOT_X86_64][0], by_type[gpt.ROOT_X86_64_VERITY][0]
+    return by_type[types.root][0], by_type[types.verity][0]
 
 
 def _artifact_sizes(

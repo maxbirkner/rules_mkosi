@@ -1,5 +1,6 @@
-"""Checks that a consumer's arm64 image has the arm64 root partition that systemd-repart chose for its architecture."""
+"""Checks that a consumer's arm64 release image has the arm64 root and verity partitions of its architecture."""
 
+import json
 import pathlib
 import struct
 import sys
@@ -7,10 +8,11 @@ import uuid
 
 from python.runfiles import runfiles
 
-_ROOT_ARM64 = uuid.UUID("b921b045-1df0-41c3-af44-4c6f280d3fae").bytes_le
+_ROOT_ARM64 = "b921b045-1df0-41c3-af44-4c6f280d3fae"
+_ROOT_ARM64_VERITY = "df3300ce-d69f-4c92-978c-9bfb0f38d820"
 
 
-def partitions(image: pathlib.Path) -> list[tuple[bytes, str]]:
+def partitions(image: pathlib.Path) -> list[tuple[str, str]]:
     """Returns the type GUID and name of every used GPT entry of image."""
     with image.open("rb") as source:
         source.seek(512)
@@ -19,13 +21,22 @@ def partitions(image: pathlib.Path) -> list[tuple[bytes, str]]:
         count, size = struct.unpack_from("<II", header, 80)
         source.seek(entries_lba * 512)
         entries = [source.read(size) for _ in range(count)]
-    return [(entry[:16], entry[56:128].decode("utf-16-le").rstrip("\0")) for entry in entries if any(entry[:16])]
+    return [
+        (str(uuid.UUID(bytes_le=entry[:16])), entry[56:128].decode("utf-16-le").rstrip("\0"))
+        for entry in entries
+        if any(entry[:16])
+    ]
 
 
 def main() -> None:
-    image = pathlib.Path(runfiles.Create().Rlocation(sys.argv[1]))
+    resolver = runfiles.Create()
+    image, partition_metadata = (pathlib.Path(resolver.Rlocation(path)) for path in sys.argv[1:3])
     found = partitions(image)
     assert (_ROOT_ARM64, "root-arm64") in found, found
+    assert (_ROOT_ARM64_VERITY, "root-arm64-verity") in found, found
+    metadata = json.loads(partition_metadata.read_text())
+    assert metadata["architecture"] == "arm64", metadata
+    assert {partition["type_guid"] for partition in metadata["partitions"]} >= {_ROOT_ARM64, _ROOT_ARM64_VERITY}
 
 
 if __name__ == "__main__":

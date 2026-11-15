@@ -303,3 +303,13 @@ image_extra_packages_metadata_file = _image_artifact_file("extra_packages_metada
 image_manifest_file = _image_artifact_file("manifest")
 image_partition_metadata_file = _image_artifact_file("partition_metadata")
 raw_image_file = _image_artifact_file("raw_image")
+
+def _image_architecture_test_impl(ctx):
+    env = analysistest.begin(ctx)
+    asserts.equals(env, ctx.attr.expected_architecture, analysistest.target_under_test(env)[MkosiImageInfo].architecture)
+    return analysistest.end(env)
+
+image_architecture_test = analysistest.make(
+    _image_architecture_test_impl,
+    attrs = {"expected_architecture": attr.string(mandatory = True)},
+)

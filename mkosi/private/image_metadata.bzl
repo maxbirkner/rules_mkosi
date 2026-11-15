@@ -72,6 +72,8 @@ def project_partition_metadata(ctx, settings, outputs):
     arguments.add(outputs.partition_metadata.path)
     arguments.add("--firmware")
     arguments.add(settings.firmware)
+    arguments.add("--architecture")
+    arguments.add(settings.snapshot.architecture)
     slot_version_inputs = _slot_label_arguments(ctx, settings, arguments)
     run_python(
         ctx,

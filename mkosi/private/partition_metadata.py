@@ -230,16 +230,16 @@ def _validated_gpt(path: str | Path) -> tuple[int, int, _Header, _Header]:
     return image_size, sector_size, primary, backup
 
 
-def _validate_ab_slots(partitions: Sequence[_Partition], slot_label: str) -> None:
+def _validate_ab_slots(partitions: Sequence[_Partition], slot_label: str, root_type: str, verity_type: str) -> None:
     """Requires one populated, versioned slot; other root/verity slots must be inactive."""
-    expected = {gpt.ROOT_X86_64: slot_label, gpt.ROOT_X86_64_VERITY: slot_label + "_verity"}
+    expected = {root_type: slot_label, verity_type: slot_label + "_verity"}
     for type_guid, label in expected.items():
         candidates = [entry for entry in partitions if entry["type_guid"] == type_guid]
         populated = [entry for entry in candidates if entry["label"] != gpt.EMPTY_SLOT_LABEL]
         if len(populated) != 1 or populated[0]["label"] != label:
             raise ValueError(
                 "A/B image requires exactly one populated {} partition labelled {!r}; found {!r}".format(
-                    "root" if type_guid == gpt.ROOT_X86_64 else "verity",
+                    "root" if type_guid == root_type else "verity",
                     label,
                     sorted(entry["label"] for entry in candidates),
                 )
@@ -248,7 +248,7 @@ def _validate_ab_slots(partitions: Sequence[_Partition], slot_label: str) -> Non
         if any(entry["size_bytes"] < populated[0]["size_bytes"] for entry in inactive):
             raise ValueError(
                 "inactive {} slots must be at least as large as the populated slot".format(
-                    "root" if type_guid == gpt.ROOT_X86_64 else "verity"
+                    "root" if type_guid == root_type else "verity"
                 )
             )
 
@@ -287,15 +287,17 @@ def _project_entry(entry: bytes, number: int, first: int, last: int, sector_size
     }
 
 
-def _validate_roots(partitions: Sequence[_Partition], slot_label: str | None) -> None:
+def _validate_roots(partitions: Sequence[_Partition], slot_label: str | None, architecture: str) -> None:
+    types = gpt.root_types(architecture)
     if slot_label is not None:
-        _validate_ab_slots(partitions, slot_label)
+        _validate_ab_slots(partitions, slot_label, types.root, types.verity)
         return
-    roots = [entry for entry in partitions if entry["type_guid"] == gpt.ROOT_X86_64]
+    roots = [entry for entry in partitions if entry["type_guid"] == types.root]
+    architecture_name = types.name.removeprefix("root-")
     if len(roots) != 1:
-        raise ValueError("exactly one Linux x86-64 root partition is required")
-    if roots[0]["label"] != "root-x86-64":
-        raise ValueError("Linux x86-64 root partition label must be root-x86-64")
+        raise ValueError("exactly one Linux {} root partition is required".format(architecture_name))
+    if roots[0]["label"] != types.name:
+        raise ValueError("Linux {} root partition label must be {}".format(architecture_name, types.name))
 
 
 def _validate_firmware(partitions: Sequence[_Partition], firmware: str) -> None:
@@ -310,7 +312,10 @@ def _validate_firmware(partitions: Sequence[_Partition], firmware: str) -> None:
         raise ValueError("GPT BIOS boot partition must be at least 1 MiB")
 
 
-def project_image(path: str | Path, firmware: str = "uefi", slot_label: str | None = None) -> dict[str, Any]:
+def project_image(
+    path: str | Path, firmware: str = "uefi", slot_label: str | None = None, architecture: str = "amd64"
+) -> dict[str, Any]:
+    """Returns the validated partition metadata of an image of the Debian architecture."""
     _, sector_size, primary, _ = _validated_gpt(path)
     entry_size = primary["entry_size"]
     partitions: list[_SlotPartition] = []
@@ -327,9 +332,10 @@ def project_image(path: str | Path, firmware: str = "uefi", slot_label: str | No
         partitions.append(_project_entry(entry, number, first, last, sector_size))
         if slot_label is not None:
             partitions[-1]["uuid"] = str(uuid.UUID(bytes_le=entry[16:32]))
-    _validate_roots(partitions, slot_label)
+    _validate_roots(partitions, slot_label, architecture)
     _validate_firmware(partitions, firmware)
     return {
+        "architecture": architecture,
         "firmware": firmware,
         "format_version": "mkosi-partition-metadata-v1",
         "partitions": partitions,
@@ -371,12 +377,12 @@ def _hash_with_patches(path: str | Path, image_size: int, patches: Iterable[tupl
     return digest.hexdigest()
 
 
-def canonical_image_sha256(path: str | Path, slot_label: str | None = None) -> str:
+def canonical_image_sha256(path: str | Path, slot_label: str | None = None, architecture: str = "amd64") -> str:
     """Hashes every image byte after normalizing only GPT identity and CRC fields.
 
     slot_label is the expected label of a versioned A/B image's populated root slot, as for project_image.
     """
-    project_image(path, slot_label=slot_label)
+    project_image(path, slot_label=slot_label, architecture=architecture)
     image_size, _, primary, backup = _validated_gpt(path)
     normalized = bytearray(primary["array"])
     for slot in range(primary["count"]):
@@ -410,6 +416,7 @@ def main() -> None:
     parser.add_argument("--image", required=True)
     parser.add_argument("--output", required=True)
     parser.add_argument("--firmware", choices=("uefi", "bios"), default="uefi")
+    parser.add_argument("--architecture", choices=gpt.ARCHITECTURES, default="amd64")
     slot = parser.add_mutually_exclusive_group()
     slot.add_argument("--slot-label")
     slot.add_argument(
@@ -424,7 +431,7 @@ def main() -> None:
     if args.slot_label_image_id is not None:
         image_version = _image_version_from_file(args.image_version_file, args.slot_label_image_id)
         slot_label = "{}_{}".format(args.slot_label_image_id, image_version)
-    metadata = project_image(args.image, args.firmware, slot_label)
+    metadata = project_image(args.image, args.firmware, slot_label, args.architecture)
     Path(args.output).write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n")
 
 

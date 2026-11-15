@@ -385,6 +385,37 @@ class ProjectionTest(unittest.TestCase):
             with self.subTest(message=message), self.assertRaisesRegex(ValueError, message):
                 self.project_slots(entries)
 
+    def test_arm64_images_have_arm64_root_partitions(self) -> None:
+        arm64 = [(2, 2048, 4095, gpt_partitions.ROOT_ARM64, "root-arm64")]
+        with open(self.path, "wb") as output:
+            output.write(image(entries=arm64))
+        projected = partition_metadata.project_image(self.path, architecture="arm64")
+        self.assertEqual("arm64", projected["architecture"])
+        self.assertEqual(gpt_partitions.ROOT_ARM64, projected["partitions"][0]["type_guid"])
+        with self.assertRaisesRegex(ValueError, "exactly one Linux x86-64 root partition"):
+            partition_metadata.project_image(self.path)
+        with open(self.path, "wb") as output:
+            output.write(image())
+        self.assertEqual("amd64", partition_metadata.project_image(self.path)["architecture"])
+        with self.assertRaisesRegex(ValueError, "exactly one Linux arm64 root partition"):
+            partition_metadata.project_image(self.path, architecture="arm64")
+        with self.assertRaisesRegex(ValueError, "unsupported image architecture 'armhf'"):
+            partition_metadata.project_image(self.path, architecture="armhf")
+
+    def test_arm64_slots_use_the_arm64_root_and_verity_types(self) -> None:
+        entries = [
+            (2, 2048, 4095, gpt_partitions.ROOT_ARM64, "ab_1"),
+            (3, 4096, 6143, gpt_partitions.ROOT_ARM64_VERITY, "ab_1_verity"),
+            (4, 6144, 8191, gpt_partitions.ROOT_ARM64, "_empty"),
+        ]
+        with open(self.path, "wb") as output:
+            output.write(image(entries=entries))
+        projected = partition_metadata.project_image(self.path, slot_label="ab_1", architecture="arm64")
+        self.assertEqual(3, len(projected["partitions"]))
+        self.assertEqual(64, len(partition_metadata.canonical_image_sha256(self.path, "ab_1", "arm64")))
+        with self.assertRaisesRegex(ValueError, "populated root partition labelled 'ab_1'"):
+            partition_metadata.project_image(self.path, slot_label="ab_1")
+
     def test_inactive_slots_are_optional(self) -> None:
         projected = self.project_slots(self.ab_entries()[:2])
         self.assertEqual(2, len(projected["partitions"]))

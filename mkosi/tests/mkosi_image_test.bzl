@@ -477,6 +477,21 @@ build_metadata_file = rule(
     },
 )
 
+def _image_field_file_impl(ctx):
+    """Selects one File field of MkosiImageInfo through the provider rather than a filename."""
+    file = getattr(ctx.attr.image[MkosiImageInfo], ctx.attr.field)
+    if file == None:
+        fail("image must provide MkosiImageInfo." + ctx.attr.field)
+    return [DefaultInfo(files = depset([file]))]
+
+image_field_file = rule(
+    implementation = _image_field_file_impl,
+    attrs = {
+        "field": attr.string(mandatory = True),
+        "image": attr.label(providers = [MkosiImageInfo], mandatory = True),
+    },
+)
+
 def _raw_image_file_impl(ctx):
     """Selects a raw disk artifact through the public provider."""
     raw_image = ctx.attr.image[MkosiImageInfo].raw_image

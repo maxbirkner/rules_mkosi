@@ -10,7 +10,7 @@ import os
 import runpy
 import shutil
 import uuid
-from collections.abc import Iterable, Iterator, Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping
 from pathlib import Path
 from typing import IO, Any
 
@@ -89,7 +89,9 @@ def _compressed_or_plain(pattern: str) -> str:
     return " ".join(pattern + suffix for suffix in sorted(COMPRESSION_SUFFIXES.values(), reverse=True))
 
 
-def transfers(image_id: str, boot_attempts: int, instances: int, url: str | None = None) -> dict[str, str]:
+def transfers(
+    image_id: str, boot_attempts: int, instances: int, url: str | None = None, architecture: str = "amd64"
+) -> dict[str, str]:
     """Returns transfer file names and contents for the root, verity and UKI resources.
 
     File names sort so that both partitions are written before the UKI that references them, and partition sources
@@ -97,15 +99,17 @@ def transfers(image_id: str, boot_attempts: int, instances: int, url: str | None
     systemd-sysupdate names a new UKI after the first target MatchPattern and gives it TriesLeft=3 unless
     configured otherwise, so boot counting is disabled by listing the counter-free pattern first.
     Without url, the source is a directory; with url, an HTTP(S) directory whose SHA256SUMS must be signed.
+    The partitions have the root types of the Debian architecture.
     """
+    root_type = gpt.root_types(architecture).name
     transfer = functools.partial(
         _TRANSFER.format,
         verify="yes" if url else "no",
         source=_URL_SOURCE.format(url=url) if url else _DIRECTORY_SOURCE,
     )
     partitions = (
-        ("10-root.transfer", root_name, "", "root-x86-64"),
-        ("20-root-verity.transfer", verity_name, "_verity", "root-x86-64-verity"),
+        ("10-root.transfer", root_name, "", root_type),
+        ("20-root-verity.transfer", verity_name, "_verity", root_type + "-verity"),
     )
     result = {
         name: transfer(
@@ -230,10 +234,13 @@ def _read_image_version(path: str, image_id: str) -> str:
     return _load_sibling(__file__, "image_version").read_image_version(path, image_id)
 
 
-def _check_slot_uuids(partitions: Sequence[Mapping[str, Any]], slot: str, root_uuid: str, verity_uuid: str) -> None:
+def _check_slot_uuids(metadata: Mapping[str, Any], slot: str, root_uuid: str, verity_uuid: str) -> None:
+    partitions = metadata["partitions"]
+    # Partition metadata without an architecture predates arm64 images.
+    types = gpt.root_types(metadata.get("architecture", "amd64"))
     for type_guid, label, expected in (
-        (gpt.ROOT_X86_64, slot, root_uuid),
-        (gpt.ROOT_X86_64_VERITY, slot + "_verity", verity_uuid),
+        (types.root, slot, root_uuid),
+        (types.verity, slot + "_verity", verity_uuid),
     ):
         actual = _populated(partitions, type_guid, label).get("uuid")
         if actual != expected:
@@ -248,8 +255,8 @@ def payload(args: argparse.Namespace) -> None:
     uki = _release_uki(args)
     root_hash = Path(args.root_hash).read_text(encoding="ascii").strip().lower()
     root_uuid, verity_uuid = verity_partition_uuids(root_hash)
-    partitions = json.loads(Path(args.partition_metadata).read_text(encoding="utf-8"))["partitions"]
-    _check_slot_uuids(partitions, "{}_{}".format(args.image_id, args.image_version), root_uuid, verity_uuid)
+    metadata = json.loads(Path(args.partition_metadata).read_text(encoding="utf-8"))
+    _check_slot_uuids(metadata, "{}_{}".format(args.image_id, args.image_version), root_uuid, verity_uuid)
     root_size, verity_size = verity_extents(json.loads(Path(args.verity_metadata).read_text(encoding="utf-8")))
     output = Path(args.output)
     output.mkdir(parents=True, exist_ok=True)
@@ -269,7 +276,9 @@ def payload(args: argparse.Namespace) -> None:
 def write_transfers(args: argparse.Namespace) -> None:
     output = Path(args.output)
     output.mkdir(parents=True, exist_ok=True)
-    for name, content in transfers(args.image_id, args.boot_attempts, args.instances, args.url).items():
+    for name, content in transfers(
+        args.image_id, args.boot_attempts, args.instances, args.url, args.architecture
+    ).items():
         (output / name).write_text(content, encoding="ascii")
 
 
@@ -281,6 +290,7 @@ def main() -> None:
     transfer_parser.add_argument("--boot-attempts", type=int, required=True)
     transfer_parser.add_argument("--instances", type=int, required=True)
     transfer_parser.add_argument("--url")
+    transfer_parser.add_argument("--architecture", choices=gpt.ARCHITECTURES, default="amd64")
     transfer_parser.add_argument("--output", required=True)
     transfer_parser.set_defaults(handler=write_transfers)
     payload_parser = commands.add_parser("payload")

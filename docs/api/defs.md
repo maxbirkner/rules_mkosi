@@ -655,7 +655,7 @@ SHA256SUMS, the payload files it lists, and the signer's fingerprint.
 <pre>
 load("@rules_mkosi//mkosi:defs.bzl", "sysupdate_transfers")
 
-sysupdate_transfers(<a href="#sysupdate_transfers-name">name</a>, <a href="#sysupdate_transfers-boot_attempts">boot_attempts</a>, <a href="#sysupdate_transfers-destination">destination</a>, <a href="#sysupdate_transfers-image_id">image_id</a>, <a href="#sysupdate_transfers-instances">instances</a>, <a href="#sysupdate_transfers-url">url</a>)
+sysupdate_transfers(<a href="#sysupdate_transfers-name">name</a>, <a href="#sysupdate_transfers-architecture">architecture</a>, <a href="#sysupdate_transfers-boot_attempts">boot_attempts</a>, <a href="#sysupdate_transfers-destination">destination</a>, <a href="#sysupdate_transfers-image_id">image_id</a>, <a href="#sysupdate_transfers-instances">instances</a>, <a href="#sysupdate_transfers-url">url</a>)
 </pre>
 
 Generates systemd-sysupdate transfer definitions for A/B root, verity and UKI updates.
@@ -671,6 +671,7 @@ the previous one.
 | Name  | Description | Type | Mandatory | Default |
 | :------------- | :------------- | :------------- | :------------- | :------------- |
 | <a id="sysupdate_transfers-name"></a>name |  A unique name for this target.   | <a href="https://bazel.build/concepts/labels#target-names">Name</a> | required |  |
+| <a id="sysupdate_transfers-architecture"></a>architecture |  Debian architecture of the image, which selects the GPT types of its root partitions.   | String | optional |  `"amd64"`  |
 | <a id="sysupdate_transfers-boot_attempts"></a>boot_attempts |  systemd-boot boot-counting attempts (TriesLeft=) of a newly installed UKI; 0 disables boot counting.   | Integer | optional |  `3`  |
 | <a id="sysupdate_transfers-destination"></a>destination |  Image directory receiving the transfer files.   | String | optional |  `"/usr/lib/sysupdate.d"`  |
 | <a id="sysupdate_transfers-image_id"></a>image_id |  IMAGE_ID shared by every release of the image.   | String | required |  |
@@ -832,10 +833,11 @@ An mkosi configuration directory.
 <pre>
 load("@rules_mkosi//mkosi:defs.bzl", "MkosiImageInfo")
 
-MkosiImageInfo(<a href="#MkosiImageInfo-build_metadata">build_metadata</a>, <a href="#MkosiImageInfo-extra_packages_metadata">extra_packages_metadata</a>, <a href="#MkosiImageInfo-firmware">firmware</a>, <a href="#MkosiImageInfo-format_version">format_version</a>, <a href="#MkosiImageInfo-image">image</a>, <a href="#MkosiImageInfo-image_id">image_id</a>,
-               <a href="#MkosiImageInfo-image_version">image_version</a>, <a href="#MkosiImageInfo-image_version_file">image_version_file</a>, <a href="#MkosiImageInfo-input_digest">input_digest</a>, <a href="#MkosiImageInfo-manifest">manifest</a>, <a href="#MkosiImageInfo-partition_metadata">partition_metadata</a>,
-               <a href="#MkosiImageInfo-raw_image">raw_image</a>, <a href="#MkosiImageInfo-root_hash">root_hash</a>, <a href="#MkosiImageInfo-root_hash_image">root_hash_image</a>, <a href="#MkosiImageInfo-root_image">root_image</a>, <a href="#MkosiImageInfo-uki">uki</a>, <a href="#MkosiImageInfo-uki_metadata">uki_metadata</a>, <a href="#MkosiImageInfo-verity_metadata">verity_metadata</a>,
-               <a href="#MkosiImageInfo-version_auto_enroll_keys">version_auto_enroll_keys</a>, <a href="#MkosiImageInfo-version_inputs">version_inputs</a>, <a href="#MkosiImageInfo-version_signing_certificates">version_signing_certificates</a>)
+MkosiImageInfo(<a href="#MkosiImageInfo-architecture">architecture</a>, <a href="#MkosiImageInfo-build_metadata">build_metadata</a>, <a href="#MkosiImageInfo-extra_packages_metadata">extra_packages_metadata</a>, <a href="#MkosiImageInfo-firmware">firmware</a>, <a href="#MkosiImageInfo-format_version">format_version</a>,
+               <a href="#MkosiImageInfo-image">image</a>, <a href="#MkosiImageInfo-image_id">image_id</a>, <a href="#MkosiImageInfo-image_version">image_version</a>, <a href="#MkosiImageInfo-image_version_file">image_version_file</a>, <a href="#MkosiImageInfo-input_digest">input_digest</a>, <a href="#MkosiImageInfo-manifest">manifest</a>,
+               <a href="#MkosiImageInfo-partition_metadata">partition_metadata</a>, <a href="#MkosiImageInfo-raw_image">raw_image</a>, <a href="#MkosiImageInfo-root_hash">root_hash</a>, <a href="#MkosiImageInfo-root_hash_image">root_hash_image</a>, <a href="#MkosiImageInfo-root_image">root_image</a>, <a href="#MkosiImageInfo-uki">uki</a>,
+               <a href="#MkosiImageInfo-uki_metadata">uki_metadata</a>, <a href="#MkosiImageInfo-verity_metadata">verity_metadata</a>, <a href="#MkosiImageInfo-version_auto_enroll_keys">version_auto_enroll_keys</a>, <a href="#MkosiImageInfo-version_inputs">version_inputs</a>,
+               <a href="#MkosiImageInfo-version_signing_certificates">version_signing_certificates</a>)
 </pre>
 
 Outputs of mkosi_image.
@@ -849,6 +851,7 @@ version files image_version_file and input_digest are in the image_version outpu
 
 | Name  | Description |
 | :------------- | :------------- |
+| <a id="MkosiImageInfo-architecture"></a>architecture |  Debian architecture of the image, such as `amd64` or `arm64`: that of its debian_snapshot or base, or, for a tracer image that installs packages from the network, that of the Debian tools.    |
 | <a id="MkosiImageInfo-build_metadata"></a>build_metadata |  JSON build metadata, schema mkosi-image-build-metadata-v3.<br><br>It records the mode and the output roles, the snapshot and its lock digest when the image is built from debian_snapshot or base, and the seed and source date epoch of release images.    |
 | <a id="MkosiImageInfo-extra_packages_metadata"></a>extra_packages_metadata |  JSON metadata of the extra_packages that the image, or the base that it finalizes, installs, or None.<br><br>Schema mkosi-extra-packages-v1: the snapshot architecture and, sorted by name, each package's name, version, architecture, size, SHA-256 and file name in the build's repository.    |
 | <a id="MkosiImageInfo-firmware"></a>firmware |  Firmware tier: uefi or bios.    |
