@@ -4,13 +4,21 @@ Both test files import this module next to raw_image_validator.py and each adds 
 """
 
 import struct
+import unittest
 import uuid
 import zlib
+from typing import TYPE_CHECKING
 
 import raw_image_validator
 
+# The cases call unittest.TestCase assertions on self, which only the test classes that mix them in provide.
+if TYPE_CHECKING:
+    _CasesBase = unittest.TestCase
+else:
+    _CasesBase = object
 
-def gpt_image():
+
+def gpt_image() -> bytearray:
     total_sectors = 4096
     first_usable = 34
     last_usable = total_sectors - 1 - raw_image_validator.GPT_ENTRY_COUNT // 4 - 1
@@ -30,7 +38,7 @@ def gpt_image():
     data[backup_array_lba * 512 : backup_array_lba * 512 + len(partition_array)] = partition_array
     disk_guid = uuid.UUID(int=2).bytes_le
 
-    def write_header(lba, backup_lba, array_lba):
+    def write_header(lba: int, backup_lba: int, array_lba: int) -> None:
         header = bytearray(512)
         header[:8] = b"EFI PART"
         struct.pack_into("<II", header, 8, raw_image_validator.GPT_REVISION, 92)
@@ -61,7 +69,7 @@ def gpt_image():
     return data
 
 
-def fake_ext4_root(image, include_data=True, junk=False):
+def fake_ext4_root(image: bytearray, include_data: bool = True, junk: bool = False) -> bytearray:
     partition_offset = 34 * 512
     block_size = 4096
     superblock = bytearray(1024)
@@ -117,27 +125,27 @@ def fake_ext4_root(image, include_data=True, junk=False):
     return image
 
 
-class RawImageValidatorCases:
+class RawImageValidatorCases(_CasesBase):
     """Validator cases mixed into a unittest.TestCase by each test file."""
 
-    def test_protective_mbr_is_required(self):
+    def test_protective_mbr_is_required(self) -> None:
         image = gpt_image()
         image[510:512] = b"\0\0"
         with self.assertRaisesRegex(AssertionError, "protective MBR signature"):
             raw_image_validator.validate_bytes(image)
 
-    def test_crc_valid_metadata_is_required(self):
+    def test_crc_valid_metadata_is_required(self) -> None:
         image = gpt_image()
         image[512 + 24] ^= 1
         with self.assertRaisesRegex(AssertionError, "header CRC"):
             raw_image_validator.validate_bytes(image)
 
-    def test_fully_allocated_fabricated_root_directory_junk_is_rejected(self):
+    def test_fully_allocated_fabricated_root_directory_junk_is_rejected(self) -> None:
         image = fake_ext4_root(gpt_image(), junk=True)
         with self.assertRaisesRegex(AssertionError, "directory entry is invalid"):
             raw_image_validator.validate_bytes(image, physical_ranges=[(0, len(image))])
 
-    def test_pseudo_gpt_requires_a_usable_ext4_root(self):
+    def test_pseudo_gpt_requires_a_usable_ext4_root(self) -> None:
         image = gpt_image()
         with self.assertRaisesRegex(AssertionError, "recognizable ext4"):
             raw_image_validator.validate_bytes(image)

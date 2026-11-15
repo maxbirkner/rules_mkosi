@@ -8,11 +8,14 @@ import pathlib
 import sys
 import types
 import unittest
+from typing import Any, BinaryIO
 from unittest import mock
 
 sys.path.insert(0, str(pathlib.Path(__file__).parent))
 from bounded_reads import BoundedReader
 
+# The fakes of Path.open() and of the file objects it returns pass their arguments to the real ones unchanged, so they
+# take typing.Any arguments (ANN401) instead of repeating the overloads of Path.open() and IO.__exit__().
 spec = importlib.util.spec_from_file_location("projection", sys.argv[1])
 assert spec is not None and spec.loader is not None
 projection = importlib.util.module_from_spec(spec)
@@ -20,7 +23,7 @@ spec.loader.exec_module(projection)
 
 
 class ProjectionTest(unittest.TestCase):
-    def test_projection_is_normalized_and_content_addressed(self):
+    def test_projection_is_normalized_and_content_addressed(self) -> None:
         root = pathlib.Path(os.environ["TEST_TMPDIR"])
         image = root / "image.raw"
         metadata = root / "metadata.json"
@@ -74,7 +77,7 @@ class ProjectionTest(unittest.TestCase):
             len(result["immutable_artifacts"]["partition_metadata"]["sha256"]),
         )
 
-    def test_split_artifact_hashing_streams_sparse_logical_file(self):
+    def test_split_artifact_hashing_streams_sparse_logical_file(self) -> None:
         root = pathlib.Path(os.environ["TEST_TMPDIR"])
         image = root / "image.raw"
         metadata = root / "metadata.json"
@@ -96,7 +99,7 @@ class ProjectionTest(unittest.TestCase):
 
         original_open = pathlib.Path.open
 
-        def guarded_open(path, *args, **kwargs):
+        def guarded_open(path: pathlib.Path, *args: Any, **kwargs: Any) -> object:  # noqa: ANN401
             return BoundedReader(
                 original_open(path, *args, **kwargs), projection._MAX_JSON_BYTES + 1, "reproducibility"
             )
@@ -125,7 +128,7 @@ class ProjectionTest(unittest.TestCase):
             result["immutable_artifacts"]["root_image"],
         )
 
-    def test_normalized_json_has_explicit_size_limit(self):
+    def test_normalized_json_has_explicit_size_limit(self) -> None:
         root = pathlib.Path(os.environ["TEST_TMPDIR"])
         oversized = root / "oversized.json"
         with oversized.open("wb") as output:
@@ -134,7 +137,7 @@ class ProjectionTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "JSON size limit"):
             projection._small_json(oversized)
 
-    def _minimal_projection_inputs(self):
+    def _minimal_projection_inputs(self) -> tuple[pathlib.Path, pathlib.Path, pathlib.Path, pathlib.Path]:
         root = pathlib.Path(os.environ["TEST_TMPDIR"])
         image = root / "change-image.raw"
         metadata = root / "change-metadata.json"
@@ -146,7 +149,7 @@ class ProjectionTest(unittest.TestCase):
         split.write_bytes(b"split artifact")
         return image, metadata, partitions, split
 
-    def test_versioned_verity_image_is_hashed_with_its_slot_label(self):
+    def test_versioned_verity_image_is_hashed_with_its_slot_label(self) -> None:
         image, metadata, partitions, _ = self._minimal_projection_inputs()
         cases = [
             ({"artifacts": {"verity_metadata": True}, "image": {"id": "os", "version": "7"}}, "os_7"),
@@ -163,11 +166,11 @@ class ProjectionTest(unittest.TestCase):
                     projection.project(image, metadata, partitions)
                 canonical.assert_called_once_with(image, slot_label)
 
-    def test_rejects_descriptor_metadata_change_during_hashing(self):
+    def test_rejects_descriptor_metadata_change_during_hashing(self) -> None:
         image, metadata, partitions, split = self._minimal_projection_inputs()
         calls = [0]
 
-        def changing_stat(source):
+        def changing_stat(source: BinaryIO) -> os.stat_result | types.SimpleNamespace:
             stat = os.fstat(source.fileno())
             if source.name != str(split):
                 return stat
@@ -195,32 +198,32 @@ class ProjectionTest(unittest.TestCase):
         ):
             projection.project(image, metadata, partitions, [("root_image", split)])
 
-    def test_rejects_premature_eof_from_same_descriptor(self):
+    def test_rejects_premature_eof_from_same_descriptor(self) -> None:
         image, metadata, partitions, split = self._minimal_projection_inputs()
         original_open = pathlib.Path.open
 
         class PrematureEof:
-            def __init__(self, wrapped):
+            def __init__(self, wrapped: BinaryIO) -> None:
                 self.wrapped = wrapped
                 self.returned = False
 
-            def read(self, size=-1):
+            def read(self, size: int = -1) -> bytes:
                 if self.returned:
                     return b""
                 self.returned = True
                 return self.wrapped.read(3)
 
-            def __getattr__(self, name):
+            def __getattr__(self, name: str) -> object:
                 return getattr(self.wrapped, name)
 
-            def __enter__(self):
+            def __enter__(self) -> "PrematureEof":
                 self.wrapped.__enter__()
                 return self
 
-            def __exit__(self, *args):
+            def __exit__(self, *args: Any) -> None:  # noqa: ANN401
                 return self.wrapped.__exit__(*args)
 
-        def premature_open(path, *args, **kwargs):
+        def premature_open(path: pathlib.Path, *args: Any, **kwargs: Any) -> object:  # noqa: ANN401
             opened = original_open(path, *args, **kwargs)
             return PrematureEof(opened) if path == split else opened
 
@@ -235,18 +238,18 @@ class ProjectionTest(unittest.TestCase):
         ):
             projection.project(image, metadata, partitions, [("root_image", split)])
 
-    def test_rejects_growth_after_reading_only_initial_size_and_one_byte(self):
+    def test_rejects_growth_after_reading_only_initial_size_and_one_byte(self) -> None:
         image, metadata, partitions, split = self._minimal_projection_inputs()
         original_open = pathlib.Path.open
         initial_size = split.stat().st_size
         returned = [0]
 
         class GrowingReader:
-            def __init__(self, wrapped):
+            def __init__(self, wrapped: BinaryIO) -> None:
                 self.wrapped = wrapped
                 self.grown = False
 
-            def read(self, size=-1):
+            def read(self, size: int = -1) -> bytes:
                 if size < 0 or size > projection._HASH_CHUNK_SIZE:
                     raise AssertionError("unbounded reproducibility read")
                 value = self.wrapped.read(size)
@@ -257,17 +260,17 @@ class ProjectionTest(unittest.TestCase):
                         output.write(b"growth")
                 return value
 
-            def __getattr__(self, name):
+            def __getattr__(self, name: str) -> object:
                 return getattr(self.wrapped, name)
 
-            def __enter__(self):
+            def __enter__(self) -> "GrowingReader":
                 self.wrapped.__enter__()
                 return self
 
-            def __exit__(self, *args):
+            def __exit__(self, *args: Any) -> None:  # noqa: ANN401
                 return self.wrapped.__exit__(*args)
 
-        def growing_open(path, *args, **kwargs):
+        def growing_open(path: pathlib.Path, *args: Any, **kwargs: Any) -> object:  # noqa: ANN401
             opened = original_open(path, *args, **kwargs)
             return GrowingReader(opened) if path == split else opened
 
