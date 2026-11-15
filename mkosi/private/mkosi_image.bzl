@@ -799,9 +799,10 @@ unified_kernel_image = "unsigned".""",
             doc = """The auto_enroll_keys of every secure_boot_signed_image of this image, which a version derived with
 image_version_from_inputs covers; requires image_version_from_inputs.
 
-secure_boot_signed_image fails unless its auto_enroll_keys are exactly these files, except keys of a
-secure_boot_ephemeral_test_fixture, whose throwaway keys change with every build. Rotating a key then gives a new
-version.
+secure_boot_signed_image fails unless its auto_enroll_keys are exactly these files. The PK.auth, KEK.auth and db.auth
+of a secure_boot_ephemeral_test_fixture, whose throwaway keys change with every build, stand in for the files of those
+names, so the other auto_enroll_keys, such as a dbx.auth, must be exactly the remaining files. Rotating a key then
+gives a new version.
 """,
         ),
         "version_inputs": attr.label_list(

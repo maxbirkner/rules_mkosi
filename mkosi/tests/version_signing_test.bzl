@@ -24,7 +24,10 @@ load(
 _INPUTS = "testdata/secure-boot-inputs/"
 _SIGNER = _INPUTS + "signer.crt"
 _AUTO_ENROLL_KEYS = [_INPUTS + name + ".auth" for name in ("PK", "KEK", "db")]
+_DBX = _INPUTS + "dbx.auth"
+_BOOT_LOADER = "EFI/systemd/systemd-bootx64.efi"
 _DECLARED = "but the image's version_signing_certificates declare"
+_REPLACED = "but the image's version_auto_enroll_keys that no secure_boot_ephemeral_test_fixture replaces"
 
 def _unverified_signed_uki_impl(ctx):
     """Returns a signed UKI provider without certificate_source, as a rule outside rules_mkosi could."""
@@ -111,6 +114,8 @@ def _subjects():
     """Declares images that derive their version and UKIs signed for them with each certificate or a test fixture."""
     for image, certificates, keys in (
         ("signing_declared", {"": _SIGNER}, _AUTO_ENROLL_KEYS),
+        ("signing_boot_loader_declared", {"": _SIGNER, _BOOT_LOADER: _SIGNER}, _AUTO_ENROLL_KEYS),
+        ("signing_dbx_declared", {"": _SIGNER}, _AUTO_ENROLL_KEYS + [_DBX]),
         ("signing_certificate_only", {"": _SIGNER}, []),
         ("signing_undeclared", {}, []),
     ):
@@ -132,6 +137,8 @@ def _subjects():
         )
         secure_boot_ephemeral_test_fixture(name = image + "_fixture", images = [":" + image], tags = ["manual"])
         _signed_ukis(image)
+    for image in ("signing_declared", "signing_boot_loader_declared"):
+        _declare_signed_boot_loader(image)
     _unverified_signed_uki(name = "signing_unverified_uki", tags = ["manual"])
 
 def _signed_ukis(image):
@@ -149,11 +156,28 @@ def _signed_ukis(image):
             tags = ["manual"],
         )
 
+def _declare_signed_boot_loader(image):
+    """Declares systemd-boot on the ESP of image, signed with the signer certificate."""
+    secure_boot_signing_request(
+        name = image + "_signer_boot_loader_request",
+        certificate = _SIGNER,
+        esp_path = _BOOT_LOADER,
+        image = ":" + image,
+        tags = ["manual"],
+    )
+    secure_boot_import_response(
+        name = image + "_signer_boot_loader",
+        request = ":" + image + "_signer_boot_loader_request",
+        signed_binary = _INPUTS + "uki.signed.efi",
+        tags = ["manual"],
+    )
+
 def _payload_tests():
     """Declares payloads that agree with the image's declarations, or not, and returns their tests."""
     tests = []
     for name, image, signed_uki, expected_error in (
         ("declared_signer", "signing_declared", ":signing_declared_signer_uki", None),
+        ("boot_loader_declared", "signing_boot_loader_declared", ":signing_boot_loader_declared_signer_uki", None),
         ("declared_fixture", "signing_declared", ":signing_declared_fixture_uki", None),
         ("undeclared_fixture", "signing_undeclared", ":signing_undeclared_fixture_uki", None),
         ("other_signer", "signing_declared", ":signing_declared_other_uki", "signs with [UKI: mkosi/tests/" + _INPUTS + "other.crt], " + _DECLARED),
@@ -173,20 +197,62 @@ def _payload_tests():
         tests.append(":signing_%s_payload_test" % name)
     return tests
 
+def _list_certificate_cases():
+    """Returns (name, image, signed binaries, auto_enroll_keys, expected error) of tests of the signed binaries."""
+    signer = "UKI: mkosi/tests/" + _SIGNER
+    boot_loader_signer = signer + ", " + _BOOT_LOADER + ": mkosi/tests/" + _SIGNER
+    return [
+        ("declared", "signing_declared", ["signer_uki"], _AUTO_ENROLL_KEYS, None),
+        ("other_signer", "signing_declared", ["other_uki"], _AUTO_ENROLL_KEYS, _DECLARED),
+        ("boot_loader_declared", "signing_boot_loader_declared", ["signer_uki", "signer_boot_loader"], _AUTO_ENROLL_KEYS, None),
+        (
+            "boot_loader_undeclared",
+            "signing_declared",
+            ["signer_uki", "signer_boot_loader"],
+            _AUTO_ENROLL_KEYS,
+            "signs with [%s], %s [%s]" % (boot_loader_signer, _DECLARED, signer),
+        ),
+        (
+            "boot_loader_unsigned",
+            "signing_boot_loader_declared",
+            ["signer_uki"],
+            _AUTO_ENROLL_KEYS,
+            "signs with [%s], %s [%s]" % (signer, _DECLARED, boot_loader_signer),
+        ),
+    ]
+
+def _list_key_cases():
+    """Returns (name, image, signed binaries, auto_enroll_keys, expected error) of tests of the enrolled keys."""
+    dbx = "mkosi/tests/" + _DBX
+    return [
+        ("fixture_keys", "signing_declared", ["signer_uki"], [":signing_declared_fixture"], None),
+        ("undeclared_keys", "signing_certificate_only", ["signer_uki"], _AUTO_ENROLL_KEYS, "but the image's version_auto_enroll_keys are []"),
+        ("mixed_keys", "signing_dbx_declared", ["signer_uki"], [":signing_dbx_declared_fixture", _DBX], None),
+        (
+            "mixed_keys_undeclared",
+            "signing_declared",
+            ["signer_uki"],
+            [":signing_declared_fixture", _DBX],
+            "enrolls the keys [%s], %s are []" % (dbx, _REPLACED),
+        ),
+        (
+            "fixture_keys_without_declared_dbx",
+            "signing_dbx_declared",
+            ["signer_uki"],
+            [":signing_dbx_declared_fixture"],
+            "enrolls the keys [], %s are [%s]" % (_REPLACED, dbx),
+        ),
+    ]
+
 def _signed_image_tests():
     """Declares Secure Boot images that agree with the image's declarations, or not, and returns their tests."""
     tests = []
-    for name, image, signed_uki, keys, expected_error in (
-        ("declared", "signing_declared", "signer", _AUTO_ENROLL_KEYS, None),
-        ("fixture_keys", "signing_declared", "signer", [":signing_declared_fixture"], None),
-        ("other_signer", "signing_declared", "other", _AUTO_ENROLL_KEYS, _DECLARED),
-        ("undeclared_keys", "signing_certificate_only", "signer", _AUTO_ENROLL_KEYS, "but the image's version_auto_enroll_keys are []"),
-    ):
+    for name, image, signed, keys, expected_error in _list_certificate_cases() + _list_key_cases():
         secure_boot_signed_image(
             name = "signing_%s_image" % name,
             auto_enroll_keys = keys,
             image = ":" + image,
-            signed_binaries = [":%s_%s_uki" % (image, signed_uki)],
+            signed_binaries = [":%s_%s" % (image, binary) for binary in signed],
             tags = ["manual"],
         )
         if expected_error:
