@@ -7,7 +7,7 @@ EXPECTED = {
 }
 
 
-def main():
+def main() -> None:
     path = pathlib.Path(sys.argv[1])
     section = None
     values = {}

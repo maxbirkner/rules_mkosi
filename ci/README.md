@@ -39,7 +39,9 @@ Comments, system `#include` lines, and `MODULE.bazel` files, which cannot share 
 ## Type checking
 
 `prek run --all-files` type-checks the Python files in `ci/`, `mkosi/`, and `tools/` with [mypy](https://mypy-lang.org/) and the settings in `mypy.ini`.
-Only annotated functions are checked, so adding type annotations to a function opts it in.
+mypy only checks the bodies of annotated functions, so ruff's `ANN` rules in `ruff.toml` require annotations on every Python function, also in `e2e/`.
+Files written before that rule are exempt through `[lint.per-file-ignores]` in `ruff.toml`; never add a file there.
+When you change an exempt file, prefer annotating it fully and deleting its line.
 
 ## Manual image artifacts
 

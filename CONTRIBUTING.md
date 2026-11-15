@@ -26,6 +26,10 @@ ci/check-lazy-toolchain-fetch.sh --bootstrap-target @mkosi_debian_tools//:namesp
 Run Bazel from a module root, or use [`tools/bazel`](tools/README.md) from a subdirectory.
 See [`e2e/README.md`](e2e/README.md) for the consumer and module-resolution fixtures.
 
+### Python type annotations
+
+Annotate every new and changed Python function; ruff and mypy enforce it as described in [`ci/README.md`](ci/README.md#type-checking).
+
 ### API reference
 
 `docs/api` is generated with Stardoc from the docstrings of the public Starlark API: `mkosi/defs.bzl` and the module extensions.

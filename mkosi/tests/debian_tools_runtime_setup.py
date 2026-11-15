@@ -4,7 +4,7 @@ import os
 import sys
 
 
-def main():
+def main() -> None:
     directory = sys.argv[1]
     os.makedirs(directory, mode=0o700, exist_ok=True)
     for name, contents in (

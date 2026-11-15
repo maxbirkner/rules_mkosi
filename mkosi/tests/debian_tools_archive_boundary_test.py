@@ -10,7 +10,7 @@ _EXPECTED_SHA256 = os.environ["DEBIAN_TOOLS_ARCHIVE_SHA256"]
 sys.dont_write_bytecode = True
 
 
-def main():
+def main() -> None:
     archive = pathlib.Path(sys.argv[1])
     extractor_path = pathlib.Path(sys.argv[2])
     assert hashlib.sha256(archive.read_bytes()).hexdigest() == _EXPECTED_SHA256

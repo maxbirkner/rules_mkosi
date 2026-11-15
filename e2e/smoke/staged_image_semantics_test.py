@@ -4,7 +4,7 @@ import pathlib
 import sys
 
 
-def main():
+def main() -> None:
     content = pathlib.Path(sys.argv[1]).read_bytes()
     for marker in (
         b"declared extra",

@@ -4,7 +4,7 @@ import pathlib
 import sys
 
 
-def main():
+def main() -> None:
     image = pathlib.Path(sys.argv[1])
     content = image.read_bytes()
     for marker in (

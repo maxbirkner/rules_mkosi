@@ -1,9 +1,11 @@
 """Read Bazel `--execution_log_json_file` output."""
 
 import json
+import pathlib
+from typing import Any
 
 
-def read_entries(path):
+def read_entries(path: pathlib.Path) -> list[Any]:
     """Returns the JSON objects of an execution log, which Bazel writes as concatenated, not line-delimited, JSON."""
     content = path.read_text()
     decoder = json.JSONDecoder()

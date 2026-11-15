@@ -16,7 +16,7 @@ _DIGEST = "sha-256=:{}:".format(base64.b64encode(hashlib.sha256(_CONTENT).digest
 
 
 class HttpShareTest(unittest.TestCase):
-    def setUp(self):
+    def setUp(self) -> None:
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
         self.root = pathlib.Path(directory.name)
@@ -24,7 +24,7 @@ class HttpShareTest(unittest.TestCase):
         (self.root / "share" / "root.raw").write_bytes(_CONTENT)
         (self.root / "share" / "empty").write_bytes(b"")
 
-    def _request(self, method, path, **headers):
+    def _request(self, method: str, path: str, **headers: str) -> tuple[int, http.client.HTTPMessage, bytes]:
         """Sends one request to a fresh server process and returns its status, headers, and body."""
         lines = ["{} {} HTTP/1.1".format(method, path), "Host: 10.0.2.100"]
         lines += ["{}: {}".format(name.replace("_", "-"), value) for name, value in headers.items()]
@@ -40,7 +40,7 @@ class HttpShareTest(unittest.TestCase):
         status = int(stream.readline().split()[1])
         return status, http.client.parse_headers(stream), stream.read()
 
-    def test_get_and_head_carry_the_digest_of_the_whole_file(self):
+    def test_get_and_head_carry_the_digest_of_the_whole_file(self) -> None:
         for method, body in (("GET", _CONTENT), ("HEAD", b"")):
             with self.subTest(method=method):
                 status, headers, received = self._request(method, "/root.raw")
@@ -53,14 +53,14 @@ class HttpShareTest(unittest.TestCase):
                 self.assertIsNone(headers["Content-Range"])
                 self.assertEqual(body, received)
 
-    def test_empty_file_has_the_digest_of_no_bytes(self):
+    def test_empty_file_has_the_digest_of_no_bytes(self) -> None:
         for headers in ({}, {"Range": "bytes=-1"}):
             with self.subTest(headers=headers):
                 status, received, body = self._request("GET", "/empty", **headers)
                 self.assertEqual((200, b""), (status, body))
                 self.assertEqual("sha-256=:47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=:", received["Content-Digest"])
 
-    def test_single_ranges_return_partial_content(self):
+    def test_single_ranges_return_partial_content(self) -> None:
         size = len(_CONTENT)
         cases = {
             "bytes=10-19": (10, 19),
@@ -80,7 +80,7 @@ class HttpShareTest(unittest.TestCase):
                     self.assertEqual(_DIGEST, headers["Content-Digest"])
                     self.assertEqual(body, received)
 
-    def test_unsatisfiable_ranges_return_416_with_the_size(self):
+    def test_unsatisfiable_ranges_return_416_with_the_size(self) -> None:
         size = len(_CONTENT)
         for path, header, length in (
             ("/root.raw", "bytes={}-".format(size), size),
@@ -95,7 +95,7 @@ class HttpShareTest(unittest.TestCase):
                 self.assertIsNone(headers["Content-Digest"])
                 self.assertEqual(b"", body)
 
-    def test_multiple_and_malformed_ranges_return_the_whole_file(self):
+    def test_multiple_and_malformed_ranges_return_the_whole_file(self) -> None:
         for header in (
             "bytes=0-1,5-6",
             "bytes=9-3",
@@ -111,7 +111,7 @@ class HttpShareTest(unittest.TestCase):
                 self.assertIsNone(headers["Content-Range"])
                 self.assertEqual(_CONTENT, body)
 
-    def test_if_range_honors_the_range_only_for_the_current_last_modified(self):
+    def test_if_range_honors_the_range_only_for_the_current_last_modified(self) -> None:
         _, headers, _ = self._request("HEAD", "/root.raw")
         status, _, body = self._request("GET", "/root.raw", Range="bytes=0-3", If_Range=headers["Last-Modified"])
         self.assertEqual((206, _CONTENT[:4]), (status, body))
@@ -119,20 +119,20 @@ class HttpShareTest(unittest.TestCase):
         status, _, body = self._request("GET", "/root.raw", Range="bytes=0-3", If_Range=stale)
         self.assertEqual((200, _CONTENT), (status, body))
 
-    def test_if_modified_since_returns_not_modified(self):
+    def test_if_modified_since_returns_not_modified(self) -> None:
         _, headers, _ = self._request("HEAD", "/root.raw")
         status, headers, body = self._request("GET", "/root.raw", If_Modified_Since=headers["Last-Modified"])
         self.assertEqual((304, b""), (status, body))
         self.assertIsNone(headers["Content-Digest"])
 
-    def test_missing_files_return_404_without_a_digest(self):
+    def test_missing_files_return_404_without_a_digest(self) -> None:
         for path in ("/missing", "/root.raw/", "/nested/missing"):
             with self.subTest(path=path):
                 status, headers, _ = self._request("GET", path)
                 self.assertEqual(404, status)
                 self.assertIsNone(headers["Content-Digest"])
 
-    def test_directories_are_listed_and_requests_logged(self):
+    def test_directories_are_listed_and_requests_logged(self) -> None:
         status, headers, body = self._request("GET", "/")
         self.assertEqual(200, status)
         self.assertIsNone(headers["Content-Digest"])

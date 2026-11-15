@@ -1,7 +1,7 @@
 """Parser for Debian control data (deb822), such as Release files and Packages indexes."""
 
 
-def paragraphs(text):
+def paragraphs(text: str) -> list[dict[str, str]]:
     """Returns the paragraphs of deb822 text as dictionaries that map field names to values, in file order.
 
     Lines that are empty or contain only whitespace separate paragraphs. A value has its surrounding whitespace
@@ -13,7 +13,7 @@ def paragraphs(text):
     a field that occurs twice in one paragraph.
     """
     result = []
-    current = {}
+    current: dict[str, str] = {}
     field = None
     for line in text.splitlines():
         if not line.strip():

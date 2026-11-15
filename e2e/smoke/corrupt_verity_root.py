@@ -8,7 +8,7 @@ import shutil
 ROOT_X86_64 = "4f68bce3-e8cd-4db1-96e7-fbcaf984b709"
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--image", required=True)
     parser.add_argument("--partitions", required=True)

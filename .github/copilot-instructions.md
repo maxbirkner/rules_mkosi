@@ -36,6 +36,9 @@ Linux images with mkosi.
   `bazel-contrib/publish-to-bcr` `publish.yaml`): reference them by their
   `vX.Y.Z` tag, because the BCR's slsa-verifier rejects attestations whose
   builder ref is a commit SHA.
+- Annotate every new and changed Python function.
+  When touching a file that `ruff.toml` exempts from the `ANN` rules, prefer
+  annotating it fully and deleting its exemption.
 - Use `prek` as the only formatting and linting entry point. Do not duplicate
   individual formatter commands in documentation or CI.
 - Gitleaks configuration must extend the built-in rules unless a full
