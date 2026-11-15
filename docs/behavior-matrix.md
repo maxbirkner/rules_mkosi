@@ -59,6 +59,11 @@ A payload or Secure Boot signed image of such an image fails when a signed binar
 `mkosi_image(base = ...)` requires release mode and UEFI, rejects snapshot, seed, epoch, and `source_trees` attributes, and rejects configurations that install packages, configure the default initrd, or override `BaseTrees=` or `Initrds=`.
 Its `MkosiImageInfo` matches a one-stage release, and a second version reuses the cached base.
 
+<!-- behavior:BHV-IMAGE-EXTRA-PACKAGES -->
+`extra_packages` of `mkosi_base`, and of an `mkosi_image` that installs packages from `debian_snapshot`, serves `.deb` files to APT as a flat repository next to the snapshot mirror, pinned above the snapshot, so that the configuration's `Packages=` selects them, an extra package replaces a snapshot package of the same name whatever its version, and dpkg runs their maintainer scripts.
+It rejects directories, `base`, images without a snapshot, files that are not Debian binary packages, duplicate package names, and architectures other than the snapshot's and `all`; a dependency that neither the snapshot lock nor `extra_packages` provide fails as a package resolution failure.
+The packages are inputs of the build and of a derived image version, and `extra_packages_metadata` lists each one's name, version, architecture, size, and SHA-256 in `MkosiBaseInfo`, `MkosiImageInfo`, and the reproducibility manifest.
+
 <!-- behavior:BHV-SYSUPDATE-TRANSFERS -->
 `sysupdate_transfers` validates the image id, a non-negative `boot_attempts` (zero installs UKIs without a boot counter), and at least two `instances`, and installs root, verity, and UKI transfers that use `PathRelativeTo=explicit` or, with an `http://` or `https://` `url`, `url-file` sources with `Verify=yes`, root-hash UUIDs, accept plain or xz-compressed partition files, and protect the running version.
 
@@ -220,7 +225,7 @@ The bootstrap executables follow the `bootstrap_platform` flag without changing 
 rules_mkosi's static musl toolchain, the `llvm` module's C/C++ toolchain, matches only the bootstrap executables and outranks every registered C/C++ toolchain for them, including the consumer's own registration of the `llvm` module's toolchains, and the LLVM toolchain and runtime sources are downloaded only when one is built.
 
 <!-- behavior:BHV-ACTION-FAILURES -->
-Failures keep tool output and are classified as kernel capability, toolchain, network, assembly, or VM failures with one remediation.
+Failures keep tool output and are classified as kernel capability, toolchain, network, package resolution, extra package, assembly, or VM failures with one remediation.
 SeaBIOS failures distinguish a missing boot sector, GRUB failure, kernel or initrd failure, readiness timeout, and shutdown failure, and boot logs are kept as test outputs.
 
 <!-- behavior:BHV-STAGING-FAILURES -->

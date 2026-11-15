@@ -193,6 +193,7 @@ def _base_public_api_test_impl(ctx):
     asserts.equals(env, 1755129600, info.release_source_date_epoch)
     snapshot = ctx.attr.debian_snapshot[DebianSnapshotInfo]
     asserts.equals(env, snapshot.lock_sha256, info.debian_snapshot.lock_sha256)
+    asserts.equals(env, "sysupdate_base.extra-packages.json", info.extra_packages_metadata.basename)
     return analysistest.end(env)
 
 base_public_api_test = analysistest.make(
@@ -296,6 +297,7 @@ def _image_artifact_file(field):
     )
 
 image_build_metadata_file = _image_artifact_file("build_metadata")
+image_extra_packages_metadata_file = _image_artifact_file("extra_packages_metadata")
 image_manifest_file = _image_artifact_file("manifest")
 image_partition_metadata_file = _image_artifact_file("partition_metadata")
 raw_image_file = _image_artifact_file("raw_image")

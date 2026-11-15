@@ -1,5 +1,5 @@
 load("@bazel_skylib//rules:diff_test.bzl", "diff_test")
-load("@rules_python//python:defs.bzl", "py_test")
+load("@rules_python//python:defs.bzl", "py_binary", "py_test")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
 load(
     "//mkosi:defs.bzl",
@@ -29,6 +29,7 @@ load(
     "snapshot_declaration_test",
     "unsupported_version_test",
 )
+load(":extra_packages_test.bzl", "extra_packages_test_suite")
 load(":mkosi_base_test.bzl", "mkosi_base_test_suite")
 load(
     ":mkosi_image_test.bzl",
@@ -305,6 +306,10 @@ behavior_targets(
         ":default_version_test",
         ":diagnostic_contract_test",
         ":esp_manifest_test",
+        ":extra_packages_analysis_tests",
+        ":extra_packages_artifact_test",
+        ":extra_packages_test",
+        ":extra_packages_version_inputs_test",
         ":http_share_test",
         ":explicit_version_test",
         ":image_version_test",
@@ -612,6 +617,71 @@ secure_boot_test_suite(
 )
 
 mkosi_base_test_suite(name = "mkosi_base_analysis_tests")
+
+extra_packages_test_suite(name = "extra_packages_analysis_tests")
+
+# Builds the .deb fixtures of extra_packages_test.bzl.
+py_binary(
+    name = "deb_fixture",
+    srcs = ["deb_fixture.py"],
+    main = "deb_fixture.py",
+)
+
+py_test(
+    name = "extra_packages_test",
+    srcs = [
+        "deb_fixture.py",
+        "extra_packages_test.py",
+        "//mkosi/private:debian_control.py",
+        "//mkosi/private:diagnostics.py",
+        "//mkosi/private:extra_packages.py",
+        "//mkosi/private:file_hashing.py",
+        "//mkosi/private:sibling_loader.py",
+    ],
+    main = "extra_packages_test.py",
+)
+
+py_test(
+    name = "extra_packages_artifact_test",
+    srcs = [
+        "extra_packages_artifact_test.py",
+        "release_root.py",
+        "runfile_paths.py",
+    ],
+    args = [
+        "$(rootpath :extra_packages_release_raw_image)",
+        "$(rootpath @mkosi_debian_tools//:launcher)",
+    ],
+    data = [
+        ":extra_packages_release_raw_image",
+        "@mkosi_debian_tools//:launcher",
+    ],
+    main = "extra_packages_artifact_test.py",
+    deps = ["@rules_python//python/runfiles"],
+)
+
+raw_image_file(
+    name = "extra_packages_release_raw_image",
+    image = ":extra_packages_release",
+    tags = ["manual"],
+)
+
+# Checks the inputs that the derived version of extra_packages_release covers, without building the image.
+py_test(
+    name = "extra_packages_version_inputs_test",
+    srcs = ["extra_packages_version_inputs_test.py"],
+    args = [
+        "$(rootpath :extra_packages_release_inputs_manifest)",
+        "$(rootpath :extra_packages_hello_deb)",
+        "$(rootpath :extra_packages_netbase_deb)",
+    ],
+    data = [
+        ":extra_packages_hello_deb",
+        ":extra_packages_netbase_deb",
+        ":extra_packages_release_inputs_manifest",
+    ],
+    main = "extra_packages_version_inputs_test.py",
+)
 
 config_tree_test_suite(name = "config_tree_analysis_tests")
 
@@ -921,9 +991,13 @@ py_test(
         "$(rootpath @mkosi_toolchains//:mkosi_script)",
     ],
     data = [
+        "//mkosi/private:debian_control.py",
         "//mkosi/private:diagnostics.py",
+        "//mkosi/private:extra_packages.py",
+        "//mkosi/private:file_hashing.py",
         "//mkosi/private:run_mkosi.py",
         "//mkosi/private:run_mkosi_modules",
+        "//mkosi/private:sibling_loader.py",
         "@mkosi_toolchains//:mkosi_runfiles",
         "@mkosi_toolchains//:mkosi_script",
     ],
@@ -1000,6 +1074,7 @@ py_test(
     name = "release_apt_sources_test",
     srcs = [
         "release_apt_sources_test.py",
+        "release_root.py",
         "runfile_paths.py",
     ],
     args = [

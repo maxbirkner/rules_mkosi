@@ -158,6 +158,8 @@ def _release_stage(preamble: "Preamble") -> str | None:
         raise SystemExit("incomplete release configuration")
     if (any(release) or preamble.debian_snapshot_repository) and preamble.debian_snapshot_components is None:
         raise SystemExit("incomplete Debian snapshot configuration")
+    if preamble.extra_packages_repository and not preamble.debian_snapshot_repository:
+        raise SystemExit("extra packages require the Debian snapshot repository")
     return command_line.release_stage(
         any(release),
         preamble.debian_snapshot_repository,
@@ -189,10 +191,16 @@ def _extract_debian_tools(preamble: "Preamble", arguments: Sequence[str]) -> Non
 
 
 def _prepare_release_sandbox(preamble: "Preamble", arguments: list[str], stage: str | None) -> "SnapshotMirror | None":
-    """Adds the fixed sandbox, and the Debian snapshot mirror that it returns if the build installs packages from it."""
+    """Adds the fixed sandbox, and the Debian snapshot mirror that it returns if the build installs packages from it.
+
+    The mirror also serves the repository of the extra packages, if the build has any.
+    """
     if preamble.debian_snapshot_repository:
         return release_sandbox.configure_release_mirror(
-            preamble.debian_snapshot_repository, _workspace(arguments), arguments
+            preamble.debian_snapshot_repository,
+            _workspace(arguments),
+            arguments,
+            preamble.extra_packages_repository,
         )
     if stage == "finalize":
         release_sandbox.configure_release_sandbox(_workspace(arguments), arguments)

@@ -36,6 +36,7 @@ load(
     "config_tree_public_api_test",
     "generated_payload_tree",
     "image_build_metadata_file",
+    "image_extra_packages_metadata_file",
     "image_manifest_file",
     "image_partition_metadata_file",
     "image_public_api_test",
@@ -112,6 +113,7 @@ behavior_targets(
         ":secure_boot_signed_image_test",
         ":secure_boot_signing_manifest_test",
         ":sysupdate_base_public_provider_test",
+        ":sysupdate_extra_packages_test",
         ":sysupdate_input_version_public_provider_test",
         ":sysupdate_lifecycle_test",
         ":sysupdate_payload_public_provider_test",
@@ -848,6 +850,8 @@ mkosi_base(
     name = "sysupdate_base",
     config_tree = ":sysupdate_base_config_tree",
     debian_snapshot = "@example_debian//:repository",
+    # hello is not in the snapshot's lock; http_file names its download "downloaded".
+    extra_packages = ["@debian_hello_deb//file"],
     release_seed = "00000000-0000-4000-8000-000000000017",
     release_source_date_epoch = 1755129600,
     rootfs_payloads = [
@@ -1253,6 +1257,27 @@ image_build_metadata_file(
 image_manifest_file(
     name = "sysupdate_v2_manifest",
     image = ":sysupdate_v2",
+)
+
+image_extra_packages_metadata_file(
+    name = "sysupdate_v2_extra_packages_metadata",
+    image = ":sysupdate_v2",
+)
+
+py_test(
+    name = "sysupdate_extra_packages_test",
+    srcs = ["extra_packages_metadata_test.py"],
+    args = [
+        "$(rootpath :sysupdate_v2_extra_packages_metadata)",
+        "$(rootpath :sysupdate_v2_manifest)",
+        "$(rootpath @debian_hello_deb//file)",
+    ],
+    data = [
+        ":sysupdate_v2_extra_packages_metadata",
+        ":sysupdate_v2_manifest",
+        "@debian_hello_deb//file",
+    ],
+    main = "extra_packages_metadata_test.py",
 )
 
 py_test(

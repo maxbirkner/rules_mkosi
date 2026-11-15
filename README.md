@@ -237,7 +237,7 @@ Inside a fetched archive repository, a committed link that mimics Bazel's own la
 
 | | `mode = "tracer"` (default) | `mode = "release"` |
 | --- | --- | --- |
-| Packages | Downloaded over the network, or only from `debian_snapshot` if set; network blocked | Only from `debian_snapshot`; network blocked |
+| Packages | Downloaded over the network, or only from `debian_snapshot` and `extra_packages` if set; network blocked | Only from `debian_snapshot` and `extra_packages`; network blocked |
 | Caching | Never cached (`no-cache`) | Local, disk, and remote caches |
 | Configuration | `config` or `config_tree` | `config_tree` only |
 | Required attributes | — (`debian_snapshot` optional) | `debian_snapshot`, `release_seed`, `release_source_date_epoch` |
@@ -304,6 +304,42 @@ For A/B slots, update payloads and which outputs suit Bazel caches, see [compres
 `mkosi_base` installs packages from the snapshot once, without an image version.
 `mkosi_image(base = ...)` then finalizes it for one version without the snapshot, so a new version does not repeat package installation.
 See [two-stage releases](docs/sysupdate-ab.md#two-stage-releases).
+
+### Extra packages
+
+`extra_packages` installs Debian packages that the snapshot does not lock, such as a kernel with a patch that is not in Debian yet, a vendor's firmware, or a package that you build yourself:
+
+```starlark
+# MODULE.bazel
+http_file = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_file")
+
+http_file(
+    name = "vendor_kernel_deb",
+    sha256 = "...",
+    urls = ["https://vendor.example/linux-image-6.12.0-vendor_6.12.0-1_amd64.deb"],
+)
+
+# BUILD.bazel
+mkosi_base(
+    name = "base",
+    config_tree = ":base_config",  # Packages=linux-image-6.12.0-vendor ...
+    debian_snapshot = "@my_debian//:repository",
+    extra_packages = ["@vendor_kernel_deb//file"],
+    release_seed = "00000000-0000-4000-8000-000000000015",
+    release_source_date_epoch = 1789200491,
+)
+```
+
+The build serves the files to APT as a local repository next to the snapshot mirror, so `Packages=` selects them by package name and dpkg runs their maintainer scripts, unlike `rootfs_payloads`.
+APT prefers an extra package to a snapshot package of the same name whatever their versions, so an extra package can replace one, such as `linux-image-amd64`.
+Dependencies must be in the snapshot lock or in `extra_packages`; otherwise the build fails with `PACKAGE_RESOLUTION_FAILURE`.
+Each file must be a Debian binary package for the snapshot's architecture or `all`, and no two may have the same package name; the file name does not matter.
+The packages stay out of the snapshot lock, so pin downloads by hash.
+They are build inputs, so a changed package changes the cache key and a version derived with `image_version_from_inputs`.
+mkosi's default initrd is built from the same repositories, so `InitrdPackages=` can select them too, and the kernel modules initrd of a finalized image takes the modules of the kernel in the base.
+
+Set `extra_packages` on the `mkosi_base` of a two-stage release, or on an `mkosi_image` with `debian_snapshot`.
+`extra_packages_metadata` of `MkosiBaseInfo` and `MkosiImageInfo` lists each package's name, version, architecture, size, and SHA-256, and `mkosi_reproducibility_manifest` records it next to the build metadata, which identifies the snapshot packages by the digest of their lock.
 
 ### Image identity
 
@@ -450,6 +486,8 @@ register_toolchains("//toolchains:python_3_14")
 | `KERNEL_CAPABILITY_FAILURE` | The host does not meet the [host-kernel contract](docs/design/0004-host-kernel-contract.md). Each `FAIL` line names its remediation. Do not disable the Linux sandbox. |
 | `TOOLCHAIN_FAILURE` | A registered toolchain is missing or could not start; check the toolchain setup above. |
 | `NETWORK_FAILURE` | A tracer build could not download packages, although apt retries failed downloads. |
+| `PACKAGE_RESOLUTION_FAILURE` | APT could not install a package or dependency offline; add it to your snapshot's lock or to `extra_packages`. |
+| `EXTRA_PACKAGE_FAILURE` | A file in `extra_packages` is not a Debian binary package, repeats another one's package name, or is built for another architecture than the snapshot. |
 | `Failed to connect to https://snapshot.debian.org/...` while fetching a snapshot | The service throttles; Bazel retries 7 times by default. Allow more attempts in your `.bazelrc`, for example `common --http_connector_attempts=12 --http_connector_retry_max_timeout=60s`. |
 | `ASSEMBLY_FAILURE` | mkosi failed; its output is preserved in the action log. |
 | `VM_FAILURE` | A boot test failed; inspect the retained serial, firmware, and QEMU logs. |
