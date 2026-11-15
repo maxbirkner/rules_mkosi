@@ -5,8 +5,10 @@ import unittest
 from typing import TypedDict
 
 ID_RE = re.compile(r"^BHV-[A-Z0-9]+(?:-[A-Z0-9]+)*$")
-LAYERS = {"analysis", "artifact", "consumer", "module-resolution", "runtime"}
-ROOT_LAYERS = LAYERS - {"consumer"}
+LAYERS = {"analysis", "artifact", "consumer", "module-resolution", "native-arm64", "runtime"}
+# native-arm64 targets are compatible only with Linux aarch64 execution platforms, so the root registration, which every
+# host analyses, cannot depend on them.
+ROOT_LAYERS = LAYERS - {"consumer", "native-arm64"}
 
 
 class Mapping(TypedDict):

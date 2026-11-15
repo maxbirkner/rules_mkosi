@@ -13,10 +13,10 @@ Bazel rules for building bootable Linux OS images with [mkosi](https://github.co
 | Requirement | Supported |
 | --- | --- |
 | Bazel | 8 and 9 (the current and previous LTS majors). The minimum is 8.8.2. |
-| Host | Linux x86-64. With local execution, the host is the execution platform; rules_mkosi's default bootstrap platforms follow the host's CPU (see [static bootstrap toolchain](#static-bootstrap-toolchain)). |
-| Execution platform | Linux x86-64, kernel 5.12 or newer, unprivileged user and mount namespaces under Bazel's Linux sandbox (see [host-kernel contract](docs/design/0004-host-kernel-contract.md)). |
+| Host | Linux x86-64 or aarch64. With local execution, the host is the execution platform; rules_mkosi's default bootstrap platforms follow the host's CPU (see [static bootstrap toolchain](#static-bootstrap-toolchain)). |
+| Execution platform | Linux x86-64 or aarch64, kernel 5.12 or newer, unprivileged user and mount namespaces under Bazel's Linux sandbox (see [host-kernel contract](docs/design/0004-host-kernel-contract.md)). |
 | Bazel server | Any unprivileged user; neither sudo nor a server without supplementary groups is needed (see [supplementary groups](#supplementary-groups)). |
-| Images | Debian 13 (trixie), amd64 and [arm64](#arm64-images). On Linux x86-64, arm64 images need Linux 6.7 or newer. |
+| Images | Debian 13 (trixie), amd64 and [arm64](#arm64-images) on Linux x86-64, where arm64 images need Linux 6.7 or newer; arm64 on Linux aarch64. |
 | KVM | Optional; boot tests fall back to TCG. |
 
 Image actions never run remotely (`no-remote-exec`).
@@ -357,11 +357,14 @@ Architecture=arm64
 On a Linux x86-64 execution platform, the image is cross-built: the amd64 Debian tools assemble it, and only the image's own programs, such as package maintainer scripts, run under the Debian tools toolchain's pinned static `qemu-aarch64`.
 The action registers the emulator in a `binfmt_misc` instance that only its own user namespaces see, which needs Linux 6.7 or newer but neither root nor a `binfmt_misc` registration on the host, and it ignores the host's registrations.
 To qualify a host for arm64 images, run `bazel test --config=kernel_preflight //mkosi/private:binfmt_runner_host_test` from a rules_mkosi checkout.
+On a Linux aarch64 execution platform, the image is built natively: the arm64 Debian tools, from the built-in arm64 lock with their own pinned archive digest, a static aarch64 launcher and Python, assemble it without an emulator.
+That platform cannot build amd64 images, and their analysis fails.
+Cross- and natively built images are each reproducible, but not byte-identical to each other, because they run different tool binaries.
 Build the executables in `rootfs_payloads` for arm64 yourself, for example with `platform_transition_filegroup` from bazel_lib.
 Release images of arm64 support the same UKI, dm-verity, A/B and update payload settings as those of amd64: their partitions use the `root-arm64` and `root-arm64-verity` types, the ESP holds `systemd-bootaa64.efi` and `BOOTAA64.EFI`, `MkosiImageInfo.architecture` is `arm64`, and their `sysupdate_transfers` need `architecture = "arm64"`.
 Give the ESP at least 512 MiB: systemd-repart formats it as FAT32 with 4 KiB clusters, and the UEFI firmware does not mount a FAT32 file system with fewer than 65525 clusters.
 `qemu_ovmf_boot_test` boots arm64 images with `qemu-system-aarch64` and AAVMF, under TCG on Linux x86-64; see [boot tests](#boot-tests).
-Secure Boot signing tests of arm64 boot binaries and arm64 execution platforms follow in [#206](https://github.com/maxbirkner/rules_mkosi/issues/206).
+Secure Boot signing tests of arm64 boot binaries and boot tests on arm64 execution platforms follow in [#206](https://github.com/maxbirkner/rules_mkosi/issues/206).
 
 ### Image identity
 
