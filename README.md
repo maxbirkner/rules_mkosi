@@ -267,6 +267,9 @@ Release mode rejects these settings, which could import host state or a network 
 - host microcode, host kernel modules, and signing key or certificate settings.
 
 Release images do not keep an APT source; build a new image from a new snapshot to update packages.
+systemd-repart derives an ext4 file system's UUID from `Seed=`, but `mkfs.ext4` picks a random directory hash seed.
+So release builds that format partitions pass `-E hash_seed=` with a UUID derived from `Seed=`, as systemd-repart derives UUIDs, through `SYSTEMD_REPART_MKFS_OPTIONS_EXT4`.
+A configuration that sets `SYSTEMD_REPART_MKFS_OPTIONS_EXT4` with `Environment=` replaces these options and must pin `hash_seed` itself.
 Use `rootfs_payloads` instead of scripts for extra content.
 
 A `release_source_date_epoch` of `0` makes systemd-sysusers record a 1970 password change, which forces a password change on first login.

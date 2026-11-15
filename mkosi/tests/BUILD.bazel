@@ -979,7 +979,11 @@ py_test(
 py_test(
     name = "release_image_artifact_test",
     srcs = ["release_image_artifact_test.py"],
-    args = ["$(rootpath :release_raw_image)"],
+    args = [
+        "$(rootpath :release_raw_image)",
+        # Derived from the release seed: testdata/release-config does not set mkfs.ext4 options itself.
+        "d4bebcd7-9107-4c49-b2f0-c1adcb0f5a8f",
+    ],
     data = [
         "raw_image_validator.py",
         ":release_raw_image",
