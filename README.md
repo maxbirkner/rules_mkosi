@@ -359,7 +359,8 @@ The action registers the emulator in a `binfmt_misc` instance that only its own 
 To qualify a host for arm64 images, run `bazel test --config=kernel_preflight //mkosi/private:binfmt_runner_host_test` from a rules_mkosi checkout.
 Build the executables in `rootfs_payloads` for arm64 yourself, for example with `platform_transition_filegroup` from bazel_lib.
 Release images of arm64 support the same UKI, dm-verity, A/B and update payload settings as those of amd64: their partitions use the `root-arm64` and `root-arm64-verity` types, the ESP holds `systemd-bootaa64.efi` and `BOOTAA64.EFI`, `MkosiImageInfo.architecture` is `arm64`, and their `sysupdate_transfers` need `architecture = "arm64"`.
-Boot tests of arm64 images, Secure Boot signing tests of their boot binaries, and arm64 execution platforms follow in [#206](https://github.com/maxbirkner/rules_mkosi/issues/206).
+[Secure Boot signing](docs/secure-boot.md) works the same for arm64 images; sign `EFI/systemd/systemd-bootaa64.efi` instead of `EFI/systemd/systemd-bootx64.efi`.
+Boot tests of arm64 images and arm64 execution platforms follow in [#206](https://github.com/maxbirkner/rules_mkosi/issues/206).
 
 ### Image identity
 
