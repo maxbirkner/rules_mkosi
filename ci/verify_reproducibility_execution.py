@@ -41,6 +41,13 @@ SUBJECTS = {
             "MkosiReproducibilityManifest",
             "//mkosi/tests:two_stage_input_version_reproducibility",
         ),
+        # Cross-built on Linux x86-64: its maintainer scripts run under the toolchain's arm64 emulator.
+        ("MkosiImage", "//mkosi/tests/arm64:uki_release"),
+        (
+            "MkosiReproducibilityManifest",
+            "//mkosi/tests/arm64:uki_release_reproducibility",
+        ),
+        ("MkosiSysupdatePayload", "//mkosi/tests/arm64:uki_release_payload"),
     },
     "bootstrap": {
         ("BuildDebianToolsArchive", _DEBIAN_TOOLS + ":tree"),

@@ -97,6 +97,17 @@ class VerityMetadataTest(unittest.TestCase):
         )
         self.assertEqual(2, self._project()["data_blocks"])
 
+    def test_arm64_partition_metadata_selects_the_arm64_types(self) -> None:
+        partitions = [
+            _partition(1, gpt_partitions.ROOT_ARM64, "ab_1"),
+            _partition(2, gpt_partitions.ROOT_ARM64_VERITY, "ab_1_verity"),
+        ]
+        self.partitions.write_text(json.dumps({"architecture": "arm64", "partitions": partitions}))
+        self.assertEqual(2, self._project()["data_blocks"])
+        self.partitions.write_text(json.dumps({"partitions": partitions}))
+        with self.assertRaisesRegex(ValueError, "exactly one root-x86-64 data and verity hash partition"):
+            self._project()
+
     def test_rejects_second_populated_root(self) -> None:
         self._write_partition_table(*ACTIVE_AB_SLOT, _partition(3, gpt_partitions.ROOT_X86_64, "ab_0"))
         with self.assertRaisesRegex(ValueError, "exactly one"):

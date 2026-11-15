@@ -358,7 +358,8 @@ On a Linux x86-64 execution platform, the image is cross-built: the amd64 Debian
 The action registers the emulator in a `binfmt_misc` instance that only its own user namespaces see, which needs Linux 6.7 or newer but neither root nor a `binfmt_misc` registration on the host, and it ignores the host's registrations.
 To qualify a host for arm64 images, run `bazel test --config=kernel_preflight //mkosi/private:binfmt_runner_host_test` from a rules_mkosi checkout.
 Build the executables in `rootfs_payloads` for arm64 yourself, for example with `platform_transition_filegroup` from bazel_lib.
-arm64 release images with a UKI, dm-verity and A/B payloads, their boot tests, and arm64 execution platforms follow in [#206](https://github.com/maxbirkner/rules_mkosi/issues/206).
+Release images of arm64 support the same UKI, dm-verity, A/B and update payload settings as those of amd64: their partitions use the `root-arm64` and `root-arm64-verity` types, the ESP holds `systemd-bootaa64.efi` and `BOOTAA64.EFI`, `MkosiImageInfo.architecture` is `arm64`, and their `sysupdate_transfers` need `architecture = "arm64"`.
+Boot tests of arm64 images, Secure Boot signing tests of their boot binaries, and arm64 execution platforms follow in [#206](https://github.com/maxbirkner/rules_mkosi/issues/206).
 
 ### Image identity
 

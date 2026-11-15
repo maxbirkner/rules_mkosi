@@ -13,6 +13,7 @@ load(
     "mkosi_source_tree",
 )
 load(":analysis_test_helpers.bzl", "argv_preamble", "option_value", "single_action")
+load(":mkosi_image_test.bzl", "image_field_file")
 
 _SEED = "00000000-0000-4000-8000-000000000007"
 
@@ -147,21 +148,6 @@ _input_version_finalize_test = analysistest.make(
     attrs = {"base": attr.label(providers = [MkosiBaseInfo], mandatory = True)},
 )
 
-def _image_field_file_impl(ctx):
-    """Selects one File field of MkosiImageInfo through the provider rather than a filename."""
-    file = getattr(ctx.attr.image[MkosiImageInfo], ctx.attr.field)
-    if file == None:
-        fail("image must provide MkosiImageInfo." + ctx.attr.field)
-    return [DefaultInfo(files = depset([file]))]
-
-_image_field_file = rule(
-    implementation = _image_field_file_impl,
-    attrs = {
-        "field": attr.string(mandatory = True),
-        "image": attr.label(providers = [MkosiImageInfo], mandatory = True),
-    },
-)
-
 def _input_version_fixtures():
     """Declares a finalization of two_stage_base whose version is derived from its inputs.
 
@@ -189,7 +175,7 @@ def _input_version_fixtures():
         tags = ["manual"],
     )
     for field in ("build_metadata", "image_version_file", "input_digest", "uki"):
-        _image_field_file(
+        image_field_file(
             name = "two_stage_input_version_" + field,
             field = field,
             image = ":two_stage_input_version_release",

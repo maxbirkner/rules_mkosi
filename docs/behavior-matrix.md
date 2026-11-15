@@ -28,6 +28,7 @@ Exactly one of `config` (one file) and `config_tree` is required; release mode r
 <!-- behavior:BHV-IMAGE-ARCHITECTURE -->
 An image built from `debian_snapshot` has the snapshot's architecture, and its configuration must resolve `Architecture=` to it (`x86-64` for `amd64`, `arm64` for `arm64`).
 If the Debian tools toolchain of the execution platform has another architecture, the image action registers the toolchain's user-mode emulator for the snapshot's architecture in a `binfmt_misc` instance private to the action, after checking that it runs a program of that architecture, and fails during analysis if the toolchain has none.
+`MkosiImageInfo.architecture` reports the architecture, and the partition, dm-verity and update payload metadata of a release image validate the root, verity and A/B slot partition types of that architecture.
 
 <!-- behavior:BHV-IMAGE-SEED -->
 `release_seed` is required only in release mode and must match the resolved `Seed=`.
@@ -69,7 +70,7 @@ It rejects directories, `base`, images without a snapshot, files that are not De
 The packages are inputs of the build and of a derived image version, and `extra_packages_metadata` lists each one's name, version, architecture, size, and SHA-256 in `MkosiBaseInfo`, `MkosiImageInfo`, and the reproducibility manifest.
 
 <!-- behavior:BHV-SYSUPDATE-TRANSFERS -->
-`sysupdate_transfers` validates the image id, a non-negative `boot_attempts` (zero installs UKIs without a boot counter), and at least two `instances`, and installs root, verity, and UKI transfers that use `PathRelativeTo=explicit` or, with an `http://` or `https://` `url`, `url-file` sources with `Verify=yes`, root-hash UUIDs, accept plain or xz-compressed partition files, and protect the running version.
+`sysupdate_transfers` validates the image id, a non-negative `boot_attempts` (zero installs UKIs without a boot counter), and at least two `instances`, and installs root, verity, and UKI transfers for the partition types of its `architecture` that use `PathRelativeTo=explicit` or, with an `http://` or `https://` `url`, `url-file` sources with `Verify=yes`, root-hash UUIDs, accept plain or xz-compressed partition files, and protect the running version.
 
 <!-- behavior:BHV-TREE-SRC -->
 `mkosi_config_tree.src` and `mkosi_source_tree.src` each resolve to exactly one file or directory and produce their typed provider.
@@ -156,7 +157,7 @@ They reject an image without one ESP in a valid GPT, reads outside the image, an
 `sysupdate_import_signature` accepts only exactly one detached signature that sqv verifies over that `SHA256SUMS` with that certificate, and returns the payload's `SysupdatePayloadInfo` with `signature`; `sysupdate_ephemeral_test_fixture` signs in one uncached, local action and outputs only public data.
 
 <!-- behavior:BHV-IMAGE-PROVIDER -->
-`MkosiImageInfo` has a fixed `format_version`, exposes every artifact role as `File` or `None`, keeps `image` as an alias of `raw_image`, projects each present artifact once through `DefaultInfo` and `raw_image` alone through the `raw_image` output group, and exposes `firmware`, `image_id`, `image_version`, `image_version_file`, `input_digest`, `version_inputs`, `version_signing_certificates`, and `version_auto_enroll_keys`, with `image_version_file` and `input_digest` also in the `image_version` output group.
+`MkosiImageInfo` has a fixed `format_version`, exposes every artifact role as `File` or `None`, keeps `image` as an alias of `raw_image`, projects each present artifact once through `DefaultInfo` and `raw_image` alone through the `raw_image` output group, and exposes `architecture`, `firmware`, `image_id`, `image_version`, `image_version_file`, `input_digest`, `version_inputs`, `version_signing_certificates`, and `version_auto_enroll_keys`, with `image_version_file` and `input_digest` also in the `image_version` output group.
 
 <!-- behavior:BHV-TREE-PROVIDERS -->
 `MkosiConfigTreeInfo` and `MkosiSourceTreeInfo` expose `tree` and normalized `executable_paths`.

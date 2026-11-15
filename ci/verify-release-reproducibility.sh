@@ -32,6 +32,8 @@ workspace_status="$results/workspace-status.sh"
 printf '#!/bin/sh\necho STABLE_RULES_MKOSI_TWO_STAGE_VERSION 1\n' >"$workspace_status"
 chmod +x "$workspace_status"
 targets=(
+  //mkosi/tests/arm64:uki_release_payload
+  //mkosi/tests/arm64:uki_release_reproducibility
   //mkosi/tests:erofs_release_payload
   //mkosi/tests:erofs_release_reproducibility
   //mkosi/tests:extra_packages_reproducibility

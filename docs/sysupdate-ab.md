@@ -353,6 +353,7 @@ sysupdate_transfers(
     # instances = 2,
     # destination = "/usr/lib/sysupdate.d",
     # url = "https://updates.example.com/my-os",
+    # architecture = "arm64",  # Of the image; selects root-arm64 partition types.
 )
 ```
 
@@ -361,8 +362,8 @@ It writes three transfers; both partitions are written before the UKI that refer
 
 | File | Source | Target |
 | --- | --- | --- |
-| `10-root.transfer` | `<id>_@v.root.@u.raw.xz` or `<id>_@v.root.@u.raw` | partition of type `root-x86-64` labelled `<id>_@v` |
-| `20-root-verity.transfer` | `<id>_@v.root-verity.@u.raw.xz` or `<id>_@v.root-verity.@u.raw` | partition of type `root-x86-64-verity` labelled `<id>_@v_verity` |
+| `10-root.transfer` | `<id>_@v.root.@u.raw.xz` or `<id>_@v.root.@u.raw` | partition of type `root-x86-64` (`root-arm64` for arm64) labelled `<id>_@v` |
+| `20-root-verity.transfer` | `<id>_@v.root-verity.@u.raw.xz` or `<id>_@v.root-verity.@u.raw` | partition of type `root-x86-64-verity` (`root-arm64-verity` for arm64) labelled `<id>_@v_verity` |
 | `90-uki.transfer` | `<id>_@v.efi` | `/EFI/Linux/<id>_@v+@l-@d.efi` on `$BOOT`, or `<id>_@v.efi` with `boot_attempts = 0` |
 
 | Attribute | Default | Meaning |

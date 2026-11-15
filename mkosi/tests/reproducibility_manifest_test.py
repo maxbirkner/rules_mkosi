@@ -164,7 +164,16 @@ class ProjectionTest(unittest.TestCase):
                     projection.partition_metadata, "canonical_image_sha256", return_value="a" * 64
                 ) as canonical:
                     projection.project(image, metadata, partitions)
-                canonical.assert_called_once_with(image, slot_label)
+                canonical.assert_called_once_with(image, slot_label, "amd64")
+
+    def test_arm64_image_is_hashed_with_its_root_types(self) -> None:
+        image, metadata, partitions, _ = self._minimal_projection_inputs()
+        partitions.write_text(json.dumps({"architecture": "arm64"}))
+        with mock.patch.object(
+            projection.partition_metadata, "canonical_image_sha256", return_value="a" * 64
+        ) as canonical:
+            projection.project(image, metadata, partitions)
+        canonical.assert_called_once_with(image, None, "arm64")
 
     def test_rejects_descriptor_metadata_change_during_hashing(self) -> None:
         image, metadata, partitions, split = self._minimal_projection_inputs()

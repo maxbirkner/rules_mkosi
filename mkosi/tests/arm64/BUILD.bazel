@@ -1,9 +1,17 @@
 # arm64 images built from the built-in arm64 Debian snapshot. On a Linux x86-64 execution platform they are cross-built:
 # the image's maintainer scripts run under the Debian tools toolchain's user-mode emulator.
 load("@rules_python//python:defs.bzl", "py_test")
-load("//mkosi:defs.bzl", "mkosi_base", "mkosi_config_tree", "mkosi_image")
-load("//mkosi/tests:mkosi_image_test.bzl", "raw_image_file")
-load(":arm64_test.bzl", "foreign_architecture_test")
+load(
+    "//mkosi:defs.bzl",
+    "mkosi_base",
+    "mkosi_config_tree",
+    "mkosi_image",
+    "mkosi_reproducibility_manifest",
+    "sysupdate_payload",
+    "sysupdate_transfers",
+)
+load("//mkosi/tests:mkosi_image_test.bzl", "image_field_file", "raw_image_file")
+load(":arm64_test.bzl", "arm64_image_test", "foreign_architecture_test")
 
 package(default_visibility = ["//mkosi/tests:__subpackages__"])
 
@@ -61,4 +69,80 @@ foreign_architecture_test(
     name = "base_foreign_architecture_test",
     mnemonic = "MkosiBase",
     target_under_test = ":base_subject",
+)
+
+mkosi_config_tree(
+    name = "release_config",
+    srcs = glob(["release-config/**"]),
+    strip_prefix = "release-config",
+)
+
+sysupdate_transfers(
+    name = "transfers",
+    architecture = "arm64",
+    image_id = "rules-mkosi-arm64",
+)
+
+# The reusable arm64 release fixture: a UKI, a dm-verity protected erofs root, and A/B slots.
+mkosi_image(
+    name = "uki_release",
+    config_tree = ":release_config",
+    debian_snapshot = "@mkosi_debian_snapshot_arm64//:repository",
+    image_id = "rules-mkosi-arm64",
+    image_version = "1",
+    mode = "release",
+    release_seed = "00000000-0000-4000-8000-000000000206",
+    release_source_date_epoch = 1789200491,
+    rootfs_payloads = [":transfers"],
+    unified_kernel_image = "unsigned",
+    verity = "hash",
+)
+
+sysupdate_payload(
+    name = "uki_release_payload",
+    image = ":uki_release",
+)
+
+mkosi_reproducibility_manifest(
+    name = "uki_release_reproducibility",
+    image = ":uki_release",
+)
+
+arm64_image_test(
+    name = "uki_release_provider_test",
+    target_under_test = ":uki_release",
+)
+
+[
+    image_field_file(
+        name = "uki_release_" + field,
+        field = field,
+        image = ":uki_release",
+    )
+    for field in ("raw_image", "partition_metadata", "uki")
+]
+
+py_test(
+    name = "uki_release_artifact_test",
+    srcs = [
+        "arm64_release_artifact_test.py",
+        "//mkosi/tests:runfile_paths.py",
+    ],
+    args = [
+        "$(rootpath :uki_release_raw_image)",
+        "$(rootpath :uki_release_partition_metadata)",
+        "$(rootpath :uki_release_uki)",
+        "$(rootpath :uki_release_payload)",
+    ],
+    data = [
+        ":uki_release_partition_metadata",
+        ":uki_release_payload",
+        ":uki_release_raw_image",
+        ":uki_release_uki",
+    ],
+    main = "arm64_release_artifact_test.py",
+    deps = [
+        "//mkosi:esp_manifest_lib",
+        "@rules_python//python/runfiles",
+    ],
 )

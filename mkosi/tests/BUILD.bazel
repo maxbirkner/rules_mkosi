@@ -303,6 +303,8 @@ behavior_targets(
         "//mkosi/tests/arm64:base_foreign_architecture_test",
         "//mkosi/tests/arm64:minimal_artifact_test",
         "//mkosi/tests/arm64:minimal_foreign_architecture_test",
+        "//mkosi/tests/arm64:uki_release_artifact_test",
+        "//mkosi/tests/arm64:uki_release_provider_test",
         ":debian_snapshot_arm64_artifact_test",
         ":debian_snapshot_arm64_provider_test",
         ":debian_snapshot_artifact_test",
