@@ -397,9 +397,8 @@ mkosi_image(
 )
 ```
 
-The build checks that each file is a flattened device tree (magic `0xd00dfeed`) with a root compatible string, stages it as `/usr/lib/firmware/<kver>/device-tree/rules-mkosi/<file name>` for the UKI's kernel, and appends the pattern `rules-mkosi/<file name>` to `Devicetrees=`, after the configuration's own patterns, so that no exclusion drops it.
-It is therefore selected together with the device trees that `Devicetrees=` selects from packages, and the rules above decide between `.dtb` and `.dtbauto`.
-mkosi builds the UKI after the root partition, so a staged device tree is only in the UKI, not in the root file system.
+The build checks that each file is a flattened device tree (magic `0xd00dfeed`) with a root compatible string, and hands it to ukify together with the device trees that `Devicetrees=` selects from packages, ahead of them and whatever their patterns exclude; the rules above decide between `.dtb` and `.dtbauto`.
+The files are never copied into the image tree, so they are only in the UKI, not in the root file system, the ESP, or any other partition or output, with or without dm-verity.
 `devicetrees` requires release mode and `unified_kernel_image`; file names must end with `.dtb`, be unique, and consist of letters, digits, `.`, `_`, `+` and `-`.
 The files are build inputs, so a changed device tree changes the cache key and a version derived with `image_version_from_inputs`.
 
