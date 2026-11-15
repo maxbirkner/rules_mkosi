@@ -217,13 +217,12 @@ alias(
     }),
 )
 
-# The Debian tools launcher of the target CPU, for tests that read images with the packaged tools on the host that runs
-# them.
+# The Debian tools launcher of the configuration's CPU: of the execution platform for `cfg = "exec"` attributes of the
+# artifact rules, and of the host for tests that read images with the packaged tools.
 alias(
-    name = "host_launcher",
+    name = "launcher",
     actual = select({
         "@platforms//cpu:aarch64": "@mkosi_debian_tools//arm64:launcher",
         "//conditions:default": "@mkosi_debian_tools//:launcher",
     }),
-    visibility = ["//mkosi/tests:__subpackages__"],
 )
