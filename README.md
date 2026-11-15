@@ -13,7 +13,7 @@ Bazel rules for building bootable Linux OS images with [mkosi](https://github.co
 | Requirement | Supported |
 | --- | --- |
 | Bazel | 8 and 9 (the current and previous LTS majors). The minimum is 8.8.2. |
-| Host | Linux x86-64. With local execution, the host is the execution platform, and rules_mkosi's default bootstrap execution platform always declares Linux x86-64, so on another host the `llvm` module's Linux x86-64 compiler fails when it runs. |
+| Host | Linux x86-64. With local execution, the host is the execution platform; rules_mkosi's default bootstrap platforms follow a Linux aarch64 host and are Linux x86-64 otherwise (see [static bootstrap toolchain](#static-bootstrap-toolchain)). |
 | Execution platform | Linux x86-64, kernel 5.12 or newer, unprivileged user and mount namespaces under Bazel's Linux sandbox (see [host-kernel contract](docs/design/0004-host-kernel-contract.md)). |
 | Bazel server | Any unprivileged user; neither sudo nor a server without supplementary groups is needed (see [supplementary groups](#supplementary-groups)). |
 | Images | Debian 13 (trixie), amd64 and [arm64](#arm64-images). On Linux x86-64, arm64 images need Linux 6.7 or newer. |
@@ -576,15 +576,15 @@ bazel test --config=kernel_preflight //mkosi/private:binfmt_runner_host_test  # 
 ### Static bootstrap toolchain
 
 The Debian launcher and namespace runner must link fully static.
-They are built for the platform selected by `@rules_mkosi//mkosi/toolchain:bootstrap_platform`; by default, that is a Linux x86-64 platform with the `llvm` module's `@llvm//constraints/libc:musl` and `@llvm//constraints/pie:off` constraints, while their runfiles keep the current platform.
-Their transition puts `@rules_mkosi//mkosi/toolchain/bootstrap_cc:all`, the `llvm` module's Linux x86-64 C/C++ toolchain, before every registered C/C++ toolchain with `--extra_toolchains`, so neither your registrations nor the order of your dependencies change it, and no registration is needed.
-It matches only Linux x86-64 platforms with `@llvm//constraints/libc:musl`, and only below the bootstrap executables.
-The transition also puts the platform selected by `@rules_mkosi//mkosi/toolchain:bootstrap_execution_platform` (default: the same static platform, `@rules_mkosi//mkosi/toolchain/bootstrap_cc:linux_x86_64_musl`) first in `--extra_execution_platforms`, so that the toolchain's own helper tools, which are built for the execution platform, link statically against musl too, without a host C/C++ compiler or the `llvm` module's glibc runtime.
+They are built for the platform selected by `@rules_mkosi//mkosi/toolchain:bootstrap_platform`; by default, that is a Linux aarch64 platform on Linux aarch64 hosts and a Linux x86-64 platform on every other host, such as one that executes remotely, with the `llvm` module's `@llvm//constraints/libc:musl` and `@llvm//constraints/pie:off` constraints (`@rules_mkosi//mkosi/toolchain/bootstrap_cc:linux_x86_64_musl` or `linux_aarch64_musl`), while their runfiles keep the current platform.
+Their transition puts `@rules_mkosi//mkosi/toolchain/bootstrap_cc:all`, the `llvm` module's Linux x86-64 and aarch64 C/C++ toolchains, before every registered C/C++ toolchain with `--extra_toolchains`, so neither your registrations nor the order of your dependencies change them, and no registration is needed.
+They match only Linux x86-64 and aarch64 platforms with `@llvm//constraints/libc:musl`, and only below the bootstrap executables; a Linux x86-64 execution platform can also cross-build for `linux_aarch64_musl`.
+The transition also puts the platform selected by `@rules_mkosi//mkosi/toolchain:bootstrap_execution_platform` (default: the same static platform) first in `--extra_execution_platforms`, so that the toolchain's own helper tools, which are built for the execution platform, link statically against musl too, without a host C/C++ compiler or the `llvm` module's glibc runtime.
 The first build compiles musl, libc++, and the compiler runtimes from source, once for the executables and once, optimized, for the helper tools.
 
 The compile and link actions below the bootstrap executables run on that execution platform.
 The default declares no `exec_properties`, so with remote execution they get only `--remote_default_exec_properties`.
-To keep the `exec_properties` of your own execution platform, select a Linux x86-64 child of it with the musl and non-PIE constraints:
+To keep the `exec_properties` of your own execution platform, select a Linux x86-64 or aarch64 child of it with the musl and non-PIE constraints:
 
 ```starlark
 # BUILD.bazel

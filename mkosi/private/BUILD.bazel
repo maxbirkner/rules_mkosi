@@ -224,7 +224,7 @@ filegroup(
 )
 
 # Registered only while rules_mkosi is the root module, so that its own C and C++ helpers and tests build with the
-# llvm module's C/C++ toolchain for every Linux x86-64 target, without fetching it for other builds.
+# llvm module's C/C++ toolchain for every Linux x86-64 or aarch64 target, without fetching it for other builds.
 toolchain(
     name = "development_cc_toolchain",
     exec_compatible_with = [
@@ -236,5 +236,19 @@ toolchain(
         "@platforms//os:linux",
     ],
     toolchain = "@llvm//toolchain:linux_x86_64_cc_toolchain",
+    toolchain_type = "@bazel_tools//tools/cpp:toolchain_type",
+)
+
+toolchain(
+    name = "development_cc_toolchain_aarch64",
+    exec_compatible_with = [
+        "@platforms//cpu:aarch64",
+        "@platforms//os:linux",
+    ],
+    target_compatible_with = [
+        "@platforms//cpu:aarch64",
+        "@platforms//os:linux",
+    ],
+    toolchain = "@llvm//toolchain:linux_aarch64_cc_toolchain",
     toolchain_type = "@bazel_tools//tools/cpp:toolchain_type",
 )

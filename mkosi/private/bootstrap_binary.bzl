@@ -1,12 +1,15 @@
 """Builds statically linked bootstrap executables for a selectable target platform."""
 
+load("//mkosi/toolchain/bootstrap_cc:host_platform.bzl", "HOST_BOOTSTRAP_PLATFORM")
+
 _PLATFORMS = "//command_line_option:platforms"
 _BOOTSTRAP_PLATFORM = str(Label("//mkosi/toolchain:bootstrap_platform"))
 _INHERIT_PLATFORM = Label("//mkosi/toolchain:inherit_platform")
 
-# Linux x86-64 musl platform for which the llvm module's C/C++ toolchain links fully static executables. With the default
-# bootstrap platform, the executable is built for it, while its data keeps the current platform.
-_STATIC_PLATFORM = str(Label("//mkosi/toolchain/bootstrap_cc:linux_x86_64_musl"))
+# Linux musl platform of the host, aarch64 on Linux aarch64 hosts and x86-64 otherwise, for which the llvm module's C/C++
+# toolchain links fully static executables. With the default bootstrap platform, the executable is built for it, while
+# its data keeps the current platform.
+_STATIC_PLATFORM = str(Label(HOST_BOOTSTRAP_PLATFORM))
 
 # The first execution platform below the executable, by default the static platform, so that the toolchain's own helper
 # tools link statically against musl too, instead of against the glibc runtime of the llvm module or with a host C/C++
@@ -90,7 +93,7 @@ bootstrap_binary = rule(
             executable = True,
             mandatory = True,
             doc = """Statically linked binary built for --@rules_mkosi//mkosi/toolchain:bootstrap_platform, by default
-//mkosi/toolchain/bootstrap_cc:linux_x86_64_musl.""",
+//mkosi/toolchain/bootstrap_cc:linux_x86_64_musl, or linux_aarch64_musl on Linux aarch64 hosts.""",
         ),
         "data": attr.label_list(
             allow_files = True,
@@ -108,11 +111,12 @@ The executable is a symlink named after this target. Its runfiles are those of `
 libraries initialized from either the directory or the manifest of this executable find the same files.
 
 By default `binary` is built for `//mkosi/toolchain/bootstrap_cc:linux_x86_64_musl`, a Linux x86-64 platform with the
-llvm module's musl and non-PIE constraints. Its transition sets
-`//mkosi/toolchain/bootstrap_cc:bootstrap_executable`, the only configuration in which the static musl toolchain of
-`//mkosi/toolchain/bootstrap_cc`, the llvm module's Linux x86-64 C/C++ toolchain, matches, and puts it first in
-`--extra_toolchains`, so it outranks every registered C/C++ toolchain whatever the consumer registers. It matches
-Linux x86-64 platforms with the `@llvm//constraints/libc:musl` constraint. The transition also puts
+llvm module's musl and non-PIE constraints, or for `linux_aarch64_musl`, its Linux aarch64 counterpart, when the host
+is Linux aarch64. Its transition sets `//mkosi/toolchain/bootstrap_cc:bootstrap_executable`, the only configuration in
+which the static musl toolchains of `//mkosi/toolchain/bootstrap_cc`, the llvm module's Linux x86-64 and aarch64 C/C++
+toolchains, match, and puts them first in `--extra_toolchains`, so they outrank every registered C/C++ toolchain
+whatever the consumer registers. They match Linux x86-64 and aarch64 platforms with the `@llvm//constraints/libc:musl`
+constraint, also arm64 bootstrap platforms on Linux x86-64 execution platforms. The transition also puts
 `--@rules_mkosi//mkosi/toolchain:bootstrap_execution_platform`, by default that same platform, first in
 `--extra_execution_platforms`, so that the llvm toolchain's own helper tools, which are built for the execution
 platform, link statically against musl too and no host C/C++ compiler is needed. For any other bootstrap platform

@@ -24,6 +24,7 @@ ci/check-lazy-toolchain-fetch.sh --uses-llvm --bootstrap-target @mkosi_debian_to
 ```
 
 Run Bazel from a module root, or use [`tools/bazel`](tools/README.md) from a subdirectory.
+On a Linux aarch64 host, add `--config=linux_aarch64` to root-module commands, so that the root module's own C and C++ targets build for the aarch64 musl host platform instead of the x86-64 one that `.bazelrc` selects.
 The checked-in `.bazelrc` files keep a disk cache in each module's `.cache/bazel-disk`, so the root module and `e2e/smoke` never share cached action results.
 Every clone and Git worktree therefore fills its own disk cache.
 Pass `--disk_cache=` to skip it for one command, or add `build --disk_cache=` to the ignored `.bazelrc.user` of the root module to skip it in that checkout.
