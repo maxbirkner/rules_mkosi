@@ -53,7 +53,7 @@ def activate_release_mode(
     if mirror is not None:
         _serve_mirror(mirror)
     _ConfigurationValidator(settings, allowed_paths, allowed_extra_tree, mirror).install()
-    require_selected_devicetrees()
+    require_selected_devicetrees(Path(settings.devicetrees) if settings.devicetrees else None)
     mkosi.distribution.debian.install_apt_sources = _remove_apt_sources
     mkosi.install_sandbox_trees = _install_sandbox_trees  # type: ignore[attr-defined]
     if settings.stage == "base":
@@ -92,33 +92,66 @@ def include_base_packages_in_manifest() -> None:
     Manifest.record_deb_packages = record_deb_packages
 
 
-def require_selected_devicetrees() -> None:
+# The prefix of the Devicetrees= entries that with_label_devicetrees appends for the device trees of
+# mkosi_image(devicetrees = ...). mkosi only selects device trees if Devicetrees= is not empty, and
+# require_selected_devicetrees replaces these entries with the files instead of matching them against the image tree.
+LABEL_DEVICETREES = "rules-mkosi-label:"
+
+
+def require_selected_devicetrees(label_devicetrees: Path | None = None) -> None:
     """Fails the build if a Devicetrees= pattern selects no device tree of the image's kernel.
 
     mkosi v27 only warns when its patterns select nothing, and silently drops a pattern that matches no file, so a
     typo or a kernel package that moved its device trees would build a UKI without them.
+
+    The entries of with_label_devicetrees select the files in label_devicetrees, ahead of the device trees that the
+    patterns select in the image tree. They are returned as absolute paths, which build_uki reads as they are, because
+    it joins each path to the image tree, so the files reach only the UKI and never the image tree, from which mkosi
+    fills the root, the ESP and the other partitions and outputs.
     """
     import mkosi
 
     original = mkosi.filter_devicetrees  # type: ignore[attr-defined]
 
     def filter_devicetrees(root: Path, kver: str, *, include: Sequence[str]) -> list[Path]:
-        selected = original(root, kver, include=include)
+        labels = [
+            (label_devicetrees / entry[len(LABEL_DEVICETREES) :]).resolve()
+            for entry in include
+            if label_devicetrees is not None and entry.startswith(LABEL_DEVICETREES)
+        ]
+        patterns = [entry for entry in include if not entry.startswith(LABEL_DEVICETREES)]
+        selected = original(root, kver, include=patterns) if patterns else []
         unselected = [
             pattern
-            for pattern in include
+            for pattern in patterns
             if not pattern.startswith("-") and not set(original(root, kver, include=[pattern])) & set(selected)
         ]
-        if unselected or not selected:
+        if unselected or not (selected or labels):
             subject = "pattern {} selects".format(unselected[0]) if unselected else "selects"
             raise SystemExit(
                 "release configuration Devicetrees= {} no device tree of kernel {}; mkosi selects .dtb files below "
                 "usr/lib/modules/{}/dtb/, usr/lib/firmware/{}/device-tree/ and usr/lib/linux-image-{}/ of the image, "
                 "and the last matching pattern wins".format(subject, kver, kver, kver, kver)
             )
-        return list(selected)
+        return [*labels, *selected]
 
     mkosi.filter_devicetrees = filter_devicetrees  # type: ignore[attr-defined]
+
+
+def with_label_devicetrees(images: tuple[MkosiConfig, ...], label_devicetrees: Path | None) -> tuple[MkosiConfig, ...]:
+    """Returns images with Devicetrees= entries for the device trees of mkosi_image(devicetrees = ...).
+
+    Only the main image has a UKI.
+    """
+    if label_devicetrees is None:
+        return images
+    entries = [LABEL_DEVICETREES + source.name for source in sorted(label_devicetrees.iterdir())]
+    return tuple(
+        replace(config, devicetrees=[*config.devicetrees, *entries])
+        if getattr(config, "image", "main") == "main"
+        else config
+        for config in images
+    )
 
 
 def _serve_mirror(mirror: release_sandbox.SnapshotMirror) -> None:
@@ -265,6 +298,9 @@ class _ConfigurationValidator(_FirstConfiguration):
     def _resolved(self, parsed: _ParsedConfig) -> _ParsedConfig:
         images = tuple(_without_proxy_certificates(config) for config in parsed[2])
         images = with_release_ext4_hash_seed(images, self._settings)
+        images = with_label_devicetrees(
+            images, Path(self._settings.devicetrees) if self._settings.devicetrees else None
+        )
         validate_release_configuration(
             tuple(config for config in images if getattr(config, "image", "main") == "main"),
             self._settings,

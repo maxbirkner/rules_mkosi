@@ -32,6 +32,8 @@ class ReleaseSettings:
     base_tree: str | None = None
     base_initrd: str | None = None
     architecture: str = "amd64"
+    # The directory of the device trees of mkosi_image(devicetrees = ...), by file name.
+    devicetrees: str | None = None
 
 
 @dataclass(frozen=True)

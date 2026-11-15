@@ -360,6 +360,54 @@ class MkosiContractTest(unittest.TestCase):
             ):
                 select("-board-a.dtb")
 
+    @staticmethod
+    def _vendor_devicetrees(root: pathlib.Path, *names: str) -> pathlib.Path:
+        """Creates empty device trees of a vendor in the kernel package directory of root and returns that directory."""
+        vendor = pathlib.Path("usr/lib/linux-image-6.12.0-arm64/vendor")
+        (root / vendor).mkdir(parents=True)
+        for name in names:
+            (root / vendor / name).write_bytes(b"")
+        return vendor
+
+    def test_release_mode_selects_label_devicetrees_outside_the_image_tree(self) -> None:
+        import mkosi
+
+        @dataclasses.dataclass(frozen=True)
+        class Image:
+            devicetrees: list[str]
+            image: str = "main"
+
+        # mypy resolves mkosi to this repository's mkosi/ directory, not to upstream mkosi (see mypy.ini).
+        self._replace(mkosi, "filter_devicetrees", mkosi.filter_devicetrees)  # type: ignore[attr-defined]
+        with tempfile.TemporaryDirectory() as directory:
+            labels = pathlib.Path(directory) / "labels"
+            labels.mkdir()
+            (labels / "board.dtb").write_bytes(b"board")
+            root = pathlib.Path(directory) / "root"
+            vendor = self._vendor_devicetrees(root, "evb-a.dtb", "evb-b.dtb")
+            images = (Image(["vendor/*", "-evb-b.dtb"]), Image([], "sysext"), Image([]))
+            configured, sysext, unconfigured = self.release_patches.with_label_devicetrees(images, labels)
+            self.assertEqual(["vendor/*", "-evb-b.dtb", "rules-mkosi-label:board.dtb"], configured.devicetrees)
+            self.assertEqual([], sysext.devicetrees)
+            self.release_patches.require_selected_devicetrees(labels)
+
+            def select(image: Image) -> list[pathlib.Path]:
+                selected: list[pathlib.Path] = mkosi.filter_devicetrees(  # type: ignore[attr-defined]
+                    root, "6.12.0-arm64", include=image.devicetrees
+                )
+                return selected
+
+            # The label comes first, as an absolute path that build_uki reads as it is.
+            label = (labels / "board.dtb").resolve()
+            self.assertEqual([label, vendor / "evb-a.dtb"], select(configured))
+            self.assertEqual(label, root / select(configured)[0])
+            self.assertEqual([label], select(unconfigured))
+            # Nothing was copied into the image tree, which mkosi turns into the partitions.
+            self.assertEqual(
+                [vendor, vendor / "evb-a.dtb", vendor / "evb-b.dtb"],
+                sorted(path.relative_to(root) for path in root.rglob("*") if path.relative_to(root) > vendor.parent),
+            )
+
     def test_parse_ini_reports_the_sections_that_release_mode_validates(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = pathlib.Path(directory) / "mkosi.conf"

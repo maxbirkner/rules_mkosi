@@ -363,7 +363,7 @@ Cross- and natively built images are each reproducible, but not byte-identical t
 Build the executables in `rootfs_payloads` for arm64 yourself, for example with `platform_transition_filegroup` from bazel_lib.
 Release images of arm64 support the same UKI, dm-verity, A/B and update payload settings as those of amd64: their partitions use the `root-arm64` and `root-arm64-verity` types, the ESP holds `systemd-bootaa64.efi` and `BOOTAA64.EFI`, `MkosiImageInfo.architecture` is `arm64`, and their `sysupdate_transfers` need `architecture = "arm64"`.
 Give the ESP at least 512 MiB: systemd-repart formats it as FAT32 with 4 KiB clusters, and the UEFI firmware does not mount a FAT32 file system with fewer than 65525 clusters.
-`qemu_ovmf_boot_test` boots arm64 images with `qemu-system-aarch64` and AAVMF, under TCG on Linux x86-64; see [boot tests](#boot-tests).
+`qemu_ovmf_boot_test` boots arm64 images with `qemu-system-aarch64` and AAVMF, under TCG on Linux x86-64, including A/B update lifecycles; see [boot tests](#boot-tests).
 [Secure Boot signing](docs/secure-boot.md) works the same for arm64 images; sign `EFI/systemd/systemd-bootaa64.efi` instead of `EFI/systemd/systemd-bootx64.efi`.
 Boot tests on arm64 execution platforms follow in [#206](https://github.com/maxbirkner/rules_mkosi/issues/206).
 
@@ -386,6 +386,25 @@ A release build fails if a pattern without `-` selects no device tree of the ima
 The [UKI metadata](#providers) (`MkosiImageInfo.uki_metadata`) lists each `.dtb` and `.dtbauto` section under `devicetrees`, with the root compatible strings, the size and the SHA-256 of the device tree, which equals the digest of the selected `.dtb` file; `mkosi_reproducibility_manifest` records the metadata.
 Building it fails for a section that is not a device tree, or a `.dtbauto` section without a compatible string, which systemd-stub could never select.
 Device tree overlays are not applied: systemd-stub does not apply `.dtbo` files, so merge them into the `.dtb` before it is installed.
+
+A compiled device tree from anywhere else, such as a board vendor's download or another Bazel rule, goes into `devicetrees`:
+
+```starlark
+mkosi_image(
+    name = "board_image",
+    config_tree = ":board_config",
+    debian_snapshot = "@my_debian_arm64//:repository",
+    devicetrees = ["//board:board.dtb"],
+    mode = "release",
+    unified_kernel_image = "unsigned",
+    # ...
+)
+```
+
+The build checks that each file is a flattened device tree (magic `0xd00dfeed`) with a root compatible string, and hands it to ukify together with the device trees that `Devicetrees=` selects from packages, ahead of them and whatever their patterns exclude; the rules above decide between `.dtb` and `.dtbauto`.
+The files are never copied into the image tree, so they are only in the UKI, not in the root file system, the ESP, or any other partition or output, with or without dm-verity.
+`devicetrees` requires release mode and `unified_kernel_image`; file names must end with `.dtb`, be unique, and consist of letters, digits, `.`, `_`, `+` and `-`.
+The files are build inputs, so a changed device tree changes the cache key and a version derived with `image_version_from_inputs`.
 
 ### Image identity
 

@@ -32,7 +32,7 @@ _REVIEW = (
 
 @dataclass(frozen=True)
 class Patched:
-    """An mkosi internal that release mode replaces or wraps.
+    """An mkosi internal that release mode replaces or wraps, or whose use of a wrapped internal a patch relies on.
 
     Attributes:
         name: "module:qualified.name" of the internal.
@@ -147,6 +147,15 @@ CONTRACTS = {
                 ),
                 callers=("mkosi:build_uki", "mkosi:install_type1"),
             ),
+            Patched(
+                "mkosi:build_uki",
+                "require_selected_devicetrees",
+                "f099cb2b6f99dc6a8ac118600bb265f8926989020b0f99d51bca337d8a1396b2",
+                (
+                    "it still reads each device tree that filter_devicetrees returns at context.root / path and binds "
+                    "it into the ukify sandbox, so that an absolute path outside the image tree is read as it is"
+                ),
+            ),
         ),
         inherited=(("mkosi.installer.apt:Apt", "mounts"),),
         signatures={
@@ -170,6 +179,7 @@ CONTRACTS = {
         fields={
             "mkosi.config:Config": (
                 "architecture",
+                "devicetrees",
                 "image",
                 "release",
                 "repositories",

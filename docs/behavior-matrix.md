@@ -40,6 +40,7 @@ Release builds that format partitions derive the ext4 directory hash seed from `
 
 <!-- behavior:BHV-IMAGE-DEVICETREES -->
 A release build fails if a positive `Devicetrees=` pattern selects no device tree of the image's kernel, or if the patterns select none.
+`mkosi_image.devicetrees` requires release mode and a UKI, rejects duplicate or unsafe file names, files that are not device trees and device trees without a root compatible string, and passes each one to ukify ahead of the device trees that `Devicetrees=` selects, without copying it into the image tree, so that it is only in the UKI, also without dm-verity; the device trees are inputs of the build and of a derived version.
 The UKI metadata lists each `.dtb` and `.dtbauto` section with its root compatible strings, size and SHA-256, and rejects a section that is not a device tree or a `.dtbauto` section without a compatible string.
 
 <!-- behavior:BHV-IMAGE-EPOCH -->
@@ -232,6 +233,7 @@ Release builds use only the authenticated snapshot, block the network, remove AP
 <!-- behavior:BHV-SYSUPDATE-LIFECYCLE -->
 A versioned UEFI image updates itself from a read-only payload into its `_empty` slots, boots the new release from its compressed erofs verity root, and blesses it at `boot-complete.target`.
 A release whose health check fails falls back to the previous release.
+A cross-built arm64 release downloads, boots and blesses its successor under TCG the same way.
 
 <!-- behavior:BHV-RELEASE-EXAMPLE -->
 The [release example](../e2e/smoke/example/README.md) builds a release image with UKI, dm-verity, an erofs root, A/B partitions, and transfers from a consumer-owned locked snapshot, together with its update payload, and boots it.

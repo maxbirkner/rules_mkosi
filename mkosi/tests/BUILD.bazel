@@ -22,6 +22,7 @@ load(":config_tree_test.bzl", "config_tree_test_suite")
 load(":consumer_isolation_test.bzl", "consumer_isolation_test_suite")
 load(":debian_snapshot_test.bzl", "debian_snapshot_arm64_provider_test", "debian_snapshot_provider_test")
 load(":debian_tools_provenance.bzl", "DEBIAN_TOOLS_PROVENANCE_ENV")
+load(":devicetrees_test.bzl", "devicetrees_test_suite")
 load(
     ":extension_semantics_test.bzl",
     "conflicting_root_test",
@@ -37,6 +38,7 @@ load(":mkosi_base_test.bzl", "mkosi_base_test_suite")
 load(
     ":mkosi_image_test.bzl",
     "boot_config_test",
+    "image_field_file",
     "mkosi_image_test_suite",
     "raw_image_file",
     "seabios_boot_config_test",
@@ -338,6 +340,8 @@ behavior_targets(
         ":debian_tools_runtime_test",
         ":default_version_test",
         ":devicetree_test",
+        ":devicetrees_analysis_tests",
+        ":devicetrees_artifact_test",
         ":diagnostic_contract_test",
         ":esp_manifest_test",
         ":extra_packages_analysis_tests",
@@ -688,6 +692,51 @@ secure_boot_test_suite(
 mkosi_base_test_suite(name = "mkosi_base_analysis_tests")
 
 extra_packages_test_suite(name = "extra_packages_analysis_tests")
+
+devicetrees_test_suite(name = "devicetrees_analysis_tests")
+
+[
+    image_field_file(
+        name = "devicetrees_release_" + field,
+        field = field,
+        image = ":devicetrees_release",
+    )
+    for field in ("raw_image", "uki_metadata")
+]
+
+py_test(
+    name = "devicetrees_artifact_test",
+    srcs = [
+        "devicetrees_artifact_test.py",
+        "release_root.py",
+        "runfile_paths.py",
+    ],
+    args = [
+        "$(rootpath :devicetrees_release_raw_image)",
+        "$(rootpath :devicetrees_release_uki_metadata)",
+        "$(rootpath :devicetree_board_a)",
+        "$(rootpath :devicetree_board_b)",
+    ],
+    data = [
+        ":devicetree_board_a",
+        ":devicetree_board_b",
+        ":devicetrees_release_raw_image",
+        ":devicetrees_release_uki_metadata",
+    ],
+    main = "devicetrees_artifact_test.py",
+    deps = [
+        "//mkosi:esp_manifest_lib",
+        "@rules_python//python/runfiles",
+    ],
+)
+
+# Writes the .dtb fixtures of devicetrees_test.bzl and //mkosi/tests/arm64.
+py_binary(
+    name = "encode_device_tree",
+    srcs = ["devicetree_fixture.py"],
+    main = "devicetree_fixture.py",
+    visibility = ["//mkosi/tests:__subpackages__"],
+)
 
 # Builds the .deb fixtures of extra_packages_test.bzl.
 py_binary(
@@ -1188,6 +1237,7 @@ py_test(
 )
 
 exports_files([
+    "devicetree_fixture.py",
     "release_root.py",
     "runfile_paths.py",
     "behavior_matrix.tsv",
