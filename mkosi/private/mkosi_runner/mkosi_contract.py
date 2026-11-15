@@ -137,6 +137,16 @@ CONTRACTS = {
                 "39dadbf7082a59af18a2c3ee67059e5b648414f0bc38a3b9695e81822cbc14ea",
                 "it still omits base tree packages only by comparing their install time with _init_timestamp",
             ),
+            Patched(
+                "mkosi:filter_devicetrees",
+                "require_selected_devicetrees",
+                "605ef90e7b6a4de785863754af0c897ebc7c9beea7897a3c1f0b0bdc61ff315f",
+                (
+                    "it still returns the sorted .dtb files that the Devicetrees= globs select below the kernel's "
+                    "device tree directories, with the last matching glob winning, and only warns when none is selected"
+                ),
+                callers=("mkosi:build_uki", "mkosi:install_type1"),
+            ),
         ),
         inherited=(("mkosi.installer.apt:Apt", "mounts"),),
         signatures={

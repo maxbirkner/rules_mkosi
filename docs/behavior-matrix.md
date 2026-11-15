@@ -29,13 +29,18 @@ Exactly one of `config` (one file) and `config_tree` is required; release mode r
 <!-- behavior:BHV-IMAGE-ARCHITECTURE -->
 An image built from `debian_snapshot` has the snapshot's architecture, and its configuration must resolve `Architecture=` to it (`x86-64` for `amd64`, `arm64` for `arm64`).
 If the Debian tools toolchain of the execution platform has another architecture, the image action registers the toolchain's user-mode emulator for the snapshot's architecture in a `binfmt_misc` instance private to the action, after checking that it runs a program of that architecture, and fails during analysis if the toolchain has none.
-`MkosiImageInfo.architecture` reports the architecture, and the partition, dm-verity and update payload metadata of a release image validate the root, verity and A/B slot partition types of that architecture.
+`MkosiImageInfo.architecture` reports the architecture, also for the `secure_boot_signed_image` of an image, and the partition, dm-verity and update payload metadata of a release image validate the root, verity and A/B slot partition types of that architecture.
+Offline Secure Boot signing replaces the arm64 UKI and `systemd-bootaa64.efi` with signed binaries and adds the keys to enroll, as for amd64 images.
 
 <!-- behavior:BHV-IMAGE-SEED -->
 `release_seed` is required only in release mode and must match the resolved `Seed=`.
 
 <!-- behavior:BHV-IMAGE-EXT4-HASH-SEED -->
 Release builds that format partitions derive the ext4 directory hash seed from `release_seed`, unless the configuration sets `SYSTEMD_REPART_MKFS_OPTIONS_EXT4`.
+
+<!-- behavior:BHV-IMAGE-DEVICETREES -->
+A release build fails if a positive `Devicetrees=` pattern selects no device tree of the image's kernel, or if the patterns select none.
+The UKI metadata lists each `.dtb` and `.dtbauto` section with its root compatible strings, size and SHA-256, and rejects a section that is not a device tree or a `.dtbauto` section without a compatible string.
 
 <!-- behavior:BHV-IMAGE-EPOCH -->
 `release_source_date_epoch` is a non-negative value, required only in release mode, that must match the resolved `SourceDateEpoch=`.
@@ -244,7 +249,7 @@ The `mkosi` extension selects the default or one supported version, honors one r
 <!-- behavior:BHV-CONSUMER-ISOLATION -->
 rules_mkosi's Python 3.14 tools work regardless of the consumer's default Python version.
 The bootstrap executables follow the `bootstrap_platform` flag without changing consumer targets, including with a first-priority C/C++ toolchain that cannot link statically.
-Without the flag they are built for the Linux musl platform of the host's CPU, x86-64 or aarch64, and a Linux x86-64 execution platform cross-builds them as static aarch64 executables for `linux_aarch64_musl`.
+Without the flag they are built for the Linux musl platform of the host's CPU, aarch64 on Linux aarch64 hosts and x86-64 on every other host, and a Linux x86-64 execution platform cross-builds them as static aarch64 executables for `linux_aarch64_musl`.
 rules_mkosi's static musl toolchain, the `llvm` module's C/C++ toolchain, matches only the bootstrap executables and outranks every registered C/C++ toolchain for them, including the consumer's own registration of the `llvm` module's toolchains, and the LLVM toolchain and runtime sources are downloaded only when one is built.
 
 <!-- behavior:BHV-ACTION-FAILURES -->

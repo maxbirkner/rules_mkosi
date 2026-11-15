@@ -17,7 +17,7 @@ load("//mkosi/debian:provenance.bzl", "DEBIAN_TOOLS_ARM64_REQUIRED_COMPONENTS")
 load("//mkosi/debian:toolchain.bzl", "debian_tools_launcher_probe", "debian_tools_preflight", "debian_tools_preflight_test")
 load("//mkosi/private:bootstrap_binary.bzl", "bootstrap_binary")
 load(":behavior_targets.bzl", "behavior_targets")
-load(":bootstrap_cross_test.bzl", "aarch64_bootstrap_files")
+load(":bootstrap_cross_test.bzl", "aarch64_bootstrap_files", "host_bootstrap_platform_test")
 load(":config_tree_test.bzl", "config_tree_test_suite")
 load(":consumer_isolation_test.bzl", "consumer_isolation_test_suite")
 load(":debian_snapshot_test.bzl", "debian_snapshot_arm64_provider_test", "debian_snapshot_provider_test")
@@ -262,6 +262,19 @@ py_test(
 )
 
 py_test(
+    name = "devicetree_test",
+    srcs = [
+        "devicetree_fixture.py",
+        "devicetree_test.py",
+        "//mkosi/private:devicetree.py",
+        "//mkosi/private:sibling_loader.py",
+        "//mkosi/private:uki_metadata.py",
+    ],
+    main = "devicetree_test.py",
+    deps = ["@mkosi_pypi//pefile"],
+)
+
+py_test(
     name = "behavior_matrix_test",
     srcs = ["behavior_matrix_test.py"],
     args = [
@@ -302,6 +315,7 @@ behavior_targets(
         ":conflicting_root_test",
         ":aarch64_bootstrap_static_test",
         "//mkosi/debian:debian_tools_arm64_tree_test",
+        ":host_bootstrap_platform_test",
         ":consumer_isolation_tests",
         "//mkosi/private:binfmt_registration_test",
         "//mkosi/private:binfmt_runner_host_test",
@@ -309,9 +323,11 @@ behavior_targets(
         "//mkosi/tests/arm64:minimal_artifact_test",
         "//mkosi/tests/arm64:minimal_foreign_architecture_test",
         "//mkosi/tests/arm64:uki_release_artifact_test",
+        "//mkosi/tests/arm64:secure_boot_artifact_test",
         "//mkosi/tests/arm64:uki_release_boot_config_test",
         "//mkosi/tests/arm64:uki_release_boot_test",
         "//mkosi/tests/arm64:uki_release_provider_test",
+        "//mkosi/tests/arm64:uki_release_secure_boot_provider_test",
         "//mkosi/tests/arm64:uki_release_secure_boot_rejected_test",
         ":debian_snapshot_arm64_artifact_test",
         ":debian_snapshot_arm64_provider_test",
@@ -321,6 +337,7 @@ behavior_targets(
         ":debian_snapshot_unit_test",
         ":debian_tools_runtime_test",
         ":default_version_test",
+        ":devicetree_test",
         ":diagnostic_contract_test",
         ":esp_manifest_test",
         ":extra_packages_analysis_tests",
@@ -765,6 +782,8 @@ bootstrap_binary(
     binary = "//mkosi/private:kernel_preflight",
     tags = ["manual"],
 )
+
+host_bootstrap_platform_test(name = "host_bootstrap_platform_test")
 
 aarch64_bootstrap_files(
     name = "bootstrap_executables_aarch64",

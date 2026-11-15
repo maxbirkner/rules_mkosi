@@ -302,6 +302,7 @@ image_build_metadata_file = _image_artifact_file("build_metadata")
 image_extra_packages_metadata_file = _image_artifact_file("extra_packages_metadata")
 image_manifest_file = _image_artifact_file("manifest")
 image_partition_metadata_file = _image_artifact_file("partition_metadata")
+image_uki_metadata_file = _image_artifact_file("uki_metadata")
 raw_image_file = _image_artifact_file("raw_image")
 
 def _image_architecture_test_impl(ctx):

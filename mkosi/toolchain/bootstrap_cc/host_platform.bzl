@@ -1,10 +1,22 @@
-"""Selects the static musl bootstrap platform of the host's CPU."""
+"""Selects the static musl bootstrap platform of the host."""
 
 load("@platforms//host:constraints.bzl", "HOST_CONSTRAINTS")
 
-# Bootstrap executables run on the execution platform, which for local execution is the host. Their default target
-# platform and first execution platform therefore follow the host's CPU: Linux aarch64 hosts build them for and with
-# linux_aarch64_musl, all other hosts for and with linux_x86_64_musl.
-HOST_BOOTSTRAP_PLATFORM = (
-    "//mkosi/toolchain/bootstrap_cc:linux_aarch64_musl" if "@platforms//cpu:aarch64" in HOST_CONSTRAINTS else "//mkosi/toolchain/bootstrap_cc:linux_x86_64_musl"
-)
+def select_host_bootstrap_platform(host_constraints):
+    """Returns the label of the static musl bootstrap platform for a host.
+
+    Bootstrap executables run on the execution platform, which for local execution is the host. Their default target
+    platform and first execution platform therefore follow a Linux aarch64 host. Every other host, including an aarch64
+    host of another operating system that executes remotely on Linux x86-64, keeps linux_x86_64_musl.
+
+    Args:
+      host_constraints: The constraint labels of the host, as in HOST_CONSTRAINTS.
+
+    Returns:
+      The label string of linux_aarch64_musl or linux_x86_64_musl.
+    """
+    if "@platforms//os:linux" in host_constraints and "@platforms//cpu:aarch64" in host_constraints:
+        return "//mkosi/toolchain/bootstrap_cc:linux_aarch64_musl"
+    return "//mkosi/toolchain/bootstrap_cc:linux_x86_64_musl"
+
+HOST_BOOTSTRAP_PLATFORM = select_host_bootstrap_platform(HOST_CONSTRAINTS)

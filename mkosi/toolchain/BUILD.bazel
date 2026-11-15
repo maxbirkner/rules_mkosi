@@ -28,8 +28,8 @@ filegroup(
 
 # First execution platform below rules_mkosi's bootstrap executables, so that the llvm toolchain's own helper tools are
 # static musl executables too. It must be a Linux x86-64 or aarch64 platform with the llvm module's musl and non-PIE
-# constraints; the default follows the host's CPU. With remote execution, select a child of your execution platform
-# that inherits its exec_properties; see the README.
+# constraints; the default is linux_aarch64_musl on Linux aarch64 hosts and linux_x86_64_musl otherwise. With remote
+# execution, select a child of your execution platform that inherits its exec_properties; see the README.
 label_flag(
     name = "bootstrap_execution_platform",
     build_setting_default = HOST_BOOTSTRAP_PLATFORM,

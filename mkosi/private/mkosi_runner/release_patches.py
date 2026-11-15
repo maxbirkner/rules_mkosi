@@ -53,6 +53,7 @@ def activate_release_mode(
     if mirror is not None:
         _serve_mirror(mirror)
     _ConfigurationValidator(settings, allowed_paths, allowed_extra_tree, mirror).install()
+    require_selected_devicetrees()
     mkosi.distribution.debian.install_apt_sources = _remove_apt_sources
     mkosi.install_sandbox_trees = _install_sandbox_trees  # type: ignore[attr-defined]
     if settings.stage == "base":
@@ -89,6 +90,35 @@ def include_base_packages_in_manifest() -> None:
         original(self)
 
     Manifest.record_deb_packages = record_deb_packages
+
+
+def require_selected_devicetrees() -> None:
+    """Fails the build if a Devicetrees= pattern selects no device tree of the image's kernel.
+
+    mkosi v27 only warns when its patterns select nothing, and silently drops a pattern that matches no file, so a
+    typo or a kernel package that moved its device trees would build a UKI without them.
+    """
+    import mkosi
+
+    original = mkosi.filter_devicetrees  # type: ignore[attr-defined]
+
+    def filter_devicetrees(root: Path, kver: str, *, include: Sequence[str]) -> list[Path]:
+        selected = original(root, kver, include=include)
+        unselected = [
+            pattern
+            for pattern in include
+            if not pattern.startswith("-") and not set(original(root, kver, include=[pattern])) & set(selected)
+        ]
+        if unselected or not selected:
+            subject = "pattern {} selects".format(unselected[0]) if unselected else "selects"
+            raise SystemExit(
+                "release configuration Devicetrees= {} no device tree of kernel {}; mkosi selects .dtb files below "
+                "usr/lib/modules/{}/dtb/, usr/lib/firmware/{}/device-tree/ and usr/lib/linux-image-{}/ of the image, "
+                "and the last matching pattern wins".format(subject, kver, kver, kver, kver)
+            )
+        return list(selected)
+
+    mkosi.filter_devicetrees = filter_devicetrees  # type: ignore[attr-defined]
 
 
 def _serve_mirror(mirror: release_sandbox.SnapshotMirror) -> None:

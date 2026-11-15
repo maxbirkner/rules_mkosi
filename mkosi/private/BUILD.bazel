@@ -14,6 +14,7 @@ exports_files([
     "c_options.bzl",
     "config_tree.bzl",
     "debian_control.py",
+    "devicetree.py",
     "diagnostics.py",
     "file_hashing.py",
     "managed_python_bootstrap.py",
