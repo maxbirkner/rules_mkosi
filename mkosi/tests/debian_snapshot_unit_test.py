@@ -17,11 +17,11 @@ _SPEC.loader.exec_module(debian_snapshot)
 
 
 class DebianSnapshotUnitTest(unittest.TestCase):
-    def setUp(self):
+    def setUp(self) -> None:
         self.work = pathlib.Path(os.environ.get("TEST_TMPDIR", ".")) / ("debian-snapshot-%s" % os.getpid())
         self.work.mkdir(parents=True, exist_ok=True)
 
-    def tearDown(self):
+    def tearDown(self) -> None:
         for path in sorted(self.work.rglob("*"), reverse=True):
             if path.is_dir():
                 path.rmdir()
@@ -29,18 +29,18 @@ class DebianSnapshotUnitTest(unittest.TestCase):
                 path.unlink()
         self.work.rmdir()
 
-    def test_changed_content_is_rejected(self):
+    def test_changed_content_is_rejected(self) -> None:
         with self.assertRaisesRegex(ValueError, "digest mismatch"):
             debian_snapshot._verify_digest(__file__, "0" * 64, "InRelease")
 
-    def test_downloaded_package_size_is_rejected(self):
+    def test_downloaded_package_size_is_rejected(self) -> None:
         package = self.work / "package.deb"
         package.write_bytes(b"package")
         digest = hashlib.sha256(package.read_bytes()).hexdigest()
         with self.assertRaisesRegex(ValueError, "size mismatch"):
             debian_snapshot._verify_package(package, digest, package.stat().st_size + 1, "package")
 
-    def test_metadata_normalization_ignores_umask(self):
+    def test_metadata_normalization_ignores_umask(self) -> None:
         for value in (0o022, 0o077):
             root = self.work / ("mode-%03o" % value)
             previous = os.umask(value)
@@ -55,7 +55,7 @@ class DebianSnapshotUnitTest(unittest.TestCase):
             self.assertEqual(0o644, (root / "nested/file").stat().st_mode & 0o777)
             self.assertEqual(0, (root / "nested/file").stat().st_mtime_ns)
 
-    def test_release_must_list_locked_packages_index(self):
+    def test_release_must_list_locked_packages_index(self) -> None:
         with self.assertRaisesRegex(ValueError, "absent|exactly one"):
             debian_snapshot._release_hash(
                 b"SHA256:\n " + b"d" * 64 + b" 1 main/binary-amd64/Other.xz\n",
@@ -64,7 +64,7 @@ class DebianSnapshotUnitTest(unittest.TestCase):
                 "d" * 64,
             )
 
-    def test_release_uses_named_sha256_section(self):
+    def test_release_uses_named_sha256_section(self) -> None:
         release = (
             b"MD5Sum:\n"
             b" deadbeef 1 main/binary-amd64/Packages.xz\n"
@@ -78,11 +78,11 @@ class DebianSnapshotUnitTest(unittest.TestCase):
             "a" * 64,
         )
 
-    def test_sqv_release_payload_may_omit_final_newline(self):
+    def test_sqv_release_payload_may_omit_final_newline(self) -> None:
         self.assertTrue(debian_snapshot._authenticated_release_matches(b"Release payload", b"Release payload\n"))
         self.assertFalse(debian_snapshot._authenticated_release_matches(b"Release payload\nX", b"Release payload\n"))
 
-    def test_release_rejects_duplicate_sha256_path(self):
+    def test_release_rejects_duplicate_sha256_path(self) -> None:
         release = (
             b"SHA256:\n"
             b" " + b"a" * 64 + b" 1 main/binary-amd64/Packages.xz\n"
@@ -96,13 +96,13 @@ class DebianSnapshotUnitTest(unittest.TestCase):
                 "a" * 64,
             )
 
-    def test_package_metadata_rejects_duplicate_fields(self):
+    def test_package_metadata_rejects_duplicate_fields(self) -> None:
         index = self.work / "duplicate"
         index.write_bytes(b"Package: one\nPackage: two\n")
         with self.assertRaisesRegex(ValueError, "duplicate"):
             debian_snapshot._read_package_metadata(((str(index), "amd64"),), {})
 
-    def test_package_metadata_skips_continuation_lines_of_other_fields(self):
+    def test_package_metadata_skips_continuation_lines_of_other_fields(self) -> None:
         index = self.work / "continuation"
         index.write_bytes(
             b"Package: demo\nVersion: 1\nArchitecture: amd64\n"
@@ -119,7 +119,7 @@ class DebianSnapshotUnitTest(unittest.TestCase):
         }
         self.assertEqual(expected, debian_snapshot._read_package_metadata(((str(index), "amd64"),), expected))
 
-    def test_package_path_must_be_under_pool(self):
+    def test_package_path_must_be_under_pool(self) -> None:
         self.assertEqual(
             "pool/main/a/a.deb",
             str(debian_snapshot._safe_package_path("pool/main/a/a.deb")),
@@ -130,7 +130,7 @@ class DebianSnapshotUnitTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "unsafe package path"):
                 debian_snapshot._safe_package_path(unsafe)
 
-    def test_identical_all_architecture_duplicates_are_accepted(self):
+    def test_identical_all_architecture_duplicates_are_accepted(self) -> None:
         first = self.work / "amd64"
         second = self.work / "all"
         paragraph = (
@@ -144,7 +144,7 @@ class DebianSnapshotUnitTest(unittest.TestCase):
             debian_snapshot._read_package_metadata(((str(first), "amd64"), (str(second), "all")), expected),
         )
 
-    def test_conflicting_all_architecture_duplicates_are_rejected(self):
+    def test_conflicting_all_architecture_duplicates_are_rejected(self) -> None:
         first = self.work / "amd64"
         second = self.work / "all"
         first.write_text(
@@ -157,13 +157,13 @@ class DebianSnapshotUnitTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "conflicting"):
             debian_snapshot._read_package_metadata(((str(first), "amd64"), (str(second), "all")), expected)
 
-    def _write_index(self, name, content):
+    def _write_index(self, name: str, content: bytes) -> pathlib.Path:
         path = self.work / name
         with lzma.open(path, "wb") as output:
             output.write(content)
         return path
 
-    def _package(self, name, component, content):
+    def _package(self, name: str, component: str, content: bytes) -> tuple[pathlib.Path, bytes, str]:
         package = self.work / ("%s.deb" % name)
         package.write_bytes(content)
         digest = hashlib.sha256(content).hexdigest()
@@ -175,7 +175,7 @@ class DebianSnapshotUnitTest(unittest.TestCase):
         record = "%s|1|amd64|%s|%d|%s" % (name, filename, len(content), digest)
         return package, paragraph, record
 
-    def _arguments(self, extra_components=()):
+    def _arguments(self, extra_components: tuple[str, ...] = ()) -> types.SimpleNamespace:
         package, paragraph, record = self._package("demo", "main", b"representative package")
         indexes = [
             ("main", "amd64", self._write_index("main-amd64.xz", paragraph)),
@@ -237,8 +237,8 @@ class DebianSnapshotUnitTest(unittest.TestCase):
             packages=[str(package) for package, _ in packages],
         )
 
-    def _stage(self, args):
-        def verify(*_):
+    def _stage(self, args: types.SimpleNamespace) -> pathlib.Path:
+        def verify(*_: object) -> None:
             verified = pathlib.Path(args.output) / "verified-release"
             verified.parent.mkdir(parents=True, exist_ok=True)
             verified.write_bytes(pathlib.Path(args.release).read_bytes())
@@ -247,7 +247,7 @@ class DebianSnapshotUnitTest(unittest.TestCase):
             debian_snapshot.stage(args)
         return pathlib.Path(args.output)
 
-    def test_stages_exact_layout_with_deterministic_metadata(self):
+    def test_stages_exact_layout_with_deterministic_metadata(self) -> None:
         repository = self._stage(self._arguments())
         self.assertEqual(
             b"representative package",
@@ -255,7 +255,7 @@ class DebianSnapshotUnitTest(unittest.TestCase):
         )
         self.assertEqual(0, (repository / "dists/trixie/Release").stat().st_mtime_ns)
 
-    def test_stages_every_locked_component(self):
+    def test_stages_every_locked_component(self) -> None:
         repository = self._stage(self._arguments(("non-free-firmware", "contrib")))
         for component in ("main", "non-free-firmware", "contrib"):
             for architecture in ("amd64", "all"):
@@ -270,7 +270,7 @@ class DebianSnapshotUnitTest(unittest.TestCase):
             (repository / "pool/contrib/f/firmware-1_1_amd64.deb").read_bytes(),
         )
 
-    def test_component_index_must_be_authenticated_by_release(self):
+    def test_component_index_must_be_authenticated_by_release(self) -> None:
         args = self._arguments(("non-free-firmware",))
         release = pathlib.Path(args.release).read_bytes()
         release = b"\n".join(line for line in release.split(b"\n") if b"non-free-firmware/binary-amd64" not in line)
@@ -279,13 +279,13 @@ class DebianSnapshotUnitTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "exactly one"):
             self._stage(args)
 
-    def test_component_index_digest_is_verified(self):
+    def test_component_index_digest_is_verified(self) -> None:
         args = self._arguments(("non-free-firmware",))
         args.component_indexes[0] = args.component_indexes[0][:-64] + "0" * 64
         with self.assertRaisesRegex(ValueError, "digest mismatch"):
             self._stage(args)
 
-    def test_component_indexes_must_be_complete_and_placed(self):
+    def test_component_indexes_must_be_complete_and_placed(self) -> None:
         args = self._arguments(("non-free-firmware",))
         del args.component_indexes[1]
         del args.component_index_files[1]
@@ -296,7 +296,7 @@ class DebianSnapshotUnitTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "must be staged at"):
             self._stage(args)
 
-    def test_codename_selects_the_staged_suite(self):
+    def test_codename_selects_the_staged_suite(self) -> None:
         args = self._arguments()
         args.codename = "forky"
         args.packages_path = args.packages_path.replace("trixie", "forky")
@@ -305,7 +305,7 @@ class DebianSnapshotUnitTest(unittest.TestCase):
         self.assertTrue((repository / "dists/forky/InRelease").is_file())
         self.assertTrue((repository / "dists/forky/main/binary-amd64/Packages").is_file())
 
-    def test_package_must_be_listed_by_a_locked_component(self):
+    def test_package_must_be_listed_by_a_locked_component(self) -> None:
         args = self._arguments(("non-free-firmware",))
         _, _, record = self._package("unlisted", "non-free-firmware", b"unlisted")
         args.package_records.append(record + "|pkg_009.deb")

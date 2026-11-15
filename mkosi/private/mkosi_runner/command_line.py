@@ -1,7 +1,9 @@
 """Parses the run_mkosi.py preamble and rewrites the mkosi arguments that follow it."""
 
 import os
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
+from typing import cast
 
 from . import mkosi_options
 
@@ -32,10 +34,10 @@ class Preamble:
     release_initrd: str | None = None
     release_base_initrd_output: str | None = None
 
-    def debian_tools_options(self):
+    def debian_tools_options(self) -> tuple[str | None, str | None, str | None]:
         return (self.debian_tools_archive, self.debian_tools_extractor, self.debian_tools_sha256)
 
-    def release_options(self):
+    def release_options(self) -> tuple[str | None, int | None, str | None, str | None, str | None, str | None]:
         return (
             self.release_seed,
             self.release_source_date_epoch,
@@ -46,27 +48,27 @@ class Preamble:
         )
 
 
-def _source_date_epoch(value):
+def _source_date_epoch(value: str) -> int:
     try:
         return int(value)
     except ValueError as error:
         raise SystemExit("release source date epoch must be an integer") from error
 
 
-def _snapshot_components(value):
+def _snapshot_components(value: str) -> tuple[str, ...]:
     components = tuple(value.split(","))
     if "main" not in components or "" in components:
         raise SystemExit("Debian snapshot components must be a comma-separated list including main")
     return components
 
 
-def _verbatim(value):
+def _verbatim(value: str) -> str:
     return value
 
 
 _EXECUTABLE_PATH_OPTION = "--executable-path"
 
-_PREAMBLE_OPTIONS = {
+_PREAMBLE_OPTIONS: dict[str, tuple[str, Callable[[str], object]]] = {
     "--staging-manifest": ("staging_manifest", os.path.abspath),
     "--debian-tools-archive": ("debian_tools_archive", os.path.abspath),
     "--debian-tools-extractor": ("debian_tools_extractor", os.path.abspath),
@@ -88,7 +90,7 @@ _PREAMBLE_OPTIONS = {
 }
 
 
-def parse_preamble(argv):
+def parse_preamble(argv: list[str]) -> tuple[Preamble, list[str]]:
     """Returns the Preamble before the first -- in argv and the mkosi arguments after it."""
     preamble = Preamble()
     index = 0
@@ -102,7 +104,7 @@ def parse_preamble(argv):
     return preamble, argv[index + 1 :]
 
 
-def _apply_preamble_option(preamble, argv, index):
+def _apply_preamble_option(preamble: Preamble, argv: Sequence[str], index: int) -> None:
     option = argv[index]
     known = option == _EXECUTABLE_PATH_OPTION or option in _PREAMBLE_OPTIONS
     if not known or index + 1 == len(argv):
@@ -115,7 +117,7 @@ def _apply_preamble_option(preamble, argv, index):
         setattr(preamble, name, convert(value))
 
 
-def preamble_value(argv, option):
+def preamble_value(argv: Sequence[str], option: str) -> str | None:
     """Returns the value of a run_mkosi.py preamble option, or None.
 
     The preamble consists of option and value pairs up to the first --, so the mkosi arguments after it are ignored.
@@ -128,7 +130,7 @@ def preamble_value(argv, option):
     return None
 
 
-def mkosi_option_value(argv, option):
+def mkosi_option_value(argv: list[str], option: str) -> str:
     """Returns the value of the mkosi option, in any spelling, in the mkosi arguments after the preamble's --."""
     arguments = argv[argv.index("--") + 1 :]
     values = [occurrence.value for occurrence in _occurrences_of(arguments, option)]
@@ -137,7 +139,7 @@ def mkosi_option_value(argv, option):
     return values[0]
 
 
-def value_after(arguments, option):
+def value_after(arguments: Sequence[str], option: str) -> str:
     """Returns the value of the last occurrence of the mkosi option, in any spelling, as mkosi reads it."""
     values = [occurrence.value for occurrence in _occurrences_of(arguments, option)]
     if not values or values[-1] is None:
@@ -145,12 +147,12 @@ def value_after(arguments, option):
     return values[-1]
 
 
-def _occurrences_of(arguments, option):
+def _occurrences_of(arguments: Sequence[str], option: str) -> list[mkosi_options.Occurrence]:
     dest = mkosi_options.option(option).dest
     return [occurrence for occurrence in mkosi_options.occurrences(arguments) if occurrence.option.dest == dest]
 
 
-def configuration_directory(arguments):
+def configuration_directory(arguments: Sequence[str]) -> mkosi_options.Occurrence | None:
     """Returns the Occurrence of the -C/--directory option that mkosi uses, which is the last one, or None."""
     directories = [
         occurrence
@@ -162,7 +164,7 @@ def configuration_directory(arguments):
     return directories[-1] if directories else None
 
 
-def path_occurrences(arguments):
+def path_occurrences(arguments: Sequence[str]) -> list[mkosi_options.Occurrence]:
     """Returns the Occurrences of mkosi options whose values are paths, and rejects a missing value."""
     found = [occurrence for occurrence in mkosi_options.occurrences(arguments) if occurrence.option.path]
     if any(occurrence.value is None for occurrence in found):
@@ -170,24 +172,26 @@ def path_occurrences(arguments):
     return found
 
 
-def absolute_paths(arguments):
+def absolute_paths(arguments: Iterable[str]) -> list[str]:
     """Resolves mkosi path option values now, because mkosi changes its working directory before it reads them."""
     result = list(arguments)
     for occurrence in path_occurrences(result):
-        occurrence.replace(result, occurrence.option.map_paths(occurrence.value, os.path.abspath))
+        # path_occurrences() rejects a missing value.
+        occurrence.replace(result, occurrence.option.map_paths(cast(str, occurrence.value), os.path.abspath))
     return result
 
 
-def declared_paths(arguments):
+def declared_paths(arguments: Sequence[str]) -> list[str]:
     """Returns the paths of the mkosi path options, which are the inputs that a release build may read."""
     return [
         path
         for occurrence in path_occurrences(arguments)
-        for path in occurrence.option.declared_paths(occurrence.value)
+        # path_occurrences() rejects a missing value.
+        for path in occurrence.option.declared_paths(cast(str, occurrence.value))
     ]
 
 
-def with_image_version(arguments, image_version):
+def with_image_version(arguments: Sequence[str], image_version: str) -> list[str]:
     """Passes image_version to mkosi next to the --image-id= option that it qualifies."""
     image_ids = [index for index, argument in enumerate(arguments) if argument.startswith("--image-id=")]
     if len(image_ids) != 1:
@@ -196,7 +200,13 @@ def with_image_version(arguments, image_version):
     return [*arguments[:insert_at], "--image-version=" + image_version, *arguments[insert_at:]]
 
 
-def release_stage(release, debian_snapshot_repository, base_tree, initrd, base_initrd_output):
+def release_stage(
+    release: bool,
+    debian_snapshot_repository: str | None,
+    base_tree: str | None,
+    initrd: str | None,
+    base_initrd_output: str | None,
+) -> str | None:
     """Returns image, base, finalize, or None for a tracer build, and rejects inconsistent options.
 
     A tracer build may install packages from the Debian snapshot repository, like the image stage of a release.
@@ -207,7 +217,9 @@ def release_stage(release, debian_snapshot_repository, base_tree, initrd, base_i
     return stage if release else None
 
 
-def _requested_release_stage(debian_snapshot_repository, base_tree, initrd, base_initrd_output):
+def _requested_release_stage(
+    debian_snapshot_repository: str | None, base_tree: str | None, initrd: str | None, base_initrd_output: str | None
+) -> str | None:
     if base_tree is not None or initrd is not None:
         if base_tree is None or initrd is None:
             raise SystemExit("release finalization requires both --release-base-tree and --release-initrd")

@@ -117,7 +117,8 @@ So every consumer must agree exactly with the image's declaration, and analysis 
 - `sysupdate_payload` must sign the UKI with the certificate declared for `""`, or be unsigned when none is declared.
 - `secure_boot_signed_image` must sign exactly the declared binaries with their declared certificates, and enroll exactly `version_auto_enroll_keys`.
 - A signed binary whose provider lacks `certificate_source`, such as one built by a rule outside rules_mkosi, fails, because its signer is unknown.
-- Binaries and keys of a `secure_boot_ephemeral_test_fixture` are exempt, because its throwaway keys change with every build.
+- Binaries signed by a `secure_boot_ephemeral_test_fixture` are exempt, because its throwaway keys change with every build.
+- The fixture's `PK.auth`, `KEK.auth` and `db.auth` stand in for the declared keys of those names, so other `auto_enroll_keys` next to the fixture, such as a real `dbx.auth`, must be exactly the remaining declared keys.
 
 The image's own `raw_image` and unsigned UKI cannot be checked; do not ship them from an image that declares signing material.
 Build a separate `mkosi_image` for each variant that is signed differently or not at all; its target name and declarations give it its own versions.

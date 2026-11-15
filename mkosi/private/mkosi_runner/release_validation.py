@@ -1,10 +1,17 @@
 """Rejects release configurations whose image could depend on undeclared inputs or on the build host."""
 
+import os
 import uuid
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TypeAlias
 
 from . import repart_definitions
+from .mkosi_contract import MkosiConfig
+
+# A (label, violated) pair: violated(config) tells whether config breaks the rule that label names.
+_Rule: TypeAlias = tuple[str, Callable[[MkosiConfig], bool]]
 
 
 @dataclass(frozen=True)
@@ -32,7 +39,12 @@ class _Context:
     allowed_extra_tree: Path | None
 
 
-def validate_release_configuration(images, settings, allowed_paths, allowed_extra_tree=None):
+def validate_release_configuration(
+    images: Sequence[MkosiConfig],
+    settings: ReleaseSettings,
+    allowed_paths: Iterable[str],
+    allowed_extra_tree: Path | None = None,
+) -> tuple[Path, ...]:
     """Validates the parsed images of a release build and returns the resolved roots that it may read."""
     seed = uuid.UUID(settings.seed)
     base = _declared_base(settings)
@@ -48,7 +60,7 @@ def validate_release_configuration(images, settings, allowed_paths, allowed_extr
     return allowed_roots
 
 
-def _declared_base(settings):
+def _declared_base(settings: ReleaseSettings) -> tuple[Path, Path] | None:
     if settings.stage != "finalize":
         return None
     if settings.base_tree is None or settings.base_initrd is None:
@@ -56,16 +68,16 @@ def _declared_base(settings):
     return Path(settings.base_tree).resolve(), Path(settings.base_initrd).resolve()
 
 
-def is_declared(path, roots):
+def is_declared(path: Path, roots: Iterable[Path]) -> bool:
     return any(path.is_relative_to(root) for root in roots)
 
 
-def validate_ini_section(section):
+def validate_ini_section(section: str) -> None:
     if section in ("Match", "TriggerMatch"):
         raise SystemExit("release configuration cannot use [{}] host-dependent matching".format(section))
 
 
-def release_apt_components(repositories, release_components):
+def release_apt_components(repositories: Iterable[str], release_components: Sequence[str]) -> tuple[str, ...]:
     """Returns mkosi's Debian components for the release mirror, or fails closed."""
     components = tuple(dict.fromkeys(("main", *repositories)))
     missing = [component for component in components if component not in release_components]
@@ -77,7 +89,7 @@ def release_apt_components(repositories, release_components):
     return components
 
 
-def validate_finalize_config_directory(directory):
+def validate_finalize_config_directory(directory: str | os.PathLike[str]) -> None:
     """Rejects default initrd configuration that a finalization would silently ignore."""
     directory = Path(directory)
     if not (directory / "mkosi.conf").exists() and (directory / "mkosi/mkosi.conf").is_file():
@@ -90,30 +102,30 @@ def validate_finalize_config_directory(directory):
             )
 
 
-def _enum_value(config, name, default):
+def _enum_value(config: MkosiConfig, name: str, default: str) -> object:
     return getattr(getattr(config, name, None), "value", default)
 
 
-def _is_set(name):
+def _is_set(name: str) -> Callable[[MkosiConfig], bool]:
     return lambda config: bool(getattr(config, name, ()))
 
 
-def _has_source(name):
+def _has_source(name: str) -> Callable[[MkosiConfig], bool]:
     return lambda config: bool(getattr(getattr(config, name, None), "source", None))
 
 
-def _includes_host(name):
+def _includes_host(name: str) -> Callable[[MkosiConfig], bool]:
     return lambda config: "host" in getattr(config, name, ())
 
 
-def _reject_first(config, rules, message):
+def _reject_first(config: MkosiConfig, rules: Iterable[_Rule], message: str) -> None:
     """Fails with message, formatted with the label of the first (label, violated) rule that config violates."""
     for label, violated in rules:
         if violated(config):
             raise SystemExit(message.format(label))
 
 
-def _set_rules(names_and_labels):
+def _set_rules(names_and_labels: Iterable[tuple[str, str]]) -> tuple[_Rule, ...]:
     return tuple((label, _is_set(name)) for name, label in names_and_labels)
 
 
@@ -174,7 +186,7 @@ _UNSUPPORTED_RULES = tuple(
 )
 
 
-def _check_firmware(config, context):
+def _check_firmware(config: MkosiConfig, context: _Context) -> None:
     if context.settings.firmware != "bios":
         return
     if getattr(config, "secure_boot", False):
@@ -186,14 +198,14 @@ def _check_firmware(config, context):
         raise SystemExit("bios firmware is incompatible with a UEFI Bootloader")
 
 
-def _check_network_and_cache(config, context):
+def _check_network_and_cache(config: MkosiConfig, context: _Context) -> None:
     if getattr(config, "proxy_url", None):
         raise SystemExit("release configuration cannot use a proxy")
     if _enum_value(config, "incremental", "no") != "no":
         raise SystemExit("release configuration incremental mode is not supported")
 
 
-def _check_distribution(config, context):
+def _check_distribution(config: MkosiConfig, context: _Context) -> None:
     if not getattr(config, "distribution", None):
         return
     settings = context.settings
@@ -209,23 +221,23 @@ def _check_distribution(config, context):
         )
 
 
-def _snapshot_matches(config, settings):
+def _snapshot_matches(config: MkosiConfig, settings: ReleaseSettings) -> bool:
     # Finalization installs no packages, so it may leave the snapshot unset.
     return config.snapshot == settings.snapshot or (settings.stage == "finalize" and config.snapshot is None)
 
 
-def _check_repositories(config, context):
+def _check_repositories(config: MkosiConfig, context: _Context) -> None:
     release_apt_components(getattr(config, "repositories", ()), context.settings.components)
 
 
-def _check_stage(config, context):
+def _check_stage(config: MkosiConfig, context: _Context) -> None:
     stage = context.settings.stage
     if stage not in _STAGE_CHECKS:
         raise SystemExit("unknown release stage {}".format(stage))
     _STAGE_CHECKS[stage](config, context)
 
 
-def _check_base(config, context):
+def _check_base(config: MkosiConfig, context: _Context) -> None:
     if getattr(config, "image_version", None):
         raise SystemExit(
             "release base configuration cannot set ImageVersion=; set the version on the "
@@ -240,7 +252,7 @@ def _check_base(config, context):
     )
 
 
-def _check_finalize(config, context):
+def _check_finalize(config: MkosiConfig, context: _Context) -> None:
     _reject_first(
         config,
         _FINALIZE_INITRD_RULES,
@@ -253,6 +265,8 @@ def _check_finalize(config, context):
         "release finalize configuration cannot use {}: packages are installed only by mkosi_base, which has the "
         "Debian snapshot",
     )
+    if context.base is None:
+        raise SystemExit("release finalization requires a declared base tree and initrd")
     base_tree, base_initrd = context.base
     _require_exactly(config, "base_trees", base_tree, "BaseTrees= must resolve to exactly the declared base tree")
     _require_exactly(config, "initrds", base_initrd, "Initrds= must resolve to exactly the declared base initrd")
@@ -263,19 +277,19 @@ def _check_finalize(config, context):
         )
 
 
-def _require_exactly(config, name, expected, requirement):
+def _require_exactly(config: MkosiConfig, name: str, expected: Path, requirement: str) -> None:
     if [Path(path).resolve() for path in getattr(config, name, ())] != [expected]:
         raise SystemExit("release finalize configuration " + requirement)
 
 
-_STAGE_CHECKS = {
+_STAGE_CHECKS: dict[str, Callable[[MkosiConfig, _Context], None]] = {
     "image": lambda config, context: None,
     "base": _check_base,
     "finalize": _check_finalize,
 }
 
 
-def _check_reproducibility(config, context):
+def _check_reproducibility(config: MkosiConfig, context: _Context) -> None:
     if config.seed != context.seed:
         raise SystemExit("release configuration Seed must resolve to {}".format(context.seed))
     if config.source_date_epoch != context.settings.source_date_epoch:
@@ -284,7 +298,7 @@ def _check_reproducibility(config, context):
         )
 
 
-def _check_extra_trees(config, context):
+def _check_extra_trees(config: MkosiConfig, context: _Context) -> None:
     extra_trees = getattr(config, "extra_trees", ())
     if extra_trees and (
         context.allowed_extra_tree is None
@@ -293,11 +307,11 @@ def _check_extra_trees(config, context):
         raise SystemExit("release configuration extra_trees is not supported")
 
 
-def _check_host_modules(config, context):
+def _check_host_modules(config: MkosiConfig, context: _Context) -> None:
     _reject_first(config, _HOST_MODULE_RULES, "release configuration {} cannot include host modules")
 
 
-def _check_declared_paths(config, context):
+def _check_declared_paths(config: MkosiConfig, context: _Context) -> None:
     for name, value in vars(config).items():
         if name in _IMAGE_PATH_SETTINGS:
             continue
@@ -311,7 +325,7 @@ def _check_declared_paths(config, context):
 _IMAGE_PATH_SETTINGS = frozenset({"splash"})
 
 
-def _configuration_paths(value):
+def _configuration_paths(value: object) -> Iterator[Path]:
     if isinstance(value, Path):
         yield value
     elif hasattr(value, "source"):
@@ -325,7 +339,7 @@ def _configuration_paths(value):
             yield from _configuration_paths(item)
 
 
-def _check_verity_hash_sizes(config, context):
+def _check_verity_hash_sizes(config: MkosiConfig, context: _Context) -> None:
     unsized = repart_definitions.unsized_verity_hash_definitions(getattr(config, "repart_dirs", ()))
     if unsized:
         raise SystemExit(
@@ -337,7 +351,7 @@ def _check_verity_hash_sizes(config, context):
         )
 
 
-def _check_unsupported(config, context):
+def _check_unsupported(config: MkosiConfig, context: _Context) -> None:
     _reject_first(config, _UNSUPPORTED_RULES, "release configuration {} is not supported")
 
 

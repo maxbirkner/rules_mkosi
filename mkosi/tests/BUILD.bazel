@@ -363,6 +363,7 @@ py_test(
     name = "bios_image_artifact_test",
     srcs = [
         "bios_image_artifact_test.py",
+        "runfile_paths.py",
         "//mkosi/private:gpt_partitions.py",
         "//mkosi/private:partition_metadata.py",
         "//mkosi/private:sibling_loader.py",
@@ -386,6 +387,7 @@ py_test(
     srcs = [
         "bios_image_artifact_test.py",
         "bios_image_artifact_unit_test.py",
+        "runfile_paths.py",
         "//mkosi/private:gpt_partitions.py",
         "//mkosi/private:partition_metadata.py",
         "//mkosi/private:sibling_loader.py",
@@ -996,7 +998,10 @@ py_test(
 
 py_test(
     name = "release_apt_sources_test",
-    srcs = ["release_apt_sources_test.py"],
+    srcs = [
+        "release_apt_sources_test.py",
+        "runfile_paths.py",
+    ],
     args = [
         "$(rootpath :release_raw_image)",
         "$(rootpath @mkosi_debian_tools//:launcher)",

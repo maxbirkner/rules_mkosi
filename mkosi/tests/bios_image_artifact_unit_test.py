@@ -15,7 +15,7 @@ spec.loader.exec_module(validator)
 
 
 class BiosArtifactTest(unittest.TestCase):
-    def setUp(self):
+    def setUp(self) -> None:
         self.directory = tempfile.TemporaryDirectory()
         self.image = pathlib.Path(self.directory.name) / "image.raw"
         self.metadata = {
@@ -34,67 +34,67 @@ class BiosArtifactTest(unittest.TestCase):
         self.raw[1049088] = 1
         self.image.write_bytes(self.raw)
 
-    def tearDown(self):
+    def tearDown(self) -> None:
         self.directory.cleanup()
 
-    def check(self, pattern):
+    def check(self, pattern: str) -> None:
         with self.assertRaisesRegex(AssertionError, pattern):
             validator.validate_boot_regions(self.image, self.metadata, bytes(self.boot), bytes(self.diskboot))
 
-    def test_valid_installation_evidence(self):
+    def test_valid_installation_evidence(self) -> None:
         validator.validate_boot_regions(self.image, self.metadata, bytes(self.boot), bytes(self.diskboot))
 
-    def test_mbr_signature(self):
+    def test_mbr_signature(self) -> None:
         self.raw[510] ^= 1
         self.image.write_bytes(self.raw)
         self.check("MBR signature")
 
-    def test_non_grub_bootstrap(self):
+    def test_non_grub_bootstrap(self) -> None:
         self.raw[0x70] ^= 1
         self.image.write_bytes(self.raw)
         self.check("installation MBR invariant")
 
-    def test_missing_protective_mbr(self):
+    def test_missing_protective_mbr(self) -> None:
         self.raw[0x1BE:0x1CE] = bytes(16)
         self.image.write_bytes(self.raw)
         self.check("exactly one protective")
 
-    def test_wrong_protective_type(self):
+    def test_wrong_protective_type(self) -> None:
         self.raw[0x1BE + 4] = 0x83
         self.image.write_bytes(self.raw)
         self.check("exactly one protective")
 
-    def test_wrong_protective_start(self):
+    def test_wrong_protective_start(self) -> None:
         struct.pack_into("<I", self.raw, 0x1BE + 8, 2)
         self.image.write_bytes(self.raw)
         self.check("start at LBA 1")
 
-    def test_undersized_protective_coverage(self):
+    def test_undersized_protective_coverage(self) -> None:
         struct.pack_into("<I", self.raw, 0x1BE + 12, 4094)
         self.image.write_bytes(self.raw)
         self.check("cover the disk")
 
-    def test_active_protective_entry(self):
+    def test_active_protective_entry(self) -> None:
         self.raw[0x1BE] = 0x80
         self.image.write_bytes(self.raw)
         self.check("must not be active")
 
-    def test_hybrid_mbr_entry(self):
+    def test_hybrid_mbr_entry(self) -> None:
         struct.pack_into("<B3sB3sII", self.raw, 0x1CE, 0x80, bytes(3), 0x83, bytes(3), 2, 4)
         self.image.write_bytes(self.raw)
         self.check("hybrid MBR")
 
-    def test_diskboot_invariant(self):
+    def test_diskboot_invariant(self) -> None:
         self.raw[1048576 + 20] ^= 1
         self.image.write_bytes(self.raw)
         self.check("installation diskboot invariant")
 
-    def test_empty_bios_payload(self):
+    def test_empty_bios_payload(self) -> None:
         self.raw[1049088:2097152] = bytes(2097152 - 1049088)
         self.image.write_bytes(self.raw)
         self.check("installation payload.*empty")
 
-    def files(self):
+    def files(self) -> tuple[dict[str, str], dict[str, str], str]:
         entries = {
             "/boot/vmlinuz-6.12.0": "regular",
             "/boot/initrd.img-6.12.0": "regular",
@@ -108,27 +108,27 @@ class BiosArtifactTest(unittest.TestCase):
 """
         return entries, modules, config
 
-    def test_valid_boot_files(self):
+    def test_valid_boot_files(self) -> None:
         validator.validate_boot_files(*self.files())
 
-    def test_kernel_initrd_mismatch(self):
+    def test_kernel_initrd_mismatch(self) -> None:
         entries, modules, config = self.files()
         config = config.replace("initrd.img-6.12.0", "initrd.img-6.11.0")
         with self.assertRaisesRegex(AssertionError, "versions do not match"):
             validator.validate_boot_files(entries, modules, config)
 
-    def test_missing_boot_reference(self):
+    def test_missing_boot_reference(self) -> None:
         entries, modules, config = self.files()
         del entries["/boot/vmlinuz-6.12.0"]
         with self.assertRaisesRegex(AssertionError, "missing non-regular"):
             validator.validate_boot_files(entries, modules, config)
 
-    def test_malformed_comment_only_menuentry(self):
+    def test_malformed_comment_only_menuentry(self) -> None:
         entries, modules, _ = self.files()
         with self.assertRaisesRegex(AssertionError, "genuine menuentry"):
             validator.validate_boot_files(entries, modules, "# menuentry linux initrd")
 
-    def test_each_required_module(self):
+    def test_each_required_module(self) -> None:
         for name in validator.REQUIRED_MODULES:
             entries, modules, config = self.files()
             del modules[name]

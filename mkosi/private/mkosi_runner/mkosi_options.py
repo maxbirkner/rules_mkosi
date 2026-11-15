@@ -4,8 +4,12 @@ The option spellings and the options that take paths are read from mkosi's own a
 so that run_mkosi.py recognizes the same options as the mkosi version that it runs.
 """
 
+import argparse
 import functools
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from types import ModuleType
+from typing import Any
 
 # The mkosi argument parser destination of -C/--directory, which is a command-line option rather than a setting.
 DIRECTORY = "directory"
@@ -29,25 +33,25 @@ class Option:
     path_list: bool = False
     constants: tuple[str, ...] = ()
 
-    def declared_paths(self, value):
+    def declared_paths(self, value: str) -> list[str]:
         """Returns the paths in value, without constants and without the in-image targets of trees."""
         return [self._source(item)[0] for item in self._items(value) if item not in self.constants]
 
-    def map_paths(self, value, function):
+    def map_paths(self, value: str, function: Callable[[str], str]) -> str:
         """Returns value with function applied to each of its paths; constants and tree targets stay unchanged."""
         items = [item if item in self.constants else self._map_item(item, function) for item in self._items(value)]
         return ",".join(items) if self.path_list else "".join(items)
 
-    def _items(self, value):
+    def _items(self, value: str) -> list[str]:
         # mkosi splits list values on commas and whitespace, and an empty value resets the list.
         return value.replace(",", " ").split() if self.path_list else [value] if value else []
 
-    def _source(self, item):
+    def _source(self, item: str) -> tuple[str, str, str]:
         if self.path == "tree":
             return item.partition(":")
         return (item, "", "")
 
-    def _map_item(self, item, function):
+    def _map_item(self, item: str, function: Callable[[str], str]) -> str:
         source, separator, target = self._source(item)
         return function(source) + separator + target
 
@@ -62,25 +66,25 @@ class Occurrence:
     prefix: str
     value: str | None
 
-    def replace(self, arguments, value):
+    def replace(self, arguments: list[str], value: str) -> None:
         arguments[self.index] = self.prefix + value
 
 
 @functools.cache
-def _parser():
+def _parser() -> argparse.ArgumentParser:
     import mkosi.config
 
     return mkosi.config.create_argument_parser(chdir=False)
 
 
 @functools.cache
-def option_table():
+def option_table() -> dict[str, Option]:
     """Returns mkosi's options by spelling, read from mkosi's argument parser and settings table."""
     import mkosi.config
 
     parser = _parser()
     classify = _PathClassifier(mkosi.config)
-    table = {}
+    table: dict[str, Option] = {}
     # argparse exposes its option actions only through this attribute.
     for action in parser._actions:
         if not action.option_strings:
@@ -93,7 +97,7 @@ def option_table():
     return table
 
 
-def _arguments(nargs):
+def _arguments(nargs: int | str | None) -> str:
     if nargs == 0:
         return "none"
     if nargs == "?":
@@ -108,13 +112,13 @@ class _PathClassifier:
     identifies the parser of every setting without depending on the names of mkosi's private functions.
     """
 
-    def __init__(self, config):
+    def __init__(self, config: ModuleType) -> None:
         self._config = config
         self._path = config.config_make_path_parser().__code__
         self._tree = config.make_tree_parser().__code__
         self._list = config.config_make_list_parser().__code__
 
-    def __call__(self, dest):
+    def __call__(self, dest: str) -> tuple[str | None, bool, tuple[str, ...]]:
         if dest == DIRECTORY:
             return ("path", False, ())
         setting = self._config.SETTINGS_LOOKUP_BY_DEST.get(dest)
@@ -127,7 +131,7 @@ class _PathClassifier:
         kind, constants = self._element(parse)
         return (kind, path_list and kind is not None, constants)
 
-    def _element(self, parse):
+    def _element(self, parse: Callable[..., object]) -> tuple[str | None, tuple[str, ...]]:
         if isinstance(parse, functools.partial) and parse.func is self._config.parse_path:
             return ("path", tuple(parse.keywords.get("constants", ())))
         code = getattr(parse, "__code__", None)
@@ -138,13 +142,13 @@ class _PathClassifier:
         return (None, ())
 
 
-def _closure(function):
+def _closure(function: Callable[..., object]) -> dict[str, Any]:
     return dict(
         zip(function.__code__.co_freevars, (cell.cell_contents for cell in function.__closure__ or ()), strict=True)
     )
 
 
-def option(spelling):
+def option(spelling: str) -> Option:
     """Returns the mkosi option with the given spelling."""
     table = option_table()
     if spelling not in table:
@@ -152,21 +156,21 @@ def option(spelling):
     return table[spelling]
 
 
-def occurrences(arguments, table=None):
+def occurrences(arguments: Sequence[str], table: Mapping[str, Option] | None = None) -> list[Occurrence]:
     """Returns the Occurrences of known mkosi options in arguments, as mkosi's argument parser reads them.
 
     An option's value may be the next argument or attached to the option as --option=value, -Ovalue or -O=value, also
     after single-letter flags such as -fO value. Parsing stops at --, after which mkosi reads no options.
     """
     table = option_table() if table is None else table
-    found = []
+    found: list[Occurrence] = []
     index = 0
     while index < len(arguments) and arguments[index] != "--":
         index = _scan(table, arguments, index, found)
     return found
 
 
-def _scan(table, arguments, index, found):
+def _scan(table: Mapping[str, Option], arguments: Sequence[str], index: int, found: list[Occurrence]) -> int:
     parsed = _parse_option(table, arguments[index])
     if parsed is None:
         return index + 1
@@ -196,7 +200,7 @@ def _scan(table, arguments, index, found):
     return index + 1
 
 
-def _parse_option(table, argument):
+def _parse_option(table: Mapping[str, Option], argument: str) -> tuple[str, str, str | None] | None:
     """Returns (spelling, prefix of an attached value, attached value or None) for a known option, or None."""
     if argument in table:
         return (argument, argument, None)
@@ -210,7 +214,7 @@ def _parse_option(table, argument):
     return None
 
 
-def _is_option(table, argument):
+def _is_option(table: Mapping[str, Option], argument: str) -> bool:
     """Returns whether mkosi's argument parser reads argument as an option rather than as a value."""
     if not argument.startswith("-") or len(argument) == 1:
         return False
@@ -219,7 +223,7 @@ def _is_option(table, argument):
     return not _is_negative_number(argument) and " " not in argument
 
 
-def _is_negative_number(argument):
+def _is_negative_number(argument: str) -> bool:
     """Returns whether mkosi's argument parser reads argument as a negative number, which is a value."""
     # argparse exposes its negative number rule only through these attributes.
     parser = _parser()

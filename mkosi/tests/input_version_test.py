@@ -23,14 +23,14 @@ ENVIRONMENT = {"PATH": "", "SOURCE_DATE_EPOCH": "0"}
 REQUIREMENTS = {"block-network": "1", "no-remote-exec": "1"}
 
 
-def _write(root, path, content, executable=False):
+def _write(root: Path, path: str, content: str, executable: bool = False) -> None:
     target = Path(root, path)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(content, encoding="utf-8")
     target.chmod(0o755 if executable else 0o644)
 
 
-def _populate(root):
+def _populate(root: Path) -> None:
     _write(root, CONFIG, "[Content]\nBootable=yes\n")
     _write(root, PAYLOAD_TREE + "/usr/local/bin/tool", "#!/bin/sh\n", executable=True)
     _write(root, PAYLOAD_TREE + "/etc/tool.conf", "level=1\n")
@@ -39,7 +39,7 @@ def _populate(root):
 
 
 class InputVersionTest(unittest.TestCase):
-    def setUp(self):
+    def setUp(self) -> None:
         self._directory = tempfile.TemporaryDirectory()
         self.addCleanup(self._directory.cleanup)
         self._cwd = os.getcwd()
@@ -50,16 +50,22 @@ class InputVersionTest(unittest.TestCase):
         os.chdir(self.execroot)
         self.baseline = self.digest()
 
-    def digest(self, inputs=INPUTS, command_line=COMMAND_LINE, environment=ENVIRONMENT, requirements=REQUIREMENTS):
+    def digest(
+        self,
+        inputs: list[str] = INPUTS,
+        command_line: list[str] = COMMAND_LINE,
+        environment: dict[str, str] = ENVIRONMENT,
+        requirements: dict[str, str] = REQUIREMENTS,
+    ) -> str:
         return input_version.digest(inputs, command_line, environment, requirements)
 
-    def digest_with_symlinks(self, symlinks):
+    def digest_with_symlinks(self, symlinks: list[str]) -> str:
         return input_version.digest(INPUTS, COMMAND_LINE, ENVIRONMENT, REQUIREMENTS, symlinks)
 
-    def assertChanges(self, digest=None):
+    def assertChanges(self, digest: str | None = None) -> None:
         self.assertNotEqual(self.baseline, self.digest() if digest is None else digest)
 
-    def test_identical_inputs_give_identical_versions_regardless_of_order_and_execution_root(self):
+    def test_identical_inputs_give_identical_versions_regardless_of_order_and_execution_root(self) -> None:
         self.assertEqual(self.baseline, self.digest(inputs=list(reversed(INPUTS))))
         other = Path(self._directory.name, "other-output-base", "execroot")
         other.mkdir(parents=True)
@@ -67,7 +73,7 @@ class InputVersionTest(unittest.TestCase):
         os.chdir(other)
         self.assertEqual(self.baseline, self.digest())
 
-    def test_sandbox_symlinks_are_followed_to_their_content(self):
+    def test_sandbox_symlinks_are_followed_to_their_content(self) -> None:
         sandbox = Path(self._directory.name, "sandbox", "execroot")
         for path in (CONFIG, TOOLCHAIN_SCRIPT):
             (sandbox / path).parent.mkdir(parents=True, exist_ok=True)
@@ -81,7 +87,7 @@ class InputVersionTest(unittest.TestCase):
         os.chdir(sandbox)
         self.assertEqual(self.baseline, self.digest())
 
-    def test_configuration_names_in_output_paths_are_ignored(self):
+    def test_configuration_names_in_output_paths_are_ignored(self) -> None:
         renamed = [path.replace("k8-fastbuild", "k8-opt") for path in INPUTS]
         for old, new in zip(INPUTS, renamed, strict=True):
             if old != new:
@@ -90,39 +96,39 @@ class InputVersionTest(unittest.TestCase):
         command_line = [argument.replace("k8-fastbuild", "k8-opt") for argument in COMMAND_LINE]
         self.assertEqual(self.baseline, self.digest(inputs=renamed, command_line=command_line))
 
-    def test_configuration_file_change_changes_version(self):
+    def test_configuration_file_change_changes_version(self) -> None:
         _write(self.execroot, CONFIG, "[Content]\nBootable=no\n")
         self.assertChanges()
 
-    def test_rootfs_payload_changes_change_version(self):
+    def test_rootfs_payload_changes_change_version(self) -> None:
         _write(self.execroot, PAYLOAD_TREE + "/etc/tool.conf", "level=2\n")
         self.assertChanges()
 
-    def test_added_empty_directory_changes_version(self):
+    def test_added_empty_directory_changes_version(self) -> None:
         (self.execroot / PAYLOAD_TREE / "var/lib/tool").mkdir(parents=True)
         self.assertChanges()
 
-    def test_renamed_file_changes_version(self):
+    def test_renamed_file_changes_version(self) -> None:
         payload = self.execroot / PAYLOAD_TREE
         (payload / "etc/tool.conf").rename(payload / "etc/other.conf")
         self.assertChanges()
 
-    def test_executable_bit_changes_version(self):
+    def test_executable_bit_changes_version(self) -> None:
         (self.execroot / CONFIG).chmod(0o755)
         self.assertChanges()
 
-    def test_toolchain_changes_change_version(self):
+    def test_toolchain_changes_change_version(self) -> None:
         _write(self.execroot, TOOLCHAIN_SCRIPT, "print('patched mkosi')\n")
         self.assertChanges()
         _populate(self.execroot)
         _write(self.execroot, DEBIAN_TOOLS_TREE + "/usr/bin/systemd-repart", "repart 2\n", executable=True)
         self.assertChanges()
 
-    def test_additional_input_changes_version(self):
+    def test_additional_input_changes_version(self) -> None:
         _write(self.execroot, "external/+mkosi+mkosi_source/mkosi/patch.py", "")
         self.assertChanges(self.digest(inputs=[*INPUTS, "external/+mkosi+mkosi_source/mkosi/patch.py"]))
 
-    def test_declared_version_input_change_changes_version(self):
+    def test_declared_version_input_change_changes_version(self) -> None:
         certificate = "certificates/db.crt"
         _write(self.execroot, certificate, "certificate 1\n")
         declared = self.digest(inputs=[*INPUTS, certificate])
@@ -130,7 +136,7 @@ class InputVersionTest(unittest.TestCase):
         _write(self.execroot, certificate, "certificate 2\n")
         self.assertNotEqual(declared, self.digest(inputs=[*INPUTS, certificate]))
 
-    def test_declared_signing_roles_change_version(self):
+    def test_declared_signing_roles_change_version(self) -> None:
         uki = {"signing_certificates": {"": "certificates/db.crt"}}
         boot_loader = {"signing_certificates": {"EFI/systemd/systemd-bootx64.efi": "certificates/db.crt"}}
         declared = input_version.digest(INPUTS, COMMAND_LINE, ENVIRONMENT, REQUIREMENTS, declared=uki)
@@ -144,17 +150,17 @@ class InputVersionTest(unittest.TestCase):
             input_version.digest(INPUTS, COMMAND_LINE, ENVIRONMENT, REQUIREMENTS, declared=fastbuild),
         )
 
-    def test_command_line_environment_and_requirements_change_version(self):
+    def test_command_line_environment_and_requirements_change_version(self) -> None:
         self.assertChanges(self.digest(command_line=[*COMMAND_LINE, "--image-id=other"]))
         self.assertChanges(self.digest(environment=ENVIRONMENT | {"SOURCE_DATE_EPOCH": "1"}))
         self.assertChanges(self.digest(requirements={"no-remote-exec": "1"}))
 
-    def test_dangling_symlink_is_rejected(self):
+    def test_dangling_symlink_is_rejected(self) -> None:
         (self.execroot / PAYLOAD_TREE / "etc/missing").symlink_to("does-not-exist")
         with self.assertRaisesRegex(ValueError, "dangling symlink"):
             self.digest()
 
-    def test_declared_symlinks_are_identified_by_their_target_text(self):
+    def test_declared_symlinks_are_identified_by_their_target_text(self) -> None:
         link = "bazel-out/k8-fastbuild/bin/tool.venv/bin/python3"
         (self.execroot / link).parent.mkdir(parents=True)
         (self.execroot / link).symlink_to("../../tool.runfiles/python3")
@@ -170,12 +176,12 @@ class InputVersionTest(unittest.TestCase):
         os.chdir(other)
         self.assertEqual(declared, self.digest_with_symlinks([link.replace("k8-fastbuild", "k8-opt")]))
 
-    def test_symlink_cycle_is_rejected(self):
+    def test_symlink_cycle_is_rejected(self) -> None:
         (self.execroot / PAYLOAD_TREE / "etc/loop").symlink_to("..")
         with self.assertRaisesRegex(ValueError, "symlink cycle"):
             self.digest()
 
-    def test_main_writes_sixteen_hex_character_version_and_full_digest(self):
+    def test_main_writes_sixteen_hex_character_version_and_full_digest(self) -> None:
         inputs_file = Path(self._directory.name, "inputs.params")
         inputs_file.write_text("\n".join(INPUTS) + "\n", encoding="utf-8")
         version_file = Path(self._directory.name, "image-version")
@@ -231,7 +237,7 @@ class InputVersionTest(unittest.TestCase):
         self.assertNotEqual(first["image_version"], second["image_version"])
         self.assertEqual(first["inputs"].keys(), second["inputs"].keys())
 
-    def test_main_reports_unreadable_inputs(self):
+    def test_main_reports_unreadable_inputs(self) -> None:
         inputs_file = Path(self._directory.name, "inputs.params")
         inputs_file.write_text("missing\n", encoding="utf-8")
         arguments = ["--environment-json", "{}", "--execution-requirements-json", "{}", "--version-output", "v"]

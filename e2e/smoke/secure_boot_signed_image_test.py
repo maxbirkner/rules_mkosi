@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from collections.abc import Sequence
 from pathlib import Path
 
 import rules_mkosi_esp_manifest
@@ -16,17 +17,17 @@ ESP_TYPE_GUID = "c12a7328-f81f-11d2-ba4b-00a0c93ec93b"
 ESP_MANIFEST = "loader/rules_mkosi-secure-boot.json"
 
 
-def _sha256(path):
+def _sha256(path: str | Path) -> str:
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
-def _certificate_sha256(path):
+def _certificate_sha256(path: str | Path) -> str:
     """Returns the SHA-256 of the DER encoding of the PEM certificate at path."""
     body = "".join(line for line in Path(path).read_text().splitlines() if not line.startswith("-----"))
     return hashlib.sha256(base64.b64decode(body)).hexdigest()
 
 
-def _read_esp_file(image, partition_metadata, launcher, esp_path):
+def _read_esp_file(image: str, partition_metadata: str, launcher: str, esp_path: str) -> bytes:
     """Returns the bytes of esp_path on the ESP of image, read with the pinned mtools as install tooling could."""
     partitions = json.loads(Path(partition_metadata).read_text())["partitions"]
     [esp] = [partition for partition in partitions if partition["type_guid"] == ESP_TYPE_GUID]
@@ -46,7 +47,7 @@ def _read_esp_file(image, partition_metadata, launcher, esp_path):
     return result.stdout
 
 
-def _one(paths, suffix):
+def _one(paths: Sequence[str], suffix: str) -> str:
     matches = [path for path in paths if path.endswith(suffix)]
     if len(matches) != 1:
         raise AssertionError("expected one {} in {}".format(suffix, paths))
@@ -54,7 +55,7 @@ def _one(paths, suffix):
 
 
 class SignedImageTest(unittest.TestCase):
-    def test_boot_binaries_are_replaced_by_their_signed_imports(self):
+    def test_boot_binaries_are_replaced_by_their_signed_imports(self) -> None:
         replaced = {entry["esp_path"]: entry["signed_sha256"] for entry in METADATA["replaced"]}
         boot_loader = _sha256(_one(SYSTEMD_BOOT, ".signed.efi"))
         self.assertEqual(replaced.pop("EFI/systemd/systemd-bootx64.efi"), boot_loader)
@@ -63,7 +64,7 @@ class SignedImageTest(unittest.TestCase):
         self.assertRegex(uki_path, r"^EFI/Linux/rules-mkosi-ab_1(\+[0-9-]+)?\.efi$")
         self.assertEqual(uki, _sha256(_one(UKI, ".signed.efi")))
 
-    def test_keys_and_enrollment_mode_are_added(self):
+    def test_keys_and_enrollment_mode_are_added(self) -> None:
         self.assertEqual(METADATA["secure_boot_enroll"], "force")
         keys = {name: _sha256(_one(SIGNER, "/{}.auth".format(name))) for name in ("PK", "KEK", "db")}
         self.assertEqual({key["variable"]: key["sha256"] for key in METADATA["auto_enroll_keys"]}, keys)
@@ -71,13 +72,13 @@ class SignedImageTest(unittest.TestCase):
             self.assertIn(path, METADATA["changed_esp_paths"])
         self.assertIn("loader/loader.conf", [path.lower() for path in METADATA["changed_esp_paths"]])
 
-    def test_disk_image_keeps_the_unsigned_image_size(self):
+    def test_disk_image_keeps_the_unsigned_image_size(self) -> None:
         self.assertGreater(Path(_one(IMAGE, ".raw")).stat().st_size, 1 << 30)
 
-    def test_raw_image_output_group_holds_only_the_disk_image(self):
+    def test_raw_image_output_group_holds_only_the_disk_image(self) -> None:
         self.assertEqual(RAW_IMAGE, [_one(IMAGE, ".raw")])
 
-    def test_esp_manifest_names_the_enrolled_db_certificate_and_the_signers(self):
+    def test_esp_manifest_names_the_enrolled_db_certificate_and_the_signers(self) -> None:
         [image] = RAW_IMAGE
         manifest = json.loads(_read_esp_file(image, PARTITION_METADATA, LAUNCHER, ESP_MANIFEST))
         self.assertEqual(manifest["format_version"], "mkosi-secure-boot-esp-manifest-v1")
@@ -90,7 +91,7 @@ class SignedImageTest(unittest.TestCase):
         self.assertEqual(keys["db"]["esp_path"], "loader/keys/auto/db.auth")
         self.assertEqual({entry["signer_sha256"] for entry in manifest["replaced"]}, {db})
 
-    def test_esp_manifest_reader_reads_what_mtools_reads(self):
+    def test_esp_manifest_reader_reads_what_mtools_reads(self) -> None:
         [image] = RAW_IMAGE
         expected = json.loads(_read_esp_file(image, PARTITION_METADATA, LAUNCHER, ESP_MANIFEST))
         self.assertEqual(rules_mkosi_esp_manifest.read_esp_manifest(image), expected)

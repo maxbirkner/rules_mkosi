@@ -1,7 +1,10 @@
 """Actionable failure reporting at the image and virtual-machine boundary."""
 
+import os
 import subprocess
 import sys
+from collections.abc import Callable
+from typing import NoReturn
 
 _ACTIONS = {
     "KERNEL_CAPABILITY_FAILURE": "select a Linux runner that satisfies the kernel contract",
@@ -14,7 +17,7 @@ _MIN_EXIT_STATUS = 1
 _MAX_EXIT_STATUS = 255
 
 
-def report(category, detail, original=b""):
+def report(category: str, detail: str, original: bytes | str = b"") -> None:
     """Print one classified actionable failure while retaining original output."""
     if category not in _ACTIONS:
         raise ValueError("unknown diagnostic category: {}".format(category))
@@ -27,7 +30,7 @@ def report(category, detail, original=b""):
         print(original.rstrip(), file=sys.stderr)
 
 
-def fail(category, detail, original=b"", exit_code=1):
+def fail(category: str, detail: str, original: bytes | str = b"", exit_code: int = 1) -> NoReturn:
     """Report a failure and terminate with its validated action status."""
     if (
         isinstance(exit_code, bool)
@@ -39,7 +42,7 @@ def fail(category, detail, original=b"", exit_code=1):
     raise SystemExit(exit_code)
 
 
-def child_exit_code(returncode):
+def child_exit_code(returncode: int) -> int:
     """Return a nonzero one-byte status for a failed subprocess.
 
     subprocess uses negative return codes for signals. Preserve conventional
@@ -55,7 +58,7 @@ def child_exit_code(returncode):
     return 1
 
 
-def classify_mkosi_output(output):
+def classify_mkosi_output(output: bytes) -> str:
     """Classify a failed mkosi child without hiding its original diagnostics."""
     text = output.decode(errors="replace").lower()
     network_signals = (
@@ -83,7 +86,11 @@ def classify_mkosi_output(output):
     return "ASSEMBLY_FAILURE"
 
 
-def run_kernel_preflight(path, action, runner=subprocess.run):
+def run_kernel_preflight(
+    path: str | os.PathLike[str],
+    action: str,
+    runner: Callable[..., subprocess.CompletedProcess[bytes]] = subprocess.run,
+) -> bytes:
     """Run the proven kernel probe before an action needs namespace support."""
     try:
         completed = runner(

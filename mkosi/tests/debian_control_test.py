@@ -16,7 +16,7 @@ _DIGEST_B = "b" * 64
 
 
 class DebianControlTest(unittest.TestCase):
-    def test_release_sha256_continuation_lines_become_one_stripped_entry_per_line(self):
+    def test_release_sha256_continuation_lines_become_one_stripped_entry_per_line(self) -> None:
         release = (
             "Origin: Debian\n"
             "Codename: trixie\n"
@@ -36,7 +36,7 @@ class DebianControlTest(unittest.TestCase):
             debian_control.paragraphs(release),
         )
 
-    def test_packages_index_continuation_lines_extend_folded_and_multiline_fields(self):
+    def test_packages_index_continuation_lines_extend_folded_and_multiline_fields(self) -> None:
         packages = (
             "Package: demo\n"
             "Version: 1.0-1\n"
@@ -65,7 +65,7 @@ class DebianControlTest(unittest.TestCase):
             debian_control.paragraphs(packages),
         )
 
-    def test_values_lose_surrounding_whitespace_and_keep_inner_colons(self):
+    def test_values_lose_surrounding_whitespace_and_keep_inner_colons(self) -> None:
         self.assertEqual(
             [{"Filename": "pool/main/d/demo.deb", "Homepage": "https://example.org:8080/x", "Size": "3"}],
             debian_control.paragraphs(
@@ -73,16 +73,16 @@ class DebianControlTest(unittest.TestCase):
             ),
         )
 
-    def test_whitespace_only_lines_separate_paragraphs(self):
+    def test_whitespace_only_lines_separate_paragraphs(self) -> None:
         self.assertEqual(
             [{"Package": "one"}, {"Package": "two"}],
             debian_control.paragraphs("\n \nPackage: one\n \t\n\nPackage: two\n\n"),
         )
 
-    def test_empty_text_has_no_paragraphs(self):
+    def test_empty_text_has_no_paragraphs(self) -> None:
         self.assertEqual([], debian_control.paragraphs(""))
 
-    def test_malformed_control_data_is_rejected(self):
+    def test_malformed_control_data_is_rejected(self) -> None:
         for text, message in (
             (" continued\n", "continuation without a Debian metadata field"),
             ("Package: one\n\n continued\n", "continuation without a Debian metadata field"),

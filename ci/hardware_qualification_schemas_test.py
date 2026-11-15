@@ -9,7 +9,8 @@ import pathlib
 import re
 import sys
 import unittest
-from typing import Any
+from collections.abc import Callable
+from typing import Any, Literal
 
 sys.path.insert(0, str(pathlib.Path(__file__).parent))
 import hardware_qualification_schemas as schemas
@@ -23,14 +24,14 @@ LOG = [{"path": "logs/check.txt", "sha256": "f" * 64}]
 class Validator:
     """Validates instances against a draft 2020-12 schema that uses only the keywords in `KEYWORDS`."""
 
-    def __init__(self, schema: dict[str, Any]):
+    def __init__(self, schema: dict[str, Any]) -> None:
         self.root = schema
 
-    def valid(self, schema: dict[str, Any], instance: Any) -> bool:
+    def valid(self, schema: dict[str, Any], instance: object) -> bool:
         return not self.errors(schema, instance)
 
-    def errors(self, schema: dict[str, Any], instance: Any, path: str = "$") -> list[str]:
-        errors = []
+    def errors(self, schema: dict[str, Any], instance: object, path: str = "$") -> list[str]:
+        errors: list[str] = []
         for keyword, value in schema.items():
             if keyword in ANNOTATIONS or keyword in ("then", "else"):
                 continue
@@ -40,47 +41,64 @@ class Validator:
         return errors
 
 
-def check_ref(validator, value, instance, schema, path):
+# Checks an instance against the value of a keyword in a schema at a path and returns the errors. The value and the
+# instance are whatever JSON the keyword and the record contain.
+Keyword = Callable[[Validator, Any, Any, dict[str, Any], str], list[str]]
+# A keyword that only applies to arrays, which gets no schema.
+ArrayKeyword = Callable[[Validator, Any, Any, str], list[str]]
+
+
+def check_ref(validator: Validator, value: str, instance: object, schema: dict[str, Any], path: str) -> list[str]:
     prefix = "#/$defs/"
     assert value.startswith(prefix), value
     return validator.errors(validator.root["$defs"][value[len(prefix) :]], instance, path)
 
 
-def check_if(validator, value, instance, schema, path):
+def check_if(
+    validator: Validator, value: dict[str, Any], instance: object, schema: dict[str, Any], path: str
+) -> list[str]:
     branch = "then" if validator.valid(value, instance) else "else"
     return validator.errors(schema[branch], instance, path) if branch in schema else []
 
 
-def check_object(test):
-    def check(validator, value, instance, schema, path):
+def check_object(test: Keyword) -> Keyword:
+    def check(validator: Validator, value: object, instance: object, schema: dict[str, Any], path: str) -> list[str]:
         return test(validator, value, instance, schema, path) if isinstance(instance, dict) else []
 
     return check
 
 
-def check_array(test):
-    def check(validator, value, instance, schema, path):
+def check_array(test: ArrayKeyword) -> Keyword:
+    def check(validator: Validator, value: object, instance: object, schema: dict[str, Any], path: str) -> list[str]:
         return test(validator, value, instance, path) if isinstance(instance, list) else []
 
     return check
 
 
-def check_properties(validator, value, instance, schema, path):
+def check_properties(
+    validator: Validator, value: dict[str, Any], instance: dict[str, Any], schema: dict[str, Any], path: str
+) -> list[str]:
     return [e for key in value if key in instance for e in validator.errors(value[key], instance[key], f"{path}.{key}")]
 
 
-def check_additional(validator, value, instance, schema, path):
+def check_additional(
+    validator: Validator,
+    value: Literal[False] | dict[str, Any],
+    instance: dict[str, Any],
+    schema: dict[str, Any],
+    path: str,
+) -> list[str]:
     extra = [key for key in instance if key not in schema.get("properties", {})]
     if value is False:
         return [f"{path}: unexpected {key}" for key in extra]
     return [e for key in extra for e in validator.errors(value, instance[key], f"{path}.{key}")]
 
 
-def fails(condition, message):
+def fails(condition: bool, message: str) -> list[str]:
     return [message] if condition else []
 
 
-KEYWORDS = {
+KEYWORDS: dict[str, Keyword] = {
     "$ref": check_ref,
     "if": check_if,
     "type": lambda v, value, i, s, p: fails(not isinstance(i, TYPES[value]), f"{p}: not {value}"),
@@ -166,17 +184,17 @@ def minimal_signoff() -> dict[str, Any]:
     }
 
 
-def combinations():
+def combinations() -> list[tuple[schemas.HardwareClass, str]]:
     return [(hardware_class, state) for hardware_class in schemas.CLASSES for state in hardware_class.secure_boot]
 
 
 class GeneratedFilesTest(unittest.TestCase):
-    def test_committed_files_match_the_generator(self):
+    def test_committed_files_match_the_generator(self) -> None:
         for path, content in schemas.expected_files(ROOT).items():
             with self.subTest(path=path):
                 self.assertEqual((ROOT / path).read_text(encoding="utf-8"), content, "run --write")
 
-    def test_missing_table_markers_fail(self):
+    def test_missing_table_markers_fail(self) -> None:
         with self.assertRaisesRegex(ValueError, "expected one pair of classes markers"):
             schemas.render_doc("no markers")
 
@@ -199,38 +217,38 @@ def schema_keywords(schema: dict[str, Any]) -> set[str]:
 
 
 class ValidatorTest(unittest.TestCase):
-    def test_validator_supports_every_keyword_of_the_schemas(self):
+    def test_validator_supports_every_keyword_of_the_schemas(self) -> None:
         for schema in (schemas.result_schema(), schemas.signoff_schema()):
             self.assertLessEqual(schema_keywords(schema) - ANNOTATIONS - {"then", "else"}, set(KEYWORDS))
 
-    def test_unknown_keywords_fail(self):
+    def test_unknown_keywords_fail(self) -> None:
         with self.assertRaisesRegex(ValueError, "unsupported keyword maximum"):
             Validator({}).errors({"maximum": 1}, 2)
 
 
 class ResultSchemaTest(unittest.TestCase):
-    def setUp(self):
+    def setUp(self) -> None:
         self.validator = Validator(schemas.result_schema())
 
-    def assert_valid(self, record):
+    def assert_valid(self, record: dict[str, Any]) -> None:
         self.assertEqual(self.validator.errors(self.validator.root, record), [])
 
-    def assert_invalid(self, record):
+    def assert_invalid(self, record: dict[str, Any]) -> None:
         self.assertNotEqual(self.validator.errors(self.validator.root, record), [])
 
-    def test_document_example_is_valid(self):
+    def test_document_example_is_valid(self) -> None:
         text = (ROOT / schemas.DOC).read_text(encoding="utf-8")
         example = re.search(r"```json\n(.*?)```", text, re.DOTALL)
         assert example is not None
         self.assert_valid(json.loads(example.group(1)))
 
-    def test_every_class_and_state_accepts_its_required_checks(self):
+    def test_every_class_and_state_accepts_its_required_checks(self) -> None:
         self.assertEqual(len(combinations()), 12)
         for hardware_class, state in combinations():
             with self.subTest(hardware_class=hardware_class.name, state=state):
                 self.assert_valid(minimal_result(hardware_class, state))
 
-    def test_passed_without_a_required_check_is_rejected(self):
+    def test_passed_without_a_required_check_is_rejected(self) -> None:
         for hardware_class, state in combinations():
             for check in schemas.required_checks(hardware_class, state):
                 with self.subTest(hardware_class=hardware_class.name, state=state, check=check):
@@ -240,7 +258,7 @@ class ResultSchemaTest(unittest.TestCase):
                     record["checks"][check] = {"status": "not-applicable", "logs": []}
                     self.assert_invalid(record)
 
-    def test_tier_must_match_the_class(self):
+    def test_tier_must_match_the_class(self) -> None:
         for hardware_class, state in combinations():
             with self.subTest(hardware_class=hardware_class.name, state=state):
                 record = minimal_result(hardware_class, state)
@@ -250,7 +268,7 @@ class ResultSchemaTest(unittest.TestCase):
         bios_with_secure_boot["firmware"]["secure_boot"] = "disabled"
         self.assert_invalid(bios_with_secure_boot)
 
-    def test_outcome_must_match_the_checks(self):
+    def test_outcome_must_match_the_checks(self) -> None:
         record = minimal_result(schemas.CLASSES[0], "setup-mode")
         record["outcome"] = "failed"
         self.assert_invalid(record)
@@ -264,23 +282,23 @@ class ResultSchemaTest(unittest.TestCase):
         failure["attribution"] = "procedure"
         self.assert_valid(record)
 
-    def test_enforcing_states_need_a_refused_update(self):
+    def test_enforcing_states_need_a_refused_update(self) -> None:
         record = minimal_result(schemas.CLASSES[0], "custom-keys")
         record["subject"]["update_payloads"] = record["subject"]["update_payloads"][:2]
         self.assert_invalid(record)
 
 
 class SignoffSchemaTest(unittest.TestCase):
-    def setUp(self):
+    def setUp(self) -> None:
         self.validator = Validator(schemas.signoff_schema())
 
-    def errors(self, signoff):
+    def errors(self, signoff: dict[str, Any]) -> list[str]:
         return self.validator.errors(self.validator.root, signoff)
 
-    def test_every_class_qualified(self):
+    def test_every_class_qualified(self) -> None:
         self.assertEqual(self.errors(minimal_signoff()), [])
 
-    def test_every_class_appears_exactly_once(self):
+    def test_every_class_appears_exactly_once(self) -> None:
         signoff = minimal_signoff()
         del signoff["classes"]["bios-csm"]
         self.assertNotEqual(self.errors(signoff), [])
@@ -288,12 +306,12 @@ class SignoffSchemaTest(unittest.TestCase):
         signoff["classes"]["uefi-other"] = {"status": "not-tested", "results": []}
         self.assertNotEqual(self.errors(signoff), [])
 
-    def test_qualified_class_needs_every_secure_boot_state(self):
+    def test_qualified_class_needs_every_secure_boot_state(self) -> None:
         signoff = minimal_signoff()
         signoff["classes"]["uefi-modern-desktop"]["results"].pop()
         self.assertNotEqual(self.errors(signoff), [])
 
-    def test_status_must_match_the_results(self):
+    def test_status_must_match_the_results(self) -> None:
         signoff = minimal_signoff()
         signoff["classes"]["bios-csm"]["status"] = "not-tested"
         self.assertNotEqual(self.errors(signoff), [])
