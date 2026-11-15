@@ -4,6 +4,11 @@ load(":mkosi_action.bzl", "mkosi_execution_requirements", "pefile_root")
 load(":python_action.bzl", "mkosi_toolchain_info", "run_python")
 
 IMAGE_METADATA_ATTRS = {
+    "_devicetree": attr.label(
+        cfg = "exec",
+        default = "//mkosi/private:devicetree.py",
+        allow_single_file = True,
+    ),
     "_file_hashing": attr.label(
         cfg = "exec",
         default = "//mkosi/private:file_hashing.py",
@@ -106,7 +111,13 @@ def project_uki_metadata(ctx, outputs):
     run_python(
         ctx,
         arguments = [arguments],
-        inputs = [ctx.file._uki_metadata, mkosi.pefile, outputs.uki] + ([root_hash] if root_hash else []),
+        inputs = [
+            ctx.file._uki_metadata,
+            ctx.file._devicetree,
+            ctx.file._sibling_loader,
+            mkosi.pefile,
+            outputs.uki,
+        ] + ([root_hash] if root_hash else []),
         transitive_inputs = [mkosi.python_runtime_files, mkosi.runfiles_files],
         outputs = [outputs.uki_metadata],
         env = {"PYTHONPATH": pefile_root(mkosi)},
