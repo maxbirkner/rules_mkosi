@@ -1,7 +1,7 @@
 load("@bazel_skylib//rules:common_settings.bzl", "bool_setting")
 
-# C/C++ toolchain for rules_mkosi's statically linked bootstrap executables only, backed by the Linux x86-64 C/C++
-# toolchain of the llvm module, which builds musl and libc++ from source. bootstrap_binary puts it first in
+# C/C++ toolchains for rules_mkosi's statically linked bootstrap executables only, backed by the Linux x86-64 and
+# aarch64 C/C++ toolchains of the llvm module, which build musl and libc++ from source. bootstrap_binary puts it first in
 # --extra_toolchains, so it needs no registration, and Bazel fetches the LLVM toolchain and runtime sources only when it
 # builds a bootstrap executable with it.
 
@@ -19,7 +19,7 @@ config_setting(
     flag_values = {":bootstrap_executable": "True"},
 )
 
-# Default target platform of the bootstrap executables, and their default first execution platform. The llvm module's
+# Default target platform of the bootstrap executables, and their default first execution platform, on Linux x86-64 hosts. The llvm module's
 # C/C++ toolchain selects its C library and position-independent executable mode from the target platform: musl links
 # fully static executables, and without PIE they need no dynamic section, whatever the version of the llvm module
 # defaults to. As the execution platform, it makes the toolchain's own helper tools, such as its header parser, static
@@ -30,6 +30,19 @@ platform(
         "@llvm//constraints/libc:musl",
         "@llvm//constraints/pie:off",
         "@platforms//cpu:x86_64",
+        "@platforms//os:linux",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+# The same for Linux aarch64: the default on Linux aarch64 hosts, and the target platform of cross-built arm64 bootstrap
+# executables on Linux x86-64 hosts.
+platform(
+    name = "linux_aarch64_musl",
+    constraint_values = [
+        "@llvm//constraints/libc:musl",
+        "@llvm//constraints/pie:off",
+        "@platforms//cpu:aarch64",
         "@platforms//os:linux",
     ],
     visibility = ["//visibility:public"],
@@ -47,6 +60,39 @@ toolchain(
     target_compatible_with = [
         "@llvm//constraints/libc:musl",
         "@platforms//cpu:x86_64",
+        "@platforms//os:linux",
+    ],
+    target_settings = [":building_bootstrap_executable"],
+    toolchain = "@llvm//toolchain:linux_x86_64_cc_toolchain",
+    toolchain_type = "@bazel_tools//tools/cpp:toolchain_type",
+)
+
+toolchain(
+    name = "linux_aarch64_musl_cc_toolchain",
+    exec_compatible_with = [
+        "@platforms//cpu:aarch64",
+        "@platforms//os:linux",
+    ],
+    target_compatible_with = [
+        "@llvm//constraints/libc:musl",
+        "@platforms//cpu:aarch64",
+        "@platforms//os:linux",
+    ],
+    target_settings = [":building_bootstrap_executable"],
+    toolchain = "@llvm//toolchain:linux_aarch64_cc_toolchain",
+    toolchain_type = "@bazel_tools//tools/cpp:toolchain_type",
+)
+
+# Cross-builds arm64 bootstrap executables on Linux x86-64 hosts, with the bootstrap platform set to linux_aarch64_musl.
+toolchain(
+    name = "linux_x86_64_to_aarch64_musl_cc_toolchain",
+    exec_compatible_with = [
+        "@platforms//cpu:x86_64",
+        "@platforms//os:linux",
+    ],
+    target_compatible_with = [
+        "@llvm//constraints/libc:musl",
+        "@platforms//cpu:aarch64",
         "@platforms//os:linux",
     ],
     target_settings = [":building_bootstrap_executable"],

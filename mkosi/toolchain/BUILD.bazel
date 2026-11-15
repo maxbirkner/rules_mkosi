@@ -1,3 +1,5 @@
+load("//mkosi/toolchain/bootstrap_cc:host_platform.bzl", "HOST_BOOTSTRAP_PLATFORM")
+
 package(default_visibility = ["//visibility:public"])
 
 toolchain_type(name = "toolchain_type")
@@ -11,8 +13,8 @@ toolchain_type(
 )
 
 # Target platform for rules_mkosi's statically linked bootstrap executables. The default builds them for
-# //mkosi/toolchain/bootstrap_cc:linux_x86_64_musl and their runfiles for the current platform; see
-# //mkosi/private:bootstrap_binary.bzl.
+# //mkosi/toolchain/bootstrap_cc:linux_x86_64_musl, or linux_aarch64_musl on Linux aarch64 hosts, and their runfiles
+# for the current platform; see //mkosi/private:bootstrap_binary.bzl.
 label_flag(
     name = "bootstrap_platform",
     build_setting_default = ":inherit_platform",
@@ -25,9 +27,10 @@ filegroup(
 )
 
 # First execution platform below rules_mkosi's bootstrap executables, so that the llvm toolchain's own helper tools are
-# static musl executables too. It must be a Linux x86-64 platform with the llvm module's musl and non-PIE constraints.
-# With remote execution, select a child of your execution platform that inherits its exec_properties; see the README.
+# static musl executables too. It must be a Linux x86-64 or aarch64 platform with the llvm module's musl and non-PIE
+# constraints; the default follows the host's CPU. With remote execution, select a child of your execution platform
+# that inherits its exec_properties; see the README.
 label_flag(
     name = "bootstrap_execution_platform",
-    build_setting_default = "//mkosi/toolchain/bootstrap_cc:linux_x86_64_musl",
+    build_setting_default = HOST_BOOTSTRAP_PLATFORM,
 )
