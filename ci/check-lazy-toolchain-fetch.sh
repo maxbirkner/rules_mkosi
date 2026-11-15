@@ -53,8 +53,13 @@ heavy=(
   mkosi_debian_python_aarch64
   mkosi_debian_snapshot
   qemu_img_prebuilt_linux_amd64
+  qemu_img_prebuilt_linux_arm64
+  qemu_system_bin_prebuilt_linux_amd64_aarch64_softmmu
   qemu_system_bin_prebuilt_linux_amd64_x86_64_softmmu
+  qemu_system_bin_prebuilt_linux_arm64_aarch64_softmmu
+  qemu_system_bin_prebuilt_linux_arm64_x86_64_softmmu
   qemu_system_data_prebuilt_linux_amd64
+  qemu_system_data_prebuilt_linux_arm64
   "$musl_runtime"
 )
 # A module's own registration of the llvm module's toolchains may load the LLVM sources and fetch the compiler.
@@ -102,7 +107,7 @@ was_llvm_fetched() {
 }
 
 # Fails unless the repository holds only a few generated files, such as BUILD.bazel, and nothing it downloaded. The
-# Debian tools repository declares the arm64 tools in its generated arm64 package.
+# Debian tools and toolchains repositories declare the arm64 tools and the QEMU of arm64 hosts in generated arm64 packages.
 check_declarations() {
   local repository="$1" path="$output_base/external/$2" others size
   others="$(find -L "$path" -mindepth 1 ! -type f ! -path "$path/arm64")"

@@ -101,10 +101,28 @@ _GUEST_MACHINES = {
     ]),
 }
 
-def _guest(architecture, executable, qemu_pin, firmware_code, firmware_vars, code_sha256, vars_sha256):
+# A guest of the execution platform's architecture may run under KVM, which supports neither implementation-defined
+# pointer authentication nor, on hosts with only a GICv3 interrupt controller, the virt machine's default GICv2.
+_NATIVE_GUEST_MACHINES = {
+    "amd64": _GUEST_MACHINES["amd64"],
+    "arm64": struct(
+        machine = "virt,gic-version=max",
+        memory = "1G",
+        cpu = "aarch64",
+        cpu_args = ["-cpu", "max"],
+        serial_args = _GUEST_MACHINES["arm64"].serial_args,
+    ),
+}
+
+def _guest(ctx, architecture, executable, qemu_pin, firmware, firmware_sha256):
     machine = _GUEST_MACHINES[architecture]
+    native = machine.cpu == ctx.attr.execution_cpu
+    if native:
+        machine = _NATIVE_GUEST_MACHINES[architecture]
     qemu = executable[DefaultInfo]
     qemu_source_url, qemu_sha256 = qemu_pin
+    firmware_code, firmware_vars = firmware
+    code_sha256, vars_sha256 = firmware_sha256
     return struct(
         qemu_system = executable[QemuExecutableInfo].source,
         qemu_files_to_run = qemu.files_to_run,
@@ -119,29 +137,26 @@ def _guest(architecture, executable, qemu_pin, firmware_code, firmware_vars, cod
         memory = machine.memory,
         cpu_args = machine.cpu_args,
         serial_args = machine.serial_args,
-        # The toolchain runs on Linux x86-64.
-        native = machine.cpu == "x86_64",
+        native = native,
     )
 
 def _collect_guests(ctx):
     return {
         "amd64": _guest(
+            ctx,
             "amd64",
             ctx.attr.qemu_system,
             (ctx.attr.qemu_source_url, ctx.attr.qemu_sha256),
-            ctx.file.ovmf_code,
-            ctx.file.ovmf_vars,
-            ctx.attr.ovmf_code_sha256,
-            ctx.attr.ovmf_vars_sha256,
+            (ctx.file.ovmf_code, ctx.file.ovmf_vars),
+            (ctx.attr.ovmf_code_sha256, ctx.attr.ovmf_vars_sha256),
         ),
         "arm64": _guest(
+            ctx,
             "arm64",
             ctx.attr.aarch64_qemu_system,
             (ctx.attr.aarch64_qemu_source_url, ctx.attr.aarch64_qemu_sha256),
-            ctx.file.aavmf_code,
-            ctx.file.aavmf_vars,
-            ctx.attr.aavmf_code_sha256,
-            ctx.attr.aavmf_vars_sha256,
+            (ctx.file.aavmf_code, ctx.file.aavmf_vars),
+            (ctx.attr.aavmf_code_sha256, ctx.attr.aavmf_vars_sha256),
         ),
     }
 
@@ -151,7 +166,7 @@ def _qemu_ovmf_toolchain_impl(ctx):
     info = MkosiQemuToolchainInfo(
         format_version = ctx.attr.format_version,
         execution_os = "linux",
-        execution_cpu = "x86_64",
+        execution_cpu = ctx.attr.execution_cpu,
         qemu_version = ctx.attr.qemu_version,
         qemu_source_url = ctx.attr.qemu_source_url,
         qemu_sha256 = ctx.attr.qemu_sha256,
@@ -203,6 +218,11 @@ qemu_ovmf_toolchain = rule(
         "aavmf_code_sha256": _pinned_string("AAVMF code hash."),
         "aavmf_vars": _pinned_file("AAVMF variable store template of arm64 guests."),
         "aavmf_vars_sha256": _pinned_string("AAVMF variable store hash."),
+        "execution_cpu": attr.string(
+            default = "x86_64",
+            values = ["aarch64", "x86_64"],
+            doc = "CPU of the Linux execution platforms that run the QEMU binaries; guests of its architecture may use KVM.",
+        ),
         "format_version": attr.string(
             default = "qemu-ovmf-v1",
             doc = "Output contract implemented by this toolchain.",
@@ -244,5 +264,5 @@ qemu_ovmf_toolchain = rule(
             doc = "QEMU runtime data directory.",
         ),
     },
-    doc = "Defines a Linux x86-64 QEMU and UEFI firmware test toolchain for amd64 and arm64 guests.",
+    doc = "Defines a Linux x86-64 or aarch64 QEMU and UEFI firmware test toolchain for amd64 and arm64 guests.",
 )
