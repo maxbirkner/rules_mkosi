@@ -6,8 +6,9 @@ _PLATFORMS = "//command_line_option:platforms"
 _BOOTSTRAP_PLATFORM = str(Label("//mkosi/toolchain:bootstrap_platform"))
 _INHERIT_PLATFORM = Label("//mkosi/toolchain:inherit_platform")
 
-# Linux musl platform of the host's CPU for which the llvm module's C/C++ toolchain links fully static executables. With
-# the default bootstrap platform, the executable is built for it, while its data keeps the current platform.
+# Linux musl platform of the host, aarch64 on Linux aarch64 hosts and x86-64 otherwise, for which the llvm module's C/C++
+# toolchain links fully static executables. With the default bootstrap platform, the executable is built for it, while
+# its data keeps the current platform.
 _STATIC_PLATFORM = str(Label(HOST_BOOTSTRAP_PLATFORM))
 
 # The first execution platform below the executable, by default the static platform, so that the toolchain's own helper

@@ -16,7 +16,7 @@ load("//mkosi:versions.bzl", "DEFAULT_PYTHON_VERSION")
 load("//mkosi/debian:toolchain.bzl", "debian_tools_launcher_probe", "debian_tools_preflight", "debian_tools_preflight_test")
 load("//mkosi/private:bootstrap_binary.bzl", "bootstrap_binary")
 load(":behavior_targets.bzl", "behavior_targets")
-load(":bootstrap_cross_test.bzl", "aarch64_bootstrap_files")
+load(":bootstrap_cross_test.bzl", "aarch64_bootstrap_files", "host_bootstrap_platform_test")
 load(":config_tree_test.bzl", "config_tree_test_suite")
 load(":consumer_isolation_test.bzl", "consumer_isolation_test_suite")
 load(":debian_snapshot_test.bzl", "debian_snapshot_arm64_provider_test", "debian_snapshot_provider_test")
@@ -313,6 +313,7 @@ behavior_targets(
         ":config_tree_artifact_test",
         ":conflicting_root_test",
         ":aarch64_bootstrap_static_test",
+        ":host_bootstrap_platform_test",
         ":consumer_isolation_tests",
         "//mkosi/private:binfmt_registration_test",
         "//mkosi/private:binfmt_runner_host_test",
@@ -769,6 +770,8 @@ bootstrap_binary(
     binary = "//mkosi/private:kernel_preflight",
     tags = ["manual"],
 )
+
+host_bootstrap_platform_test(name = "host_bootstrap_platform_test")
 
 aarch64_bootstrap_files(
     name = "kernel_preflight_aarch64",
