@@ -22,6 +22,7 @@ from .release_validation import (
     ReleaseSettings,
     is_declared,
     release_apt_components,
+    validate_architecture,
     validate_ini_section,
     validate_release_configuration,
 )
@@ -61,11 +62,16 @@ def activate_release_mode(
         include_base_packages_in_manifest()
 
 
-def activate_snapshot_mirror(mirror: release_sandbox.SnapshotMirror, components: Sequence[str]) -> None:
-    """Patches mkosi so that a tracer build installs packages only from the Debian snapshot mirror."""
+def activate_snapshot_mirror(
+    mirror: release_sandbox.SnapshotMirror, components: Sequence[str], architecture: str
+) -> None:
+    """Patches mkosi so that a tracer build installs packages only from the Debian snapshot mirror.
+
+    The configuration must resolve Architecture= to the snapshot's Debian architecture.
+    """
     mkosi_contract.verify()
     _serve_mirror(mirror)
-    _MirrorConfiguration(mirror, components).install()
+    _MirrorConfiguration(mirror, components, architecture).install()
 
 
 def include_base_packages_in_manifest() -> None:
@@ -189,12 +195,14 @@ class _FirstConfiguration:
 class _MirrorConfiguration(_FirstConfiguration):
     """Serves the Debian snapshot mirror with the components that the parsed configuration requests."""
 
-    def __init__(self, mirror: release_sandbox.SnapshotMirror, components: Sequence[str]) -> None:
+    def __init__(self, mirror: release_sandbox.SnapshotMirror, components: Sequence[str], architecture: str) -> None:
         super().__init__()
         self._mirror = mirror
         self._components = components
+        self._architecture = architecture
 
     def _resolved(self, parsed: _ParsedConfig) -> _ParsedConfig:
+        validate_architecture(parsed[2], self._architecture)
         _write_mirror_sources(self._mirror, parsed[2], self._components)
         return parsed
 

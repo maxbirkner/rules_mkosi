@@ -16,6 +16,8 @@ def _package_source_test_impl(ctx):
     else:
         asserts.equals(env, None, repository)
     asserts.equals(env, "main" if ctx.attr.offline else None, option_value(preamble, "--debian-snapshot-components"))
+    asserts.equals(env, "amd64" if ctx.attr.offline else None, option_value(preamble, "--debian-snapshot-architecture"))
+    asserts.equals(env, None, option_value(preamble, "--foreign-architecture"), "an amd64 image needs no emulator")
     asserts.equals(env, None, option_value(preamble, "--release-seed"), "a tracer build has no release options")
     asserts.false(env, "SOURCE_DATE_EPOCH" in action.env)
     metadata = [

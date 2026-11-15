@@ -3,7 +3,7 @@
 import os
 import subprocess
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import NoReturn
 
 _ACTIONS = {
@@ -108,11 +108,12 @@ def run_kernel_preflight(
     path: str | os.PathLike[str],
     action: str,
     runner: Callable[..., subprocess.CompletedProcess[bytes]] = subprocess.run,
+    arguments: Sequence[str] = (),
 ) -> bytes:
-    """Run the proven kernel probe before an action needs namespace support."""
+    """Run the proven kernel probe, with its arguments, before an action needs namespace support."""
     try:
         completed = runner(
-            [path],
+            [path, *arguments],
             check=False,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,

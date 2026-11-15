@@ -29,11 +29,13 @@ load(
     "MKOSI_BUILD_ATTRS",
     "MKOSI_BUILD_EXEC_CONSTRAINTS",
     "MKOSI_BUILD_TOOLCHAINS",
+    "add_architecture_arguments",
     "add_build_arguments",
     "add_output_arguments",
     "add_release_arguments",
     "add_snapshot_arguments",
     "add_staging_arguments",
+    "architecture_inputs",
     "mkosi_action",
     "mkosi_arguments",
     "mkosi_tool_inputs",
@@ -527,6 +529,7 @@ def _image_runner_arguments(ctx, settings, staging):
     base = settings.base
     if settings.snapshot:
         add_snapshot_arguments(arguments, settings.snapshot, repository = not base)
+        add_architecture_arguments(ctx, arguments, settings.snapshot)
         add_extra_packages_arguments(arguments, settings.extra_packages)
     if settings.release:
         add_release_arguments(arguments, settings.release, settings.firmware)
@@ -622,6 +625,7 @@ def _image_build_inputs(ctx, settings, staging, bios_partition_definition):
         ([bios_partition_definition] if bios_partition_definition else []) +
         ([base.root_tree, base.initrd] if base else []) +
         ([settings.snapshot.repository] if settings.snapshot and not base else []) +
+        (architecture_inputs(ctx, settings.snapshot) if settings.snapshot else []) +
         ([settings.extra_packages.repository] if settings.extra_packages else []) +
         ([staging.tree, staging.manifest] if staging else [])
     )
@@ -911,6 +915,7 @@ def _base_arguments(ctx, release, extra_packages, staging, staged_executables, o
     workspace = output_directory + ".workspace"
     arguments = mkosi_arguments(ctx)
     add_snapshot_arguments(arguments, release.snapshot, repository = True)
+    add_architecture_arguments(ctx, arguments, release.snapshot)
     add_extra_packages_arguments(arguments, extra_packages)
     add_release_arguments(arguments, release, "uefi")
     add_staging_arguments(arguments, staged_executables, staging)
@@ -947,7 +952,8 @@ def _mkosi_base_impl(ctx):
         ctx,
         arguments = _base_arguments(ctx, release, extra_packages, staging, staged_executables, (root_tree, initrd)),
         inputs = [config_info.tree, release.snapshot.repository, staging.tree, staging.manifest] +
-                 ([extra_packages.repository] if extra_packages else []) + mkosi_tool_inputs(ctx),
+                 ([extra_packages.repository] if extra_packages else []) + mkosi_tool_inputs(ctx) +
+                 architecture_inputs(ctx, release.snapshot),
         outputs = [root_tree, initrd],
         release = release,
         offline = True,

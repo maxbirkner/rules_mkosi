@@ -13,6 +13,9 @@ from .mkosi_contract import MkosiConfig
 # A (label, violated) pair: violated(config) tells whether config breaks the rule that label names.
 _Rule: TypeAlias = tuple[str, Callable[[MkosiConfig], bool]]
 
+# mkosi's Architecture= value of each Debian architecture that a snapshot may have.
+_MKOSI_ARCHITECTURES = {"amd64": "x86-64", "arm64": "arm64"}
+
 
 @dataclass(frozen=True)
 class ReleaseSettings:
@@ -28,6 +31,7 @@ class ReleaseSettings:
     stage: str = "image"
     base_tree: str | None = None
     base_initrd: str | None = None
+    architecture: str = "amd64"
 
 
 @dataclass(frozen=True)
@@ -87,6 +91,23 @@ def release_apt_components(repositories: Iterable[str], release_components: Sequ
             "Debian snapshot: {} (snapshot components: {})".format(", ".join(missing), ", ".join(release_components))
         )
     return components
+
+
+def validate_architecture(images: Sequence[MkosiConfig], debian_architecture: str) -> None:
+    """Rejects a configuration that does not resolve Architecture= to the Debian snapshot's architecture.
+
+    images are the parsed images, the requested one last; mkosi's generated dependency images follow the requested one.
+    """
+    expected = _MKOSI_ARCHITECTURES.get(debian_architecture)
+    if expected is None:
+        raise SystemExit("unsupported Debian snapshot architecture {}".format(debian_architecture))
+    primary = [config for config in images if getattr(config, "image", "main") == "main"]
+    architecture = getattr(primary[-1], "architecture", None) if primary else None
+    if architecture is not None and str(architecture) != expected:
+        raise SystemExit(
+            "configuration must resolve Architecture= to {}, the architecture of the Debian snapshot ({}), "
+            "not {}".format(expected, debian_architecture, architecture)
+        )
 
 
 def validate_finalize_config_directory(directory: str | os.PathLike[str]) -> None:
@@ -219,6 +240,10 @@ def _check_distribution(config: MkosiConfig, context: _Context) -> None:
                 settings.distribution, settings.codename, settings.snapshot
             )
         )
+
+
+def _check_architecture(config: MkosiConfig, context: _Context) -> None:
+    validate_architecture([config], context.settings.architecture)
 
 
 def _snapshot_matches(config: MkosiConfig, settings: ReleaseSettings) -> bool:
@@ -359,6 +384,7 @@ _PRIMARY_IMAGE_CHECKS = (
     _check_firmware,
     _check_network_and_cache,
     _check_distribution,
+    _check_architecture,
     _check_repositories,
     _check_stage,
     _check_reproducibility,

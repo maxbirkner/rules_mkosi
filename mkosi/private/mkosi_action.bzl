@@ -15,6 +15,11 @@ MKOSI_BUILD_EXEC_CONSTRAINTS = [
 ]
 
 MKOSI_BUILD_ATTRS = {
+    "_binfmt_runner": attr.label(
+        cfg = "exec",
+        default = "//mkosi/private:binfmt_runner",
+        executable = True,
+    ),
     "_diagnostics": attr.label(
         cfg = "exec",
         default = "//mkosi/private:diagnostics.py",
@@ -99,6 +104,54 @@ def add_snapshot_arguments(arguments, snapshot, repository):
         arguments.add(snapshot.repository.path)
     arguments.add("--debian-snapshot-components")
     arguments.add(",".join(snapshot.components))
+    arguments.add("--debian-snapshot-architecture")
+    arguments.add(snapshot.architecture)
+
+def _foreign_emulator(ctx, snapshot):
+    """Returns the user-mode emulator that runs the programs of a snapshot of a foreign architecture, or None.
+
+    An image of the Debian tools' own architecture needs none. For another architecture, the Debian tools toolchain must
+    provide one, which the runner registers in a binfmt_misc instance private to the action.
+    """
+    debian_tools = ctx.toolchains[DEBIAN_TOOLS_TOOLCHAIN_TYPE].debian_tools
+    if snapshot.architecture == debian_tools.architecture:
+        return None
+    emulator = debian_tools.user_mode_emulators.get(snapshot.architecture)
+    if not emulator:
+        fail(("the Debian tools for {} execution platforms cannot build {} images; build on an execution platform of " +
+              "{} or with a Debian tools toolchain that provides a user-mode emulator for it").format(
+            debian_tools.architecture,
+            snapshot.architecture,
+            snapshot.architecture,
+        ))
+    return emulator
+
+def add_architecture_arguments(ctx, arguments, snapshot):
+    """Adds the runner options that let a build run the programs of a snapshot of a foreign architecture.
+
+    Args:
+      ctx: Rule context with MKOSI_BUILD_ATTRS and MKOSI_BUILD_TOOLCHAINS.
+      arguments: Args of the mkosi runner.
+      snapshot: DebianSnapshotInfo of the build.
+    """
+    emulator = _foreign_emulator(ctx, snapshot)
+    if emulator:
+        arguments.add("--foreign-architecture")
+        arguments.add(snapshot.architecture)
+        arguments.add("--foreign-emulator")
+        arguments.add(emulator.path)
+        arguments.add("--binfmt-runner")
+        arguments.add(ctx.executable._binfmt_runner.path)
+
+def architecture_inputs(ctx, snapshot):
+    """Returns the emulator and runner that a build of a foreign-architecture snapshot reads, or no files.
+
+    Args:
+      ctx: Rule context with MKOSI_BUILD_ATTRS and MKOSI_BUILD_TOOLCHAINS.
+      snapshot: DebianSnapshotInfo of the build.
+    """
+    emulator = _foreign_emulator(ctx, snapshot)
+    return [emulator, ctx.executable._binfmt_runner] if emulator else []
 
 def add_release_arguments(arguments, release, firmware):
     """Adds the runner options that pin a release build to its Debian snapshot and reproducibility settings.

@@ -14,6 +14,7 @@ import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
+from unittest import mock
 
 SEED = "00000000-0000-4000-8000-000000000015"
 SEED_INT = uuid.UUID(SEED).int
@@ -398,7 +399,25 @@ class CommandLineTest(_WrapperTest):
         )
         _expect_exit(lambda: self.wrapper._release_stage(preamble), "incomplete Debian snapshot configuration")
         preamble.debian_snapshot_components = ("main",)
+        _expect_exit(lambda: self.wrapper._release_stage(preamble), "incomplete Debian snapshot configuration")
+        preamble.debian_snapshot_architecture = "arm64"
         assert self.wrapper._release_stage(preamble) is None
+
+    def test_foreign_architecture_builds_run_in_the_checked_binfmt_runner(self) -> None:
+        preamble = ["--kernel-preflight", "preflight", "--foreign-architecture", "arm64"]
+        preamble += ["--foreign-emulator", "qemu", "--binfmt-runner", "runner", "--", "-C", "config"]
+        with mock.patch.object(self.wrapper.diagnostics, "run_kernel_preflight") as preflight:
+            prefix = self.wrapper._foreign_architecture_prefix(preamble)
+        runner, emulator = os.path.abspath("runner"), os.path.abspath("qemu")
+        assert prefix == [runner, "--architecture", "arm64", "--emulator", emulator, "--"], prefix
+        preflight.assert_called_once_with(
+            runner, "the arm64 image build", arguments=["--architecture", "arm64", "--emulator", emulator, "--check"]
+        )
+        assert self.wrapper._foreign_architecture_prefix(["--kernel-preflight", "preflight", "--"]) == []
+        _expect_exit(
+            lambda: self.wrapper._foreign_architecture_prefix(["--foreign-architecture", "arm64", "--"]),
+            "incomplete foreign architecture configuration",
+        )
 
     def test_extra_packages_require_the_snapshot_repository(self) -> None:
         preamble, _ = self.wrapper.command_line.parse_preamble(
@@ -411,6 +430,26 @@ class CommandLineTest(_WrapperTest):
 class ReleaseConfigurationTest(_WrapperTest):
     def test_reproducible_release_configuration_is_accepted(self) -> None:
         _validate(self.wrapper, _configuration(), [self.root])
+
+    def test_architecture_must_be_the_snapshot_architecture(self) -> None:
+        _validate(self.wrapper, _configuration(architecture="x86-64"), [self.root])
+        _validate(self.wrapper, _configuration(architecture="arm64"), [self.root], architecture="arm64")
+        _expect_exit(
+            lambda: _validate(self.wrapper, _configuration(architecture="x86-64"), [self.root], architecture="arm64"),
+            "configuration must resolve Architecture= to arm64, the architecture of the Debian snapshot (arm64)",
+        )
+        _expect_exit(
+            lambda: _validate(self.wrapper, _configuration(architecture="arm64"), [self.root]),
+            "configuration must resolve Architecture= to x86-64",
+        )
+
+    def test_snapshot_tracer_checks_the_architecture_of_the_requested_image(self) -> None:
+        validation = self.wrapper.release_validation
+        requested = types.SimpleNamespace(image="main", architecture="arm64")
+        generated = types.SimpleNamespace(image="initrd", architecture="x86-64")
+        validation.validate_architecture([requested, generated], "arm64")
+        _expect_exit(lambda: validation.validate_architecture([requested], "amd64"), "Architecture= to x86-64")
+        _expect_exit(lambda: validation.validate_architecture([requested], "armhf"), "unsupported Debian snapshot")
 
     def test_apt_components_are_main_plus_the_requested_snapshot_components(self) -> None:
         snapshot_components = ("main", "non-free-firmware")

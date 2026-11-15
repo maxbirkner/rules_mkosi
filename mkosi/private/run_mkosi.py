@@ -65,13 +65,14 @@ def _run_mkosi(
     arguments: Sequence[str],
     runner: Callable[..., subprocess.CompletedProcess[bytes]] = subprocess.run,
     environment: Mapping[str, str] | None = None,
+    prefix: Sequence[str] = (),
 ) -> None:
-    """Run mkosi and classify process-boundary failures without masking exit status."""
+    """Run mkosi after the command prefix, if any, and classify process-boundary failures without masking the status."""
     options: dict[str, Any] = {"check": False, "stdout": subprocess.PIPE, "stderr": subprocess.PIPE}
     if environment is not None:
         options["env"] = environment
     try:
-        completed = runner([sys.executable, script, *arguments], **options)
+        completed = runner([*prefix, sys.executable, script, *arguments], **options)
     except OSError as error:
         diagnostics.fail("TOOLCHAIN_FAILURE", "mkosi executable cannot start {}: {}".format(script, error))
     if completed.returncode:
@@ -112,11 +113,36 @@ def _run_release_parent(argv: Sequence[str]) -> None:
     if image_version_file is not None:
         slot_label_image_id = command_line.preamble_value(preamble_arguments, "--slot-label-image-id")
         _image_version_from_file(image_version_file, slot_label_image_id)
-    _run_mkosi(os.path.abspath(__file__), argv, environment={**os.environ, _RELEASE_CHILD_VARIABLE: "1"})
+    _run_mkosi(
+        os.path.abspath(__file__),
+        argv,
+        environment={**os.environ, _RELEASE_CHILD_VARIABLE: "1"},
+        prefix=_foreign_architecture_prefix(preamble_arguments),
+    )
     base_initrd_output = command_line.preamble_value(preamble_arguments, "--release-base-initrd-output")
     if base_initrd_output is not None:
         output_directory = command_line.mkosi_option_value(preamble_arguments, "--output-directory")
         _publish_base_initrd(output_directory, base_initrd_output)
+
+
+def _foreign_architecture_prefix(preamble_arguments: Sequence[str]) -> list[str]:
+    """Returns the binfmt_runner command that runs a foreign-architecture build after checking the host, or none.
+
+    The runner registers the emulator in a binfmt_misc instance private to the build, so that mkosi, whose namespaces
+    are nested in the runner's, can run the image's programs, such as package maintainer scripts.
+    """
+    options = ("--foreign-architecture", "--foreign-emulator", "--binfmt-runner")
+    values = [command_line.preamble_value(preamble_arguments, option) for option in options]
+    if not any(values):
+        return []
+    architecture, emulator, runner = values
+    if architecture is None or emulator is None or runner is None:
+        raise SystemExit("incomplete foreign architecture configuration")
+    command = [os.path.abspath(runner), "--architecture", architecture, "--emulator", os.path.abspath(emulator)]
+    diagnostics.run_kernel_preflight(
+        command[0], "the {} image build".format(architecture), arguments=[*command[1:], "--check"]
+    )
+    return [*command, "--"]
 
 
 def _publish_base_initrd(output_directory: str, destination: str) -> None:
@@ -156,7 +182,8 @@ def _release_stage(preamble: "Preamble") -> str | None:
     release = [option is not None for option in preamble.release_options()]
     if any(release) and not all(release):
         raise SystemExit("incomplete release configuration")
-    if (any(release) or preamble.debian_snapshot_repository) and preamble.debian_snapshot_components is None:
+    snapshot = (preamble.debian_snapshot_components, preamble.debian_snapshot_architecture)
+    if (any(release) or preamble.debian_snapshot_repository) and None in snapshot:
         raise SystemExit("incomplete Debian snapshot configuration")
     if preamble.extra_packages_repository and not preamble.debian_snapshot_repository:
         raise SystemExit("extra packages require the Debian snapshot repository")
@@ -251,6 +278,7 @@ def _release_settings(preamble: "Preamble", stage: str) -> "ReleaseSettings":
         stage=stage,
         base_tree=preamble.release_base_tree,
         base_initrd=preamble.release_initrd,
+        architecture=preamble.debian_snapshot_architecture,
     )
 
 
@@ -311,7 +339,9 @@ def main() -> None:
     if stage is not None:
         _activate_release_mode(preamble, arguments, stage, mirror, staged)
     elif mirror is not None:
-        release_patches.activate_snapshot_mirror(mirror, preamble.debian_snapshot_components)
+        release_patches.activate_snapshot_mirror(
+            mirror, preamble.debian_snapshot_components, preamble.debian_snapshot_architecture
+        )
     if release_child:
         _run_mkosi_in_process(script, arguments)
     else:

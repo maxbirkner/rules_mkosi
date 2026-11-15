@@ -94,6 +94,7 @@ use_repo(
     "mkosi_debian_package_inputs",
     "mkosi_debian_python",
     "mkosi_debian_snapshot",
+    "mkosi_debian_snapshot_arm64",
     "mkosi_debian_tools",
 )
 

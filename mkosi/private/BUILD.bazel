@@ -204,6 +204,7 @@ runfiles_sh_test(
         "@mkosi_debian_tools//:arm64_user_mode_emulator",
     ],
     tags = ["requires_kernel_contract"],
+    visibility = ["//mkosi/tests:__pkg__"],
 )
 
 cc_test(
@@ -211,6 +212,7 @@ cc_test(
     srcs = ["binfmt_registration_test.c"],
     copts = C_WARNINGS,
     linkstatic = True,
+    visibility = ["//mkosi/tests:__pkg__"],
     deps = [":binfmt_registration"],
 )
 
