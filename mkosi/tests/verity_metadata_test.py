@@ -4,6 +4,7 @@ import struct
 import sys
 import unittest
 from pathlib import Path
+from typing import Any
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "private"))
@@ -13,7 +14,7 @@ import verity_metadata
 from bounded_reads import BoundedReader
 
 
-def _partition(number, type_guid, label, size_bytes=8192):
+def _partition(number: int, type_guid: str, label: str, size_bytes: int = 8192) -> dict[str, int | str]:
     return {"number": number, "size_bytes": size_bytes, "type_guid": type_guid, "label": label}
 
 
@@ -24,7 +25,7 @@ ACTIVE_AB_SLOT = (
 
 
 class VerityMetadataTest(unittest.TestCase):
-    def setUp(self):
+    def setUp(self) -> None:
         self.root = Path("root.raw")
         self.hash = Path("root-verity.raw")
         self.roothash = Path("root.roothash")
@@ -44,11 +45,11 @@ class VerityMetadataTest(unittest.TestCase):
         self.roothash.write_text(root_hash + "\n")
         self._write_partitions(8192, 8192)
 
-    def tearDown(self):
+    def tearDown(self) -> None:
         for path in (self.root, self.hash, self.roothash, self.partitions):
             path.unlink(missing_ok=True)
 
-    def _write_partitions(self, root_size, hash_size):
+    def _write_partitions(self, root_size: int, hash_size: int) -> None:
         self.partitions.write_text(
             json.dumps(
                 {
@@ -60,13 +61,13 @@ class VerityMetadataTest(unittest.TestCase):
             )
         )
 
-    def _write_partition_table(self, *partitions):
+    def _write_partition_table(self, *partitions: dict[str, int | str]) -> None:
         self.partitions.write_text(json.dumps({"partitions": list(partitions)}))
 
-    def _project(self):
+    def _project(self) -> dict[str, Any]:
         return verity_metadata.project(self.roothash, self.partitions, self.root, self.hash)
 
-    def _write_sha1_fixture(self):
+    def _write_sha1_fixture(self) -> None:
         digests = [hashlib.sha1(self.salt + block).digest() for block in (b"A" * 4096, b"B" * 4096)]
         tree = b"".join(digest.ljust(32, b"\0") for digest in digests).ljust(4096, b"\0")
         superblock = bytearray(512)
@@ -78,7 +79,7 @@ class VerityMetadataTest(unittest.TestCase):
         self.hash.write_bytes(bytes(superblock).ljust(4096, b"\0") + tree)
         self.roothash.write_text(hashlib.sha1(self.salt + tree).hexdigest() + "\n")
 
-    def test_verifies_geometry_tree_and_artifacts(self):
+    def test_verifies_geometry_tree_and_artifacts(self) -> None:
         projected = self._project()
         self.assertEqual("sha256", projected["hash_algorithm"])
         self.assertEqual(4096, projected["data_block_size"])
@@ -88,7 +89,7 @@ class VerityMetadataTest(unittest.TestCase):
         self.assertEqual(4096, projected["tree_size"])
         self.assertEqual(hashlib.sha256(self.root.read_bytes()).hexdigest(), projected["artifacts"]["root"]["sha256"])
 
-    def test_ignores_inactive_ab_slots(self):
+    def test_ignores_inactive_ab_slots(self) -> None:
         self._write_partition_table(
             *ACTIVE_AB_SLOT,
             _partition(3, gpt_partitions.ROOT_X86_64, "_empty"),
@@ -96,49 +97,49 @@ class VerityMetadataTest(unittest.TestCase):
         )
         self.assertEqual(2, self._project()["data_blocks"])
 
-    def test_rejects_second_populated_root(self):
+    def test_rejects_second_populated_root(self) -> None:
         self._write_partition_table(*ACTIVE_AB_SLOT, _partition(3, gpt_partitions.ROOT_X86_64, "ab_0"))
         with self.assertRaisesRegex(ValueError, "exactly one"):
             self._project()
 
-    def test_rejects_mismatched_partition_extent(self):
+    def test_rejects_mismatched_partition_extent(self) -> None:
         self._write_partitions(12288, 8192)
         with self.assertRaisesRegex(ValueError, "root artifact size"):
             self._project()
 
-    def test_rejects_truncated_hash_artifact(self):
+    def test_rejects_truncated_hash_artifact(self) -> None:
         self.hash.write_bytes(self.hash.read_bytes()[:-1])
         self._write_partitions(8192, 8191)
         with self.assertRaisesRegex(ValueError, "hash mismatch"):
             self._project()
 
-    def test_rejects_changed_root_byte(self):
+    def test_rejects_changed_root_byte(self) -> None:
         value = bytearray(self.root.read_bytes())
         value[4096] ^= 1
         self.root.write_bytes(value)
         with self.assertRaisesRegex(ValueError, "hash mismatch"):
             self._project()
 
-    def test_rejects_changed_hash_byte(self):
+    def test_rejects_changed_hash_byte(self) -> None:
         value = bytearray(self.hash.read_bytes())
         value[4096] ^= 1
         self.hash.write_bytes(value)
         with self.assertRaisesRegex(ValueError, "hash mismatch"):
             self._project()
 
-    def test_rejects_wrong_salt(self):
+    def test_rejects_wrong_salt(self) -> None:
         value = bytearray(self.hash.read_bytes())
         value[88] ^= 1
         self.hash.write_bytes(value)
         with self.assertRaisesRegex(ValueError, "hash mismatch"):
             self._project()
 
-    def test_rejects_wrong_supplied_root_hash(self):
+    def test_rejects_wrong_supplied_root_hash(self) -> None:
         self.roothash.write_text("00" * 32)
         with self.assertRaisesRegex(ValueError, "verified root"):
             self._project()
 
-    def test_rejects_nonzero_trailing_padding(self):
+    def test_rejects_nonzero_trailing_padding(self) -> None:
         value = bytearray(self.hash.read_bytes())
         value.extend(b"\1")
         self.hash.write_bytes(value)
@@ -146,32 +147,32 @@ class VerityMetadataTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "trailing"):
             self._project()
 
-    def test_accepts_minimized_root_in_larger_partition(self):
+    def test_accepts_minimized_root_in_larger_partition(self) -> None:
         self.root.write_bytes(self.root.read_bytes() + bytes(8192))
         self._write_partitions(16384, 8192)
         projected = self._project()
         self.assertEqual(2, projected["data_blocks"])
         self.assertEqual(16384, projected["artifacts"]["root"]["size"])
 
-    def test_rejects_nonzero_bytes_after_minimized_root(self):
+    def test_rejects_nonzero_bytes_after_minimized_root(self) -> None:
         self.root.write_bytes(self.root.read_bytes() + b"\1" + bytes(4095))
         self._write_partitions(12288, 8192)
         with self.assertRaisesRegex(ValueError, "root artifact has nonzero ambiguous trailing bytes"):
             self._project()
 
-    def test_rejects_data_geometry_beyond_root_artifact(self):
+    def test_rejects_data_geometry_beyond_root_artifact(self) -> None:
         self.root.write_bytes(self.root.read_bytes()[:4096])
         self._write_partitions(4096, 8192)
         with self.assertRaisesRegex(ValueError, "exceeds the root artifact"):
             self._project()
 
-    def test_sha1_uses_power_of_two_digest_slots(self):
+    def test_sha1_uses_power_of_two_digest_slots(self) -> None:
         self._write_sha1_fixture()
         projected = self._project()
         self.assertEqual(20, projected["digest_size"])
         self.assertEqual(32, projected["digest_slot_size"])
 
-    def test_sha1_rejects_nonzero_digest_slot_padding(self):
+    def test_sha1_rejects_nonzero_digest_slot_padding(self) -> None:
         self._write_sha1_fixture()
         value = bytearray(self.hash.read_bytes())
         value[4096 + 20] = 1
@@ -179,13 +180,13 @@ class VerityMetadataTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "level 0 block 0"):
             self._project()
 
-    def test_many_blocks_never_use_unbounded_reads(self):
+    def test_many_blocks_never_use_unbounded_reads(self) -> None:
         block_size = 512
         blocks = [bytes([index % 251]) * block_size for index in range(129)]
         self.root.write_bytes(b"".join(blocks))
         leaf_digests = [hashlib.sha256(self.salt + block).digest() for block in blocks]
 
-        def level(values):
+        def level(values: list[bytes]) -> list[tuple[bytes, bytes]]:
             output = []
             for offset in range(0, len(values), 16):
                 block = b"".join(values[offset : offset + 16]).ljust(block_size, b"\0")
@@ -207,7 +208,8 @@ class VerityMetadataTest(unittest.TestCase):
 
         original_open = open
 
-        def guarded_open(path, mode="r", *args, **kwargs):
+        # args and kwargs are passed through to open() unchanged, whose overloads take differently typed arguments.
+        def guarded_open(path: str, mode: str = "r", *args: Any, **kwargs: Any) -> object:  # noqa: ANN401
             wrapped = original_open(path, mode, *args, **kwargs)
             return BoundedReader(wrapped, 1024 * 1024, "verifier") if "b" in mode else wrapped
 
