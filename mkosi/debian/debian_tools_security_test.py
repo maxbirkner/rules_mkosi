@@ -8,14 +8,19 @@ import re
 import shutil
 import subprocess
 import tarfile
+import types
 import unittest
+from collections.abc import Iterable, Sequence
+from typing import IO
 from unittest import mock
 
 _HERE = pathlib.Path(__file__).resolve().parent
 
 
-def _load(name):
+def _load(name: str) -> types.ModuleType:
     spec = importlib.util.spec_from_file_location(name, _HERE / (name + ".py"))
+    if spec is None or spec.loader is None:
+        raise ImportError("cannot load %s" % name)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -26,7 +31,7 @@ debian_launcher = _load("debian_launcher")
 package_archive = _load("package_archive")
 
 
-def _debian_tools_file(name):
+def _debian_tools_file(name: str) -> pathlib.Path:
     runfiles_root = pathlib.Path(os.environ.get("RUNFILES_DIR", ""))
     for line in (runfiles_root / "_repo_mapping").read_text(encoding="utf-8").splitlines():
         fields = line.split(",", 2)
@@ -36,15 +41,15 @@ def _debian_tools_file(name):
 
 
 class DebianToolsSecurityTest(unittest.TestCase):
-    def setUp(self):
+    def setUp(self) -> None:
         self.work = pathlib.Path(os.environ.get("TEST_TMPDIR", ".")) / ("debian-tools-security-%s" % os.getpid())
         shutil.rmtree(self.work, ignore_errors=True)
         self.work.mkdir(parents=True)
 
-    def tearDown(self):
+    def tearDown(self) -> None:
         shutil.rmtree(self.work, ignore_errors=True)
 
-    def test_namespace_runner_has_no_path_fallback_for_typed_binds(self):
+    def test_namespace_runner_has_no_path_fallback_for_typed_binds(self) -> None:
         source = (_HERE / "namespace_runner.c").read_text(encoding="utf-8")
         self.assertIn("MOVE_MOUNT_F_EMPTY_PATH", source)
         self.assertIn("OPEN_TREE_CLONE", source)
@@ -70,7 +75,9 @@ class DebianToolsSecurityTest(unittest.TestCase):
         self.assertNotIn("pinned_path", source)
         self.assertNotIn("compatibility mount", source)
 
-    def _run_namespace_runner(self, name, mount_arguments):
+    def _run_namespace_runner(
+        self, name: str, mount_arguments: Sequence[str]
+    ) -> tuple[pathlib.Path, subprocess.CompletedProcess[str]]:
         """Runs the runner on a minimal root; it fails before executing anything."""
         root = self.work / name / "root"
         for directory in ("proc", "tmp", "dev", "workspace", "outputs", "root", "inputs"):
@@ -84,7 +91,7 @@ class DebianToolsSecurityTest(unittest.TestCase):
         result = subprocess.run(command, capture_output=True, text=True, timeout=60, check=False)
         return root, result
 
-    def test_namespace_runner_rejects_unusable_typed_mount_identities(self):
+    def test_namespace_runner_rejects_unusable_typed_mount_identities(self) -> None:
         source = self.work / "identity-source"
         source.write_text("input")
         device = str(source.stat().st_dev)
@@ -110,7 +117,7 @@ class DebianToolsSecurityTest(unittest.TestCase):
                 self.assertIn("namespace mount identity is invalid", result.stderr)
                 self.assertFalse((root / ".namespace-bind-files").exists())
 
-    def test_namespace_runner_reports_identity_mismatch(self):
+    def test_namespace_runner_reports_identity_mismatch(self) -> None:
         source = self.work / "mismatch-source"
         source.write_text("input")
         other = self.work / "mismatch-other"
@@ -131,14 +138,14 @@ class DebianToolsSecurityTest(unittest.TestCase):
         self.assertTrue(result.stderr.rstrip().endswith(os.strerror(errno.EAGAIN)), result.stderr)
         self.assertFalse((root / ".namespace-bind-files").exists())
 
-    def _archive(self, members):
+    def _archive(self, members: Iterable[tuple[tarfile.TarInfo, bytes | None]]) -> pathlib.Path:
         archive = self.work / "tree.tar"
         with tarfile.open(archive, "w") as output:
             for member, data in members:
                 output.addfile(member, io.BytesIO(data) if data is not None else None)
         return archive
 
-    def test_digest_is_checked_before_tar_open(self):
+    def test_digest_is_checked_before_tar_open(self) -> None:
         archive = self._archive([(tarfile.TarInfo("safe"), b"safe")])
         tampered = self.work / "tampered.tar"
         shutil.copyfile(archive, tampered)
@@ -152,7 +159,7 @@ class DebianToolsSecurityTest(unittest.TestCase):
             extract_tree.extract(str(tampered), str(self.work / "root"), "0" * 64)
         self.assertFalse((self.work / "root").exists())
 
-    def test_archive_path_swap_after_hash_cannot_change_parsed_bytes(self):
+    def test_archive_path_swap_after_hash_cannot_change_parsed_bytes(self) -> None:
         original = tarfile.TarInfo("safe")
         original.size = len(b"original")
         archive = self._archive([(original, b"original")])
@@ -164,7 +171,7 @@ class DebianToolsSecurityTest(unittest.TestCase):
         digest = hashlib.sha256(archive.read_bytes()).hexdigest()
         original_open = extract_tree.tarfile.open
 
-        def swap_path(*args, **kwargs):
+        def swap_path(*args: object, **kwargs: object) -> tarfile.TarFile:
             os.replace(replacement, archive)
             return original_open(*args, **kwargs)
 
@@ -173,7 +180,7 @@ class DebianToolsSecurityTest(unittest.TestCase):
             extract_tree.extract(str(archive), str(root), digest)
         self.assertEqual((root / "safe").read_bytes(), b"original")
 
-    def _package(self, name, contents):
+    def _package(self, name: str, contents: bytes) -> tuple[pathlib.Path, str]:
         """Writes a Debian package whose data archive holds one regular file and returns its SHA-256."""
         data_archive = io.BytesIO()
         member = tarfile.TarInfo(name)
@@ -194,7 +201,7 @@ class DebianToolsSecurityTest(unittest.TestCase):
         package.write_bytes(b"!<arch>\n" + header + payload + (b"\n" if len(payload) % 2 else b""))
         return package, hashlib.sha256(package.read_bytes()).hexdigest()
 
-    def test_tampered_package_is_rejected_before_ar_parse(self):
+    def test_tampered_package_is_rejected_before_ar_parse(self) -> None:
         package, expected = self._package("pkg", b"package!")
         manifest = self.work / "package-manifest.txt"
         manifest.write_text("pkg.deb|%s|pkg\n" % expected, encoding="utf-8")
@@ -207,7 +214,7 @@ class DebianToolsSecurityTest(unittest.TestCase):
         ):
             package_archive._collect([str(package)], str(manifest), str(self.work / "package-work"))
 
-    def test_package_digest_mismatch_closes_already_opened_packages(self):
+    def test_package_digest_mismatch_closes_already_opened_packages(self) -> None:
         first, first_digest = self._package("first", b"first")
         second, _ = self._package("second", b"second")
         manifest = self.work / "package-manifest.txt"
@@ -215,10 +222,10 @@ class DebianToolsSecurityTest(unittest.TestCase):
             "first.deb|%s|first\nsecond.deb|%s|second\n" % (first_digest, "0" * 64),
             encoding="utf-8",
         )
-        opened = []
+        opened: list[IO[bytes]] = []
         original_open = package_archive._open_authenticated
 
-        def record_open(*args):
+        def record_open(*args: str) -> IO[bytes]:
             stream = original_open(*args)
             opened.append(stream)
             return stream
@@ -231,7 +238,7 @@ class DebianToolsSecurityTest(unittest.TestCase):
         self.assertEqual(1, len(opened))
         self.assertTrue(opened[0].closed)
 
-    def test_launcher_rejects_tampered_archive_before_scratch(self):
+    def test_launcher_rejects_tampered_archive_before_scratch(self) -> None:
         archive = self._archive([(tarfile.TarInfo("safe"), b"safe")])
         tampered = self.work / "tampered-launcher.tar"
         shutil.copyfile(archive, tampered)
@@ -255,7 +262,7 @@ class DebianToolsSecurityTest(unittest.TestCase):
             )
         self.assertFalse(scratch.exists())
 
-    def test_forward_symlink_and_hardlink_graphs(self):
+    def test_forward_symlink_and_hardlink_graphs(self) -> None:
         directory = tarfile.TarInfo("usr")
         directory.type = tarfile.DIRTYPE
         directory.mode = 0o755
@@ -302,7 +309,7 @@ class DebianToolsSecurityTest(unittest.TestCase):
         self.assertEqual(os.stat(root / "usr/bin/hard").st_ino, os.stat(root / "usr/bin/base").st_ino)
         self.assertEqual(os.stat(root / "usr/bin/chain").st_ino, os.stat(root / "usr/bin/base").st_ino)
 
-    def test_directory_symlink_prefix_chain_is_order_independent(self):
+    def test_directory_symlink_prefix_chain_is_order_independent(self) -> None:
         real_directory = tarfile.TarInfo("realdir")
         real_directory.type = tarfile.DIRTYPE
         real_directory.mode = 0o755
@@ -321,7 +328,7 @@ class DebianToolsSecurityTest(unittest.TestCase):
         extract_tree.extract(str(archive), str(root), digest)
         self.assertEqual((root / "leaf").resolve(), root / "realdir/file")
 
-    def test_hardlink_target_is_archive_root_relative(self):
+    def test_hardlink_target_is_archive_root_relative(self) -> None:
         directory = tarfile.TarInfo("usr")
         directory.type = tarfile.DIRTYPE
         directory.mode = 0o755
@@ -337,7 +344,7 @@ class DebianToolsSecurityTest(unittest.TestCase):
         extract_tree.extract(str(archive), str(root), digest)
         self.assertEqual(os.stat(root / "usr/base").st_ino, os.stat(root / "usr/bin-link").st_ino)
 
-    def test_extraction_metadata_is_deterministic(self):
+    def test_extraction_metadata_is_deterministic(self) -> None:
         directory = tarfile.TarInfo("etc")
         directory.type = tarfile.DIRTYPE
         directory.mode = 0o755
@@ -356,8 +363,8 @@ class DebianToolsSecurityTest(unittest.TestCase):
         )
         digest = hashlib.sha256(archive.read_bytes()).hexdigest()
 
-        def metadata(root):
-            result = {}
+        def metadata(root: pathlib.Path) -> dict[str, tuple[int, int, str | None]]:
+            result: dict[str, tuple[int, int, str | None]] = {}
             for current, dirnames, names in os.walk(root):
                 for name in dirnames + names:
                     path = pathlib.Path(current) / name
@@ -390,7 +397,7 @@ class DebianToolsSecurityTest(unittest.TestCase):
         self.assertEqual(bundle.stat().st_mode & 0o777, 0o644)
         self.assertEqual(bundle.stat().st_mtime_ns, 0)
 
-    def test_rejects_link_cycle_and_unexpected_dangling(self):
+    def test_rejects_link_cycle_and_unexpected_dangling(self) -> None:
         first = tarfile.TarInfo("first")
         first.type = tarfile.SYMTYPE
         first.linkname = "second"
@@ -410,7 +417,7 @@ class DebianToolsSecurityTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "dangling"):
             extract_tree.extract(str(archive), str(self.work / "dangling"), digest)
 
-    def test_rejects_symlink_then_dotdot_escape(self):
+    def test_rejects_symlink_then_dotdot_escape(self) -> None:
         safe = tarfile.TarInfo("safe")
         safe.type = tarfile.DIRTYPE
         safe.mode = 0o755
@@ -427,7 +434,7 @@ class DebianToolsSecurityTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "escapes output root"):
             extract_tree.extract(str(archive), str(self.work / "escape"), digest)
 
-    def test_preserves_documented_masks_and_environment_link(self):
+    def test_preserves_documented_masks_and_environment_link(self) -> None:
         mask = tarfile.TarInfo("usr/lib/systemd/system/hwclock.service")
         mask.type = tarfile.SYMTYPE
         mask.linkname = "/dev/null"
@@ -442,21 +449,14 @@ class DebianToolsSecurityTest(unittest.TestCase):
         self.assertTrue((root / "usr/lib/environment.d/99-environment.conf").is_symlink())
         self.assertTrue((root / "usr/lib/systemd/system/hwclock.service").resolve().exists())
 
-    def test_authenticated_pinned_archive_preserves_documented_links(self):
-        runfiles_root = pathlib.Path(os.environ.get("RUNFILES_DIR", ""))
-        mapping = runfiles_root / "_repo_mapping"
-        self.assertTrue(mapping.is_file())
-        repository = None
-        for line in mapping.read_text(encoding="utf-8").splitlines():
-            fields = line.split(",", 2)
-            if len(fields) == 3 and fields[1] == "mkosi_debian_tools":
-                repository = fields[2]
-                break
-        self.assertIsNotNone(repository)
-        archive = runfiles_root / repository / "flat.tar"
+    def test_authenticated_pinned_archive_preserves_documented_links(self) -> None:
+        archive = _debian_tools_file("flat.tar")
         self.assertTrue(archive.is_file())
         provenance = (_HERE / "provenance.bzl").read_text(encoding="utf-8")
-        digest = re.search(r'DEBIAN_TOOLS_ARCHIVE_SHA256 = "([0-9a-f]{64})"', provenance).group(1)
+        match = re.search(r'DEBIAN_TOOLS_ARCHIVE_SHA256 = "([0-9a-f]{64})"', provenance)
+        if match is None:
+            self.fail("provenance.bzl does not pin the Debian tools archive digest")
+        digest = match.group(1)
         self.assertEqual(digest, hashlib.sha256(archive.read_bytes()).hexdigest())
         root = self.work / "pinned-root"
         extract_tree.extract(str(archive), str(root), digest)
@@ -481,7 +481,7 @@ class DebianToolsSecurityTest(unittest.TestCase):
                 self.assertTrue(link.resolve().is_relative_to(root.resolve()))
                 self.assertTrue(link.exists())
 
-    def test_mount_roles_canonical_paths_and_collisions(self):
+    def test_mount_roles_canonical_paths_and_collisions(self) -> None:
         source = self.work / "input"
         source.write_text("input")
         cases = [
@@ -510,7 +510,7 @@ class DebianToolsSecurityTest(unittest.TestCase):
         with self.assertRaises(FileNotFoundError):
             debian_launcher._validate_binds(["--ro-bind", "%s:/inputs/missing" % (self.work / "missing")])
 
-    def test_completion_marker_keeps_epoch_mtime_after_its_content_is_written(self):
+    def test_completion_marker_keeps_epoch_mtime_after_its_content_is_written(self) -> None:
         partial = self.work / "partial"
         partial.mkdir()
         debian_launcher._write_completion_marker(str(partial), "a" * 64)
@@ -519,11 +519,11 @@ class DebianToolsSecurityTest(unittest.TestCase):
         self.assertEqual(0, marker.stat().st_mtime_ns)
         self.assertEqual(0o644, marker.stat().st_mode & 0o777)
 
-    def test_missing_mapping_and_executable_fail_precisely(self):
+    def test_missing_mapping_and_executable_fail_precisely(self) -> None:
         with self.assertRaises(RuntimeError):
             debian_launcher._require_executable(str(self.work), "/usr/bin/missing", "test executable")
 
-    def test_preseeded_and_symlink_scratch_are_rejected(self):
+    def test_preseeded_and_symlink_scratch_are_rejected(self) -> None:
         preseed = self.work / "preseed"
         preseed.mkdir()
         (preseed / "root").mkdir()
@@ -560,7 +560,7 @@ class DebianToolsSecurityTest(unittest.TestCase):
         ):
             debian_launcher._private_scratch()
 
-    def test_concurrent_scratch_claim_is_rejected(self):
+    def test_concurrent_scratch_claim_is_rejected(self) -> None:
         archive = self._archive([(tarfile.TarInfo("safe"), b"safe")])
         digest = hashlib.sha256(archive.read_bytes()).hexdigest()
         scratch = self.work / "concurrent"

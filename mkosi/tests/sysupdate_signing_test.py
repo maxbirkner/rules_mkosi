@@ -13,7 +13,7 @@ from mkosi.private import openpgp
 TOOL, DEBIAN_TOOLS = sys.argv[1:3]
 
 
-def _armor(binary, label):
+def _armor(binary: bytes, label: str) -> bytes:
     body = base64.b64encode(binary).decode()
     lines = [body[index : index + 64] for index in range(0, len(body), 64)]
     checksum = base64.b64encode(openpgp.crc24(binary).to_bytes(3, "big")).decode()
@@ -23,17 +23,17 @@ def _armor(binary, label):
 
 
 class OpenPgpTest(unittest.TestCase):
-    def test_new_format_lengths_round_trip_at_their_boundaries(self):
+    def test_new_format_lengths_round_trip_at_their_boundaries(self) -> None:
         for length in (0, 191, 192, 8383, 8384):
             with self.subTest(length=length):
                 body = bytes(range(256)) * (length // 256) + bytes(length % 256)
                 self.assertEqual([(openpgp.TAG_USER_ID, body)], openpgp.packets(openpgp.packet(13, body)))
 
-    def test_old_format_packets_are_read(self):
+    def test_old_format_packets_are_read(self) -> None:
         self.assertEqual([(openpgp.TAG_USER_ID, b"abc")], openpgp.packets(b"\xb4\x03abc"))
         self.assertEqual([(openpgp.TAG_USER_ID, b"abc")], openpgp.packets(b"\xb5\x00\x03abc"))
 
-    def test_malformed_packets_are_rejected(self):
+    def test_malformed_packets_are_rejected(self) -> None:
         for data, message in (
             (b"", "no OpenPGP packets"),
             (b"\x00", "invalid OpenPGP packet header"),
@@ -45,7 +45,7 @@ class OpenPgpTest(unittest.TestCase):
             with self.subTest(data=data), self.assertRaisesRegex(ValueError, message):
                 openpgp.packets(data)
 
-    def test_armor_checksum_is_checked(self):
+    def test_armor_checksum_is_checked(self) -> None:
         armored = _armor(b"\xb4\x03abc", "SIGNATURE")
         self.assertEqual(b"\xb4\x03abc", openpgp.dearmor(armored, "SIGNATURE"))
         with self.assertRaisesRegex(ValueError, "checksum mismatch"):
@@ -54,7 +54,7 @@ class OpenPgpTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "'PGP PUBLIC KEY BLOCK'"):
             openpgp.dearmor(armored, "PUBLIC KEY BLOCK")
 
-    def test_certificate_rejects_secret_keys_and_several_certificates(self):
+    def test_certificate_rejects_secret_keys_and_several_certificates(self) -> None:
         public = openpgp.packet(openpgp.TAG_PUBLIC_KEY, openpgp.rsa_public_key(0xC5, 3, 0))
         for data, message in (
             (openpgp.packet(openpgp.TAG_SECRET_KEY, b"\x04"), "secret key material"),
@@ -67,14 +67,14 @@ class OpenPgpTest(unittest.TestCase):
                 openpgp.certificate(data)
         self.assertEqual(public, openpgp.certificate(_armor(public, "PUBLIC KEY BLOCK"))[0])
 
-    def test_detached_signature_rejects_signed_messages(self):
+    def test_detached_signature_rejects_signed_messages(self) -> None:
         with self.assertRaisesRegex(ValueError, "detached OpenPGP signature"):
             openpgp.detached_signature(openpgp.packet(openpgp.TAG_SIGNATURE, b"") + openpgp.packet(11, b""))
         with self.assertRaisesRegex(ValueError, "exactly one OpenPGP signature, found 2"):
             openpgp.detached_signature(openpgp.packet(openpgp.TAG_SIGNATURE, b"") * 2)
 
 
-def _run_tool(command, *arguments, check=True):
+def _run_tool(command: str, *arguments: object, check: bool = True) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [sys.executable, TOOL, command, *(str(argument) for argument in arguments)],
         capture_output=True,
@@ -86,8 +86,15 @@ def _run_tool(command, *arguments, check=True):
 class SigningTest(unittest.TestCase):
     """Signs two payload manifests with each of two ephemeral keys once, since every key takes seconds to generate."""
 
+    shared: pathlib.Path
+    payloads: list[pathlib.Path]
+    public_key: pathlib.Path
+    signatures: list[pathlib.Path]
+    other_key: pathlib.Path
+    other_signatures: list[pathlib.Path]
+
     @classmethod
-    def setUpClass(cls):
+    def setUpClass(cls) -> None:
         cls.shared = pathlib.Path("sysupdate-signing-work") / "shared"
         cls.shared.mkdir(parents=True, exist_ok=True)
         cls.payloads = []
@@ -102,9 +109,9 @@ class SigningTest(unittest.TestCase):
         cls.other_key, cls.other_signatures = cls.fixture("other")
 
     @classmethod
-    def fixture(cls, name):
+    def fixture(cls, name: str) -> tuple[pathlib.Path, list[pathlib.Path]]:
         signatures = [cls.shared / "{}-{}.gpg".format(name, index) for index in range(len(cls.payloads))]
-        sign = []
+        sign: list[str | pathlib.Path] = []
         for payload, signature in zip(cls.payloads, signatures, strict=True):
             sign += ["--sign", payload, signature]
         public_key = cls.shared / "{}.pgp".format(name)
@@ -126,14 +133,14 @@ class SigningTest(unittest.TestCase):
         assert public_key.read_bytes() == (keyring / "import-pubring.gpg").read_bytes()
         return public_key, signatures
 
-    def setUp(self):
+    def setUp(self) -> None:
         self.work = pathlib.Path("sysupdate-signing-work") / self._testMethodName
         self.work.mkdir(parents=True, exist_ok=True)
 
-    def run_tool(self, command, *arguments, check=True):
+    def run_tool(self, command: str, *arguments: object, check: bool = True) -> subprocess.CompletedProcess[str]:
         return _run_tool(command, *arguments, check=check)
 
-    def request(self, payload, public_key):
+    def request(self, payload: pathlib.Path, public_key: pathlib.Path) -> pathlib.Path:
         outputs = self.work / "request"
         outputs.mkdir(exist_ok=True)
         self.run_tool(
@@ -151,8 +158,10 @@ class SigningTest(unittest.TestCase):
         )
         return outputs
 
-    def verify(self, request, *signatures, check=True):
-        arguments = []
+    def verify(
+        self, request: pathlib.Path, *signatures: pathlib.Path, check: bool = True
+    ) -> subprocess.CompletedProcess[str]:
+        arguments: list[str | pathlib.Path] = []
         for signature in signatures:
             arguments += ["--signature", signature]
         return self.run_tool(
@@ -171,7 +180,7 @@ class SigningTest(unittest.TestCase):
             check=check,
         )
 
-    def test_request_binds_manifest_files_and_signer(self):
+    def test_request_binds_manifest_files_and_signer(self) -> None:
         request = self.request(self.payloads[0], self.public_key)
         content = json.loads((request / "request.json").read_text())
         manifest = (self.payloads[0] / "SHA256SUMS").read_bytes()
@@ -181,26 +190,26 @@ class SigningTest(unittest.TestCase):
         self.assertEqual(openpgp.certificate(self.public_key.read_bytes())[1], content["signer_fingerprint"])
         self.assertEqual("mkosi-sysupdate-signing-request-v1", content["format_version"])
 
-    def test_import_selects_the_signature_of_the_requested_manifest(self):
+    def test_import_selects_the_signature_of_the_requested_manifest(self) -> None:
         request = self.request(self.payloads[1], self.public_key)
         self.verify(request, *self.signatures)
         self.assertEqual(self.signatures[1].read_bytes(), (self.work / "SHA256SUMS.gpg").read_bytes())
 
-    def test_import_accepts_an_armored_signature_and_writes_it_binary(self):
+    def test_import_accepts_an_armored_signature_and_writes_it_binary(self) -> None:
         request = self.request(self.payloads[0], self.public_key)
         armored = self.work / "armored.asc"
         armored.write_bytes(_armor(self.signatures[0].read_bytes(), "SIGNATURE"))
         self.verify(request, armored)
         self.assertEqual(self.signatures[0].read_bytes(), (self.work / "SHA256SUMS.gpg").read_bytes())
 
-    def test_import_rejects_a_signature_of_another_manifest(self):
+    def test_import_rejects_a_signature_of_another_manifest(self) -> None:
         request = self.request(self.payloads[0], self.public_key)
         result = self.verify(request, self.signatures[1], check=False)
         self.assertNotEqual(0, result.returncode)
         self.assertIn("SYSUPDATE_SIGNING_INVALID: no signature verifies SHA256SUMS", result.stderr)
         self.assertFalse((self.work / "SHA256SUMS.gpg").exists())
 
-    def test_import_rejects_a_valid_signature_next_to_one_by_another_key(self):
+    def test_import_rejects_a_valid_signature_next_to_one_by_another_key(self) -> None:
         # sqv accepts this, but gpg on the device fails for the signature whose key it does not have.
         request = self.request(self.payloads[0], self.public_key)
         combined = self.work / "combined.gpg"
@@ -209,12 +218,12 @@ class SigningTest(unittest.TestCase):
         self.assertIn("expected exactly one OpenPGP signature, found 2", result.stderr)
         self.assertFalse((self.work / "SHA256SUMS.gpg").exists())
 
-    def test_import_rejects_a_signature_by_another_key(self):
+    def test_import_rejects_a_signature_by_another_key(self) -> None:
         request = self.request(self.payloads[0], self.public_key)
         result = self.verify(request, self.other_signatures[0], check=False)
         self.assertIn("no signature verifies SHA256SUMS", result.stderr)
 
-    def test_import_rejects_a_manifest_or_key_that_does_not_match_the_request(self):
+    def test_import_rejects_a_manifest_or_key_that_does_not_match_the_request(self) -> None:
         request = self.request(self.payloads[0], self.public_key)
         (request / "SHA256SUMS").write_bytes((self.payloads[1] / "SHA256SUMS").read_bytes())
         result = self.verify(request, self.signatures[1], check=False)
@@ -224,7 +233,7 @@ class SigningTest(unittest.TestCase):
         result = self.verify(request, self.signatures[0], check=False)
         self.assertIn("is not the requested signer", result.stderr)
 
-    def test_request_rejects_a_secret_key(self):
+    def test_request_rejects_a_secret_key(self) -> None:
         secret = self.work / "secret.pgp"
         secret.write_bytes(openpgp.packet(openpgp.TAG_SECRET_KEY, b"\x04"))
         with self.assertRaises(subprocess.CalledProcessError) as raised:

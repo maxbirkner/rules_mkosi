@@ -1,11 +1,14 @@
 """run_mkosi.py recognizes mkosi options in every spelling that mkosi's argument parser accepts."""
 
+import argparse
 import importlib.util
 import os
 import pathlib
 import sys
 import tempfile
+import types
 import unittest
+from collections.abc import Sequence
 
 RUN_MKOSI = pathlib.Path(sys.argv[1]).resolve()
 MKOSI_ROOT = pathlib.Path(sys.argv[2]).resolve().parents[1]
@@ -23,43 +26,48 @@ DIRECTORY_SPELLINGS = (
 )
 
 
-def _load_run_mkosi():
+def _load_run_mkosi() -> types.ModuleType:
     sys.path.insert(0, os.fspath(MKOSI_ROOT))
     spec = importlib.util.spec_from_file_location("run_mkosi", RUN_MKOSI)
+    assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
 
 
-def _spell(spelling, path):
+def _spell(spelling: Sequence[str], path: str | pathlib.Path) -> list[str]:
     return [argument.format(path) for argument in spelling]
 
 
 class OptionSpellingTest(unittest.TestCase):
+    run_mkosi: types.ModuleType
+    command_line: types.ModuleType
+    mkosi_config: types.ModuleType
+
     @classmethod
-    def setUpClass(cls):
+    def setUpClass(cls) -> None:
         cls.run_mkosi = _load_run_mkosi()
         cls.command_line = cls.run_mkosi.command_line
         import mkosi.config
 
         cls.mkosi_config = mkosi.config
 
-    def setUp(self):
+    def setUp(self) -> None:
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
         self.root = pathlib.Path(directory.name).resolve()
 
-    def _mkosi_parse(self, arguments):
+    def _mkosi_parse(self, arguments: list[str]) -> argparse.Namespace:
         return self.mkosi_config.create_argument_parser(chdir=False).parse_args(arguments)
 
-    def test_configuration_directory_spellings_match_mkosi(self):
+    def test_configuration_directory_spellings_match_mkosi(self) -> None:
         for spelling in DIRECTORY_SPELLINGS:
             with self.subTest(spelling=spelling):
                 arguments = [*_spell(spelling, "/config"), "build"]
                 self.assertEqual("/config", self._mkosi_parse(arguments).directory)
                 self.assertEqual("/config", self.command_line.configuration_directory(arguments).value)
 
-    def test_edge_case_values_match_mkosi(self):
+    def test_edge_case_values_match_mkosi(self) -> None:
         # Values that look like negative numbers, and empty values attached to grouped flags.
         for arguments, expected in (
             (["-C", "-5x", "build"], "-5x"),
@@ -76,12 +84,12 @@ class OptionSpellingTest(unittest.TestCase):
         with self.assertRaisesRegex(SystemExit, "mkosi path option is missing its value"):
             self.command_line.configuration_directory(["-C", "-x", "build"])
 
-    def test_last_configuration_directory_wins_like_mkosi(self):
+    def test_last_configuration_directory_wins_like_mkosi(self) -> None:
         arguments = ["-C", "/first", "--directory=/second", "build"]
         self.assertEqual("/second", self._mkosi_parse(arguments).directory)
         self.assertEqual("/second", self.command_line.configuration_directory(arguments).value)
 
-    def test_arguments_that_are_not_the_configuration_directory(self):
+    def test_arguments_that_are_not_the_configuration_directory(self) -> None:
         for arguments in (
             ["build"],
             ["--dir", "/config"],
@@ -93,7 +101,7 @@ class OptionSpellingTest(unittest.TestCase):
                 self.assertIsNone(self.command_line.configuration_directory(arguments))
         self.assertIsNone(self.run_mkosi._stage_configuration(self.command_line.Preamble(), ["build"]))
 
-    def test_every_directory_spelling_is_staged(self):
+    def test_every_directory_spelling_is_staged(self) -> None:
         configuration = self.root / "config"
         configuration.mkdir()
         (configuration / "mkosi.conf").write_text("[Content]\nBootable=yes\n")
@@ -110,7 +118,7 @@ class OptionSpellingTest(unittest.TestCase):
                     self.assertEqual(expected, arguments[: len(expected)])
                     self.assertNotIn(os.fspath(configuration), " ".join(arguments))
 
-    def test_path_option_spellings_are_declared(self):
+    def test_path_option_spellings_are_declared(self) -> None:
         for arguments in (
             ["--base-tree", "/base"],
             ["--base-tree=/base"],
@@ -127,7 +135,7 @@ class OptionSpellingTest(unittest.TestCase):
                 self.assertEqual(["/base"], self.command_line.declared_paths([*arguments, "build"]))
         self.assertEqual(["/a", "/b", "/c"], self.command_line.declared_paths(["--include=/a,/b", "-I", "/c"]))
 
-    def test_constants_resets_and_other_options_are_not_declared(self):
+    def test_constants_resets_and_other_options_are_not_declared(self) -> None:
         for arguments in (
             ["--initrd=default", "--initrd", "default"],
             ["--tools-tree=default"],
@@ -139,7 +147,7 @@ class OptionSpellingTest(unittest.TestCase):
             with self.subTest(arguments=arguments):
                 self.assertEqual([], self.command_line.declared_paths(arguments))
 
-    def test_path_option_without_value_is_rejected(self):
+    def test_path_option_without_value_is_rejected(self) -> None:
         for arguments in (["--sandbox-tree"], ["--base-tree", "--format=disk"], ["-O"], ["-C"]):
             with (
                 self.subTest(arguments=arguments),
@@ -147,7 +155,7 @@ class OptionSpellingTest(unittest.TestCase):
             ):
                 self.command_line.declared_paths(arguments)
 
-    def test_relative_paths_become_absolute_in_every_spelling(self):
+    def test_relative_paths_become_absolute_in_every_spelling(self) -> None:
         for arguments, expected in (
             (
                 ["--include=config", "--format=disk", "build"],
@@ -164,20 +172,20 @@ class OptionSpellingTest(unittest.TestCase):
             with self.subTest(arguments=arguments):
                 self.assertEqual(expected, self.command_line.absolute_paths(arguments)[: len(expected)])
 
-    def test_output_directory_spellings_match_mkosi(self):
+    def test_output_directory_spellings_match_mkosi(self) -> None:
         for spelling in (("-O", "{}"), ("-O{}",), ("-O={}",), ("--output-directory={}",), ("--output-dir", "{}")):
             with self.subTest(spelling=spelling):
                 arguments = [*_spell(spelling, self.root / "out"), "build"]
                 value = self.command_line.mkosi_option_value(["--kernel-preflight", "p", "--", *arguments], "-O")
                 self.assertEqual(self._mkosi_parse(arguments).output_dir, pathlib.Path(value))
 
-    def test_workspace_and_tools_tree_spellings(self):
+    def test_workspace_and_tools_tree_spellings(self) -> None:
         arguments = ["--workspace-directory=/work", "--tools-tree", "/work/debian-tools"]
         self.assertEqual(pathlib.Path("/work"), self.run_mkosi._workspace(arguments))
         self.assertEqual("/work/debian-tools", self.command_line.value_after(arguments, "--tools-tree"))
         self.assertEqual(pathlib.Path("/work"), self.run_mkosi._workspace(["--workspace-dir", "/work"]))
 
-    def test_release_parent_is_requested_only_by_run_mkosi_options(self):
+    def test_release_parent_is_requested_only_by_run_mkosi_options(self) -> None:
         requests = self.run_mkosi._requests_release_parent
         self.assertTrue(requests(["--kernel-preflight", "p", "--release-base-tree", "/base", "--", "build"]))
         self.assertTrue(requests(["--debian-snapshot-repository", "/repository", "--", "build"]))
@@ -185,7 +193,7 @@ class OptionSpellingTest(unittest.TestCase):
         self.assertFalse(requests(["--kernel-preflight", "p", "--", "--debian-snapshot-repository", "/repository"]))
         self.assertFalse(requests(["--executable-path", "--release-base-tree", "--", "build"]))
 
-    def test_path_options_are_read_from_mkosi(self):
+    def test_path_options_are_read_from_mkosi(self) -> None:
         table = self.run_mkosi._package.mkosi_options.option_table()
         # The options that rules_mkosi passes to mkosi must be recognized as paths in every spelling.
         for spelling in (

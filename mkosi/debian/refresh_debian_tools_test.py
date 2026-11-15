@@ -7,6 +7,7 @@ import stat
 import sys
 import unittest
 import urllib.parse
+from collections.abc import Sequence
 from unittest import mock
 
 # The runfiles path, not the source tree that it links to, so that bytecode caches stay out of the source tree.
@@ -31,17 +32,17 @@ esac
 """
 
 
-def _snapshot_url(snapshot):
+def _snapshot_url(snapshot: str) -> str:
     return "https://snapshot.debian.org/archive/debian/" + snapshot
 
 
-def _write(path, text):
+def _write(path: pathlib.Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text)
 
 
 class RefreshTest(unittest.TestCase):
-    def setUp(self):
+    def setUp(self) -> None:
         self.workspace = pathlib.Path(os.environ["TEST_TMPDIR"]) / self._testMethodName
         _write(self.workspace / refresh_debian_tools.PROVENANCE, _PROVENANCE.format(_OLD))
         _write(self.workspace / refresh_debian_tools.SPEC, '"url": "%s"' % _snapshot_url(_OLD))
@@ -51,18 +52,19 @@ class RefreshTest(unittest.TestCase):
         bazel = self.workspace / "bazel"
         _write(bazel, _FAKE_BAZEL)
         bazel.chmod(bazel.stat().st_mode | stat.S_IXUSR)
-        self.enterContext(mock.patch.dict(os.environ, {"BAZEL": str(bazel)}))
-        self.enterContext(mock.patch.object(refresh_debian_tools.generate_lock, "main", side_effect=self._lock))
+        # TestCase.enterContext is new in Python 3.11; mypy checks for 3.10, but this test runs on the 3.14 toolchain.
+        self.enterContext(mock.patch.dict(os.environ, {"BAZEL": str(bazel)}))  # type: ignore[attr-defined]
+        self.enterContext(mock.patch.object(refresh_debian_tools.generate_lock, "main", side_effect=self._lock))  # type: ignore[attr-defined]
 
-    def _lock(self, argv):
+    def _lock(self, argv: Sequence[str]) -> int:
         self.assertEqual(["--spec", refresh_debian_tools.SPEC, "--output", refresh_debian_tools.LOCK], argv)
         _write(self.workspace / refresh_debian_tools.LOCK, "lock")
         return 0
 
-    def _text(self, name):
+    def _text(self, name: str) -> str:
         return (self.workspace / name).read_text()
 
-    def test_refresh_moves_provenance_and_test_configurations_to_the_snapshot(self):
+    def test_refresh_moves_provenance_and_test_configurations_to_the_snapshot(self) -> None:
         values = refresh_debian_tools.refresh(self.workspace, _NEW)
         provenance = refresh_debian_tools.read_provenance(self._text(refresh_debian_tools.PROVENANCE))
         self.assertEqual(
@@ -80,7 +82,7 @@ class RefreshTest(unittest.TestCase):
         self.assertEqual("Snapshot=%s, epoch 1789200491\n" % _NEW, self._text("README.md"))
         self.assertEqual("Snapshot=%s\n" % _NEW, self._text("e2e/smoke/testdata/minimal.conf"))
 
-    def test_failed_lock_generation_leaves_provenance_unchanged(self):
+    def test_failed_lock_generation_leaves_provenance_unchanged(self) -> None:
         refresh_debian_tools.generate_lock.main.side_effect = None
         refresh_debian_tools.generate_lock.main.return_value = 1
         with self.assertRaisesRegex(SystemExit, "Debian lock generation failed"):
@@ -89,7 +91,7 @@ class RefreshTest(unittest.TestCase):
 
 
 class PythonPinTest(unittest.TestCase):
-    def setUp(self):
+    def setUp(self) -> None:
         provenance = refresh_debian_tools.read_provenance((_HERE / "provenance.bzl").read_text())
         self.pin = {name: value for name, value in provenance.items() if name.startswith("DEBIAN_TOOLS_PYTHON_")}
         url = self.pin["DEBIAN_TOOLS_PYTHON_URL"]
@@ -99,21 +101,21 @@ class PythonPinTest(unittest.TestCase):
             "0" * 64, asset.replace("+static", ""), provenance["DEBIAN_TOOLS_PYTHON_SHA256"], asset
         )
 
-    def test_pin_reproduces_the_checked_in_static_python(self):
+    def test_pin_reproduces_the_checked_in_static_python(self) -> None:
         version = self.pin["DEBIAN_TOOLS_PYTHON_VERSION"]
         self.assertEqual(self.pin, refresh_debian_tools.python_pin(self.release, version, self.sums))
 
-    def test_missing_asset_is_rejected(self):
+    def test_missing_asset_is_rejected(self) -> None:
         with self.assertRaisesRegex(ValueError, "does not list cpython-3.0.0"):
             refresh_debian_tools.python_pin(self.release, "3.0.0", self.sums)
 
 
 class ProvenanceTest(unittest.TestCase):
-    def test_unknown_constant_is_rejected(self):
+    def test_unknown_constant_is_rejected(self) -> None:
         with self.assertRaisesRegex(ValueError, "DEBIAN_TOOLS_MISSING"):
             refresh_debian_tools.rewrite_provenance(_PROVENANCE.format(_OLD), {"DEBIAN_TOOLS_MISSING": "x"})
 
-    def test_snapshot_epoch_is_the_snapshot_time(self):
+    def test_snapshot_epoch_is_the_snapshot_time(self) -> None:
         self.assertEqual(1789200491, refresh_debian_tools.snapshot_epoch(_NEW))
 
 
