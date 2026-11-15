@@ -8,10 +8,11 @@ import struct
 import subprocess
 import sys
 import tarfile
-
-from python.runfiles import runfiles
+from collections.abc import Iterable
+from typing import Any
 
 from mkosi.private import gpt_partitions, partition_metadata
+from mkosi.tests.runfile_paths import resolve_runfile
 
 SECTOR = 512
 # grub-core/boot/i386/pc/boot.S and include/grub/i386/pc/boot.h (GRUB 2.12):
@@ -30,24 +31,19 @@ MAX_ROOT_BYTES = 4 * 1024 * 1024 * 1024
 ESP = "c12a7328-f81f-11d2-ba4b-00a0c93ec93b"
 
 
-def _runfile(path):
-    if path.startswith("../"):
-        path = path[3:]
-    elif not path.startswith("external/"):
-        path = os.path.join(os.environ["TEST_WORKSPACE"], path)
-    return pathlib.Path(runfiles.Create().Rlocation(path))
-
-
-def _reference(archive, name, size=None):
+def _reference(archive: pathlib.Path, name: str, size: int | None = None) -> bytes:
     with tarfile.open(archive, "r:") as source:
         member = source.getmember("./usr/lib/grub/i386-pc/" + name)
         if not member.isfile() or (size is not None and member.size != size):
             raise AssertionError("pinned grub-pc-bin reference is malformed: " + name)
-        return source.extractfile(member).read()
+        extracted = source.extractfile(member)
+        if extracted is None:
+            raise AssertionError("pinned grub-pc-bin reference is malformed: " + name)
+        return extracted.read()
 
 
-def _same_except(actual, reference, patches, diagnostic):
-    mutable = set()
+def _same_except(actual: bytes, reference: bytes, patches: Iterable[tuple[int, int]], diagnostic: str) -> None:
+    mutable: set[int] = set()
     for start, end in patches:
         mutable.update(range(start, end))
     differences = [i for i in range(len(reference)) if i not in mutable and actual[i] != reference[i]]
@@ -56,7 +52,7 @@ def _same_except(actual, reference, patches, diagnostic):
         raise AssertionError("{}: {}".format(diagnostic, detail))
 
 
-def _validate_protective_mbr(mbr, last_lba):
+def _validate_protective_mbr(mbr: bytes, last_lba: int) -> None:
     entries = [struct.unpack_from("<B3sB3sII", mbr, 0x1BE + index * 16) for index in range(4)]
     protective = [entry for entry in entries if entry[2] == 0xEE]
     if len(protective) != 1:
@@ -76,7 +72,9 @@ def _validate_protective_mbr(mbr, last_lba):
             raise AssertionError("hybrid MBR partition entries are not allowed")
 
 
-def validate_boot_regions(image, metadata, boot_reference, diskboot_reference):
+def validate_boot_regions(
+    image: pathlib.Path, metadata: dict[str, Any], boot_reference: bytes, diskboot_reference: bytes
+) -> None:
     bios = [p for p in metadata["partitions"] if p["type_guid"] == gpt_partitions.BIOS_BOOT]
     if len(bios) != 1:
         raise AssertionError("unique GPT BIOS boot partition is missing")
@@ -113,10 +111,18 @@ def validate_boot_regions(image, metadata, boot_reference, diskboot_reference):
         raise AssertionError("GRUB installation payload in BIOS boot partition is empty")
 
 
-def _run_tool(launcher, scratch, binding, command, **kwargs):
+# kwargs are forwarded unchanged to subprocess.run, whose keyword arguments have many different types.
+def _run_tool(
+    launcher: pathlib.Path,
+    scratch: str,
+    binding: str,
+    command: list[str],
+    **kwargs: Any,  # noqa: ANN401
+) -> subprocess.CompletedProcess[str]:
     """Runs a hermetic Debian tool with one image file bound read-only, in a fresh scratch directory."""
     invocation = getattr(_run_tool, "invocation", 0)
-    _run_tool.invocation = invocation + 1
+    # The invocation counter is stored as a function attribute, which mypy does not model.
+    _run_tool.invocation = invocation + 1  # type: ignore[attr-defined]
     environment = {
         n: os.environ[n]
         for n in ("RUNFILES_DIR", "RUNFILES_MANIFEST_FILE", "RUNFILES_MANIFEST_ONLY")
@@ -135,7 +141,7 @@ def _run_tool(launcher, scratch, binding, command, **kwargs):
     )
 
 
-def _debugfs(launcher, root, command):
+def _debugfs(launcher: pathlib.Path, root: pathlib.Path, command: str) -> str:
     result = _run_tool(
         launcher,
         "debugfs",
@@ -148,7 +154,7 @@ def _debugfs(launcher, root, command):
     return result.stdout + result.stderr
 
 
-def _mtype(launcher, esp):
+def _mtype(launcher: pathlib.Path, esp: pathlib.Path) -> str | None:
     binding = "{}:/inputs/esp.fat".format(esp)
     listing = _run_tool(
         launcher,
@@ -173,12 +179,13 @@ def _mtype(launcher, esp):
     )
     if result.returncode:
         raise AssertionError("GRUB ESP configuration inspection failed: " + result.stdout + result.stderr)
-    _mtype.esp = esp
-    _mtype.entries = {line.strip().removeprefix("::").lower() for line in listing.stdout.splitlines() if line.strip()}
+    # The inspected ESP is published through function attributes, which mypy does not model.
+    _mtype.esp = esp  # type: ignore[attr-defined]
+    _mtype.entries = {line.strip().removeprefix("::").lower() for line in listing.stdout.splitlines() if line.strip()}  # type: ignore[attr-defined]
     return result.stdout
 
 
-def _fat_regular(launcher, esp, path):
+def _fat_regular(launcher: pathlib.Path, esp: pathlib.Path, path: str) -> str:
     result = _run_tool(
         launcher,
         "fat-stat",
@@ -190,7 +197,7 @@ def _fat_regular(launcher, esp, path):
     return "regular" if result.returncode == 0 else "missing"
 
 
-def _extract_root(image, metadata, destination):
+def _extract_root(image: pathlib.Path, metadata: dict[str, Any], destination: pathlib.Path) -> None:
     root = next(p for p in metadata["partitions"] if p["type_guid"] == gpt_partitions.ROOT_X86_64)
     start, size = root["start_bytes"], root["size_bytes"]
     if size <= 0 or size > MAX_ROOT_BYTES or start < 0 or start > sys.maxsize - size:
@@ -225,7 +232,7 @@ def _extract_root(image, metadata, destination):
                 position += len(chunk)
 
 
-def _extract_esp(image, esp, destination):
+def _extract_esp(image: pathlib.Path, esp: dict[str, Any], destination: pathlib.Path) -> None:
     if esp["size_bytes"] > 256 * 1024 * 1024:
         raise AssertionError("ESP exceeds inspection resource limit")
     with image.open("rb") as source, destination.open("wb") as output:
@@ -240,7 +247,7 @@ def _extract_esp(image, esp, destination):
             remaining -= len(chunk)
 
 
-def _stat_type(launcher, root, path):
+def _stat_type(launcher: pathlib.Path, root: pathlib.Path, path: str) -> str:
     output = _debugfs(launcher, root, "stat " + path)
     match = re.search(r"Type:\s+(\w+)", output)
     if not match:
@@ -250,7 +257,7 @@ def _stat_type(launcher, root, path):
     return match.group(1)
 
 
-def _menuentry_body(config):
+def _menuentry_body(config: str) -> str:
     """Returns the uncommented body of the first GRUB menuentry."""
     body_lines = []
     depth = 0
@@ -270,7 +277,7 @@ def _menuentry_body(config):
     return "\n".join(body_lines)
 
 
-def _boot_paths(body):
+def _boot_paths(body: str) -> list[str]:
     """Returns the kernel and initrd paths of a menuentry body whose kernel and initrd versions match."""
     linux = re.search(r"(?m)^\s*linux\S*\s+(\S+)", body)
     initrd = re.search(r"(?m)^\s*initrd\S*\s+(.+)$", body)
@@ -293,7 +300,7 @@ def _boot_paths(body):
     return [kernel_path, *initrd_paths]
 
 
-def validate_boot_files(entries, modules, config):
+def validate_boot_files(entries: dict[str, str], modules: dict[str, str], config: str) -> None:
     body = _menuentry_body(config)
     for path in _boot_paths(body):
         if entries.get(path) != "regular":
@@ -307,8 +314,8 @@ def validate_boot_files(entries, modules, config):
             raise AssertionError("required GRUB i386-pc module is missing: {} ({})".format(module, modules.get(module)))
 
 
-def main():
-    image, launcher, archive = map(_runfile, sys.argv[1:4])
+def main() -> None:
+    image, launcher, archive = map(resolve_runfile, sys.argv[1:4])
     metadata = partition_metadata.project_image(image, "bios")
     validate_boot_regions(
         image,

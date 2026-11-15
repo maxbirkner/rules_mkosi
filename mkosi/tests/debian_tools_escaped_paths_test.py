@@ -12,6 +12,7 @@ import re
 import subprocess
 import sys
 import unittest
+from collections.abc import Iterator
 
 _SPECIAL_NAME = "space \\backslash\ttab\nnewline"
 _CLONE_NEWNS = 0x00020000
@@ -46,11 +47,11 @@ printf "written-output\n" > /outputs/destination/result
 """
 
 
-def _unescape(text):
+def _unescape(text: str) -> str:
     return re.sub(r"\\([snb])", lambda match: {"s": " ", "n": "\n", "b": "\\"}[match.group(1)], text)
 
 
-def _manifest_entries(manifest):
+def _manifest_entries(manifest: pathlib.Path) -> Iterator[tuple[str, str]]:
     """Yields (runfiles path, target) for each entry of a Bazel runfiles manifest, decoding escaped entries."""
     for line in manifest.read_text(encoding="utf-8").split("\n"):
         if not line:
@@ -63,13 +64,13 @@ def _manifest_entries(manifest):
             yield link, target
 
 
-def _escaped_entry(link, target):
+def _escaped_entry(link: str, target: str) -> str:
     link = link.replace("\\", "\\b").replace(" ", "\\s").replace("\n", "\\n")
     target = target.replace("\\", "\\b").replace("\n", "\\n")
     return " %s %s\n" % (link, target)
 
 
-def _own_runfiles():
+def _own_runfiles() -> Iterator[tuple[str, str]]:
     """Yields (runfiles path, target) for each runfile of this test, in manifest or directory mode."""
     manifest = os.environ.get("RUNFILES_MANIFEST_FILE")
     if manifest:
@@ -86,7 +87,7 @@ def _own_runfiles():
             yield os.path.relpath(path, root), target
 
 
-def _is_launcher_runfile(link):
+def _is_launcher_runfile(link: str) -> bool:
     repository, _, path = link.partition("/")
     return any(
         (repository == name or repository.endswith("+" + name)) and path == expected
@@ -94,7 +95,7 @@ def _is_launcher_runfile(link):
     )
 
 
-def _write_escaped_runfiles(directory, root_link, manifest):
+def _write_escaped_runfiles(directory: pathlib.Path, root_link: pathlib.Path, manifest: pathlib.Path) -> set[str]:
     """Writes a runfiles tree and an escaped manifest whose targets all pass through root_link, a link to /.
 
     Returns the runfiles paths whose tree links are decoys.
@@ -119,13 +120,13 @@ def _write_escaped_runfiles(directory, root_link, manifest):
     return decoys
 
 
-def _check(result, operation):
+def _check(result: int, operation: str) -> None:
     if result != 0:
         error = ctypes.get_errno()
         raise OSError(error, "%s: %s" % (operation, os.strerror(error)))
 
 
-def _mount_writable_tmpfs(nested):
+def _mount_writable_tmpfs(nested: pathlib.Path) -> None:
     """Enters private user and mount namespaces and mounts a writable tmpfs at nested; runs in the forked child."""
     uid = os.getuid()
     gid = os.getgid()
@@ -140,7 +141,7 @@ def _mount_writable_tmpfs(nested):
 
 
 class DebianToolsEscapedPathsTest(unittest.TestCase):
-    def setUp(self):
+    def setUp(self) -> None:
         self.base = pathlib.Path(os.environ["TEST_TMPDIR"]) / _SPECIAL_NAME
         self.base.mkdir()
         root_link = self.base / "root"
@@ -156,7 +157,7 @@ class DebianToolsEscapedPathsTest(unittest.TestCase):
         self.destination = self.base / "read-write destination"
         self.destination.mkdir()
 
-    def test_nested_writable_mount_stays_read_only_under_escaped_paths(self):
+    def test_nested_writable_mount_stays_read_only_under_escaped_paths(self) -> None:
         self.assertIn("\n ", self.manifest.read_text(encoding="utf-8"), "the manifest has no escaped entries")
         self.assertEqual(len(self.decoys), len(_LAUNCHER_RUNFILES), self.decoys)
         launcher = self.runfiles_dir / _LAUNCHER_RLOCATION

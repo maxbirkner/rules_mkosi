@@ -10,6 +10,8 @@ import sys
 import tempfile
 import types
 import unittest
+from collections.abc import Collection, Iterator
+from typing import Any
 
 RUN_MKOSI = pathlib.Path(sys.argv[1]).resolve()
 MKOSI_ROOT = pathlib.Path(sys.argv[2]).resolve().parents[1]
@@ -65,9 +67,11 @@ def local_import_caller(src, dst):
 """
 
 
-def _load_runner():
+def _load_runner() -> types.ModuleType:
     sys.path.insert(0, os.fspath(MKOSI_ROOT))
     spec = importlib.util.spec_from_file_location("run_mkosi", RUN_MKOSI)
+    if spec is None or spec.loader is None:
+        raise RuntimeError("run_mkosi.py cannot be loaded: %s" % RUN_MKOSI)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module._package
@@ -76,9 +80,13 @@ def _load_runner():
 class MkosiContractTest(unittest.TestCase):
     # Show every changed internal, which is the starting point of an mkosi upgrade.
     maxDiff = None
+    contract: types.ModuleType
+    release_patches: types.ModuleType
+    release_validation: types.ModuleType
+    mkosi_config: types.ModuleType
 
     @classmethod
-    def setUpClass(cls):
+    def setUpClass(cls) -> None:
         package = _load_runner()
         cls.contract = package.mkosi_contract
         cls.release_patches = package.release_patches
@@ -87,7 +95,7 @@ class MkosiContractTest(unittest.TestCase):
 
         cls.mkosi_config = mkosi.config
 
-    def _replace(self, owner, name, value):
+    def _replace(self, owner: object, name: str, value: object) -> None:
         namespace = vars(owner)
         if name in namespace:
             self.addCleanup(setattr, owner, name, namespace[name])
@@ -95,20 +103,21 @@ class MkosiContractTest(unittest.TestCase):
             self.addCleanup(delattr, owner, name)
         setattr(owner, name, value)
 
-    def _pinned(self):
+    # The contract dataclass is defined by mkosi_contract.py, which the test loads at run time.
+    def _pinned(self) -> Any:  # noqa: ANN401
         return self.contract.CONTRACTS[self.contract.mkosi_version()]
 
-    def test_pinned_mkosi_matches_its_contract(self):
+    def test_pinned_mkosi_matches_its_contract(self) -> None:
         self.assertEqual([], self.contract.violations())
         self.contract.verify()
 
-    def test_every_supported_mkosi_version_has_a_contract(self):
+    def test_every_supported_mkosi_version_has_a_contract(self) -> None:
         versions = set(re.findall(r'^\s*"([^"]+)": struct\(', VERSIONS_BZL.read_text(), re.MULTILINE))
         self.assertTrue(versions)
         self.assertEqual(versions, set(self.contract.CONTRACTS), "add a release mode contract for each mkosi version")
         self.assertIn(self.contract.mkosi_version(), versions)
 
-    def test_unsupported_mkosi_version_is_rejected(self):
+    def test_unsupported_mkosi_version_is_rejected(self) -> None:
         self.assertEqual(
             [
                 "mkosi 0 is not supported by release mode; supported mkosi versions: 27.1",
@@ -117,8 +126,8 @@ class MkosiContractTest(unittest.TestCase):
             self.contract.violations(version="0"),
         )
 
-    def test_unsupported_mkosi_version_lists_what_changed_since_the_newest_contract(self):
-        def parse_ini(path, only_sections=()):
+    def test_unsupported_mkosi_version_lists_what_changed_since_the_newest_contract(self) -> None:
+        def parse_ini(path: pathlib.Path, only_sections: Collection[str] = ()) -> Iterator[tuple[str, str, str]]:
             yield from ()
 
         older = dataclasses.replace(self._pinned(), patched=())
@@ -137,8 +146,8 @@ class MkosiContractTest(unittest.TestCase):
             self.contract.violations(version="28"),
         )
 
-    def test_changed_internal_fails_loudly_with_the_patch_to_review(self):
-        def parse_ini(path, only_sections=()):
+    def test_changed_internal_fails_loudly_with_the_patch_to_review(self) -> None:
+        def parse_ini(path: pathlib.Path, only_sections: Collection[str] = ()) -> Iterator[tuple[str, str, str]]:
             yield from ()
 
         self._replace(self.mkosi_config, "parse_ini", parse_ini)
@@ -157,7 +166,7 @@ class MkosiContractTest(unittest.TestCase):
         self.assertIn("release_patches.py", message)
         self.assertIn("mkosi_contract.py", message)
 
-    def test_every_patch_names_its_replacement_and_what_to_reverify(self):
+    def test_every_patch_names_its_replacement_and_what_to_reverify(self) -> None:
         for patched in self._pinned().patched:
             with self.subTest(name=patched.name):
                 replacement = self.release_patches
@@ -166,7 +175,7 @@ class MkosiContractTest(unittest.TestCase):
                 self.assertTrue(callable(replacement))
                 self.assertRegex(patched.recheck, r"^\S.*[^.]$")
 
-    def test_removed_internal_is_reported(self):
+    def test_removed_internal_is_reported(self) -> None:
         contract = dataclasses.replace(
             self._pinned(),
             patched=(self.contract.Patched("mkosi.config:no_such_function", "_patch", "0", "it still exists"),),
@@ -176,7 +185,7 @@ class MkosiContractTest(unittest.TestCase):
             self.contract.violations(contract=contract),
         )
 
-    def test_caller_that_no_longer_reads_the_patched_name_is_reported(self):
+    def test_caller_that_no_longer_reads_the_patched_name_is_reported(self) -> None:
         parse_ini = next(patched for patched in self._pinned().patched if patched.name == "mkosi.config:parse_ini")
         moved = dataclasses.replace(parse_ini, callers=("mkosi.config:parse_boolean",))
         contract = dataclasses.replace(self._pinned(), patched=(moved,))
@@ -188,7 +197,7 @@ class MkosiContractTest(unittest.TestCase):
             self.contract.violations(contract=contract),
         )
 
-    def test_callers_that_bypass_the_patched_module_global_are_reported(self):
+    def test_callers_that_bypass_the_patched_module_global_are_reported(self) -> None:
         # Only a module-global read sees the patched mkosi.make_tar; an attribute read or a function-local import
         # binds the original function and silently bypasses the patch.
         module = types.ModuleType("rules_mkosi_contract_callers")
@@ -197,7 +206,7 @@ class MkosiContractTest(unittest.TestCase):
         self.addCleanup(sys.modules.pop, module.__name__)
         make_tar = next(patched for patched in self._pinned().patched if patched.name == "mkosi:make_tar")
 
-        def caller_violations(caller):
+        def caller_violations(caller: str) -> list[str]:
             patched = dataclasses.replace(make_tar, callers=("rules_mkosi_contract_callers:" + caller,))
             return self.contract.violations(contract=dataclasses.replace(self._pinned(), patched=(patched,)))
 
@@ -214,7 +223,7 @@ class MkosiContractTest(unittest.TestCase):
                     caller_violations(caller),
                 )
 
-    def test_subclass_override_of_a_patched_method_is_reported(self):
+    def test_subclass_override_of_a_patched_method_is_reported(self) -> None:
         import mkosi.installer.apt
 
         self._replace(mkosi.installer.apt.Apt, "mounts", classmethod(lambda cls, context: []))
@@ -223,7 +232,7 @@ class MkosiContractTest(unittest.TestCase):
             self.contract.violations(),
         )
 
-    def test_changed_helper_parameters_and_missing_fields_are_reported(self):
+    def test_changed_helper_parameters_and_missing_fields_are_reported(self) -> None:
         contract = dataclasses.replace(
             self._pinned(),
             patched=(),
@@ -238,7 +247,7 @@ class MkosiContractTest(unittest.TestCase):
             self.contract.violations(contract=contract),
         )
 
-    def test_release_mode_verifies_mkosi_before_patching(self):
+    def test_release_mode_verifies_mkosi_before_patching(self) -> None:
         self._replace(self.contract, "CONTRACTS", {})
         original = self.mkosi_config.parse_config
         settings = self.release_validation.ReleaseSettings(
@@ -253,7 +262,7 @@ class MkosiContractTest(unittest.TestCase):
             self.release_patches.activate_release_mode(None, settings, [], None)
         self.assertIs(original, self.mkosi_config.parse_config)
 
-    def test_apt_keeps_the_mirror_sources_of_the_sandbox_tree(self):
+    def test_apt_keeps_the_mirror_sources_of_the_sandbox_tree(self) -> None:
         from mkosi.installer.apt import Apt, AptRepository
 
         with tempfile.TemporaryDirectory() as directory:
@@ -266,7 +275,7 @@ class MkosiContractTest(unittest.TestCase):
             # mkosi documents that it writes mkosi.sources only if the sandbox tree does not provide it.
             self.assertEqual("URIs: file:///repository\n", sources.read_text())
 
-    def test_first_parsed_configuration_selects_the_mirror_components(self):
+    def test_first_parsed_configuration_selects_the_mirror_components(self) -> None:
         written = []
         mirror = types.SimpleNamespace(write_sources=lambda *arguments: written.append(arguments))
         configuration = self.release_patches._MirrorConfiguration(mirror, ("main", "contrib", "non-free-firmware"))
@@ -280,7 +289,7 @@ class MkosiContractTest(unittest.TestCase):
         with self.assertRaisesRegex(SystemExit, "absent from the Debian snapshot: contrib"):
             configuration.parse_config([])
 
-    def test_context_creates_the_repository_directory_that_release_mode_replaces(self):
+    def test_context_creates_the_repository_directory_that_release_mode_replaces(self) -> None:
         from mkosi.context import Context
 
         with tempfile.TemporaryDirectory() as directory:
@@ -291,7 +300,7 @@ class MkosiContractTest(unittest.TestCase):
             self.assertEqual(workspace / "repository", context.repository)
             self.assertTrue((workspace / "repository").is_dir())
 
-    def test_finalized_manifest_lists_the_packages_of_the_base_tree(self):
+    def test_finalized_manifest_lists_the_packages_of_the_base_tree(self) -> None:
         import mkosi.manifest
 
         dpkg = types.SimpleNamespace(stdout="bash\tbash\t5.2.37-2\tamd64\t7000\t0\n")
@@ -302,7 +311,7 @@ class MkosiContractTest(unittest.TestCase):
         config = types.SimpleNamespace(base_trees=[pathlib.Path("/base")], manifest_format=[])
         context = types.SimpleNamespace(config=config, root=pathlib.Path("/root"), sandbox=lambda **kwargs: None)
 
-        def recorded_packages():
+        def recorded_packages() -> list[str]:
             manifest = mkosi.manifest.Manifest(context)
             manifest.record_deb_packages()
             return [package.name for package in manifest.packages]
@@ -312,7 +321,7 @@ class MkosiContractTest(unittest.TestCase):
         self.release_patches.include_base_packages_in_manifest()
         self.assertEqual(["bash"], recorded_packages())
 
-    def test_parse_ini_reports_the_sections_that_release_mode_validates(self):
+    def test_parse_ini_reports_the_sections_that_release_mode_validates(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = pathlib.Path(directory) / "mkosi.conf"
             path.write_text("[Match]\nDistribution=debian\n[Content]\nBootable=yes\n")
@@ -320,8 +329,10 @@ class MkosiContractTest(unittest.TestCase):
             self.assertEqual(["Match", "Content"], list(dict.fromkeys(section for section, _, _ in entries)))
             self.assertIn(("Match", "Distribution", "debian"), entries)
 
-    def test_release_validation_reads_only_existing_config_fields(self):
+    def test_release_validation_reads_only_existing_config_fields(self) -> None:
         fields = {field.name for field in dataclasses.fields(self.mkosi_config.Config)}
+        if self.release_validation.__file__ is None:
+            self.fail("release_validation.py has no source file")
         source = pathlib.Path(self.release_validation.__file__).read_text()
         names = {
             node.value

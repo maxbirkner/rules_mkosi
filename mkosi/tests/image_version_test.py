@@ -16,15 +16,15 @@ INVALID_CONTENTS = ("", "\n", "1\n\n", " 1", "1 ", "1\r\n", "1_2", "1-2", "1+2",
 
 
 class ImageVersionTest(unittest.TestCase):
-    def setUp(self):
+    def setUp(self) -> None:
         self.directory = tempfile.TemporaryDirectory()
         self.root = pathlib.Path(self.directory.name)
         self.version = self.root / "version.txt"
 
-    def tearDown(self):
+    def tearDown(self) -> None:
         self.directory.cleanup()
 
-    def test_reads_version_with_optional_trailing_newline(self):
+    def test_reads_version_with_optional_trailing_newline(self) -> None:
         for content, expected in (
             ("7", "7"),
             ("1755129600.0123abc\n", "1755129600.0123abc"),
@@ -34,14 +34,14 @@ class ImageVersionTest(unittest.TestCase):
                 self.version.write_text(content)
                 self.assertEqual(expected, image_version.read_image_version(self.version))
 
-    def test_rejects_versions_that_image_version_rejects(self):
+    def test_rejects_versions_that_image_version_rejects(self) -> None:
         for content in INVALID_CONTENTS:
             with self.subTest(content=content):
                 self.version.write_text(content, encoding="utf-8")
                 with self.assertRaisesRegex(ValueError, "invalid image_version_file .*image_version must be non-empty"):
                     image_version.read_image_version(self.version)
 
-    def test_slot_labels_must_fit_gpt_partition_names(self):
+    def test_slot_labels_must_fit_gpt_partition_names(self) -> None:
         # The verity label is the longest A/B slot label: '<image id>_<version>_verity'.
         self.version.write_text("20261103011813.45eed0f.1\n")
         self.assertEqual("20261103011813.45eed0f.1", image_version.read_image_version(self.version, "os.a"))
@@ -57,12 +57,14 @@ class ImageVersionTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "is 37 characters"):
             image_version.validate_slot_labels("a" * 14, "1" * 15)
 
-    def test_rejects_non_utf8_content(self):
+    def test_rejects_non_utf8_content(self) -> None:
         self.version.write_bytes(b"\xff")
         with self.assertRaisesRegex(ValueError, "invalid image_version_file"):
             image_version.read_image_version(self.version)
 
-    def run_tool(self, *arguments, environment=None):
+    def run_tool(
+        self, *arguments: str | os.PathLike[str], environment: dict[str, str] | None = None
+    ) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
             [sys.executable, *(os.fspath(argument) for argument in arguments)],
             capture_output=True,
@@ -71,7 +73,7 @@ class ImageVersionTest(unittest.TestCase):
             text=True,
         )
 
-    def test_build_metadata_records_version_in_the_analysis_time_encoding(self):
+    def test_build_metadata_records_version_in_the_analysis_time_encoding(self) -> None:
         self.version.write_text("2\n")
         output = self.root / "metadata.json"
         metadata = {"mode": "release", "image": {"version": None, "id": "os"}, "artifacts": {"uki": True}}
@@ -92,7 +94,7 @@ class ImageVersionTest(unittest.TestCase):
             output.read_text(),
         )
 
-    def test_build_metadata_rejects_invalid_version(self):
+    def test_build_metadata_rejects_invalid_version(self) -> None:
         self.version.write_text("2-1\n")
         output = self.root / "metadata.json"
         completed = self.run_tool(
@@ -113,15 +115,17 @@ class ImageVersionTest(unittest.TestCase):
 class RunMkosiTest(unittest.TestCase):
     """The image action rejects an invalid version before it checks the host or starts mkosi."""
 
-    def setUp(self):
+    def setUp(self) -> None:
         self.directory = tempfile.TemporaryDirectory()
         self.root = pathlib.Path(self.directory.name)
         self.version = self.root / "version.txt"
 
-    def tearDown(self):
+    def tearDown(self) -> None:
         self.directory.cleanup()
 
-    def run_wrapper(self, *preamble, environment=None):
+    def run_wrapper(
+        self, *preamble: str, environment: dict[str, str] | None = None
+    ) -> subprocess.CompletedProcess[str]:
         # A missing kernel preflight and mkosi script would fail any later step.
         return subprocess.run(
             [
@@ -143,7 +147,7 @@ class RunMkosiTest(unittest.TestCase):
             text=True,
         )
 
-    def test_invalid_version_file_fails_the_action(self):
+    def test_invalid_version_file_fails_the_action(self) -> None:
         environment = {key: value for key, value in os.environ.items() if key != "RULES_MKOSI_RELEASE_CHILD"}
         for preamble in ((), ("--debian-snapshot-repository", os.fspath(self.root))):
             for content in INVALID_CONTENTS:
@@ -156,7 +160,7 @@ class RunMkosiTest(unittest.TestCase):
                     self.assertNotIn("preflight", completed.stderr)
                     self.assertNotIn("mkosi image assembly", completed.stderr)
 
-    def test_slot_label_beyond_gpt_limit_fails_the_action(self):
+    def test_slot_label_beyond_gpt_limit_fails_the_action(self) -> None:
         environment = {key: value for key, value in os.environ.items() if key != "RULES_MKOSI_RELEASE_CHILD"}
         self.version.write_text("20261103011813.45eed0f.1\n")
         for preamble in ((), ("--debian-snapshot-repository", os.fspath(self.root))):
@@ -167,8 +171,10 @@ class RunMkosiTest(unittest.TestCase):
                 self.assertIn("is 39 characters, but GPT partition names are limited to 36", completed.stderr)
                 self.assertNotIn("preflight", completed.stderr)
 
-    def test_valid_version_reaches_mkosi_after_image_id(self):
+    def test_valid_version_reaches_mkosi_after_image_id(self) -> None:
         spec = importlib.util.spec_from_file_location("run_mkosi", PRIVATE / "run_mkosi.py")
+        if spec is None or spec.loader is None:
+            raise RuntimeError("run_mkosi.py cannot be loaded")
         run_mkosi = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(run_mkosi)
         self.version.write_text("1755129600.0123abc\n")
