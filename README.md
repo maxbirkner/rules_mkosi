@@ -361,7 +361,28 @@ Build the executables in `rootfs_payloads` for arm64 yourself, for example with 
 Release images of arm64 support the same UKI, dm-verity, A/B and update payload settings as those of amd64: their partitions use the `root-arm64` and `root-arm64-verity` types, the ESP holds `systemd-bootaa64.efi` and `BOOTAA64.EFI`, `MkosiImageInfo.architecture` is `arm64`, and their `sysupdate_transfers` need `architecture = "arm64"`.
 Give the ESP at least 512 MiB: systemd-repart formats it as FAT32 with 4 KiB clusters, and the UEFI firmware does not mount a FAT32 file system with fewer than 65525 clusters.
 `qemu_ovmf_boot_test` boots arm64 images with `qemu-system-aarch64` and AAVMF, under TCG on Linux x86-64, including A/B update lifecycles; see [boot tests](#boot-tests).
-Secure Boot signing tests of arm64 boot binaries and arm64 execution platforms follow in [#206](https://github.com/maxbirkner/rules_mkosi/issues/206).
+[Secure Boot signing](docs/secure-boot.md) works the same for arm64 images; sign `EFI/systemd/systemd-bootaa64.efi` instead of `EFI/systemd/systemd-bootx64.efi`.
+Native arm64 execution platforms follow in [#206](https://github.com/maxbirkner/rules_mkosi/issues/206).
+
+### Device trees
+
+Most embedded arm64 boards describe their hardware with a device tree instead of ACPI.
+A release UKI can carry the device trees that a package in the image ships, such as Debian's arm64 kernel package or a vendor kernel from [`extra_packages`](#extra-packages), so that they are covered by the UKI's signature and measurement.
+Select them with mkosi's [`Devicetrees=`](https://github.com/systemd/mkosi/blob/v27.1/mkosi/resources/man/mkosi.1.md): glob patterns, matched against the paths of the `.dtb` files below `/usr/lib/modules/<kver>/dtb/`, `/usr/lib/firmware/<kver>/device-tree/` and `/usr/lib/linux-image-<kver>/` of the image, where a pattern prefixed with `-` excludes and the last matching pattern wins.
+
+```ini
+[Content]
+Devicetrees=vendor/board-*.dtb
+```
+
+One selected device tree becomes the UKI's `.dtb` section, which systemd-stub installs on every machine, replacing the device tree that the firmware provides.
+Several become `.dtbauto` sections, and systemd-stub installs the first one whose first compatible string equals that of the firmware's device tree, or, if the firmware provides none, that of a matching `.hwids` section; otherwise the firmware's device tree, or ACPI, stays in effect.
+Select several device trees for an image that boots on different boards, and a single one only for an image that must always replace the firmware's device tree.
+mkosi selects them in sorted path order, so the sections do not depend on the file system.
+A release build fails if a pattern without `-` selects no device tree of the image's kernel, or if the patterns select none, where mkosi only warns.
+The [UKI metadata](#providers) (`MkosiImageInfo.uki_metadata`) lists each `.dtb` and `.dtbauto` section under `devicetrees`, with the root compatible strings, the size and the SHA-256 of the device tree, which equals the digest of the selected `.dtb` file; `mkosi_reproducibility_manifest` records the metadata.
+Building it fails for a section that is not a device tree, or a `.dtbauto` section without a compatible string, which systemd-stub could never select.
+Device tree overlays are not applied: systemd-stub does not apply `.dtbo` files, so merge them into the `.dtb` before it is installed.
 
 ### Image identity
 

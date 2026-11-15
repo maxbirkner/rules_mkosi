@@ -259,6 +259,19 @@ py_test(
 )
 
 py_test(
+    name = "devicetree_test",
+    srcs = [
+        "devicetree_fixture.py",
+        "devicetree_test.py",
+        "//mkosi/private:devicetree.py",
+        "//mkosi/private:sibling_loader.py",
+        "//mkosi/private:uki_metadata.py",
+    ],
+    main = "devicetree_test.py",
+    deps = ["@mkosi_pypi//pefile"],
+)
+
+py_test(
     name = "behavior_matrix_test",
     srcs = ["behavior_matrix_test.py"],
     args = [
@@ -304,9 +317,11 @@ behavior_targets(
         "//mkosi/tests/arm64:minimal_artifact_test",
         "//mkosi/tests/arm64:minimal_foreign_architecture_test",
         "//mkosi/tests/arm64:uki_release_artifact_test",
+        "//mkosi/tests/arm64:secure_boot_artifact_test",
         "//mkosi/tests/arm64:uki_release_boot_config_test",
         "//mkosi/tests/arm64:uki_release_boot_test",
         "//mkosi/tests/arm64:uki_release_provider_test",
+        "//mkosi/tests/arm64:uki_release_secure_boot_provider_test",
         "//mkosi/tests/arm64:uki_release_secure_boot_rejected_test",
         ":debian_snapshot_arm64_artifact_test",
         ":debian_snapshot_arm64_provider_test",
@@ -316,6 +331,7 @@ behavior_targets(
         ":debian_snapshot_unit_test",
         ":debian_tools_runtime_test",
         ":default_version_test",
+        ":devicetree_test",
         ":diagnostic_contract_test",
         ":esp_manifest_test",
         ":extra_packages_analysis_tests",

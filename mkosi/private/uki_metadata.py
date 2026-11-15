@@ -4,9 +4,17 @@
 import argparse
 import hashlib
 import json
+import runpy
 from pathlib import Path
 
 import pefile
+
+_load_sibling = runpy.run_path(str(Path(__file__).with_name("sibling_loader.py")))["load_sibling"]
+devicetree = _load_sibling(__file__, "devicetree")
+
+# ukify embeds one device tree as .dtb, which systemd-stub always installs, or several as .dtbauto, of which it installs
+# the one whose root compatible string matches the hardware.
+_DEVICETREE_SECTIONS = (".dtb", ".dtbauto")
 
 
 def project(uki_path: str | Path, root_hash_path: str | Path | None = None) -> dict[str, object]:
@@ -14,11 +22,14 @@ def project(uki_path: str | Path, root_hash_path: str | Path | None = None) -> d
     pe = pefile.PE(data=data, fast_load=True)
     sections: list[dict[str, str | int]] = []
     section_data: dict[str, bytes] = {}
+    devicetrees: list[dict[str, object]] = []
     for section in pe.sections:
         name = section.Name.rstrip(b"\0").decode("ascii")
         content = section.get_data()
         sections.append({"name": name, "sha256": hashlib.sha256(content).hexdigest(), "size": len(content)})
         section_data[name] = content
+        if name in _DEVICETREE_SECTIONS:
+            devicetrees.append(describe_devicetree_section(name, content))
     required = {".linux", ".initrd", ".cmdline", ".osrel"}
     missing = sorted(required - section_data.keys())
     if missing:
@@ -32,10 +43,33 @@ def project(uki_path: str | Path, root_hash_path: str | Path | None = None) -> d
         if "roothash={}".format(root_hash) not in cmdline.split():
             raise ValueError("UKI .cmdline does not link the declared dm-verity root hash")
     return {
-        "format_version": "mkosi-uki-metadata-v1",
+        "devicetrees": devicetrees,
+        "format_version": "mkosi-uki-metadata-v2",
         "root_hash": root_hash,
         "sections": sorted(sections, key=lambda item: item["name"]),
         "sha256": hashlib.sha256(data).hexdigest(),
+    }
+
+
+def describe_devicetree_section(name: str, content: bytes) -> dict[str, object]:
+    """Returns the root compatible strings, size and SHA-256 of the device tree in a UKI section.
+
+    The digest covers the device tree's own bytes, without the section's padding, so it equals the digest of the .dtb
+    file that ukify embedded. Raises ValueError for a blob that is not a device tree, or a .dtbauto section that
+    systemd-stub could never select because its root node has no compatible string.
+    """
+    try:
+        tree = devicetree.parse_device_tree(content)
+    except devicetree.DeviceTreeError as error:
+        raise ValueError("UKI {} section: {}".format(name, error)) from error
+    if name == ".dtbauto" and not tree.compatible:
+        raise ValueError("UKI .dtbauto section has no root compatible string, so systemd-stub never selects it")
+    blob = content[: tree.size]
+    return {
+        "compatible": list(tree.compatible),
+        "section": name,
+        "sha256": hashlib.sha256(blob).hexdigest(),
+        "size": tree.size,
     }
 
 

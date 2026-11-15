@@ -52,7 +52,7 @@ The request JSON (`<name>.secure-boot-request.json`) is an object with exactly t
 | --- | --- |
 | `format_version` | `mkosi-secure-boot-signing-request-v3`. |
 | `context` | `uefi-secure-boot-uki` when `esp_path` is empty, otherwise `uefi-secure-boot-esp-file`. |
-| `esp_path` | Path of the binary on the ESP, such as `EFI/systemd/systemd-bootx64.efi`, or the empty string for the image's UKI. |
+| `esp_path` | Path of the binary on the ESP, such as `EFI/systemd/systemd-bootx64.efi` (`EFI/systemd/systemd-bootaa64.efi` for arm64 images), or the empty string for the image's UKI. |
 | `signature_algorithm` | `authenticode-sha256`: one embedded RSA PKCS #1 v1.5 Authenticode signature with SHA-256 digests. |
 | `unsigned_sha256` | Lowercase hex SHA-256 of the unsigned binary file. |
 | `certificate_sha256` | Lowercase hex SHA-256 of the signer certificate's DER encoding, as re-encoded by OpenSSL. |
