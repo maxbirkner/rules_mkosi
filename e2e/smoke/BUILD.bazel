@@ -100,6 +100,7 @@ behavior_targets(
         ":arm64_demo_boot_test",
         ":arm64_demo_public_provider_test",
         ":arm64_demo_test",
+        ":arm64_sysupdate_lifecycle_test",
         ":demo_artifact_test",
         ":uefi_boot_test",
         ":external_root_package_tree_build_test",
@@ -1228,6 +1229,7 @@ sysupdate_payload(
 sysupdate_ephemeral_test_fixture(
     name = "sysupdate_test_signer",
     payloads = [
+        ":arm64_sysupdate_v2_payload",
         ":sysupdate_v2_payload",
         ":sysupdate_v2_signed_payload",
         ":sysupdate_v3_payload",
@@ -1247,6 +1249,7 @@ filegroup(
         public_key = ":sysupdate_test_signer",
     )
     for payload in (
+        "arm64_sysupdate_v2_payload",
         "sysupdate_v2_payload",
         "sysupdate_v2_signed_payload",
         "sysupdate_v3_payload",
@@ -1260,6 +1263,7 @@ filegroup(
         signature = ":sysupdate_test_signer",
     )
     for payload in (
+        "arm64_sysupdate_v2_payload",
         "sysupdate_v2_payload",
         "sysupdate_v2_signed_payload",
         "sysupdate_v3_payload",
@@ -1439,4 +1443,77 @@ qemu_ovmf_boot_test(
     read_only_shares = {":sysupdate_test_keyring": "keyring"},
     readiness_marker = "rules-mkosi-ab: rolled back from 3 to 2",
     shutdown_timeout_seconds = 60,
+)
+
+mkosi_config_tree(
+    name = "arm64_sysupdate_base_config_tree",
+    src = "testdata/arm64-sysupdate-base-config",
+)
+
+mkosi_config_tree(
+    name = "arm64_sysupdate_config_tree",
+    srcs = glob(["testdata/arm64-sysupdate-config/**"]),
+    strip_prefix = "testdata/arm64-sysupdate-config",
+)
+
+sysupdate_transfers(
+    name = "arm64_sysupdate_transfers",
+    architecture = "arm64",
+    boot_attempts = 1,
+    image_id = "rules-mkosi-ab",
+    url = "http://10.0.2.100/after-%A",
+)
+
+# The amd64 lifecycle's driver, cross-built into arm64 releases 1 and 2 from the consumer-owned arm64 snapshot.
+mkosi_base(
+    name = "arm64_sysupdate_base",
+    config_tree = ":arm64_sysupdate_base_config_tree",
+    debian_snapshot = "@consumer_debian_arm64//:repository",
+    release_seed = "00000000-0000-4000-8000-000000000206",
+    release_source_date_epoch = 1755129600,
+    rootfs_payloads = [
+        ":arm64_sysupdate_transfers",
+        ":sysupdate_lifecycle_driver",
+        ":sysupdate_lifecycle_preset",
+        ":sysupdate_lifecycle_service",
+        ":sysupdate_network",
+    ],
+)
+
+[
+    mkosi_image(
+        name = "arm64_sysupdate_v" + version,
+        base = ":arm64_sysupdate_base",
+        config_tree = ":arm64_sysupdate_config_tree",
+        image_id = "rules-mkosi-ab",
+        image_version = version,
+        mode = "release",
+        unified_kernel_image = "unsigned",
+        verity = "hash",
+    )
+    for version in ("1", "2")
+]
+
+sysupdate_payload(
+    name = "arm64_sysupdate_v2_payload",
+    image = ":arm64_sysupdate_v2",
+)
+
+# Release 1 downloads release 2 over HTTP, reboots into it, and blesses it; under TCG on Linux x86-64.
+qemu_ovmf_boot_test(
+    name = "arm64_sysupdate_lifecycle_test",
+    timeout = "long",
+    allow_reboot = True,
+    # Two boots and the update take about 150 s under TCG on a 16-core host.
+    boot_timeout_seconds = 600,
+    http_shares = {":arm64_sysupdate_v2_payload_published": "after-1"},
+    image = ":arm64_sysupdate_v1",
+    progress_markers = [
+        "rules-mkosi-ab: running 1 from erofs with roothash ",
+        "rules-mkosi-ab: installed 2",
+        "rules-mkosi-ab: running 2 from erofs with roothash ",
+    ],
+    read_only_shares = {":sysupdate_test_keyring": "keyring"},
+    readiness_marker = "rules-mkosi-ab: 2 is blessed",
+    stop_after_readiness = True,
 )
