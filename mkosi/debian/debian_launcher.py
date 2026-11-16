@@ -41,11 +41,65 @@ TOOLS = {
 }
 
 _MOUNT_ROOTS = ("/root", "/tmp", "/proc", "/dev", "/workspace", "/inputs", "/outputs")
+
+
+class _ToolsLayout(NamedTuple):
+    """Where the Debian tools of one CPU live in the runfiles, and the dynamic loader and libraries of their tree."""
+
+    package: str
+    loader_candidates: tuple[str, ...]
+    library_directories: tuple[str, ...]
+
+
+# The launcher runs natively, with the static interpreter of the execution platform's CPU, on the Debian tools of the
+# same CPU: the amd64 tools in the root package of @mkosi_debian_tools, the arm64 tools in its arm64 package.
+_LAYOUTS = {
+    "x86_64": _ToolsLayout(
+        package="mkosi_debian_tools",
+        loader_candidates=(
+            "lib64/ld-linux-x86-64.so.2",
+            "lib/x86_64-linux-gnu/ld-linux-x86-64.so.2",
+            "usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2",
+        ),
+        library_directories=(
+            "/usr/lib/x86_64-linux-gnu",
+            "/lib/x86_64-linux-gnu",
+            "/usr/lib/x86_64-linux-gnu/systemd",
+            "/usr/lib/systemd",
+            "/usr/lib64",
+        ),
+    ),
+    "aarch64": _ToolsLayout(
+        package="mkosi_debian_tools/arm64",
+        loader_candidates=(
+            "lib/ld-linux-aarch64.so.1",
+            "usr/lib/ld-linux-aarch64.so.1",
+            "usr/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1",
+        ),
+        library_directories=(
+            "/usr/lib/aarch64-linux-gnu",
+            "/lib/aarch64-linux-gnu",
+            "/usr/lib/aarch64-linux-gnu/systemd",
+            "/usr/lib/systemd",
+        ),
+    ),
+}
+
+
+def select_tools_layout(machine: str) -> _ToolsLayout:
+    """Returns the Debian tools layout of a CPU as reported by uname, or raises RuntimeError for other CPUs."""
+    layout = _LAYOUTS.get(machine)
+    if layout is None:
+        raise RuntimeError("no Debian tools for the CPU %s; supported are %s" % (machine, ", ".join(sorted(_LAYOUTS))))
+    return layout
+
+
+_LAYOUT = select_tools_layout(os.uname().machine)
 _RUNFILES = {
-    "archive": "mkosi_debian_tools/flat.tar",
-    "config": "mkosi_debian_tools/launcher_config.json",
+    "archive": _LAYOUT.package + "/flat.tar",
+    "config": _LAYOUT.package + "/launcher_config.json",
     "extractor": "rules_mkosi/mkosi/debian/extract_tree.py",
-    "namespace_runner": "mkosi_debian_tools/namespace_runner",
+    "namespace_runner": _LAYOUT.package + "/namespace_runner",
 }
 sys.dont_write_bytecode = True
 
@@ -82,20 +136,6 @@ def _require_executable(root: str, relative: str, description: str) -> str:
     return path
 
 
-_LOADER_CANDIDATES = (
-    "lib64/ld-linux-x86-64.so.2",
-    "lib/x86_64-linux-gnu/ld-linux-x86-64.so.2",
-    "usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2",
-)
-_LIBRARY_DIRECTORIES = (
-    "/usr/lib/x86_64-linux-gnu",
-    "/lib/x86_64-linux-gnu",
-    "/usr/lib/x86_64-linux-gnu/systemd",
-    "/usr/lib/systemd",
-    "/usr/lib64",
-)
-
-
 def _require_ca_bundle(root: str) -> None:
     bundle = os.path.join(root, "etc/ssl/certs/ca-certificates.crt")
     if (
@@ -107,8 +147,8 @@ def _require_ca_bundle(root: str) -> None:
         raise RuntimeError("packaged CA bundle is missing or invalid: %s" % bundle)
 
 
-def _find_loader(root: str) -> str:
-    for candidate in _LOADER_CANDIDATES:
+def _find_loader(root: str, layout: _ToolsLayout) -> str:
+    for candidate in layout.loader_candidates:
         path = os.path.join(root, candidate)
         if os.path.isfile(path) and os.access(path, os.X_OK) and _inside_root(root, path):
             return path
@@ -129,15 +169,15 @@ def _require_tools(root: str, tool: str) -> str:
     return executable
 
 
-def _validate_root(root: str, tool: str) -> tuple[str, str]:
+def _validate_root(root: str, tool: str, layout: _ToolsLayout = _LAYOUT) -> tuple[str, str]:
     if not os.path.isdir(root) or os.path.islink(root):
         raise RuntimeError("Debian tools extraction did not produce a physical root")
     for relative in (*_MOUNT_ROOTS, "/etc", "/usr", "/usr/bin", "/usr/sbin"):
         _require_directory(root, relative)
     _require_ca_bundle(root)
-    loader = _find_loader(root)
+    loader = _find_loader(root, layout)
     executable = _require_tools(root, tool)
-    for library_directory in _LIBRARY_DIRECTORIES:
+    for library_directory in layout.library_directories:
         _require_directory(root, library_directory, allow_symlink=library_directory.startswith("/lib"))
     return loader, executable
 

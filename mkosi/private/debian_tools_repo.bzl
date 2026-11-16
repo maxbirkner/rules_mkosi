@@ -27,7 +27,7 @@ debian_tools_tree(
     archive_sha256 = "{archive_sha256}",
 )
 
-alias(name = "python", actual = "@mkosi_debian_python//:python")
+alias(name = "python", actual = "{python_repo}//:python")
 filegroup(
     name = "launcher_script",
     srcs = ["@rules_mkosi//mkosi/debian:debian_launcher.py"],
@@ -65,13 +65,11 @@ cc_binary(
     deps = ["@rules_cc//cc/runfiles"],
     features = ["fully_static_link"],
     linkopts = ["-static", "-Wl,--strip-debug", "-Wl,--build-id=none"],
-    exec_compatible_with = [
-        "@platforms//os:linux",
-        "@platforms//cpu:x86_64",
-    ],
+    # Any Linux execution platform links or symlinks them; a Linux x86-64 one also cross-builds the arm64 ones.
+    exec_compatible_with = ["@platforms//os:linux"],
     target_compatible_with = [
         "@platforms//os:linux",
-        "@platforms//cpu:x86_64",
+        "{cpu_constraint}",
     ],
 )
 
@@ -83,13 +81,11 @@ bootstrap_binary(
         ":python",
         ":python_runtime",
     ],
-    exec_compatible_with = [
-        "@platforms//os:linux",
-        "@platforms//cpu:x86_64",
-    ],
+    # Any Linux execution platform links or symlinks them; a Linux x86-64 one also cross-builds the arm64 ones.
+    exec_compatible_with = ["@platforms//os:linux"],
     target_compatible_with = [
         "@platforms//os:linux",
-        "@platforms//cpu:x86_64",
+        "{cpu_constraint}",
     ],
 )
 
@@ -103,45 +99,36 @@ cc_binary(
     ],
     features = ["fully_static_link"],
     linkopts = ["-static", "-Wl,--strip-debug", "-Wl,--build-id=none"],
-    exec_compatible_with = [
-        "@platforms//os:linux",
-        "@platforms//cpu:x86_64",
-    ],
+    # Any Linux execution platform links or symlinks them; a Linux x86-64 one also cross-builds the arm64 ones.
+    exec_compatible_with = ["@platforms//os:linux"],
     target_compatible_with = [
         "@platforms//os:linux",
-        "@platforms//cpu:x86_64",
+        "{cpu_constraint}",
     ],
 )
 
 bootstrap_binary(
     name = "namespace_runner",
     binary = ":namespace_runner_binary",
-    exec_compatible_with = [
-        "@platforms//os:linux",
-        "@platforms//cpu:x86_64",
-    ],
+    # Any Linux execution platform links or symlinks them; a Linux x86-64 one also cross-builds the arm64 ones.
+    exec_compatible_with = ["@platforms//os:linux"],
     target_compatible_with = [
         "@platforms//os:linux",
-        "@platforms//cpu:x86_64",
+        "{cpu_constraint}",
     ],
 )
 
 filegroup(
     name = "python_runtime",
-    srcs = ["@mkosi_debian_python//:runtime"],
+    srcs = ["{python_repo}//:runtime"],
 )
 
-# rules_qemu's static qemu-aarch64 for Linux x86-64 hosts, which runs the arm64 programs of cross-built images.
-alias(
-    name = "arm64_user_mode_emulator",
-    actual = "@qemu_user_prebuilt_linux_amd64_aarch64//:qemu-aarch64",
-)
-
+{emulator_aliases}
 debian_tools_toolchain(
     name = "toolchain",
     release = "13",
     codename = "trixie",
-    architecture = "amd64",
+    architecture = "{architecture}",
     snapshot = "{snapshot}",
     snapshot_url = "{snapshot_url}",
     lock_sha256 = "{lock_sha256}",
@@ -156,42 +143,82 @@ debian_tools_toolchain(
     provenance = ":provenance",
     components = ":components",
     required_components = {required_components},
-    user_mode_emulators = {{"arm64": ":arm64_user_mode_emulator"}},
+    user_mode_emulators = {user_mode_emulators},
 )
 
 toolchain(
-    name = "linux_x86_64",
+    name = "{toolchain_name}",
     exec_compatible_with = [
         "@platforms//os:linux",
-        "@platforms//cpu:x86_64",
+        "{cpu_constraint}",
     ],
     toolchain = ":toolchain",
     toolchain_type = "@rules_mkosi//mkosi/toolchain:debian_tools_toolchain_type",
 )
 """
 
-def _impl(ctx):
+# The Debian tools of each execution platform CPU: the amd64 tools in the root package, whose Linux x86-64 toolchain
+# also cross-builds arm64 images with rules_qemu's static qemu-aarch64, and the arm64 tools in the `arm64` package.
+_EMULATOR_ALIASES = """# rules_qemu's static qemu-aarch64 for Linux x86-64 hosts, which runs the arm64 programs of cross-built images.
+alias(
+    name = "arm64_user_mode_emulator",
+    actual = "@qemu_user_prebuilt_linux_amd64_aarch64//:qemu-aarch64",
+)
+"""
+
+_PACKAGES = {
+    "": struct(
+        architecture = "amd64",
+        cpu_constraint = "@platforms//cpu:x86_64",
+        emulator_aliases = _EMULATOR_ALIASES,
+        python_repo = "@mkosi_debian_python",
+        toolchain_name = "linux_x86_64",
+        user_mode_emulators = {"arm64": ":arm64_user_mode_emulator"},
+    ),
+    "arm64": struct(
+        architecture = "arm64",
+        cpu_constraint = "@platforms//cpu:aarch64",
+        emulator_aliases = "",
+        python_repo = "@mkosi_debian_python_aarch64",
+        toolchain_name = "linux_aarch64",
+        user_mode_emulators = {},
+    ),
+}
+
+def _write_tools_package(ctx, package, settings, architecture_attrs):
+    prefix = package + "/" if package else ""
     ctx.file(
-        "launcher_config.json",
+        prefix + "launcher_config.json",
         json.encode({
-            "archive_sha256": ctx.attr.archive_sha256,
+            "archive_sha256": architecture_attrs["archive_sha256"],
             "format_version": "debian-launcher-v1",
         }) + "\n",
     )
     ctx.file(
-        "BUILD.bazel",
+        prefix + "BUILD.bazel",
         _BUILD_TEMPLATE.format(
-            repo = ctx.attr.package_repo,
+            repo = architecture_attrs["package_repo"],
             provenance = ctx.attr.provenance,
-            components_label = ctx.attr.components,
-            required_components = repr(ctx.attr.required_components),
-            lock_sha256 = ctx.attr.lock_sha256,
-            archive_sha256 = ctx.attr.archive_sha256,
+            components_label = architecture_attrs["components"],
+            required_components = repr(architecture_attrs["required_components"]),
+            lock_sha256 = architecture_attrs["lock_sha256"],
+            archive_sha256 = architecture_attrs["archive_sha256"],
             python_version = ctx.attr.python_version,
             snapshot = DEBIAN_TOOLS_SNAPSHOT,
             snapshot_url = DEBIAN_TOOLS_SNAPSHOT_URL,
+            architecture = settings.architecture,
+            cpu_constraint = settings.cpu_constraint,
+            emulator_aliases = settings.emulator_aliases,
+            python_repo = settings.python_repo,
+            toolchain_name = settings.toolchain_name,
+            user_mode_emulators = repr(settings.user_mode_emulators),
         ),
     )
+
+def _impl(ctx):
+    for package, settings in _PACKAGES.items():
+        architecture_attrs = json.decode(ctx.attr.architectures[settings.architecture])
+        _write_tools_package(ctx, package, settings, architecture_attrs)
     if hasattr(ctx, "repo_metadata"):
         return ctx.repo_metadata(reproducible = True)
     return None
@@ -199,12 +226,12 @@ def _impl(ctx):
 debian_tools_repo = repository_rule(
     implementation = _impl,
     attrs = {
-        "archive_sha256": attr.string(mandatory = True),
-        "components": attr.label(mandatory = True),
-        "lock_sha256": attr.string(mandatory = True),
-        "package_repo": attr.string(mandatory = True),
+        "architectures": attr.string_dict(
+            mandatory = True,
+            doc = """JSON object of each Debian architecture of the tools, `amd64` and `arm64`, with its `package_repo`,
+`components` label, `required_components`, `lock_sha256` and `archive_sha256`.""",
+        ),
         "provenance": attr.label(mandatory = True),
         "python_version": attr.string(mandatory = True),
-        "required_components": attr.string_list(mandatory = True),
     },
 )
