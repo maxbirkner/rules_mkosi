@@ -205,6 +205,20 @@ py_test(
 )
 
 py_test(
+    name = "disk_image_test",
+    srcs = [
+        "disk_image_test.py",
+        "partition_metadata_test.py",
+        "//mkosi/private:gpt_partitions.py",
+        "//mkosi/private:image_version.py",
+        "//mkosi/private:partition_metadata.py",
+        "//mkosi/private:sibling_loader.py",
+    ],
+    main = "disk_image_test.py",
+    deps = ["//mkosi/tests/disk_image"],
+)
+
+py_test(
     name = "image_version_test",
     srcs = [
         "image_version_test.py",
@@ -446,7 +460,10 @@ py_test(
         "@mkosi_debian_tools//:tree",
     ],
     main = "bios_image_artifact_test.py",
-    deps = ["@rules_python//python/runfiles"],
+    deps = [
+        "//mkosi/tests/disk_image",
+        "@rules_python//python/runfiles",
+    ],
 )
 
 py_test(
@@ -460,7 +477,10 @@ py_test(
         "//mkosi/private:sibling_loader.py",
     ],
     main = "bios_image_artifact_unit_test.py",
-    deps = ["@rules_python//python/runfiles"],
+    deps = [
+        "//mkosi/tests/disk_image",
+        "@rules_python//python/runfiles",
+    ],
 )
 
 py_test(
@@ -697,7 +717,6 @@ py_test(
     name = "devicetrees_artifact_test",
     srcs = [
         "devicetrees_artifact_test.py",
-        "release_root.py",
         "runfile_paths.py",
     ],
     args = [
@@ -715,6 +734,7 @@ py_test(
     main = "devicetrees_artifact_test.py",
     deps = [
         "//mkosi:esp_manifest_lib",
+        "//mkosi/tests/disk_image",
         "@rules_python//python/runfiles",
     ],
 )
@@ -752,7 +772,6 @@ py_test(
     name = "extra_packages_artifact_test",
     srcs = [
         "extra_packages_artifact_test.py",
-        "release_root.py",
         "runfile_paths.py",
     ],
     args = [
@@ -764,7 +783,10 @@ py_test(
         "@mkosi_debian_tools//:launcher",
     ],
     main = "extra_packages_artifact_test.py",
-    deps = ["@rules_python//python/runfiles"],
+    deps = [
+        "//mkosi/tests/disk_image",
+        "@rules_python//python/runfiles",
+    ],
 )
 
 raw_image_file(
@@ -1206,7 +1228,6 @@ py_test(
     name = "release_apt_sources_test",
     srcs = [
         "release_apt_sources_test.py",
-        "release_root.py",
         "runfile_paths.py",
     ],
     args = [
@@ -1218,12 +1239,14 @@ py_test(
         "@mkosi_debian_tools//:launcher",
     ],
     main = "release_apt_sources_test.py",
-    deps = ["@rules_python//python/runfiles"],
+    deps = [
+        "//mkosi/tests/disk_image",
+        "@rules_python//python/runfiles",
+    ],
 )
 
 exports_files([
     "devicetree_fixture.py",
-    "release_root.py",
     "runfile_paths.py",
     "behavior_matrix.tsv",
     "behavior_matrix_test.py",

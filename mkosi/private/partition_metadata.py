@@ -312,10 +312,12 @@ def _validate_firmware(partitions: Sequence[_Partition], firmware: str) -> None:
         raise ValueError("GPT BIOS boot partition must be at least 1 MiB")
 
 
-def project_image(
-    path: str | Path, firmware: str = "uefi", slot_label: str | None = None, architecture: str = "amd64"
-) -> dict[str, Any]:
-    """Returns the validated partition metadata of an image of the Debian architecture."""
+def read_partitions(path: str | Path, with_uuids: bool = False) -> tuple[int, list[_SlotPartition]]:
+    """Returns the sector size and the used entries of the validated GPT of an image, in table order.
+
+    Raises ValueError if the GPT copies are invalid or disagree, or an entry is out of range, out of order,
+    overlapping, not 1 MiB aligned, or has a label that is not UTF-16.
+    """
     _, sector_size, primary, _ = _validated_gpt(path)
     entry_size = primary["entry_size"]
     partitions: list[_SlotPartition] = []
@@ -330,8 +332,16 @@ def project_image(
         _check_entry_range(number, first, last, primary, previous)
         previous = (first, last, number)
         partitions.append(_project_entry(entry, number, first, last, sector_size))
-        if slot_label is not None:
+        if with_uuids:
             partitions[-1]["uuid"] = str(uuid.UUID(bytes_le=entry[16:32]))
+    return sector_size, partitions
+
+
+def project_image(
+    path: str | Path, firmware: str = "uefi", slot_label: str | None = None, architecture: str = "amd64"
+) -> dict[str, Any]:
+    """Returns the validated partition metadata of an image of the Debian architecture."""
+    sector_size, partitions = read_partitions(path, with_uuids=slot_label is not None)
     _validate_roots(partitions, slot_label, architecture)
     _validate_firmware(partitions, firmware)
     return {

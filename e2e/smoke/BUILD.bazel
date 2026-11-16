@@ -27,7 +27,7 @@ load(
 load("@rules_mkosi//mkosi/tests:behavior_targets.bzl", "behavior_targets")
 load("@rules_mkosi//mkosi/tests:debian_tools_provenance.bzl", "DEBIAN_TOOLS_PROVENANCE_ENV")
 load("@rules_mkosi//mkosi/tests:runfiles_sh_test.bzl", "runfiles_sh_test")
-load("@rules_python//python:defs.bzl", "py_binary", "py_library", "py_runtime", "py_runtime_pair", "py_test")
+load("@rules_python//python:defs.bzl", "py_binary", "py_runtime", "py_runtime_pair", "py_test")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
 load(
     ":public_api_test.bzl",
@@ -267,7 +267,10 @@ py_test(
         ":arm64_demo_uki_metadata",
     ],
     main = "arm64_image_test.py",
-    deps = ["@rules_python//python/runfiles"],
+    deps = [
+        "@rules_mkosi//mkosi/tests/disk_image",
+        "@rules_python//python/runfiles",
+    ],
 )
 
 mkosi_rootfs_payload(
@@ -568,11 +571,6 @@ raw_image_file(
     image = ":consumer_snapshot_demo",
 )
 
-image_partition_metadata_file(
-    name = "consumer_snapshot_demo_partition_metadata",
-    image = ":consumer_snapshot_demo",
-)
-
 image_build_metadata_file(
     name = "consumer_snapshot_demo_build_metadata",
     image = ":consumer_snapshot_demo",
@@ -583,7 +581,6 @@ py_test(
     srcs = ["consumer_snapshot_artifact_test.py"],
     args = [
         "$(rootpath :consumer_snapshot_demo_raw)",
-        "$(rootpath :consumer_snapshot_demo_partition_metadata)",
         "$(rootpath :consumer_snapshot_demo_build_metadata)",
         "$(rootpath @mkosi_debian_tools//:launcher)",
         "$(rootpath testdata/consumer-snapshot/debian.lock.json)",
@@ -591,17 +588,11 @@ py_test(
     data = [
         "testdata/consumer-snapshot/debian.lock.json",
         ":consumer_snapshot_demo_build_metadata",
-        ":consumer_snapshot_demo_partition_metadata",
         ":consumer_snapshot_demo_raw",
         "@mkosi_debian_tools//:launcher",
     ],
     main = "consumer_snapshot_artifact_test.py",
-    deps = [":rootfs_debugfs"],
-)
-
-py_library(
-    name = "rootfs_debugfs",
-    srcs = ["rootfs_debugfs.py"],
+    deps = ["@rules_mkosi//mkosi/tests/disk_image"],
 )
 
 image_public_api_test(
@@ -824,16 +815,14 @@ py_test(
     srcs = ["rootfs_payload_artifact_test.py"],
     args = [
         "$(rootpath :release_demo_raw)",
-        "$(rootpath :release_demo_partition_metadata)",
         "$(rootpath @mkosi_debian_tools//:launcher)",
     ],
     data = [
-        ":release_demo_partition_metadata",
         ":release_demo_raw",
         "@mkosi_debian_tools//:launcher",
     ],
     main = "rootfs_payload_artifact_test.py",
-    deps = [":rootfs_debugfs"],
+    deps = ["@rules_mkosi//mkosi/tests/disk_image"],
 )
 
 runfiles_sh_test(

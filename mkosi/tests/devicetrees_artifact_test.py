@@ -9,9 +9,9 @@ import os
 import pathlib
 import sys
 
+import rules_mkosi_disk_image as disk_image
 import rules_mkosi_esp_manifest as esp_manifest
 
-from mkosi.tests.release_root import extract_root_partition
 from mkosi.tests.runfile_paths import resolve_runfile
 
 _CHUNK = 1024 * 1024
@@ -42,7 +42,7 @@ def main() -> None:
     assert not [path for path in esp_paths if path.endswith(".dtb")], esp_paths
 
     root = pathlib.Path(os.environ["TEST_TMPDIR"]) / "devicetrees-root.raw"
-    extract_root_partition(image, root)
+    disk_image.extract_root_partition(image, root)
     # os-release proves that the search reads the root file system's names and contents.
     needles = [b"os-release", *(label.name.encode() for label in labels), *(label.read_bytes() for label in labels)]
     assert partition_contains(root, needles) == {b"os-release"}, partition_contains(root, needles)

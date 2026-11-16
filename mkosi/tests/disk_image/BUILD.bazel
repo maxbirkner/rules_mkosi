@@ -1,0 +1,15 @@
+load("@rules_python//python:defs.bzl", "py_library")
+
+# Test support for rules_mkosi and the e2e/smoke consumer module, not a supported API: `import rules_mkosi_disk_image`.
+# This package holds only that module, so `imports = ["."]` puts no other module on sys.path.
+py_library(
+    name = "disk_image",
+    srcs = ["rules_mkosi_disk_image.py"],
+    data = [
+        "//mkosi/private:gpt_partitions.py",
+        "//mkosi/private:partition_metadata.py",
+        "//mkosi/private:sibling_loader.py",
+    ],
+    imports = ["."],
+    visibility = ["//visibility:public"],
+)
