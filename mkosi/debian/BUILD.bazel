@@ -11,6 +11,7 @@ exports_files([
     "debian13.arm64.lock.json",
     "provenance.bzl",
     "components.txt",
+    "components.arm64.txt",
     "components_missing.txt",
     "extract_tree.py",
     "debian_launcher.py",
@@ -137,6 +138,29 @@ py_test(
     main = "debian_tools_lock_digest_test.py",
 )
 
+# Builds and extracts the arm64 tools on any host, which also verifies their pinned archive digest.
+py_test(
+    name = "debian_tools_arm64_tree_test",
+    srcs = [
+        "debian_launcher.py",
+        "debian_tools_arm64_tree_test.py",
+        "extract_tree.py",
+    ],
+    args = [
+        "$(rlocationpath @mkosi_debian_tools//arm64:tree)",
+        "$(rlocationpath :provenance.bzl)",
+    ],
+    data = [
+        "provenance.bzl",
+        "@mkosi_debian_tools//arm64:tree",
+    ],
+    main = "debian_tools_arm64_tree_test.py",
+    deps = [
+        "@mkosi_pypi//click",
+        "@rules_python//python/runfiles",
+    ],
+)
+
 py_test(
     name = "debian_launcher_cli_test",
     srcs = [
@@ -173,4 +197,32 @@ filegroup(
     name = "bzl_srcs",
     srcs = glob(["*.bzl"]),
     visibility = ["//mkosi:__pkg__"],
+)
+
+# The static interpreter that runs the Debian tools' build actions, for the CPU of the execution platform. Only the
+# selected repository is fetched.
+alias(
+    name = "static_python",
+    actual = select({
+        "@platforms//cpu:aarch64": "@mkosi_debian_python_aarch64//:python",
+        "//conditions:default": "@mkosi_debian_python//:python",
+    }),
+)
+
+alias(
+    name = "static_python_runtime",
+    actual = select({
+        "@platforms//cpu:aarch64": "@mkosi_debian_python_aarch64//:runtime",
+        "//conditions:default": "@mkosi_debian_python//:runtime",
+    }),
+)
+
+# The Debian tools launcher of the configuration's CPU: of the execution platform for `cfg = "exec"` attributes of the
+# artifact rules, and of the host for tests that read images with the packaged tools.
+alias(
+    name = "launcher",
+    actual = select({
+        "@platforms//cpu:aarch64": "@mkosi_debian_tools//arm64:launcher",
+        "//conditions:default": "@mkosi_debian_tools//:launcher",
+    }),
 )

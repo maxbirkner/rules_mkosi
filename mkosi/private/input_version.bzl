@@ -22,7 +22,7 @@ ARTIFACT_TOOL_SCRIPTS = [
 INPUT_VERSION_ATTRS = {
     "_artifact_launcher": attr.label(
         cfg = "exec",
-        default = "@mkosi_debian_tools//:launcher",
+        default = "//mkosi/debian:launcher",
         executable = True,
     ),
     "_artifact_tools": attr.label_list(
