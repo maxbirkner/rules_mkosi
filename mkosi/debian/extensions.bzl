@@ -3,7 +3,9 @@
 load(
     "//mkosi/debian:provenance.bzl",
     "DEBIAN_TOOLS_ARCHIVE_SHA256",
+    "DEBIAN_TOOLS_ARM64_ARCHIVE_SHA256",
     "DEBIAN_TOOLS_ARM64_LOCK_SHA256",
+    "DEBIAN_TOOLS_ARM64_REQUIRED_COMPONENTS",
     "DEBIAN_TOOLS_LOCK_SHA256",
     "DEBIAN_TOOLS_PYTHON_VERSION",
     "DEBIAN_TOOLS_REQUIRED_COMPONENTS",
@@ -46,6 +48,7 @@ _BUILTIN_REPOSITORIES = [
     "mkosi_debian_package_inputs",
     "mkosi_debian_package_inputs_arm64",
     "mkosi_debian_python",
+    "mkosi_debian_python_aarch64",
     "mkosi_debian_snapshot",
     "mkosi_debian_snapshot_arm64",
     "mkosi_debian_tools",
@@ -113,14 +116,26 @@ def _debian_tools_impl(module_ctx):
     for snapshot in snapshots:
         _declare_snapshot(snapshot.name, snapshot.name + "_packages", snapshot.lock, snapshot.lock_sha256)
     debian_python_repo(name = "mkosi_debian_python")
+    debian_python_repo(name = "mkosi_debian_python_aarch64", cpu = "aarch64")
     debian_tools_repo(
         name = "mkosi_debian_tools",
-        package_repo = "@mkosi_debian_package_inputs",
+        architectures = {
+            "amd64": json.encode({
+                "archive_sha256": DEBIAN_TOOLS_ARCHIVE_SHA256,
+                "components": "@rules_mkosi//mkosi/debian:components.txt",
+                "lock_sha256": DEBIAN_TOOLS_LOCK_SHA256,
+                "package_repo": "@mkosi_debian_package_inputs",
+                "required_components": DEBIAN_TOOLS_REQUIRED_COMPONENTS,
+            }),
+            "arm64": json.encode({
+                "archive_sha256": DEBIAN_TOOLS_ARM64_ARCHIVE_SHA256,
+                "components": "@rules_mkosi//mkosi/debian:components.arm64.txt",
+                "lock_sha256": DEBIAN_TOOLS_ARM64_LOCK_SHA256,
+                "package_repo": "@mkosi_debian_package_inputs_arm64",
+                "required_components": DEBIAN_TOOLS_ARM64_REQUIRED_COMPONENTS,
+            }),
+        },
         provenance = "@rules_mkosi//mkosi/debian:provenance.bzl",
-        components = "@rules_mkosi//mkosi/debian:components.txt",
-        required_components = DEBIAN_TOOLS_REQUIRED_COMPONENTS,
-        lock_sha256 = DEBIAN_TOOLS_LOCK_SHA256,
-        archive_sha256 = DEBIAN_TOOLS_ARCHIVE_SHA256,
         python_version = DEBIAN_TOOLS_PYTHON_VERSION,
     )
     return module_ctx.extension_metadata(reproducible = True)

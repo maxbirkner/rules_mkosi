@@ -15,8 +15,17 @@ namespace {
 
 using rules_cc::cc::runfiles::Runfiles;
 
+// The launcher of each CPU runs the static interpreter and the Debian tools of
+// that CPU.
+#if defined(__aarch64__)
+constexpr char kPythonRunfile[] = "mkosi_debian_python_aarch64/python";
+constexpr char kCliRunfile[] = "mkosi_debian_tools/arm64/launcher_cli";
+#elif defined(__x86_64__)
 constexpr char kPythonRunfile[] = "mkosi_debian_python/python";
 constexpr char kCliRunfile[] = "mkosi_debian_tools/launcher_cli";
+#else
+#error "the Debian tools launcher supports only x86-64 and aarch64"
+#endif
 
 void ClearHostInjectionEnvironment() {
   const char* variables[] = {

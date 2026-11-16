@@ -9,9 +9,9 @@ MKOSI_BUILD_TOOLCHAINS = [
     DEBIAN_TOOLS_TOOLCHAIN_TYPE,
 ]
 
+# Linux x86-64 or aarch64: the Debian tools and mkosi toolchains select the CPU.
 MKOSI_BUILD_EXEC_CONSTRAINTS = [
     "@platforms//os:linux",
-    "@platforms//cpu:x86_64",
 ]
 
 MKOSI_BUILD_ATTRS = {
