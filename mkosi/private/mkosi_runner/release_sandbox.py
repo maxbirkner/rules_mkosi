@@ -1,7 +1,9 @@
 """Prepares the fixed sandbox files and the local Debian mirror of a build that runs without network."""
 
+import hashlib
 import os
-from collections.abc import Iterable
+import shutil
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -42,7 +44,7 @@ _SANDBOX_FILES = (
 _MIRROR_SOURCES = "etc/apt/sources.list.d/mkosi.sources"
 
 # The flat APT repository of the extra_packages inside the mirror, and the Origin and Label of its Release file, which
-# extra_packages.py writes.
+# extra_packages.py writes into the repository's index.
 EXTRA_PACKAGES_DIRECTORY = "rules-mkosi-extra-packages"
 EXTRA_PACKAGES_ORIGIN = "rules_mkosi"
 EXTRA_PACKAGES_LABEL = "rules-mkosi-extra-packages"
@@ -52,6 +54,19 @@ _EXTRA_PACKAGES_PREFERENCES = "etc/apt/preferences.d/rules-mkosi-extra-packages.
 EXTRA_PACKAGES_PIN = "Package: *\nPin: release o={},l={}\nPin-Priority: 1100\n".format(
     EXTRA_PACKAGES_ORIGIN, EXTRA_PACKAGES_LABEL
 )
+
+
+@dataclass(frozen=True)
+class ExtraPackages:
+    """The extra_packages of a build.
+
+    Attributes:
+        index: The directory with the Packages and Release files that extra_packages.py writes for the packages.
+        packages: The .deb files that the index lists, in any order and under any file names.
+    """
+
+    index: str | os.PathLike[str]
+    packages: Sequence[str | os.PathLike[str]]
 
 
 @dataclass(frozen=True)
@@ -99,7 +114,7 @@ def configure_release_mirror(
     source: str | os.PathLike[str],
     workspace: str | os.PathLike[str],
     arguments: list[str],
-    extra_packages: str | os.PathLike[str] | None = None,
+    extra_packages: ExtraPackages | None = None,
 ) -> SnapshotMirror:
     """Copies the Debian snapshot, and the extra packages' repository if any, into the workspace as the build's mirror.
 
@@ -112,6 +127,51 @@ def configure_release_mirror(
         destination = directory / EXTRA_PACKAGES_DIRECTORY
         if destination.exists() or destination.is_symlink():
             raise SystemExit("the Debian snapshot repository already contains {}".format(EXTRA_PACKAGES_DIRECTORY))
-        tree.materialize_tree(extra_packages, destination)
+        place_extra_packages(extra_packages, destination)
         tree.normalize(directory, 0o755)
     return SnapshotMirror(directory, configure_release_sandbox(workspace, arguments), extra_packages is not None)
+
+
+def place_extra_packages(extra_packages: ExtraPackages, destination: Path) -> None:
+    """Copies the index of the extra packages to destination, and each .deb file next to it under its indexed name.
+
+    This is the only copy of the .deb files that a build makes. shutil.copyfile uses copy_file_range, so a file system
+    that supports it, such as Btrfs or XFS, may share the data of the copy with the Bazel input instead of writing it.
+    """
+    tree.materialize_tree(extra_packages.index, destination)
+    filenames = _read_indexed_filenames(destination / "Packages")
+    for package in extra_packages.packages:
+        filename = filenames.pop(_hash_file(package), None)
+        if filename is None:
+            raise SystemExit("extra package {} is not in the extra packages' index".format(os.fspath(package)))
+        shutil.copyfile(package, destination / filename)
+        tree.normalize(destination / filename, 0o644)
+    if filenames:
+        raise SystemExit(
+            "the build lacks {} of the extra packages' index".format(", ".join(sorted(filenames.values())))
+        )
+    tree.normalize(destination, 0o755)
+
+
+def _read_indexed_filenames(packages_index: Path) -> dict[str, str]:
+    """Returns the file name of each package of the Packages index that extra_packages.py writes, keyed by SHA-256."""
+    filenames: dict[str, str] = {}
+    for paragraph in packages_index.read_text().split("\n\n"):
+        fields = dict(
+            line.split(": ", 1) for line in paragraph.splitlines() if line.startswith(("Filename: ", "SHA256: "))
+        )
+        if not fields:
+            continue
+        filename = fields.get("Filename", "").removeprefix("./")
+        if "/" in filename or filename in ("", ".", ".."):
+            raise SystemExit("invalid file name {} in the extra packages' index".format(filename))
+        if not fields.get("SHA256"):
+            raise SystemExit("{} has no SHA256 in the extra packages' index".format(filename))
+        filenames[fields["SHA256"]] = filename
+    return filenames
+
+
+def _hash_file(path: str | os.PathLike[str]) -> str:
+    with open(path, "rb") as source:
+        # The mkosi toolchain's Python has file_digest; mypy checks for the Python 3.10 of the host scripts.
+        return hashlib.file_digest(source, "sha256").hexdigest()  # type: ignore[attr-defined,no-any-return]

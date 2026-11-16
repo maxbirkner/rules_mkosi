@@ -13,3 +13,6 @@ bootctl|/usr/bin/bootctl|systemd-boot
 objcopy|/usr/bin/objcopy|binutils
 openssl|/usr/bin/openssl|openssl
 systemd-sbsign|/usr/lib/systemd/systemd-sbsign|systemd-ukify
+cpp|/usr/bin/cpp|cpp
+dtc|/usr/bin/dtc|device-tree-compiler
+fdtoverlay|/usr/bin/fdtoverlay|device-tree-compiler

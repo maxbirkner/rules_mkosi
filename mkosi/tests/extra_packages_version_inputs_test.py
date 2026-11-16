@@ -9,14 +9,14 @@ from pathlib import Path
 def main() -> None:
     manifest_path, *packages = sys.argv[1:]
     inputs = json.loads(Path(manifest_path).read_text(encoding="ascii"))["inputs"]
-    repository = "bazel-out/bin/mkosi/tests/extra_packages_release.extra-packages/"
-    filenames = ("rules-mkosi-hello_1.0_all.deb", "netbase_0~rules.mkosi1_all.deb")
-    for package, filename in zip(packages, filenames, strict=True):
-        entry = inputs[repository + filename]
+    for package in packages:
+        # The build reads each package at its own path, which is the package's root path in the output tree.
+        entry = inputs["bazel-out/bin/" + package]
         # The version hashes this digest, so any change to the package changes the version.
-        assert entry["sha256"] == hashlib.sha256(Path(package).read_bytes()).hexdigest(), (filename, entry)
-    for index in ("Packages", "Release"):
-        assert repository + index in inputs, index
+        assert entry["sha256"] == hashlib.sha256(Path(package).read_bytes()).hexdigest(), (package, entry)
+    index = "bazel-out/bin/mkosi/tests/extra_packages_release.extra-packages/"
+    # The index holds no copy of the packages.
+    assert sorted(path for path in inputs if path.startswith(index)) == [index + "Packages", index + "Release"]
 
 
 if __name__ == "__main__":

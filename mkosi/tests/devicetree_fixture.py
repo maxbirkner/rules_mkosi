@@ -1,13 +1,10 @@
-"""Encodes and edits small flattened device tree (FDT) blobs for tests, without a device tree compiler.
+"""Encodes small flattened device tree (FDT) blobs and reads their nodes, for tests that need exact or malformed blobs.
 
-As a script, it writes a blob whose root node has the given compatible strings and string properties, or, with
---input, a copy of a blob with those root properties replaced or added.
+Fixtures that only need a valid device tree compile a source with the devicetree rule instead.
 """
 
-import argparse
 import struct
 from collections.abc import Mapping, Sequence
-from pathlib import Path
 
 _FDT_MAGIC = 0xD00DFEED
 _HEADER = struct.Struct(">10I")
@@ -27,17 +24,22 @@ def encode_device_tree(compatible: Sequence[str], properties: Mapping[str, bytes
     if compatible:
         values = {"compatible": encode_strings(compatible), **values}
     tokens = [(_BEGIN_NODE, "", b""), *((_PROP, name, value) for name, value in values.items()), (_END_NODE, "", b"")]
-    return _encode(_EMPTY_MEMORY_RESERVATION_MAP, 0, tokens)
+    return _encode(tokens)
 
 
-def with_root_properties(blob: bytes, properties: Mapping[str, bytes]) -> bytes:
-    """Returns a compact copy of an FDT blob whose root node has properties, replacing those of the same name."""
-    memory_reservation_map, boot_cpu, tokens = _decode(blob)
-    # The root's properties follow its BEGIN_NODE token and precede its first child node or its end.
-    end = next(index for index, token in enumerate(tokens[1:], 1) if token[0] != _PROP)
-    root = {name: value for _, name, value in tokens[1:end]} | dict(properties)
-    edited = [tokens[0], *((_PROP, name, value) for name, value in root.items()), *tokens[end:]]
-    return _encode(memory_reservation_map, boot_cpu, edited)
+def read_nodes(blob: bytes) -> dict[str, dict[str, bytes]]:
+    """Returns the properties of every node of an FDT blob, keyed by node path such as / or /soc/display@1000."""
+    nodes: dict[str, dict[str, bytes]] = {}
+    path: list[str] = []
+    for kind, name, value in _decode(blob):
+        if kind == _BEGIN_NODE:
+            path.append(name)
+            nodes["/" + "/".join(path[1:])] = {}
+        elif kind == _PROP:
+            nodes["/" + "/".join(path[1:])][name] = value
+        else:
+            path.pop()
+    return nodes
 
 
 def encode_strings(values: Sequence[str]) -> bytes:
@@ -45,21 +47,18 @@ def encode_strings(values: Sequence[str]) -> bytes:
     return b"".join(value.encode("ascii") + b"\0" for value in values)
 
 
-def _decode(blob: bytes) -> tuple[bytes, int, list[_Token]]:
+def _decode(blob: bytes) -> list[_Token]:
     header = _HEADER.unpack_from(blob)
     if header[0] != _FDT_MAGIC:
         raise ValueError("not a flattened device tree")
-    structure_offset, strings_offset, reservations_offset, boot_cpu = header[2], header[3], header[4], header[7]
-    reservations_end = reservations_offset
-    while blob[reservations_end : reservations_end + 16] != bytes(16):
-        reservations_end += 16
+    structure_offset, strings_offset = header[2], header[3]
     tokens: list[_Token] = []
     offset = structure_offset
     while True:
         (kind,) = struct.unpack_from(">I", blob, offset)
         offset += 4
         if kind == _END:
-            return blob[reservations_offset : reservations_end + 16], boot_cpu, tokens
+            return tokens
         if kind == _BEGIN_NODE:
             name, offset = _string(blob, offset)
             tokens.append((kind, name, b""))
@@ -75,7 +74,7 @@ def _decode(blob: bytes) -> tuple[bytes, int, list[_Token]]:
             raise ValueError("unknown flattened device tree token {}".format(kind))
 
 
-def _encode(memory_reservation_map: bytes, boot_cpu: int, tokens: Sequence[_Token]) -> bytes:
+def _encode(tokens: Sequence[_Token]) -> bytes:
     strings: dict[str, int] = {}
     structure = b""
     for kind, name, value in tokens:
@@ -87,7 +86,7 @@ def _encode(memory_reservation_map: bytes, boot_cpu: int, tokens: Sequence[_Toke
             structure += struct.pack(">II", len(value), name_offset) + _padded(value)
     structure += struct.pack(">I", _END)
     string_block = b"".join(name.encode("ascii") + b"\0" for name in strings)
-    structure_offset = _HEADER.size + len(memory_reservation_map)
+    structure_offset = _HEADER.size + len(_EMPTY_MEMORY_RESERVATION_MAP)
     strings_offset = structure_offset + len(structure)
     size = strings_offset + len(string_block)
     header = _HEADER.pack(
@@ -98,11 +97,11 @@ def _encode(memory_reservation_map: bytes, boot_cpu: int, tokens: Sequence[_Toke
         _HEADER.size,
         17,
         16,
-        boot_cpu,
+        0,
         len(string_block),
         len(structure),
     )
-    return header + memory_reservation_map + structure + string_block
+    return header + _EMPTY_MEMORY_RESERVATION_MAP + structure + string_block
 
 
 def _string(blob: bytes, offset: int) -> tuple[str, int]:
@@ -116,26 +115,3 @@ def _aligned(offset: int) -> int:
 
 def _padded(value: bytes) -> bytes:
     return value + bytes(-len(value) % 4)
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--input", type=Path, help="Blob to copy with the properties, instead of a new one.")
-    parser.add_argument("--compatible", action="append", default=[])
-    parser.add_argument("--string-property", action="append", default=[], metavar="NAME=VALUE")
-    parser.add_argument("output", type=Path)
-    arguments = parser.parse_args()
-    properties = {
-        name: encode_strings([value]) for name, value in (item.split("=", 1) for item in arguments.string_property)
-    }
-    if arguments.input is None:
-        blob = encode_device_tree(arguments.compatible, properties)
-    else:
-        if arguments.compatible:
-            properties["compatible"] = encode_strings(arguments.compatible)
-        blob = with_root_properties(arguments.input.read_bytes(), properties)
-    arguments.output.write_bytes(blob)
-
-
-if __name__ == "__main__":
-    main()

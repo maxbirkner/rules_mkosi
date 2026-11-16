@@ -15,6 +15,7 @@ load(
     _DebianSnapshotInfo = "DebianSnapshotInfo",
     _debian_snapshot = "debian_snapshot",
 )
+load("//mkosi/private:devicetree_rule.bzl", _devicetree = "devicetree")
 load(
     "//mkosi/private:managed_python_test.bzl",
     _ManagedPythonTestInfo = "ManagedPythonTestInfo",
@@ -96,6 +97,7 @@ debian_lock = _debian_lock
 mkosi_config_tree = _mkosi_config_tree
 mkosi_source_tree = _mkosi_source_tree
 mkosi_rootfs_payload = _mkosi_rootfs_payload
+devicetree = _devicetree
 qemu_ovmf_smoke_test = _qemu_ovmf_smoke_test
 qemu_ovmf_boot_test = _qemu_ovmf_boot_test
 qemu_ovmf_boot_config = _qemu_ovmf_boot_config
