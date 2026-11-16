@@ -312,10 +312,13 @@ def _fat32_geometry(boot_sector: bytes) -> tuple[int, int, int] | None:
 
     Returns None for a boot sector of another FAT type or of no FAT file system, which other checks report.
     """
-    sector_bytes, cluster_sectors, reserved, fats, root_entries, _, _, fat16_sectors = struct.unpack_from(
+    sector_bytes, cluster_sectors, reserved, fats, root_entries, total16, _, fat16_sectors = struct.unpack_from(
         "<HBHBHHBH", boot_sector, 11
     )
-    total_sectors, fat_sectors = struct.unpack_from("<II", boot_sector, 32)
+    total32, fat_sectors = struct.unpack_from("<II", boot_sector, 32)
+    # mkfs.fat stores a sector count that fits 16 bits, such as that of a 192 MiB file system of 4096-byte sectors, in
+    # the 16-bit field and 0 in the 32-bit one.
+    total_sectors = total16 or total32
     is_fat = boot_sector[510:512] == b"\x55\xaa" and sector_bytes in (512, 1024, 2048, 4096) and cluster_sectors
     if not is_fat or fat16_sectors or root_entries or not fats or not fat_sectors:
         return None
@@ -326,8 +329,13 @@ def _fat32_geometry(boot_sector: bytes) -> tuple[int, int, int] | None:
     return cluster_sectors * sector_bytes, clusters, minimum_sectors * sector_bytes
 
 
-def _validate_esps(path: str | Path, partitions: Sequence[_Partition]) -> None:
-    """Raises EspTooSmallError if an ESP is FAT32 with fewer clusters than UEFI firmware mounts."""
+def _validate_esps(path: str | Path, partitions: Sequence[_Partition], firmware: str) -> None:
+    """Raises EspTooSmallError if an ESP of a UEFI image is FAT32 with fewer clusters than UEFI firmware mounts.
+
+    GRUB i386-pc reads the ESP of a BIOS image whatever its cluster count.
+    """
+    if firmware != "uefi":
+        return
     with open(path, "rb") as image:
         for partition in partitions:
             if partition["type_guid"] != gpt.ESP or partition["size_bytes"] < 512:
@@ -380,7 +388,7 @@ def project_image(
             partitions[-1]["uuid"] = str(uuid.UUID(bytes_le=entry[16:32]))
     _validate_roots(partitions, slot_label, architecture)
     _validate_firmware(partitions, firmware)
-    _validate_esps(path, partitions)
+    _validate_esps(path, partitions, firmware)
     return {
         "architecture": architecture,
         "firmware": firmware,

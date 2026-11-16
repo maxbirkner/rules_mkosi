@@ -211,7 +211,7 @@ Any host can build and verify the arm64 archive and cross-build the static aarch
 
 <!-- behavior:BHV-PARTITION-METADATA -->
 Release `partition_metadata` validates both GPT copies, keeps slot numbers, and omits random disk and partition GUIDs.
-It fails the build with an image layout failure for a FAT32 ESP with fewer than 65525 clusters, which UEFI firmware such as OVMF and AAVMF does not mount, and names the minimum `SizeMinBytes=`.
+It fails the build of a UEFI image with an image layout failure for a FAT32 ESP with fewer than 65525 clusters, which UEFI firmware such as OVMF and AAVMF does not mount, and names the minimum `SizeMinBytes=`.
 Versioned dm-verity images require exactly one populated root and verity slot with `<id>_<version>` labels, allow larger-or-equal `_empty` slots, and record root-hash UUIDs.
 BIOS images require one BIOS boot partition of at least 1 MiB.
 Tracer images have no partition metadata.

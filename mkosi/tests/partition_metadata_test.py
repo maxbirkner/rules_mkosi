@@ -505,7 +505,9 @@ def _fat_boot_sector(size_bytes: int, sector_bytes: int = 4096, fat16: bool = Fa
         0xF8,
         fat_sectors if fat16 else 0,
     )
-    struct.pack_into("<II", sector, 32, total_sectors, 0 if fat16 else fat_sectors)
+    # mkfs.fat stores a sector count that fits 16 bits in the 16-bit field.
+    struct.pack_into("<H", sector, 19, total_sectors if total_sectors < 0x10000 else 0)
+    struct.pack_into("<II", sector, 32, 0 if total_sectors < 0x10000 else total_sectors, 0 if fat16 else fat_sectors)
     sector[510:512] = b"\x55\xaa"
     return bytes(sector)
 
@@ -533,6 +535,25 @@ class EspClusterTest(unittest.TestCase):
             partition_metadata.EspTooSmallError, "ESP partition 1 is FAT32 with 65374 clusters of 4096 bytes.*257M"
         ):
             partition_metadata.project_image(self.path)
+
+    def test_reads_a_16_bit_sector_count(self) -> None:
+        # 192 MiB of 4096-byte sectors, the ESP of rules_mkosi's BIOS images.
+        self.write_image(_fat_boot_sector(192 * 1024 * 1024))
+        with self.assertRaisesRegex(partition_metadata.EspTooSmallError, "FAT32 with 49022 clusters of 4096 bytes"):
+            partition_metadata.project_image(self.path)
+
+    def test_leaves_the_esp_of_bios_images_to_grub(self) -> None:
+        raw = image(
+            entries=[
+                (1, 2048, 4095, gpt_partitions.BIOS_BOOT, "bios"),
+                (2, 4096, 6143, gpt_partitions.ESP, "esp"),
+                (3, 6144, 8191, gpt_partitions.ROOT_X86_64, "root-x86-64"),
+            ]
+        )
+        raw[4096 * SECTOR : 4097 * SECTOR] = _fat_boot_sector(192 * 1024 * 1024)
+        with open(self.path, "wb") as output:
+            output.write(raw)
+        self.assertEqual("bios", partition_metadata.project_image(self.path, "bios")["firmware"])
 
     def test_accepts_fat32_esps_with_enough_clusters(self) -> None:
         for megabytes in (257, 512):
