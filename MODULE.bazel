@@ -40,9 +40,13 @@ qemu = use_extension("@rules_qemu//qemu/extension:qemu.bzl", "qemu")
 use_repo(
     qemu,
     "qemu_img_prebuilt_linux_amd64",
+    "qemu_img_prebuilt_linux_arm64",
     "qemu_system_bin_prebuilt_linux_amd64_aarch64_softmmu",
     "qemu_system_bin_prebuilt_linux_amd64_x86_64_softmmu",
+    "qemu_system_bin_prebuilt_linux_arm64_aarch64_softmmu",
+    "qemu_system_bin_prebuilt_linux_arm64_x86_64_softmmu",
     "qemu_system_data_prebuilt_linux_amd64",
+    "qemu_system_data_prebuilt_linux_arm64",
     "qemu_system_toolchains",
     "qemu_user_prebuilt_linux_amd64_aarch64",
     "qemu_user_toolchains",
@@ -78,6 +82,7 @@ use_repo(mkosi, "mkosi_toolchains")
 
 register_toolchains(
     "@mkosi_toolchains//:qemu_linux_x86_64",
+    "@mkosi_toolchains//arm64:qemu_linux_aarch64",
     "@mkosi_toolchains//:all",
 )
 
