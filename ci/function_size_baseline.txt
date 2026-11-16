@@ -5,7 +5,6 @@ e2e/smoke/sysupdate_payload_test.py:main 47
 mkosi/debian/debian_tools_security_test.py:DebianToolsSecurityTest.test_extraction_metadata_is_deterministic 52
 mkosi/debian/debian_tools_security_test.py:DebianToolsSecurityTest.test_forward_symlink_and_hardlink_graphs 46
 mkosi/private/boot_test.py:_boot 63
-mkosi/tests/bios_image_artifact_test.py:main 45
 mkosi/tests/boot_test_unit.py:BootLifecycleTest._run 82
 mkosi/tests/boot_test_unit.py:BootLifecycleTest.test_accelerator_arguments_are_passed_and_selected_accelerator_is_recorded 47
 mkosi/tests/boot_test_unit.py:BootLifecycleTest.test_qmp_socket_stays_short_with_long_test_tmpdir 48
