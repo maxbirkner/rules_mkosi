@@ -40,6 +40,9 @@ readiness. Do not implement the worker's assigned change yourself.
    maintainer check-in is not required for worker-authored pull requests. Do
    not approve, merge, or bypass protection for an outside contribution; hand
    those decisions to a maintainer.
+7. After each merge, wait for the `CI` run on `main` to succeed before merging dependent work.
+   The ruleset does not require branches to be up to date, so two individually green pull requests can break `main` together.
+   If that run fails, fix `main` before merging anything else.
 
 ## Project stewardship
 
