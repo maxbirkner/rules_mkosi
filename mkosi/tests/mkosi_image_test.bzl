@@ -281,7 +281,7 @@ def _debian_tools_provider_test_impl(ctx):
     asserts.equals(env, "python", info.python.basename)
     asserts.true(env, info.launcher.executable != None)
     asserts.true(env, info.tree_files_to_run.executable == None)
-    asserts.equals(env, 15, len(info.required_components))
+    asserts.equals(env, 18, len(info.required_components))
     asserts.true(env, info.provenance.basename == "provenance.bzl")
     asserts.equals(env, ["arm64"], info.user_mode_emulators.keys())
     asserts.equals(env, "qemu-user-linux-amd64-aarch64", info.user_mode_emulators["arm64"].basename)

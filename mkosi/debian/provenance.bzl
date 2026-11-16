@@ -6,19 +6,19 @@ DEBIAN_TOOLS_CODENAME = "trixie"
 DEBIAN_TOOLS_ARCHITECTURE = "amd64"
 DEBIAN_TOOLS_SNAPSHOT = "20260912T080811Z"
 DEBIAN_TOOLS_SNAPSHOT_URL = "https://snapshot.debian.org/archive/debian/20260912T080811Z"
-DEBIAN_TOOLS_LOCK_SHA256 = "c2528f32656b458f02861fdb957737b40ed4b3efec57a8bd9a781063866d7b53"
+DEBIAN_TOOLS_LOCK_SHA256 = "79dc5b18fcefba9a66a7fb58b89bd5fe8abce8356f42800ed355db9e2f66f2dd"
 
 # The built-in arm64 lock resolves the same package set for arm64 at the same snapshot. It provides
 # @mkosi_debian_snapshot_arm64.
-DEBIAN_TOOLS_ARM64_LOCK_SHA256 = "8192d5a08336e4c7bdde1b43fa794d57bf4381321fd236113c417c0d78cb393b"
-DEBIAN_TOOLS_ARCHIVE_SHA256 = "f6566f5ee51f5d86a1332814631ebc935aa716600d7787138f161fb902a651c2"
+DEBIAN_TOOLS_ARM64_LOCK_SHA256 = "b61aa0d003f1b059faf6836df489f51020521848c9711e1423aa4fa5973f30c1"
+DEBIAN_TOOLS_ARCHIVE_SHA256 = "e062f768d137cb0bb2beacf4266c382ce8334aa9a28a7f537d0583f7ffbd9258"
 DEBIAN_TOOLS_PYTHON_VERSION = "3.14.10"
 DEBIAN_TOOLS_PYTHON_URL = "https://github.com/astral-sh/python-build-standalone/releases/download/20261026/cpython-3.14.10%2B20261026-x86_64-unknown-linux-musl-lto%2Bstatic-full.tar.zst"
 DEBIAN_TOOLS_PYTHON_SHA256 = "58733bc01987f9a5b6e7436f71dc338b1d9e47ec4713e7a123050f42d9160cac"
 
 # The arm64 Debian tools of Linux aarch64 execution platforms: the archive of the arm64 lock's packages, and the
 # static aarch64 build of the same Python release for their launcher.
-DEBIAN_TOOLS_ARM64_ARCHIVE_SHA256 = "fcd4bb838991030090d93dc49f031ce23914c8d823fce6ed82454790d000bbaf"
+DEBIAN_TOOLS_ARM64_ARCHIVE_SHA256 = "87cbe41592a90576238cd5b2ab654c881c44432909acede82a342729c72825e0"
 DEBIAN_TOOLS_PYTHON_AARCH64_URL = "https://github.com/astral-sh/python-build-standalone/releases/download/20261026/cpython-3.14.10%2B20261026-aarch64-unknown-linux-musl-lto%2Bstatic-full.tar.zst"
 DEBIAN_TOOLS_PYTHON_AARCH64_SHA256 = "5d296c88b994813ae65a8355727f028d79b1be14be69c606d520535978f10e4c"
 
@@ -40,6 +40,9 @@ DEBIAN_TOOLS_REQUIRED_COMPONENTS = [
     "objcopy",
     "openssl",
     "systemd-sbsign",
+    "cpp",
+    "dtc",
+    "fdtoverlay",
 ]
 
 # The arm64 Debian tools lack the BIOS boot loader modules of grub-pc-bin, which exists only for amd64.

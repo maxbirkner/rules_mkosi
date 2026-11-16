@@ -574,6 +574,9 @@ debian_tools_preflight_test(
         "objcopy",
         "openssl",
         "systemd-sbsign",
+        "cpp",
+        "dtc",
+        "fdtoverlay",
     ],
     tree = "@mkosi_debian_tools//:tree_root",
 )
