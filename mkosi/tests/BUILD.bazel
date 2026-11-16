@@ -200,6 +200,7 @@ py_test(
     name = "partition_metadata_test",
     srcs = [
         "partition_metadata_test.py",
+        "//mkosi/private:diagnostics.py",
         "//mkosi/private:gpt_partitions.py",
         "//mkosi/private:image_version.py",
         "//mkosi/private:partition_metadata.py",

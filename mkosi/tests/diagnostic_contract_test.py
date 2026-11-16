@@ -85,6 +85,7 @@ class DiagnosticContractTest(unittest.TestCase):
             "PACKAGE_RESOLUTION_FAILURE": "add the missing package or dependency to the Debian snapshot lock",
             "EXTRA_PACKAGE_FAILURE": "pass extra_packages only Debian binary packages with unique names",
             "ASSEMBLY_FAILURE": "inspect the preserved mkosi output",
+            "IMAGE_LAYOUT_FAILURE": "enlarge the partition in the image's mkosi.repart definitions",
             "VM_FAILURE": "inspect the preserved serial, firmware, and QEMU logs",
         }
         for category, action in cases.items():

@@ -242,8 +242,6 @@ arm64_image_test(
 qemu_ovmf_boot_test(
     name = "uki_release_boot_test",
     image = ":uki_release",
-    # Only the root file system's systemd logs it, after the switch from the initrd.
-    readiness_marker = "systemd[1]: Detected first boot.",
 )
 
 arm64_boot_config_test(

@@ -101,6 +101,7 @@ Both boot adapters require `MkosiImageInfo.raw_image`; the SeaBIOS adapter also 
 
 <!-- behavior:BHV-BOOT-MARKERS -->
 `readiness_marker` and every `shutdown_markers` entry are nonempty exact serial markers that gate readiness and clean shutdown.
+The default `readiness_marker` is the line that only the root file system's systemd logs after the switch from a systemd initrd, so a boot that fails in the initrd does not count as ready.
 
 <!-- behavior:BHV-BOOT-MACHINE -->
 `machine_args` precede the CPU model of the image's architecture and the adapter's firmware arguments: OVMF flash drives, or the SeaBIOS ROM and debug console.
@@ -214,6 +215,7 @@ Any host can build and verify the arm64 archive and cross-build the static aarch
 
 <!-- behavior:BHV-PARTITION-METADATA -->
 Release `partition_metadata` validates both GPT copies, keeps slot numbers, and omits random disk and partition GUIDs.
+It fails the build of a UEFI image with an image layout failure for a FAT32 ESP with fewer than 65525 clusters, which UEFI firmware such as OVMF and AAVMF does not mount, and names the minimum `SizeMinBytes=`.
 Versioned dm-verity images require exactly one populated root and verity slot with `<id>_<version>` labels, allow larger-or-equal `_empty` slots, and record root-hash UUIDs.
 BIOS images require one BIOS boot partition of at least 1 MiB.
 Tracer images have no partition metadata.
@@ -261,7 +263,7 @@ Without the flag they are built for the Linux musl platform of the host's CPU, a
 rules_mkosi's static musl toolchain, the `llvm` module's C/C++ toolchain, matches only the bootstrap executables and outranks every registered C/C++ toolchain for them, including the consumer's own registration of the `llvm` module's toolchains, and the LLVM toolchain and runtime sources are downloaded only when one is built.
 
 <!-- behavior:BHV-ACTION-FAILURES -->
-Failures keep tool output and are classified as kernel capability, toolchain, network, package resolution, extra package, assembly, or VM failures with one remediation.
+Failures keep tool output and are classified as kernel capability, toolchain, network, package resolution, extra package, assembly, image layout, or VM failures with one remediation.
 SeaBIOS failures distinguish a missing boot sector, GRUB failure, kernel or initrd failure, readiness timeout, and shutdown failure, and boot logs are kept as test outputs.
 
 <!-- behavior:BHV-STAGING-FAILURES -->
