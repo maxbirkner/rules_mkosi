@@ -3,6 +3,13 @@
 Scripts run as Bazel actions, from test runfiles, and as modules imported by tests, so a sibling is loaded by path
 rather than through sys.path. Scripts bootstrap this module with
 ``runpy.run_path(str(Path(__file__).with_name("sibling_loader.py")))["load_sibling"]``.
+
+A loaded module has no static type, so scripts import a sibling by its repository path for mypy only::
+
+    if TYPE_CHECKING:
+        from mkosi.private import gpt_partitions as gpt
+    else:
+        gpt = _load_sibling(__file__, "gpt_partitions")
 """
 
 import importlib.util

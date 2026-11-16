@@ -6,14 +6,18 @@ Plain strings are passed unchanged, so tool syntax such as mtools' ``::/EFI`` su
 that receives the command line unchanged.
 """
 
+from __future__ import annotations
+
 import os
 import shutil
 import subprocess
 from collections.abc import Iterable
 from pathlib import Path
-from typing import TypeAlias
+from typing import TYPE_CHECKING
 
-StrPath: TypeAlias = str | os.PathLike[str]
+if TYPE_CHECKING:
+    from _typeshed import StrPath
+
 
 WORK = "/outputs/work"
 _counter = 0

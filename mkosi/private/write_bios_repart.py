@@ -4,9 +4,13 @@ import os
 import pathlib
 import runpy
 import sys
+from typing import TYPE_CHECKING
 
 _load_sibling = runpy.run_path(str(pathlib.Path(__file__).with_name("sibling_loader.py")))["load_sibling"]
-gpt = _load_sibling(__file__, "gpt_partitions")
+if TYPE_CHECKING:
+    from mkosi.private import gpt_partitions as gpt
+else:
+    gpt = _load_sibling(__file__, "gpt_partitions")
 
 _DEFINITIONS = (
     (

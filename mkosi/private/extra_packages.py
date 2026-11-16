@@ -22,12 +22,15 @@ import tarfile
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import BinaryIO
+from typing import TYPE_CHECKING, BinaryIO
 
 _load_sibling = runpy.run_path(str(Path(__file__).with_name("sibling_loader.py")))["load_sibling"]
-debian_control = _load_sibling(__file__, "debian_control")
-diagnostics = _load_sibling(__file__, "diagnostics")
-file_hashing = _load_sibling(__file__, "file_hashing")
+if TYPE_CHECKING:
+    from mkosi.private import debian_control, diagnostics, file_hashing
+else:
+    debian_control = _load_sibling(__file__, "debian_control")
+    diagnostics = _load_sibling(__file__, "diagnostics")
+    file_hashing = _load_sibling(__file__, "file_hashing")
 
 FORMAT_VERSION = "mkosi-extra-packages-v1"
 # The Release file's Origin and Label, which the APT preferences of the build pin; see release_sandbox.py.

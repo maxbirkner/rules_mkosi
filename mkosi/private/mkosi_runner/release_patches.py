@@ -27,9 +27,6 @@ from .release_validation import (
     validate_release_configuration,
 )
 
-# mypy resolves `import mkosi` to this repository's mkosi/ directory, not to upstream mkosi, which is not installed, so
-# the uses of upstream mkosi's top-level functions below ignore attr-defined.
-
 # The (args, tools, images) that mkosi.config.parse_config() returns.
 _ParsedConfig: TypeAlias = tuple[MkosiObject, MkosiObject, Sequence[MkosiConfig]]
 
@@ -44,9 +41,9 @@ def activate_release_mode(
 
     A finalize stage has no mirror: it installs no packages and reads only the declared base tree and initrd.
     """
-    import mkosi
     import mkosi.distribution.debian
 
+    upstream = mkosi_contract.upstream_mkosi()
     mkosi_contract.verify()
     if (mirror is None) != (settings.stage == "finalize"):
         raise SystemExit("only the release finalize stage runs without the Debian snapshot mirror")
@@ -55,10 +52,10 @@ def activate_release_mode(
     _ConfigurationValidator(settings, allowed_paths, allowed_extra_tree, mirror).install()
     require_selected_devicetrees(Path(settings.devicetrees) if settings.devicetrees else None)
     mkosi.distribution.debian.install_apt_sources = _remove_apt_sources
-    mkosi.install_sandbox_trees = _install_sandbox_trees  # type: ignore[attr-defined]
+    upstream.install_sandbox_trees = _install_sandbox_trees
     if settings.stage == "base":
         # The base root crosses Bazel's cache as an archive, so its bytes must depend only on the tree.
-        mkosi.make_tar = deterministic_make_tar  # type: ignore[attr-defined]
+        upstream.make_tar = deterministic_make_tar
     if settings.stage == "finalize":
         include_base_packages_in_manifest()
 
@@ -109,9 +106,8 @@ def require_selected_devicetrees(label_devicetrees: Path | None = None) -> None:
     it joins each path to the image tree, so the files reach only the UKI and never the image tree, from which mkosi
     fills the root, the ESP and the other partitions and outputs.
     """
-    import mkosi
-
-    original = mkosi.filter_devicetrees  # type: ignore[attr-defined]
+    upstream = mkosi_contract.upstream_mkosi()
+    original = upstream.filter_devicetrees
 
     def filter_devicetrees(root: Path, kver: str, *, include: Sequence[str]) -> list[Path]:
         labels = [
@@ -135,7 +131,7 @@ def require_selected_devicetrees(label_devicetrees: Path | None = None) -> None:
             )
         return [*labels, *selected]
 
-    mkosi.filter_devicetrees = filter_devicetrees  # type: ignore[attr-defined]
+    upstream.filter_devicetrees = filter_devicetrees
 
 
 def with_label_devicetrees(images: tuple[MkosiConfig, ...], label_devicetrees: Path | None) -> tuple[MkosiConfig, ...]:
@@ -400,21 +396,19 @@ def _install_sandbox_trees(config: MkosiConfig, dst: Path) -> None:
 
 
 def _install_crypto_policy(config: MkosiConfig, dst: Path) -> None:
-    import mkosi
-
+    upstream = mkosi_contract.upstream_mkosi()
     policy = config.tools() / "usr/share/crypto-policies/back-ends/DEFAULT"
     if policy.exists():
         (dst / "etc/crypto-policies").mkdir(exist_ok=True)
-        mkosi.copy_tree(policy, dst / "etc/crypto-policies/back-ends", sandbox=config.sandbox)  # type: ignore[attr-defined]
+        upstream.copy_tree(policy, dst / "etc/crypto-policies/back-ends", sandbox=config.sandbox)
 
 
 def _install_configured_sandbox_trees(config: MkosiConfig, dst: Path) -> None:
-    import mkosi
-
+    upstream = mkosi_contract.upstream_mkosi()
     if config.sandbox_trees:
-        with mkosi.complete_step("Copying in sandbox trees…"):  # type: ignore[attr-defined]
+        with upstream.complete_step("Copying in sandbox trees…"):
             for sandbox_tree in config.sandbox_trees:
-                mkosi.install_tree(config, sandbox_tree.source, dst, target=sandbox_tree.target, preserve=False)  # type: ignore[attr-defined]
+                upstream.install_tree(config, sandbox_tree.source, dst, target=sandbox_tree.target, preserve=False)
 
 
 def _link_tools_static(config: MkosiConfig, dst: Path) -> None:

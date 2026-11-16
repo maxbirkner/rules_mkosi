@@ -8,10 +8,13 @@ import os
 import runpy
 from collections.abc import Iterable, Mapping
 from pathlib import Path
-from typing import IO, Any
+from typing import IO, TYPE_CHECKING, Any
 
 _load_sibling = runpy.run_path(str(Path(__file__).with_name("sibling_loader.py")))["load_sibling"]
-partition_metadata = _load_sibling(__file__, "partition_metadata")
+if TYPE_CHECKING:
+    from mkosi.private import partition_metadata
+else:
+    partition_metadata = _load_sibling(__file__, "partition_metadata")
 _HASH_CHUNK_SIZE = 1024 * 1024
 _MAX_JSON_BYTES = 4 * 1024 * 1024
 

@@ -246,6 +246,11 @@ def verify() -> None:
         )
 
 
+def upstream_mkosi() -> MkosiObject:
+    """Returns upstream mkosi's top-level package, which mypy resolves to this repository's mkosi/ directory instead."""
+    return importlib.import_module("mkosi")
+
+
 def resolve(name: str) -> MkosiObject:
     """Returns the object named "module:qualified.name", without binding class attributes, or raises LookupError."""
     module_name, _, qualified = name.partition(":")

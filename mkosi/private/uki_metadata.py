@@ -6,11 +6,15 @@ import hashlib
 import json
 import runpy
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pefile
 
 _load_sibling = runpy.run_path(str(Path(__file__).with_name("sibling_loader.py")))["load_sibling"]
-devicetree = _load_sibling(__file__, "devicetree")
+if TYPE_CHECKING:
+    from mkosi.private import devicetree
+else:
+    devicetree = _load_sibling(__file__, "devicetree")
 
 # ukify embeds one device tree as .dtb, which systemd-stub always installs, or several as .dtbauto, of which it installs
 # the one whose root compatible string matches the hardware.

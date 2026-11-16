@@ -20,13 +20,16 @@ import subprocess
 import uuid
 from collections.abc import Collection, Iterable, Mapping, Sequence
 from pathlib import Path
-from typing import TypedDict
+from typing import TYPE_CHECKING, TypedDict
 
 _load_sibling = runpy.run_path(str(Path(__file__).with_name("sibling_loader.py")))["load_sibling"]
-efi_auth = _load_sibling(__file__, "efi_auth")
-esp_files = _load_sibling(__file__, "esp_files")
-launcher_tool = _load_sibling(__file__, "launcher_tool")
-secure_boot = _load_sibling(__file__, "secure_boot")
+if TYPE_CHECKING:
+    from mkosi.private import efi_auth, esp_files, launcher_tool, secure_boot
+else:
+    efi_auth = _load_sibling(__file__, "efi_auth")
+    esp_files = _load_sibling(__file__, "esp_files")
+    launcher_tool = _load_sibling(__file__, "launcher_tool")
+    secure_boot = _load_sibling(__file__, "secure_boot")
 
 FORMAT = "mkosi-secure-boot-signed-image-v2"
 ESP_MANIFEST_FORMAT = "mkosi-secure-boot-esp-manifest-v1"
@@ -206,7 +209,7 @@ def _dump_json(document: object) -> str:
 
 def _db_trusts(args: argparse.Namespace, bundle: Path, signer: Path, chain: Path | None = None) -> bool:
     """Returns whether the db certificates in bundle trust signer, through the intermediate certificates in chain."""
-    intermediates = ["-untrusted", chain] if chain else []
+    intermediates = ("-untrusted", chain) if chain else ()
     try:
         launcher_tool.run_tool(
             args.tools,
@@ -234,8 +237,8 @@ def _embedded_signer(args: argparse.Namespace, scratch: Path, tree: Path, esp_pa
     pkcs7, signer, chain = scratch / "embedded.p7", scratch / "embedded-signer.pem", scratch / "embedded-chain.pem"
     pkcs7.write_bytes(payload)
     content = scratch / "embedded-content.bin"
-    verify = ["smime", "-verify", "-inform", "DER", "-in", pkcs7, "-noverify", "-signer", signer, "-out", content]
-    certificates = ["pkcs7", "-inform", "DER", "-in", pkcs7, "-print_certs", "-out", chain]
+    verify = ("smime", "-verify", "-inform", "DER", "-in", pkcs7, "-noverify", "-signer", signer, "-out", content)
+    certificates = ("pkcs7", "-inform", "DER", "-in", pkcs7, "-print_certs", "-out", chain)
     try:
         launcher_tool.run_tool(args.tools, "/usr/bin/openssl", *verify, capture=True)
         launcher_tool.run_tool(args.tools, "/usr/bin/openssl", *certificates, capture=True)

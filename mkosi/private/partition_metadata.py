@@ -11,10 +11,13 @@ import uuid
 import zlib
 from collections.abc import Iterable, Sequence
 from pathlib import Path
-from typing import IO, Any, TypedDict
+from typing import IO, TYPE_CHECKING, Any, TypedDict
 
 _load_sibling = runpy.run_path(str(Path(__file__).with_name("sibling_loader.py")))["load_sibling"]
-gpt = _load_sibling(__file__, "gpt_partitions")
+if TYPE_CHECKING:
+    from mkosi.private import gpt_partitions as gpt
+else:
+    gpt = _load_sibling(__file__, "gpt_partitions")
 
 ALIGNMENT = 1024 * 1024
 _HEADER_MIN = 92

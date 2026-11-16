@@ -330,10 +330,8 @@ class MkosiContractTest(unittest.TestCase):
         self.assertEqual(["bash"], recorded_packages())
 
     def test_release_mode_rejects_devicetrees_patterns_that_select_no_device_tree(self) -> None:
-        import mkosi
-
-        # mypy resolves mkosi to this repository's mkosi/ directory, not to upstream mkosi (see mypy.ini).
-        self._replace(mkosi, "filter_devicetrees", mkosi.filter_devicetrees)  # type: ignore[attr-defined]
+        mkosi = self.contract.upstream_mkosi()
+        self._replace(mkosi, "filter_devicetrees", mkosi.filter_devicetrees)
         self.release_patches.require_selected_devicetrees()
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
@@ -343,9 +341,7 @@ class MkosiContractTest(unittest.TestCase):
                 (root / vendor / name).write_bytes(b"")
 
             def select(*patterns: str) -> list[pathlib.Path]:
-                selected: list[pathlib.Path] = mkosi.filter_devicetrees(  # type: ignore[attr-defined]
-                    root, "6.12.0-arm64", include=patterns
-                )
+                selected: list[pathlib.Path] = mkosi.filter_devicetrees(root, "6.12.0-arm64", include=patterns)
                 return selected
 
             self.assertEqual([vendor / "board-a.dtb", vendor / "board-b.dtb"], select("vendor/board-*.dtb"))
@@ -370,15 +366,14 @@ class MkosiContractTest(unittest.TestCase):
         return vendor
 
     def test_release_mode_selects_label_devicetrees_outside_the_image_tree(self) -> None:
-        import mkosi
+        mkosi = self.contract.upstream_mkosi()
 
         @dataclasses.dataclass(frozen=True)
         class Image:
             devicetrees: list[str]
             image: str = "main"
 
-        # mypy resolves mkosi to this repository's mkosi/ directory, not to upstream mkosi (see mypy.ini).
-        self._replace(mkosi, "filter_devicetrees", mkosi.filter_devicetrees)  # type: ignore[attr-defined]
+        self._replace(mkosi, "filter_devicetrees", mkosi.filter_devicetrees)
         with tempfile.TemporaryDirectory() as directory:
             labels = pathlib.Path(directory) / "labels"
             labels.mkdir()
@@ -392,9 +387,7 @@ class MkosiContractTest(unittest.TestCase):
             self.release_patches.require_selected_devicetrees(labels)
 
             def select(image: Image) -> list[pathlib.Path]:
-                selected: list[pathlib.Path] = mkosi.filter_devicetrees(  # type: ignore[attr-defined]
-                    root, "6.12.0-arm64", include=image.devicetrees
-                )
+                selected: list[pathlib.Path] = mkosi.filter_devicetrees(root, "6.12.0-arm64", include=image.devicetrees)
                 return selected
 
             # The label comes first, as an absolute path that build_uki reads as it is.

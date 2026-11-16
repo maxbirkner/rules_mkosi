@@ -1,5 +1,7 @@
 """Stage a deterministic, authenticated Debian APT snapshot tree."""
 
+from __future__ import annotations
+
 import argparse
 import lzma
 import os
@@ -10,13 +12,17 @@ import shutil
 import subprocess
 import sys
 from collections.abc import Iterable, Iterator, Mapping, Sequence
-from typing import TypeAlias
+from typing import TYPE_CHECKING, TypeAlias
 
 _load_sibling = runpy.run_path(str(pathlib.Path(__file__).with_name("sibling_loader.py")))["load_sibling"]
-debian_control = _load_sibling(__file__, "debian_control")
-file_hashing = _load_sibling(__file__, "file_hashing")
+if TYPE_CHECKING:
+    from _typeshed import StrPath
 
-StrPath: TypeAlias = str | os.PathLike[str]
+    from mkosi.private import debian_control, file_hashing
+else:
+    debian_control = _load_sibling(__file__, "debian_control")
+    file_hashing = _load_sibling(__file__, "file_hashing")
+
 # (component, architecture, path in the snapshot, SHA-256, input file) of a Packages.xz index.
 _Index: TypeAlias = tuple[str, str, str, str, str]
 # A staged, decompressed Packages index and its architecture.
@@ -194,11 +200,7 @@ def _read_package_metadata(
                     raise ValueError("binary-all index contains non-all package")
                 if architecture not in (index_architecture, "all"):
                     raise ValueError("unsupported package architecture")
-                key = (
-                    paragraph.get("Package"),
-                    paragraph.get("Version"),
-                    architecture,
-                )
+                package, version = paragraph.get("Package"), paragraph.get("Version")
                 fields = (
                     paragraph.get("Filename"),
                     paragraph.get("Size"),
@@ -207,6 +209,10 @@ def _read_package_metadata(
                 if not fields[0] or not fields[1] or not fields[2] or not fields[1].isdigit():
                     raise ValueError("incomplete package metadata")
                 record = (fields[0], int(fields[1]), fields[2])
+                # A paragraph without a name or version matches no locked package.
+                if package is None or version is None:
+                    continue
+                key = (package, version, architecture)
                 if key in actual and actual[key] != record:
                     raise ValueError("conflicting duplicate package metadata: %s" % paragraph.get("Package"))
                 if key in expected:
