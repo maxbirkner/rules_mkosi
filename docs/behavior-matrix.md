@@ -110,6 +110,7 @@ The accelerator QEMU selected is logged and is the first line of the boot eviden
 <!-- behavior:BHV-BOOT-ARCHITECTURE -->
 `qemu_ovmf_boot_test` boots an image with the QEMU system emulator, UEFI firmware, machine, memory, CPU model, and serial port of `MkosiImageInfo.architecture`: `qemu-system-x86_64`, OVMF, `q35` with 512 MiB, and an ISA serial port for amd64; `qemu-system-aarch64`, AAVMF, `virt` with 1 GiB, the `max` CPU, and the PL011 serial port for arm64.
 `auto` selects TCG for a guest of another architecture than the execution platform.
+On Linux aarch64 execution platforms, the QEMU toolchain's arm64 binaries boot arm64 guests as native guests, with KVM where available, on a `virt` machine with the host's GIC version and the `max` CPU, and amd64 guests under TCG.
 `secure_boot = True` fails during analysis for arm64 images.
 
 <!-- behavior:BHV-BOOT-DEADLINES -->

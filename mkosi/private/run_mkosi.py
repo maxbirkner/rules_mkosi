@@ -82,10 +82,14 @@ def _run_mkosi(
 
 def _fail_mkosi(completed: subprocess.CompletedProcess[bytes]) -> None:
     original = completed.stdout + completed.stderr
-    tail = original.decode(errors="replace").strip().splitlines()[-8:]
+    category = diagnostics.classify_mkosi_output(original)
+    # APT's explanation precedes mkosi's log of the failed command and, in a release child, a traceback.
+    summary = diagnostics.extract_apt_explanation(original) if category == "PACKAGE_RESOLUTION_FAILURE" else []
+    if not summary:
+        summary = original.decode(errors="replace").strip().splitlines()[-8:]
     diagnostics.fail(
-        diagnostics.classify_mkosi_output(original),
-        "mkosi image assembly exited with status {}: {}".format(completed.returncode, " | ".join(tail)),
+        category,
+        "mkosi image assembly exited with status {}: {}".format(completed.returncode, " | ".join(summary)),
         original,
         exit_code=diagnostics.child_exit_code(completed.returncode),
     )

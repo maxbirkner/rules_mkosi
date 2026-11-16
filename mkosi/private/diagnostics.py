@@ -1,6 +1,7 @@
 """Actionable failure reporting at the image and virtual-machine boundary."""
 
 import os
+import re
 import subprocess
 import sys
 from collections.abc import Callable, Sequence
@@ -103,6 +104,50 @@ def classify_mkosi_output(output: bytes) -> str:
     if any(signal in text for signal in toolchain_signals):
         return "TOOLCHAIN_FAILURE"
     return "ASSEMBLY_FAILURE"
+
+
+_UNMET_DEPENDENCIES = "the following packages have unmet dependencies:"
+# Errors that name a package which neither the snapshot mirror nor extra_packages provide.
+_APT_PACKAGE_ERRORS = ("unable to locate package", "has no installation candidate", "failed to fetch file:/repository/")
+# A line of APT's unmet dependencies that starts with a relation field, optionally after the name of the package that
+# has it, such as "vendor-kernel : Depends: kmod but it is not installable".
+_UNMET_RELATION = re.compile(r"(?:(?P<package>\S+) : )?(?P<relation>[A-Za-z-]+: .*)")
+
+
+def extract_apt_explanation(output: bytes) -> list[str]:
+    """Returns APT's explanation of why it cannot install the packages of a failed mkosi child, in output order.
+
+    That is each unmet dependency, with the package that has it, and each error about a package that the repositories
+    lack, but not the generic errors that follow them. The list is empty if output has no such explanation.
+    """
+    explanation: list[str] = []
+    unmet: list[str] | None = None
+    for line in output.decode(errors="replace").splitlines():
+        if unmet is not None and line[:1].isspace() and line.strip():
+            _add_unmet_dependency(unmet, line.strip())
+            continue
+        explanation.extend(unmet or ())
+        unmet = [] if line.strip().lower() == _UNMET_DEPENDENCIES else None
+        if line.startswith("E: ") and any(error in line.lower() for error in _APT_PACKAGE_ERRORS):
+            explanation.append(line.strip())
+    explanation.extend(unmet or ())
+    return list(dict.fromkeys(explanation))
+
+
+def _add_unmet_dependency(unmet: list[str], line: str) -> None:
+    """Adds an indented line of APT's unmet dependencies to the entries in unmet.
+
+    A line without a relation field continues the previous entry with an alternative, and a relation without a package
+    belongs to the package of the previous entry.
+    """
+    match = _UNMET_RELATION.fullmatch(line)
+    if match is None and unmet:
+        unmet[-1] += " " + line
+    elif match is not None and (match["package"] or unmet):
+        package = match["package"] or unmet[-1].partition(" : ")[0]
+        unmet.append("{} : {}".format(package, match["relation"]))
+    else:
+        unmet.append(line)
 
 
 def run_kernel_preflight(

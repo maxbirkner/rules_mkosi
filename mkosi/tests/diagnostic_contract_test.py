@@ -8,6 +8,54 @@ import sys
 import types
 import unittest
 
+# The end of the output of a failed release child, with shortened paths.
+_RELEASE_CHILD_TRACEBACK = b"""\
+rules_mkosi release child failed: status=100; command=['mkosi/__main__.py', '-C', 'staging-root', 'build']
+Traceback (most recent call last):
+  File "mkosi/run.py", line 422, in spawn
+    raise subprocess.CalledProcessError(returncode, cmdline)
+subprocess.CalledProcessError: Command '['apt-get', 'install', 'netbase', 'rules-mkosi-hello']' returned non-zero \
+exit status 100.
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "mkosi/private/run_mkosi.py", line 307, in _run_mkosi_in_process
+    runpy.run_path(script, run_name="__main__")
+    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "mkosi/run.py", line 138, in uncaught_exception_handler
+    exit(rc)
+    ~~~~^^^^
+SystemExit: 100
+"""
+# The end of the output of a release build whose extra package depends on a package that no repository provides:
+# APT's explanation, mkosi's log of the failed command, and the release child's traceback.
+_UNMET_DEPENDENCY_OUTPUT = (
+    b"""\
+Reading package lists...
+Building dependency tree...
+Reading state information...
+Solving dependencies...
+Some packages could not be installed. This may mean that you have
+requested an impossible situation or if you are using the unstable
+distribution that some required packages have not yet been created
+or been moved out of Incoming.
+The following information may help to resolve the situation:
+
+The following packages have unmet dependencies:
+ rules-mkosi-hello : Depends: rules-mkosi-missing but it is not installable
+E: Unable to correct problems, you have held broken packages.
+E: The following information from --solver 3.0 may provide additional context:
+   Unable to satisfy dependencies. Reached two conflicting decisions:
+   1. rules-mkosi-hello:amd64=1.0 is selected for install
+   2. rules-mkosi-hello:amd64 Depends rules-mkosi-missing
+      but none of the choices are installable:
+      [no choices]
+\xe2\x80\xa3 [main] "apt-get install netbase rules-mkosi-hello" returned non-zero exit status 100.
+"""
+    + _RELEASE_CHILD_TRACEBACK
+)
+
 
 def _load(name: str, path: pathlib.Path) -> types.ModuleType:
     spec = importlib.util.spec_from_file_location(name, path)
@@ -68,6 +116,58 @@ class DiagnosticContractTest(unittest.TestCase):
         }
         for output, expected in cases.items():
             self.assertEqual(expected, self.diagnostics.classify_mkosi_output(output))
+
+    def _fail_mkosi(self, output: bytes) -> str:
+        """Returns the diagnostic of an mkosi run that fails with status 100 and prints output to stderr."""
+        result = types.SimpleNamespace(returncode=100, stdout=b"", stderr=output)
+        message = io.StringIO()
+        with contextlib.redirect_stderr(message), self.assertRaises(SystemExit):
+            self.run_mkosi._run_mkosi("mkosi.py", ["build"], runner=lambda *_args, **_kwargs: result)
+        return message.getvalue()
+
+    def test_package_resolution_failure_detail_is_apt_explanation(self) -> None:
+        multiple = (
+            b"The following packages have unmet dependencies:\n"
+            b" vendor-kernel : Depends: kmod but it is not installable\n"
+            b"                 PreDepends: vendor-base (>= 2) but 1 is to be installed\n"
+            b" vendor-tools : Depends: vendor-a but it is not installable or\n"
+            b"                         vendor-b but it is not installable\n"
+            b"E: Unable to correct problems, you have held broken packages.\n"
+        )
+        cases = {
+            _UNMET_DEPENDENCY_OUTPUT: "rules-mkosi-hello : Depends: rules-mkosi-missing but it is not installable",
+            multiple: (
+                "vendor-kernel : Depends: kmod but it is not installable"
+                " | vendor-kernel : PreDepends: vendor-base (>= 2) but 1 is to be installed"
+                " | vendor-tools : Depends: vendor-a but it is not installable or vendor-b but it is not installable"
+            ),
+            b"E: Unable to locate package vendor-firmware\n": "E: Unable to locate package vendor-firmware",
+            b"Package vendor-firmware is not available, but is referred to by another package.\n"
+            b"E: Package 'vendor-firmware' has no installation candidate\n": (
+                "E: Package 'vendor-firmware' has no installation candidate"
+            ),
+            b"E: Failed to fetch file:/repository/pool/main/h/hello/hello_2.10-5_amd64.deb  File not found\n": (
+                "E: Failed to fetch file:/repository/pool/main/h/hello/hello_2.10-5_amd64.deb  File not found"
+            ),
+        }
+        for apt_output, explanation in cases.items():
+            with self.subTest(explanation=explanation):
+                output = apt_output if apt_output is _UNMET_DEPENDENCY_OUTPUT else apt_output + _RELEASE_CHILD_TRACEBACK
+                message = self._fail_mkosi(output)
+                detail = message.splitlines()[0]
+                self.assertEqual(
+                    "PACKAGE_RESOLUTION_FAILURE: mkosi image assembly exited with status 100: " + explanation, detail
+                )
+                # The original output still follows the action, traceback included.
+                self.assertIn("SystemExit: 100", message)
+
+    def test_package_resolution_failure_without_apt_explanation_keeps_the_output_tail(self) -> None:
+        detail = self._fail_mkosi(b"The following packages have unmet dependencies:\nSystemExit: 100\n").splitlines()[0]
+        self.assertEqual(
+            "PACKAGE_RESOLUTION_FAILURE: mkosi image assembly exited with status 100: "
+            "The following packages have unmet dependencies: | SystemExit: 100",
+            detail,
+        )
 
     def test_kernel_preflight_failure_preserves_probe_without_a_host_fixture(self) -> None:
         result = types.SimpleNamespace(
