@@ -105,7 +105,9 @@ with 1 GiB for arm64. The CPU model and the serial port of the architecture are 
 The default, `""" + _ROOT_READINESS_MARKER + """`, is logged by the systemd of the root file
 system right after it took over from the systemd of the initrd, so it proves on every boot that the image switched to
 its root file system. It requires a systemd initrd, which mkosi builds by default. Lines such as
-`systemd[1]: Hostname set to <myhost>.` can also come from the initrd, so they do not prove a bootable root.""",
+`systemd[1]: Hostname set to <myhost>.` can also come from the initrd, so they do not prove a bootable root. The
+default is an info-level message on the console, so an image whose kernel command line lowers systemd's console log
+level, for example with `quiet` or `systemd.log_level=notice`, does not print it and must set its own marker.""",
         ),
         "shutdown_timeout_seconds": attr.int(
             default = shutdown_timeout_seconds,
