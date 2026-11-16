@@ -22,6 +22,7 @@ DEBIAN_TOOLS_SNAPSHOT_URL = "https://snapshot.debian.org/archive/debian/{0}"
 DEBIAN_TOOLS_LOCK_SHA256 = "old-lock"
 DEBIAN_TOOLS_ARM64_LOCK_SHA256 = "old-arm64-lock"
 DEBIAN_TOOLS_ARCHIVE_SHA256 = "old-archive"
+DEBIAN_TOOLS_ARM64_ARCHIVE_SHA256 = "old-arm64-archive"
 DEBIAN_TOOLS_REQUIRED_COMPONENTS = ["apt-get"]
 """
 # Answers the build, cquery and info commands that the refresh runs, from the fake workspace.
@@ -81,6 +82,7 @@ class RefreshTest(unittest.TestCase):
                     b"lock for " + refresh_debian_tools.ARM64_SPEC.encode()
                 ).hexdigest(),
                 "DEBIAN_TOOLS_ARCHIVE_SHA256": hashlib.sha256(b"archive").hexdigest(),
+                "DEBIAN_TOOLS_ARM64_ARCHIVE_SHA256": hashlib.sha256(b"archive").hexdigest(),
             },
             values,
         )
@@ -103,12 +105,13 @@ class PythonPinTest(unittest.TestCase):
     def setUp(self) -> None:
         provenance = refresh_debian_tools.read_provenance((_HERE / "provenance.bzl").read_text())
         self.pin = {name: value for name, value in provenance.items() if name.startswith("DEBIAN_TOOLS_PYTHON_")}
-        url = self.pin["DEBIAN_TOOLS_PYTHON_URL"]
-        self.release = url.split("/")[-2]
-        asset = urllib.parse.unquote(url.split("/")[-1])
-        self.sums = "{}  {}\n{}  {}\n".format(
-            "0" * 64, asset.replace("+static", ""), provenance["DEBIAN_TOOLS_PYTHON_SHA256"], asset
-        )
+        self.release = self.pin["DEBIAN_TOOLS_PYTHON_URL"].split("/")[-2]
+        self.sums = ""
+        for infix in ("", "_AARCH64"):
+            asset = urllib.parse.unquote(self.pin["DEBIAN_TOOLS_PYTHON{}_URL".format(infix)].split("/")[-1])
+            self.sums += "{}  {}\n{}  {}\n".format(
+                "0" * 64, asset.replace("+static", ""), self.pin["DEBIAN_TOOLS_PYTHON{}_SHA256".format(infix)], asset
+            )
 
     def test_pin_reproduces_the_checked_in_static_python(self) -> None:
         version = self.pin["DEBIAN_TOOLS_PYTHON_VERSION"]
@@ -117,6 +120,11 @@ class PythonPinTest(unittest.TestCase):
     def test_missing_asset_is_rejected(self) -> None:
         with self.assertRaisesRegex(ValueError, "does not list cpython-3.0.0"):
             refresh_debian_tools.python_pin(self.release, "3.0.0", self.sums)
+
+    def test_missing_aarch64_asset_is_rejected(self) -> None:
+        sums = "".join(line + "\n" for line in self.sums.splitlines() if "aarch64" not in line)
+        with self.assertRaisesRegex(ValueError, "does not list .*aarch64-unknown-linux-musl"):
+            refresh_debian_tools.python_pin(self.release, self.pin["DEBIAN_TOOLS_PYTHON_VERSION"], sums)
 
 
 class ProvenanceTest(unittest.TestCase):

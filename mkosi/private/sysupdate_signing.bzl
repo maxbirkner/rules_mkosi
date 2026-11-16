@@ -26,7 +26,7 @@ SysupdateEphemeralTestFixtureInfo = provider(
 )
 
 _TOOL_ATTRS = {
-    "_debian_tools": attr.label(default = "@mkosi_debian_tools//:launcher", executable = True, cfg = "exec"),
+    "_debian_tools": attr.label(default = "//mkosi/debian:launcher", executable = True, cfg = "exec"),
     "_launcher_tool": attr.label(
         default = "//mkosi/private:launcher_tool.py",
         allow_single_file = True,

@@ -6,13 +6,17 @@ load("//mkosi/toolchain/bootstrap_cc:host_platform.bzl", "select_host_bootstrap_
 _BOOTSTRAP_PLATFORM = str(Label("//mkosi/toolchain:bootstrap_platform"))
 _AARCH64_MUSL = str(Label("//mkosi/toolchain/bootstrap_cc:linux_aarch64_musl"))
 
+_PLATFORMS = "//command_line_option:platforms"
+
+# Also the target platform, so that bootstrap executables restricted to Linux aarch64, such as those of the arm64 Debian
+# tools, are compatible.
 def _select_aarch64_bootstrap_platform(_settings, _attr):
-    return {_BOOTSTRAP_PLATFORM: _AARCH64_MUSL}
+    return {_BOOTSTRAP_PLATFORM: _AARCH64_MUSL, _PLATFORMS: [_AARCH64_MUSL]}
 
 _aarch64_bootstrap_transition = transition(
     implementation = _select_aarch64_bootstrap_platform,
     inputs = [],
-    outputs = [_BOOTSTRAP_PLATFORM],
+    outputs = [_BOOTSTRAP_PLATFORM, _PLATFORMS],
 )
 
 def _aarch64_bootstrap_files_impl(ctx):

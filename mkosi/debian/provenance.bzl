@@ -16,6 +16,12 @@ DEBIAN_TOOLS_PYTHON_VERSION = "3.14.10"
 DEBIAN_TOOLS_PYTHON_URL = "https://github.com/astral-sh/python-build-standalone/releases/download/20261026/cpython-3.14.10%2B20261026-x86_64-unknown-linux-musl-lto%2Bstatic-full.tar.zst"
 DEBIAN_TOOLS_PYTHON_SHA256 = "58733bc01987f9a5b6e7436f71dc338b1d9e47ec4713e7a123050f42d9160cac"
 
+# The arm64 Debian tools of Linux aarch64 execution platforms: the archive of the arm64 lock's packages, and the
+# static aarch64 build of the same Python release for their launcher.
+DEBIAN_TOOLS_ARM64_ARCHIVE_SHA256 = "fcd4bb838991030090d93dc49f031ce23914c8d823fce6ed82454790d000bbaf"
+DEBIAN_TOOLS_PYTHON_AARCH64_URL = "https://github.com/astral-sh/python-build-standalone/releases/download/20261026/cpython-3.14.10%2B20261026-aarch64-unknown-linux-musl-lto%2Bstatic-full.tar.zst"
+DEBIAN_TOOLS_PYTHON_AARCH64_SHA256 = "5d296c88b994813ae65a8355727f028d79b1be14be69c606d520535978f10e4c"
+
 # The package lock is authoritative for package versions, URLs, hashes, and
 # dependency edges.  These are the initial tracer-required command names.
 DEBIAN_TOOLS_REQUIRED_COMPONENTS = [
@@ -37,6 +43,13 @@ DEBIAN_TOOLS_REQUIRED_COMPONENTS = [
     "cpp",
     "dtc",
     "fdtoverlay",
+]
+
+# The arm64 Debian tools lack the BIOS boot loader modules of grub-pc-bin, which exists only for amd64.
+DEBIAN_TOOLS_ARM64_REQUIRED_COMPONENTS = [
+    component
+    for component in DEBIAN_TOOLS_REQUIRED_COMPONENTS
+    if component != "grub-bios-modules"
 ]
 
 DEBIAN_TOOLS_COMPONENT_MANIFEST = "@rules_mkosi//mkosi/debian:components.txt"
