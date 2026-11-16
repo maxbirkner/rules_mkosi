@@ -519,6 +519,131 @@
       "component": "main",
       "dependencies": [
         {
+          "key": "gcc-14-base_14.2.0-19_arm64",
+          "name": "gcc-14-base",
+          "version": "14.2.0-19"
+        },
+        {
+          "key": "libc6_2.41-12-p-deb13u4_arm64",
+          "name": "libc6",
+          "version": "2.41-12+deb13u4"
+        },
+        {
+          "key": "libgmp10_2-6.3.0-p-dfsg-3_arm64",
+          "name": "libgmp10",
+          "version": "2:6.3.0+dfsg-3"
+        },
+        {
+          "key": "libisl23_0.27-1_arm64",
+          "name": "libisl23",
+          "version": "0.27-1"
+        },
+        {
+          "key": "libmpc3_1.3.1-1-p-b3_arm64",
+          "name": "libmpc3",
+          "version": "1.3.1-1+b3"
+        },
+        {
+          "key": "libmpfr6_4.2.2-1_arm64",
+          "name": "libmpfr6",
+          "version": "4.2.2-1"
+        },
+        {
+          "key": "libzstd1_1.5.7-p-dfsg-1_arm64",
+          "name": "libzstd1",
+          "version": "1.5.7+dfsg-1"
+        },
+        {
+          "key": "zlib1g_1-1.3.dfsg-p-really1.3.1-1-p-b1_arm64",
+          "name": "zlib1g",
+          "version": "1:1.3.dfsg+really1.3.1-1+b1"
+        }
+      ],
+      "filename": "pool/main/g/gcc-14/cpp-14-aarch64-linux-gnu_14.2.0-19_arm64.deb",
+      "key": "cpp-14-aarch64-linux-gnu_14.2.0-19_arm64",
+      "name": "cpp-14-aarch64-linux-gnu",
+      "sha256": "8e588ac3efe06f7784b08feac584c70e6965b74c045bae7e4e80bb42938f7dbe",
+      "size": 9168888,
+      "urls": [
+        "https://snapshot.debian.org/archive/debian/20260912T080811Z/pool/main/g/gcc-14/cpp-14-aarch64-linux-gnu_14.2.0-19_arm64.deb"
+      ],
+      "version": "14.2.0-19"
+    },
+    {
+      "arch": "arm64",
+      "component": "main",
+      "dependencies": [
+        {
+          "key": "cpp-14-aarch64-linux-gnu_14.2.0-19_arm64",
+          "name": "cpp-14-aarch64-linux-gnu",
+          "version": "14.2.0-19"
+        },
+        {
+          "key": "gcc-14-base_14.2.0-19_arm64",
+          "name": "gcc-14-base",
+          "version": "14.2.0-19"
+        }
+      ],
+      "filename": "pool/main/g/gcc-14/cpp-14_14.2.0-19_arm64.deb",
+      "key": "cpp-14_14.2.0-19_arm64",
+      "name": "cpp-14",
+      "sha256": "0b440241f7c3e2e87f2d0f1dd36792c4e2705d38a699ed331818799f21ef9437",
+      "size": 1276,
+      "urls": [
+        "https://snapshot.debian.org/archive/debian/20260912T080811Z/pool/main/g/gcc-14/cpp-14_14.2.0-19_arm64.deb"
+      ],
+      "version": "14.2.0-19"
+    },
+    {
+      "arch": "arm64",
+      "component": "main",
+      "dependencies": [
+        {
+          "key": "cpp-14-aarch64-linux-gnu_14.2.0-19_arm64",
+          "name": "cpp-14-aarch64-linux-gnu",
+          "version": "14.2.0-19"
+        }
+      ],
+      "filename": "pool/main/g/gcc-defaults/cpp-aarch64-linux-gnu_14.2.0-1_arm64.deb",
+      "key": "cpp-aarch64-linux-gnu_4-14.2.0-1_arm64",
+      "name": "cpp-aarch64-linux-gnu",
+      "sha256": "bd9c9f4536a0aea285c4735d2dfedff624f8457b8f1bb3d15ab924e029cd7aff",
+      "size": 4832,
+      "urls": [
+        "https://snapshot.debian.org/archive/debian/20260912T080811Z/pool/main/g/gcc-defaults/cpp-aarch64-linux-gnu_14.2.0-1_arm64.deb"
+      ],
+      "version": "4:14.2.0-1"
+    },
+    {
+      "arch": "arm64",
+      "component": "main",
+      "dependencies": [
+        {
+          "key": "cpp-14_14.2.0-19_arm64",
+          "name": "cpp-14",
+          "version": "14.2.0-19"
+        },
+        {
+          "key": "cpp-aarch64-linux-gnu_4-14.2.0-1_arm64",
+          "name": "cpp-aarch64-linux-gnu",
+          "version": "4:14.2.0-1"
+        }
+      ],
+      "filename": "pool/main/g/gcc-defaults/cpp_14.2.0-1_arm64.deb",
+      "key": "cpp_4-14.2.0-1_arm64",
+      "name": "cpp",
+      "sha256": "88b702b0fa5942a4ee52c27f1ccf6316b831357e86693b709d216ba43348172e",
+      "size": 1568,
+      "urls": [
+        "https://snapshot.debian.org/archive/debian/20260912T080811Z/pool/main/g/gcc-defaults/cpp_14.2.0-1_arm64.deb"
+      ],
+      "version": "4:14.2.0-1"
+    },
+    {
+      "arch": "arm64",
+      "component": "main",
+      "dependencies": [
+        {
           "key": "debianutils_5.23.2_arm64",
           "name": "debianutils",
           "version": "5.23.2"
@@ -611,6 +736,36 @@
         "https://snapshot.debian.org/archive/debian/20260912T080811Z/pool/main/d/debootstrap/debootstrap_1.0.141_all.deb"
       ],
       "version": "1.0.141"
+    },
+    {
+      "arch": "arm64",
+      "component": "main",
+      "dependencies": [
+        {
+          "key": "libc6_2.41-12-p-deb13u4_arm64",
+          "name": "libc6",
+          "version": "2.41-12+deb13u4"
+        },
+        {
+          "key": "libfdt1_1.7.2-2-p-b1_arm64",
+          "name": "libfdt1",
+          "version": "1.7.2-2+b1"
+        },
+        {
+          "key": "libyaml-0-2_0.2.5-2_arm64",
+          "name": "libyaml-0-2",
+          "version": "0.2.5-2"
+        }
+      ],
+      "filename": "pool/main/d/device-tree-compiler/device-tree-compiler_1.7.2-2+b1_arm64.deb",
+      "key": "device-tree-compiler_1.7.2-2-p-b1_arm64",
+      "name": "device-tree-compiler",
+      "sha256": "231b254d0233ea3e613fdfcd9a866cd80cab80c270143de9191ac4064a9058ed",
+      "size": 225580,
+      "urls": [
+        "https://snapshot.debian.org/archive/debian/20260912T080811Z/pool/main/d/device-tree-compiler/device-tree-compiler_1.7.2-2+b1_arm64.deb"
+      ],
+      "version": "1.7.2-2+b1"
     },
     {
       "arch": "arm64",
@@ -2288,6 +2443,26 @@
           "version": "2.41-12+deb13u4"
         }
       ],
+      "filename": "pool/main/d/device-tree-compiler/libfdt1_1.7.2-2+b1_arm64.deb",
+      "key": "libfdt1_1.7.2-2-p-b1_arm64",
+      "name": "libfdt1",
+      "sha256": "43b3435ff8d67a3cbd91f88bdeffcb147f7f5da61fba50cf004505f03025ae1e",
+      "size": 20116,
+      "urls": [
+        "https://snapshot.debian.org/archive/debian/20260912T080811Z/pool/main/d/device-tree-compiler/libfdt1_1.7.2-2+b1_arm64.deb"
+      ],
+      "version": "1.7.2-2+b1"
+    },
+    {
+      "arch": "arm64",
+      "component": "main",
+      "dependencies": [
+        {
+          "key": "libc6_2.41-12-p-deb13u4_arm64",
+          "name": "libc6",
+          "version": "2.41-12+deb13u4"
+        }
+      ],
       "filename": "pool/main/libf/libffi/libffi8_3.4.8-2_arm64.deb",
       "key": "libffi8_3.4.8-2_arm64",
       "name": "libffi8",
@@ -2601,6 +2776,31 @@
           "key": "libc6_2.41-12-p-deb13u4_arm64",
           "name": "libc6",
           "version": "2.41-12+deb13u4"
+        },
+        {
+          "key": "libgmp10_2-6.3.0-p-dfsg-3_arm64",
+          "name": "libgmp10",
+          "version": "2:6.3.0+dfsg-3"
+        }
+      ],
+      "filename": "pool/main/i/isl/libisl23_0.27-1_arm64.deb",
+      "key": "libisl23_0.27-1_arm64",
+      "name": "libisl23",
+      "sha256": "21c490db3fa5f0a517c55090a199334da6164589772ebd922dff1e569c78515d",
+      "size": 600836,
+      "urls": [
+        "https://snapshot.debian.org/archive/debian/20260912T080811Z/pool/main/i/isl/libisl23_0.27-1_arm64.deb"
+      ],
+      "version": "0.27-1"
+    },
+    {
+      "arch": "arm64",
+      "component": "main",
+      "dependencies": [
+        {
+          "key": "libc6_2.41-12-p-deb13u4_arm64",
+          "name": "libc6",
+          "version": "2.41-12+deb13u4"
         }
       ],
       "filename": "pool/main/j/jansson/libjansson4_2.14-2+b3_arm64.deb",
@@ -2811,6 +3011,61 @@
         "https://snapshot.debian.org/archive/debian/20260912T080811Z/pool/main/u/util-linux/libmount1_2.41.5-0+deb13u1_arm64.deb"
       ],
       "version": "2.41.5-0+deb13u1"
+    },
+    {
+      "arch": "arm64",
+      "component": "main",
+      "dependencies": [
+        {
+          "key": "libc6_2.41-12-p-deb13u4_arm64",
+          "name": "libc6",
+          "version": "2.41-12+deb13u4"
+        },
+        {
+          "key": "libgmp10_2-6.3.0-p-dfsg-3_arm64",
+          "name": "libgmp10",
+          "version": "2:6.3.0+dfsg-3"
+        },
+        {
+          "key": "libmpfr6_4.2.2-1_arm64",
+          "name": "libmpfr6",
+          "version": "4.2.2-1"
+        }
+      ],
+      "filename": "pool/main/m/mpclib3/libmpc3_1.3.1-1+b3_arm64.deb",
+      "key": "libmpc3_1.3.1-1-p-b3_arm64",
+      "name": "libmpc3",
+      "sha256": "d4cfe026a624e51641c80ef2af77387185714f62f3b5c87035e62d9ed8d9eec1",
+      "size": 50480,
+      "urls": [
+        "https://snapshot.debian.org/archive/debian/20260912T080811Z/pool/main/m/mpclib3/libmpc3_1.3.1-1+b3_arm64.deb"
+      ],
+      "version": "1.3.1-1+b3"
+    },
+    {
+      "arch": "arm64",
+      "component": "main",
+      "dependencies": [
+        {
+          "key": "libc6_2.41-12-p-deb13u4_arm64",
+          "name": "libc6",
+          "version": "2.41-12+deb13u4"
+        },
+        {
+          "key": "libgmp10_2-6.3.0-p-dfsg-3_arm64",
+          "name": "libgmp10",
+          "version": "2:6.3.0+dfsg-3"
+        }
+      ],
+      "filename": "pool/main/m/mpfr4/libmpfr6_4.2.2-1_arm64.deb",
+      "key": "libmpfr6_4.2.2-1_arm64",
+      "name": "libmpfr6",
+      "sha256": "628a4ef58cc6815880f72e9d3953984a379a017e4042bc575f1fcbf3954d79ac",
+      "size": 685000,
+      "urls": [
+        "https://snapshot.debian.org/archive/debian/20260912T080811Z/pool/main/m/mpfr4/libmpfr6_4.2.2-1_arm64.deb"
+      ],
+      "version": "4.2.2-1"
     },
     {
       "arch": "arm64",
@@ -4150,6 +4405,26 @@
         "https://snapshot.debian.org/archive/debian/20260912T080811Z/pool/main/x/xxhash/libxxhash0_0.8.3-2_arm64.deb"
       ],
       "version": "0.8.3-2"
+    },
+    {
+      "arch": "arm64",
+      "component": "main",
+      "dependencies": [
+        {
+          "key": "libc6_2.41-12-p-deb13u4_arm64",
+          "name": "libc6",
+          "version": "2.41-12+deb13u4"
+        }
+      ],
+      "filename": "pool/main/liby/libyaml/libyaml-0-2_0.2.5-2_arm64.deb",
+      "key": "libyaml-0-2_0.2.5-2_arm64",
+      "name": "libyaml-0-2",
+      "sha256": "c81500b4c93e29ac28cdded7ec5bf9950c75f8c76c386669ccb6fb854c4daf72",
+      "size": 49164,
+      "urls": [
+        "https://snapshot.debian.org/archive/debian/20260912T080811Z/pool/main/liby/libyaml/libyaml-0-2_0.2.5-2_arm64.deb"
+      ],
+      "version": "0.2.5-2"
     },
     {
       "arch": "arm64",
@@ -5713,6 +5988,6 @@
     "snapshot": "20260912T080811Z",
     "snapshot_url": "https://snapshot.debian.org/archive/debian/20260912T080811Z"
   },
-  "spec_sha256": "88e61f07a3fd46bd9ee8d928fcd5637b8a80bee22f075897c47da92ae19404fd",
+  "spec_sha256": "1686548bb5e51983f250962e51303304355e25ee65b5611f700dcfac35cde6a7",
   "version": 1
 }

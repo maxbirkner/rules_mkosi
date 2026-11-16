@@ -83,17 +83,14 @@ class ExtraPackagesTest(unittest.TestCase):
             package.index_entry(),
         )
 
-    def test_repository_and_manifest_list_the_packages_by_name(self) -> None:
+    def test_index_and_manifest_list_the_packages_by_name(self) -> None:
         paths = [self._deb("b.deb", _control("zeta", "1")), self._deb("a.deb", _control("alpha", "3", "amd64"))]
         packages = extra_packages.read_packages(paths, "amd64")
         repository = self.work / "repository"
-        extra_packages.write_repository(packages, repository)
+        extra_packages.write_index(packages, repository)
         index = (repository / "Packages").read_bytes()
-        self.assertEqual(
-            ["Packages", "Release", "alpha_3_amd64.deb", "zeta_1_all.deb"],
-            sorted(entry.name for entry in repository.iterdir()),
-        )
-        self.assertEqual(paths[1].read_bytes(), (repository / "alpha_3_amd64.deb").read_bytes())
+        # The build places the .deb files next to the index, so the index holds no copy of them.
+        self.assertEqual(["Packages", "Release"], sorted(entry.name for entry in repository.iterdir()))
         self.assertLess(index.index(b"Package: alpha"), index.index(b"Package: zeta"))
         self.assertIn(b"\n\nPackage: zeta\n", index)
         self.assertEqual(
@@ -156,24 +153,18 @@ class ExtraPackagesTest(unittest.TestCase):
 
     def test_main_reports_a_classified_failure(self) -> None:
         output = io.StringIO()
-        arguments = ["--architecture", "amd64", "--repository", "repository", "--manifest", "manifest.json"]
+        arguments = ["--architecture", "amd64", "--index", "index", "--manifest", "manifest.json"]
         with contextlib.redirect_stderr(output), self.assertRaises(SystemExit):
             extra_packages.main([*arguments, os.fspath(self._write("text.deb", b"text"))])
         self.assertIn("EXTRA_PACKAGE_FAILURE: ", output.getvalue())
 
-    def test_main_writes_the_repository_and_the_manifest(self) -> None:
+    def test_main_writes_the_index_and_the_manifest(self) -> None:
         path = self._deb("downloaded", _control("pkg"))
-        repository, manifest = self.work / "repository", self.work / "manifest.json"
-        arguments = [
-            "--architecture",
-            "amd64",
-            "--repository",
-            os.fspath(repository),
-            "--manifest",
-            os.fspath(manifest),
-        ]
+        index, manifest = self.work / "index", self.work / "manifest.json"
+        arguments = ["--architecture", "amd64", "--index", os.fspath(index), "--manifest", os.fspath(manifest)]
         extra_packages.main([*arguments, os.fspath(path)])
-        self.assertTrue((repository / "pkg_1.0_all.deb").is_file())
+        self.assertIn(b"Filename: ./pkg_1.0_all.deb\n", (index / "Packages").read_bytes())
+        self.assertEqual(["Packages", "Release"], sorted(entry.name for entry in index.iterdir()))
         self.assertEqual(["pkg"], [package["name"] for package in json.loads(manifest.read_text())["packages"]])
 
 

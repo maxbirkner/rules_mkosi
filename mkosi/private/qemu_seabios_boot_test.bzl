@@ -43,7 +43,6 @@ qemu_seabios_boot_config = rule(
 
 Use it directly only to inspect the validated deadlines through QemuBootConfigInfo.""",
     attrs = adapter_attrs(
-        readiness_marker = "systemd[1]: Hostname set to <rules-mkosi-bios>.",
         machine = "pc",
         shutdown_timeout_seconds = 60,
     ),

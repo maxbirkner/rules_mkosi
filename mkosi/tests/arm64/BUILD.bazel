@@ -3,6 +3,7 @@
 load("@rules_python//python:defs.bzl", "py_test")
 load(
     "//mkosi:defs.bzl",
+    "devicetree",
     "mkosi_base",
     "mkosi_config_tree",
     "mkosi_image",
@@ -18,7 +19,7 @@ load(
 )
 load("//mkosi/tests:analysis_test_helpers.bzl", "expected_failure_test")
 load("//mkosi/tests:mkosi_image_test.bzl", "image_field_file", "raw_image_file")
-load(":arm64_test.bzl", "arm64_boot_config_test", "arm64_image_test", "foreign_architecture_test", "virt_device_tree")
+load(":arm64_test.bzl", "arm64_boot_config_test", "arm64_image_test", "foreign_architecture_test", "qemu_virt_device_tree")
 
 package(default_visibility = ["//mkosi/tests:__subpackages__"])
 
@@ -92,15 +93,14 @@ sysupdate_transfers(
     image_id = "rules-mkosi-arm64",
 )
 
+qemu_virt_device_tree(name = "qemu_virt_dtb")
+
 # QEMU's virt device tree with another model, which systemd-stub selects as a .dtbauto section when the firmware
 # passes QEMU's own device tree, compatible with linux,dummy-virt, instead of ACPI tables.
-virt_device_tree(
+devicetree(
     name = "virt_dtb",
-    compatible = [
-        "linux,dummy-virt",
-        "rules-mkosi,uki-devicetree",
-    ],
-    model = "rules-mkosi UKI device tree",
+    src = ":qemu_virt_dtb",
+    overlays = ["uki-devicetree.dtso"],
 )
 
 # The reusable arm64 release fixture: a UKI with device trees from a label and from the kernel package, a dm-verity
@@ -245,8 +245,6 @@ arm64_image_test(
 qemu_ovmf_boot_test(
     name = "uki_release_boot_test",
     image = ":uki_release",
-    # Only the root file system's systemd logs it, after the switch from the initrd.
-    readiness_marker = "systemd[1]: Detected first boot.",
 )
 
 arm64_boot_config_test(

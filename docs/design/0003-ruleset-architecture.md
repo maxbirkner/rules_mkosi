@@ -84,6 +84,7 @@ Every user-visible failure keeps the original tool output and adds one category 
 | `TOOLCHAIN_FAILURE` | A Bazel-provided executable or runfile could not start. |
 | `NETWORK_FAILURE` | mkosi package acquisition failed with a network signal. |
 | `ASSEMBLY_FAILURE` | mkosi failed for another reason. |
+| `IMAGE_LAYOUT_FAILURE` | The partition metadata projection rejected a partition that firmware cannot use, such as a FAT32 ESP with fewer than 65525 clusters. |
 | `VM_FAILURE` | QEMU, firmware, or the guest failed; the subtype and logs are retained. |
 
 ## Coverage

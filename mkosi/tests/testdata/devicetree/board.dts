@@ -1,0 +1,16 @@
+/dts-v1/;
+
+#include <dt-bindings/rules-mkosi-leds.h>
+#include "soc.dtsi"
+
+/ {
+	model = BOARD_MODEL;
+	compatible = "rules-mkosi,test-board", "rules-mkosi,test-soc";
+
+	leds {
+		status_led: led-status {
+			label = "status";
+			function-enumerator = <LED_STATUS>;
+		};
+	};
+};

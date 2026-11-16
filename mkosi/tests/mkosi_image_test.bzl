@@ -281,7 +281,7 @@ def _debian_tools_provider_test_impl(ctx):
     asserts.equals(env, "python", info.python.basename)
     asserts.true(env, info.launcher.executable != None)
     asserts.true(env, info.tree_files_to_run.executable == None)
-    asserts.equals(env, 15, len(info.required_components))
+    asserts.equals(env, 18, len(info.required_components))
     asserts.true(env, info.provenance.basename == "provenance.bzl")
     asserts.equals(env, ["arm64"], info.user_mode_emulators.keys())
     asserts.equals(env, "qemu-user-linux-amd64-aarch64", info.user_mode_emulators["arm64"].basename)
@@ -309,39 +309,42 @@ def _arm64_host_qemu_toolchain_provider_test_impl(ctx):
 
 arm64_host_qemu_toolchain_provider_test = analysistest.make(_arm64_host_qemu_toolchain_provider_test_impl)
 
+# The default readiness_marker of the boot tests, which only the root file system's systemd logs.
+_ROOT_READINESS_MARKER = "systemd[1]: initrd-switch-root.service: Deactivated successfully."
+
+def _has_inputs(action, basenames):
+    inputs = [file.basename for file in action.inputs.to_list()]
+    return all([basename in inputs for basename in basenames])
+
 def _written_boot_config(env):
     config_writes = [action for action in analysistest.target_actions(env) if action.mnemonic == "FileWrite"]
     asserts.equals(env, 1, len(config_writes))
     return json.decode(config_writes[0].content)
 
-def _boot_config_test_impl(ctx):
-    env = analysistest.begin(ctx)
+def _check_boot_config(env, config_name, firmware_name):
     target = analysistest.target_under_test(env)
     output = target[DefaultInfo].files.to_list()[0]
-    asserts.equals(env, "analysis_boot_test_config.json", output.basename)
-    asserts.equals(env, _KVM_WITH_TCG_FALLBACK, _written_boot_config(env)["accelerator_args"])
+    asserts.equals(env, config_name, output.basename)
+    config = _written_boot_config(env)
+    asserts.equals(env, _KVM_WITH_TCG_FALLBACK, config["accelerator_args"])
+    asserts.equals(env, _ROOT_READINESS_MARKER, config["readiness_marker"])
     runfile_names = [
         file.basename
         for file in target[DefaultInfo].default_runfiles.files.to_list()
     ]
-    asserts.true(env, "code.fd" in runfile_names)
+    asserts.true(env, firmware_name in runfile_names)
     asserts.true(env, "kernel_preflight" in runfile_names)
+
+def _boot_config_test_impl(ctx):
+    env = analysistest.begin(ctx)
+    _check_boot_config(env, "analysis_boot_test_config.json", "code.fd")
     return analysistest.end(env)
 
 boot_config_test = analysistest.make(_boot_config_test_impl)
 
 def _seabios_boot_config_test_impl(ctx):
     env = analysistest.begin(ctx)
-    target = analysistest.target_under_test(env)
-    output = target[DefaultInfo].files.to_list()[0]
-    asserts.equals(env, "analysis_bios_boot_test_config.json", output.basename)
-    asserts.equals(env, _KVM_WITH_TCG_FALLBACK, _written_boot_config(env)["accelerator_args"])
-    runfile_names = [
-        file.basename
-        for file in target[DefaultInfo].default_runfiles.files.to_list()
-    ]
-    asserts.true(env, "seabios.bin" in runfile_names)
-    asserts.true(env, "kernel_preflight" in runfile_names)
+    _check_boot_config(env, "analysis_bios_boot_test_config.json", "seabios.bin")
     return analysistest.end(env)
 
 seabios_boot_config_test = analysistest.make(_seabios_boot_config_test_impl)
@@ -574,7 +577,7 @@ def _release_provider_test_impl(ctx):
     asserts.equals(env, 1, len(partition_actions))
     asserts.true(env, info.partition_metadata in partition_actions[0].outputs.to_list())
     asserts.true(env, info.raw_image in partition_actions[0].inputs.to_list())
-    asserts.true(env, any([file.basename == "partition_metadata.py" for file in partition_actions[0].inputs.to_list()]))
+    asserts.true(env, _has_inputs(partition_actions[0], ["partition_metadata.py", "diagnostics.py"]))
     asserts.false(env, any([file.basename == "launcher" for file in partition_actions[0].inputs.to_list()]))
     asserts.equals(
         env,

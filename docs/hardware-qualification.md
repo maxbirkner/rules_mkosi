@@ -97,6 +97,8 @@ VM gates do not replace physical gates, and physical gates do not replace VM gat
 | UKI and dm-verity | `e2e/smoke` `//:release_demo_verity_boot_test`, `//:release_demo_verity_corruption_boot_test` | The verity root mounts, and a corrupted root is rejected. |
 | A/B updates | `e2e/smoke` `//:sysupdate_lifecycle_test` | A signed HTTP update is blessed, and a failing release rolls back. |
 | Secure Boot | `e2e/smoke` `//:secure_boot_lifecycle_test` | Keys enroll from Setup Mode, signed updates boot, and an unsigned UKI is refused. |
+| arm64 cross builds | `//mkosi/private:binfmt_runner_host_test`, `//mkosi/tests/arm64:all`, `e2e/smoke` `//:arm64_demo_boot_test`, `//:arm64_sysupdate_lifecycle_test` | Linux x86-64 cross-builds arm64 release images, which boot under TCG and update themselves. |
+| Native arm64 | The `Native arm64` CI job on `ubuntu-22.04-arm` | Linux aarch64 builds and boots the arm64 fixtures with the arm64 Debian tools and QEMU. |
 | Reproducibility | `ci/verify-release-reproducibility.sh`, `e2e/smoke` `//:release_demo_reproducibility_test` | Release images rebuild to identical manifests. |
 
 Only physical gates cover vendor firmware (boot entries, removable-media fallback, key enrollment, option ROMs), storage controllers and their initrd drivers, Wi-Fi firmware, displays, real TPMs, and power cycling.

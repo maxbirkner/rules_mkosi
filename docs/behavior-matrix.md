@@ -44,6 +44,10 @@ A release build fails if a positive `Devicetrees=` pattern selects no device tre
 An arm64 UKI booted on QEMU's `virt` machine without ACPI installs its `.dtbauto` section that is compatible with `linux,dummy-virt`, and Linux uses that device tree.
 The UKI metadata lists each `.dtb` and `.dtbauto` section with its root compatible strings, size and SHA-256, and rejects a section that is not a device tree or a `.dtbauto` section without a compatible string.
 
+<!-- behavior:BHV-DEVICETREE-RULE -->
+`devicetree` preprocesses its `.dts` source and overlay sources with `cpp -nostdinc -undef -x assembler-with-cpp` from the pinned Debian tools, with `includes` relative to the package and `defines`, compiles them with `dtc`, or takes a `.dtb`, and applies the overlays in order with `fdtoverlay`.
+It rejects defines that are not C identifiers and include directories outside the package during analysis, and fails the build unless the result is a device tree whose root has a compatible string.
+
 <!-- behavior:BHV-IMAGE-EPOCH -->
 `release_source_date_epoch` is a non-negative value, required only in release mode, that must match the resolved `SourceDateEpoch=`.
 
@@ -97,6 +101,7 @@ Both boot adapters require `MkosiImageInfo.raw_image`; the SeaBIOS adapter also 
 
 <!-- behavior:BHV-BOOT-MARKERS -->
 `readiness_marker` and every `shutdown_markers` entry are nonempty exact serial markers that gate readiness and clean shutdown.
+The default `readiness_marker` is the line that only the root file system's systemd logs after the switch from a systemd initrd, so a boot that fails in the initrd does not count as ready.
 
 <!-- behavior:BHV-BOOT-MACHINE -->
 `machine_args` precede the CPU model of the image's architecture and the adapter's firmware arguments: OVMF flash drives, or the SeaBIOS ROM and debug console.
@@ -210,6 +215,7 @@ Any host can build and verify the arm64 archive and cross-build the static aarch
 
 <!-- behavior:BHV-PARTITION-METADATA -->
 Release `partition_metadata` validates both GPT copies, keeps slot numbers, and omits random disk and partition GUIDs.
+It fails the build of a UEFI image with an image layout failure for a FAT32 ESP with fewer than 65525 clusters, which UEFI firmware such as OVMF and AAVMF does not mount, and names the minimum `SizeMinBytes=`.
 Versioned dm-verity images require exactly one populated root and verity slot with `<id>_<version>` labels, allow larger-or-equal `_empty` slots, and record root-hash UUIDs.
 BIOS images require one BIOS boot partition of at least 1 MiB.
 Tracer images have no partition metadata.
@@ -257,7 +263,7 @@ Without the flag they are built for the Linux musl platform of the host's CPU, a
 rules_mkosi's static musl toolchain, the `llvm` module's C/C++ toolchain, matches only the bootstrap executables and outranks every registered C/C++ toolchain for them, including the consumer's own registration of the `llvm` module's toolchains, and the LLVM toolchain and runtime sources are downloaded only when one is built.
 
 <!-- behavior:BHV-ACTION-FAILURES -->
-Failures keep tool output and are classified as kernel capability, toolchain, network, package resolution, extra package, assembly, or VM failures with one remediation.
+Failures keep tool output and are classified as kernel capability, toolchain, network, package resolution, extra package, assembly, image layout, or VM failures with one remediation.
 SeaBIOS failures distinguish a missing boot sector, GRUB failure, kernel or initrd failure, readiness timeout, and shutdown failure, and boot logs are kept as test outputs.
 
 <!-- behavior:BHV-STAGING-FAILURES -->
