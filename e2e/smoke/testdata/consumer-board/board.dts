@@ -1,0 +1,8 @@
+/dts-v1/;
+
+#include <consumer-board.h>
+
+/ {
+	model = BOARD_MODEL;
+	compatible = BOARD_COMPATIBLE;
+};

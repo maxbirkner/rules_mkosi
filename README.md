@@ -382,7 +382,7 @@ mkosi selects them in sorted path order, so the sections do not depend on the fi
 A release build fails if a pattern without `-` selects no device tree of the image's kernel, or if the patterns select none, where mkosi only warns.
 The [UKI metadata](#providers) (`MkosiImageInfo.uki_metadata`) lists each `.dtb` and `.dtbauto` section under `devicetrees`, with the root compatible strings, the size and the SHA-256 of the device tree, which equals the digest of the selected `.dtb` file; `mkosi_reproducibility_manifest` records the metadata.
 Building it fails for a section that is not a device tree, or a `.dtbauto` section without a compatible string, which systemd-stub could never select.
-Device tree overlays are not applied: systemd-stub does not apply `.dtbo` files, so merge them into the `.dtb` before it is installed.
+Device tree overlays are not applied: systemd-stub does not apply `.dtbo` files, so merge them into the `.dtb` with the [`devicetree`](#compiling-device-trees) rule before it is installed.
 
 A compiled device tree from anywhere else, such as a board vendor's download or another Bazel rule, goes into `devicetrees`:
 
@@ -405,6 +405,29 @@ The files are build inputs, so a changed device tree changes the cache key and a
 
 To boot a UKI with its device tree under QEMU, note that the firmware of the arm64 `virt` machine passes ACPI tables and no device tree, so systemd-stub selects no `.dtbauto` section.
 With `machine_args = ["-machine", "virt,acpi=off", "-m", "1G"]` on `qemu_ovmf_boot_test`, it passes QEMU's device tree, whose compatible string is `linux,dummy-virt`, and a `.dtbauto` section with that first compatible string replaces it; `//mkosi/tests/arm64:uki_release_devicetree_boot_test` checks this with a modified copy of QEMU's device tree.
+
+#### Compiling device trees
+
+`devicetree` builds `<name>.dtb` from a board's `.dts` source, or from a compiled `.dtb`, and overlays, with `cpp`, `dtc` and `fdtoverlay` from the pinned Debian tools:
+
+```starlark
+load("@rules_mkosi//mkosi:defs.bzl", "devicetree")
+
+devicetree(
+    name = "board",
+    src = "board.dts",
+    hdrs = glob(["*.dtsi", "include/dt-bindings/**/*.h"]),
+    includes = ["include"],
+    defines = ["BOARD_REVISION=2"],
+    overlays = ["display.dtso"],
+)
+```
+
+Like the Linux kernel's build, it preprocesses each source with `cpp -nostdinc -undef -x assembler-with-cpp -D__DTS__`, so that sources can `#include` dt-bindings headers and use macros, then compiles it with `dtc`.
+`hdrs` lists the files that sources include, and `includes` the directories, relative to the package, that `#include <...>` and `/include/` search.
+With `overlays`, `.dts`/`.dtso` sources with `/plugin/;` or compiled `.dtbo` files, the base is compiled with symbols, so that overlays can refer to its labels, and `fdtoverlay` applies the overlays in order and fails if one does not apply.
+The result must be a device tree whose root has a compatible string; pass it to `mkosi_image(devicetrees = ...)`.
+The tools run without network and the output does not depend on the build time.
 
 ### Image identity
 

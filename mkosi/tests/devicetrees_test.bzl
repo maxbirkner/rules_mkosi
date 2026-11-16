@@ -1,7 +1,7 @@
 """Analysis tests for the devicetrees of mkosi_image."""
 
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts")
-load("//mkosi:defs.bzl", "mkosi_image")
+load("//mkosi:defs.bzl", "devicetree", "mkosi_image")
 load(":analysis_test_helpers.bzl", "argv_preamble", "expected_failure_test", "option_value", "single_action")
 
 _SNAPSHOT = "@mkosi_debian_snapshot//:repository"
@@ -44,12 +44,13 @@ def _release_image(name, devicetrees, unified_kernel_image = "unsigned"):
     )
 
 def _device_tree(name, output, compatible):
-    native.genrule(
-        name = name,
-        outs = [output],
-        cmd = "$(execpath :encode_device_tree) --compatible {} $@".format(compatible),
-        tools = [":encode_device_tree"],
+    """Compiles testdata/devicetrees/board.dts with compatible into output, a .dtb path, with name as an alias."""
+    devicetree(
+        name = output.removesuffix(".dtb"),
+        src = "testdata/devicetrees/board.dts",
+        defines = ["COMPATIBLE=\"{}\"".format(compatible)],
     )
+    native.alias(name = name, actual = ":" + output.removesuffix(".dtb"))
 
 def _declare_failures():
     """Declares subjects that analysis must reject and returns their tests."""

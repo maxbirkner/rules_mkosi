@@ -48,6 +48,49 @@ Declare it through the debian_tools.snapshot module extension, which generates t
 | <a id="debian_snapshot-snapshot_url"></a>snapshot_url |  Immutable snapshot URL.   | String | required |  |
 
 
+<a id="devicetree"></a>
+
+## devicetree
+
+<pre>
+load("@rules_mkosi//mkosi:defs.bzl", "devicetree")
+
+devicetree(<a href="#devicetree-name">name</a>, <a href="#devicetree-src">src</a>, <a href="#devicetree-hdrs">hdrs</a>, <a href="#devicetree-defines">defines</a>, <a href="#devicetree-includes">includes</a>, <a href="#devicetree-overlays">overlays</a>)
+</pre>
+
+Builds a device tree blob, `<name>.dtb`, for `mkosi_image(devicetrees = ...)`.
+
+It compiles `src` like the Linux kernel's build: `cpp -nostdinc -undef -x assembler-with-cpp -D__DTS__` with
+`includes` and `defines`, so that sources can `#include` headers such as `<dt-bindings/gpio/gpio.h>` and use macros,
+then `dtc`. `cpp`, `dtc` and `fdtoverlay` come from the pinned Debian tools and run without network; the output does
+not depend on the build time, because `SOURCE_DATE_EPOCH` is 0 for `__DATE__` and `__TIME__`. With `overlays`, the base
+is compiled with symbols (`dtc -@`) and `fdtoverlay` applies the overlays in order, failing if one does not apply.
+The result must be a flattened device tree whose root node has a compatible string.
+
+```starlark
+devicetree(
+    name = "board",
+    src = "board.dts",
+    hdrs = glob(["*.dtsi", "include/dt-bindings/**/*.h"]),
+    includes = ["include"],
+    overlays = ["display.dtso"],
+    defines = ["BOARD_REVISION=2"],
+)
+```
+
+**ATTRIBUTES**
+
+
+| Name  | Description | Type | Mandatory | Default |
+| :------------- | :------------- | :------------- | :------------- | :------------- |
+| <a id="devicetree-name"></a>name |  A unique name for this target.   | <a href="https://bazel.build/concepts/labels#target-names">Name</a> | required |  |
+| <a id="devicetree-src"></a>src |  The device tree source to compile, or a compiled `.dtb` to apply `overlays` to.   | <a href="https://bazel.build/concepts/labels">Label</a> | required |  |
+| <a id="devicetree-hdrs"></a>hdrs |  Files that `src` and the overlay sources include, with `#include` or dtc's `/include/`.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
+| <a id="devicetree-defines"></a>defines |  Preprocessor definitions, `NAME` or `NAME=VALUE`, for `src` and the overlay sources.   | List of strings | optional |  `[]`  |
+| <a id="devicetree-includes"></a>includes |  Include directories, relative to this package, searched for `#include <...>` and `/include/`.<br><br>Each applies to the source and the generated files of the package. Quoted includes also search the including file's directory.   | List of strings | optional |  `[]`  |
+| <a id="devicetree-overlays"></a>overlays |  Overlays to apply in order: sources with `/plugin/;`, compiled like `src`, or compiled `.dtbo` files. Overlays can refer to the base's labels, such as `&uart0`, and to paths, such as `&{/soc}`.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
+
+
 <a id="mkosi_base"></a>
 
 ## mkosi_base

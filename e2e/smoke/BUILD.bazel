@@ -2,6 +2,7 @@ load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load(
     "@rules_mkosi//mkosi:defs.bzl",
     "debian_lock",
+    "devicetree",
     "managed_python_test",
     "mkosi_base",
     "mkosi_config_tree",
@@ -191,18 +192,14 @@ mkosi_config_tree(
     strip_prefix = "testdata/arm64-release-config",
 )
 
-py_binary(
-    name = "device_tree_encoder",
-    srcs = ["@rules_mkosi//mkosi/tests:devicetree_fixture.py"],
-    main = "@rules_mkosi//mkosi/tests:devicetree_fixture.py",
-)
-
-# A board's device tree from another Bazel rule.
-genrule(
+# A board's device tree, compiled from a source with an include and an overlay.
+devicetree(
     name = "consumer_board_dtb",
-    outs = ["consumer-board.dtb"],
-    cmd = "$(execpath :device_tree_encoder) --compatible consumer,board $@",
-    tools = [":device_tree_encoder"],
+    src = "testdata/consumer-board/board.dts",
+    hdrs = ["testdata/consumer-board/include/consumer-board.h"],
+    defines = ["BOARD_MODEL=\"Consumer board\""],
+    includes = ["testdata/consumer-board/include"],
+    overlays = ["testdata/consumer-board/display.dtso"],
 )
 
 # Cross-built on Linux x86-64 execution platforms: its maintainer scripts run under the toolchain's arm64 emulator.

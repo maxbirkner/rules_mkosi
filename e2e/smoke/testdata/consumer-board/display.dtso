@@ -1,0 +1,8 @@
+/dts-v1/;
+/plugin/;
+
+#include <consumer-board.h>
+
+&{/} {
+	compatible = "consumer,board-display", BOARD_COMPATIBLE;
+};

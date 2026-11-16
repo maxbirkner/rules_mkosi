@@ -1,0 +1,8 @@
+/dts-v1/;
+/plugin/;
+
+/* Linux prints the model as "Machine model: ..." when it uses this device tree instead of QEMU's. */
+&{/} {
+	model = "rules-mkosi UKI device tree";
+	compatible = "linux,dummy-virt", "rules-mkosi,uki-devicetree";
+};
