@@ -28,6 +28,8 @@ On a Linux aarch64 host, add `--config=linux_aarch64` to root-module commands, s
 The checked-in `.bazelrc` files keep a disk cache in each module's `.cache/bazel-disk`, so the root module and `e2e/smoke` never share cached action results.
 Every clone and Git worktree therefore fills its own disk cache.
 Pass `--disk_cache=` to skip it for one command, or add `build --disk_cache=` to the ignored `.bazelrc.user` of the root module to skip it in that checkout.
+`--sandbox_debug` keeps the sandbox of every action under `$(bazel info output_base)/sandbox`, or under `--sandbox_base` when set, which can grow to tens of gigabytes; after debugging, run `bazel shutdown` and delete those sandboxes.
+`git worktree move` keeps the old `bazel-<old name>` convenience symlink in the moved worktree, and `//...` patterns then descend into the old output tree; delete that symlink after moving.
 See [`e2e/README.md`](e2e/README.md) for the consumer and module-resolution fixtures.
 
 ### Python type annotations
@@ -76,7 +78,7 @@ Plain `bazel test //...` runs the complete suite on a capable host.
 Executable tests use only the semantic tags `requires-network`, `requires_kernel_contract`, and `manifest`.
 
 On hosts that restrict unprivileged user namespaces with AppArmor, such as Ubuntu 24.04 with `kernel.apparmor_restrict_unprivileged_userns=1`, plain `unshare -Ur` in a shell may fail, for example with `write failed /proc/self/uid_map: Operation not permitted`, while the same namespace operations succeed in actions and tests under Bazel's Linux sandbox.
-Try namespace behavior in a Bazel test, such as the `kernel_preflight` tests, rather than with `unshare` in a shell.
+Try namespace behavior in a Bazel test, such as the `kernel_preflight` tests, rather than with `unshare` in a shell; image builds, including arm64 cross builds, work locally under the sandbox on such hosts too.
 `manual` is reserved for analysis-test subjects that must not run on their own.
 
 Images that tests build set `debian_snapshot`, so builds never download packages and do not depend on `snapshot.debian.org` being available.
@@ -107,6 +109,7 @@ bazel run //mkosi/debian:refresh_debian_tools -- --snapshot 20260912T080811Z \
 
 It regenerates both locks, rewrites `mkosi/debian/provenance.bzl` including the lock digests and the archive digest, which it builds `@mkosi_debian_tools//:tree` to compute, and moves the test configurations and README examples to the new snapshot.
 Tests read the expected values from `provenance.bzl`.
+`_debian_tools_provider_test` in `mkosi/tests/mkosi_image_test.bzl` also counts the required components, so run `bazel test //mkosi/tests:analysis_tests` locally before pushing any change to the Debian tools specs, locks, or components.
 
 ### mkosi versions
 

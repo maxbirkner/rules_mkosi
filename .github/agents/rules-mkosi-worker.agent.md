@@ -53,6 +53,14 @@ relevant skills, and design documents. Do not merge your pull request.
    independent review of the exact head SHA. Never approve or merge your own
    work.
 
+## Merges and stacked pull requests
+
+- Check every merge before committing it: run `git grep -n '^<<<<<<<\|^>>>>>>>'` and `prek run --all-files` while the merge is still in progress.
+  The `check-merge-conflict` hook looks for conflict markers only then, and add/add conflicts after a squash-merged base have left markers in a committed merge.
+- After the base of a stacked pull request is squash-merged, retarget the stacked one with `gh pr edit <number> --base main`.
+  This merges cleanly when the branch already has the base's final content, and only the PR title check reruns.
+  Otherwise merge `origin/main`, take the branch side of the add/add conflicts in files that the base added, and verify that `git diff <previous head> HEAD` is empty, or shows only changes that `main` received besides the base.
+
 ## Worker handoff
 
 Provide:
