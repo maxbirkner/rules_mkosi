@@ -371,14 +371,15 @@ Starts a minimal QEMU/OVMF process and terminates through QMP.
 load("@rules_mkosi//mkosi:defs.bzl", "qemu_ovmf_toolchain")
 
 qemu_ovmf_toolchain(<a href="#qemu_ovmf_toolchain-name">name</a>, <a href="#qemu_ovmf_toolchain-aarch64_qemu_sha256">aarch64_qemu_sha256</a>, <a href="#qemu_ovmf_toolchain-aarch64_qemu_source_url">aarch64_qemu_source_url</a>, <a href="#qemu_ovmf_toolchain-aarch64_qemu_system">aarch64_qemu_system</a>,
-                    <a href="#qemu_ovmf_toolchain-aavmf_code">aavmf_code</a>, <a href="#qemu_ovmf_toolchain-aavmf_code_sha256">aavmf_code_sha256</a>, <a href="#qemu_ovmf_toolchain-aavmf_vars">aavmf_vars</a>, <a href="#qemu_ovmf_toolchain-aavmf_vars_sha256">aavmf_vars_sha256</a>, <a href="#qemu_ovmf_toolchain-format_version">format_version</a>,
-                    <a href="#qemu_ovmf_toolchain-ovmf_code">ovmf_code</a>, <a href="#qemu_ovmf_toolchain-ovmf_code_sha256">ovmf_code_sha256</a>, <a href="#qemu_ovmf_toolchain-ovmf_integrity">ovmf_integrity</a>, <a href="#qemu_ovmf_toolchain-ovmf_sha256">ovmf_sha256</a>, <a href="#qemu_ovmf_toolchain-ovmf_shell">ovmf_shell</a>,
-                    <a href="#qemu_ovmf_toolchain-ovmf_shell_sha256">ovmf_shell_sha256</a>, <a href="#qemu_ovmf_toolchain-ovmf_source_url">ovmf_source_url</a>, <a href="#qemu_ovmf_toolchain-ovmf_vars">ovmf_vars</a>, <a href="#qemu_ovmf_toolchain-ovmf_vars_sha256">ovmf_vars_sha256</a>, <a href="#qemu_ovmf_toolchain-ovmf_version">ovmf_version</a>,
-                    <a href="#qemu_ovmf_toolchain-qemu_img">qemu_img</a>, <a href="#qemu_ovmf_toolchain-qemu_integrity">qemu_integrity</a>, <a href="#qemu_ovmf_toolchain-qemu_sha256">qemu_sha256</a>, <a href="#qemu_ovmf_toolchain-qemu_source_url">qemu_source_url</a>, <a href="#qemu_ovmf_toolchain-qemu_system">qemu_system</a>, <a href="#qemu_ovmf_toolchain-qemu_version">qemu_version</a>,
-                    <a href="#qemu_ovmf_toolchain-seabios">seabios</a>, <a href="#qemu_ovmf_toolchain-seabios_sha256">seabios_sha256</a>, <a href="#qemu_ovmf_toolchain-seabios_version">seabios_version</a>, <a href="#qemu_ovmf_toolchain-system_data">system_data</a>, <a href="#qemu_ovmf_toolchain-system_data_anchor">system_data_anchor</a>)
+                    <a href="#qemu_ovmf_toolchain-aavmf_code">aavmf_code</a>, <a href="#qemu_ovmf_toolchain-aavmf_code_sha256">aavmf_code_sha256</a>, <a href="#qemu_ovmf_toolchain-aavmf_vars">aavmf_vars</a>, <a href="#qemu_ovmf_toolchain-aavmf_vars_sha256">aavmf_vars_sha256</a>, <a href="#qemu_ovmf_toolchain-execution_cpu">execution_cpu</a>,
+                    <a href="#qemu_ovmf_toolchain-format_version">format_version</a>, <a href="#qemu_ovmf_toolchain-ovmf_code">ovmf_code</a>, <a href="#qemu_ovmf_toolchain-ovmf_code_sha256">ovmf_code_sha256</a>, <a href="#qemu_ovmf_toolchain-ovmf_integrity">ovmf_integrity</a>, <a href="#qemu_ovmf_toolchain-ovmf_sha256">ovmf_sha256</a>,
+                    <a href="#qemu_ovmf_toolchain-ovmf_shell">ovmf_shell</a>, <a href="#qemu_ovmf_toolchain-ovmf_shell_sha256">ovmf_shell_sha256</a>, <a href="#qemu_ovmf_toolchain-ovmf_source_url">ovmf_source_url</a>, <a href="#qemu_ovmf_toolchain-ovmf_vars">ovmf_vars</a>, <a href="#qemu_ovmf_toolchain-ovmf_vars_sha256">ovmf_vars_sha256</a>,
+                    <a href="#qemu_ovmf_toolchain-ovmf_version">ovmf_version</a>, <a href="#qemu_ovmf_toolchain-qemu_img">qemu_img</a>, <a href="#qemu_ovmf_toolchain-qemu_integrity">qemu_integrity</a>, <a href="#qemu_ovmf_toolchain-qemu_sha256">qemu_sha256</a>, <a href="#qemu_ovmf_toolchain-qemu_source_url">qemu_source_url</a>, <a href="#qemu_ovmf_toolchain-qemu_system">qemu_system</a>,
+                    <a href="#qemu_ovmf_toolchain-qemu_version">qemu_version</a>, <a href="#qemu_ovmf_toolchain-seabios">seabios</a>, <a href="#qemu_ovmf_toolchain-seabios_sha256">seabios_sha256</a>, <a href="#qemu_ovmf_toolchain-seabios_version">seabios_version</a>, <a href="#qemu_ovmf_toolchain-system_data">system_data</a>,
+                    <a href="#qemu_ovmf_toolchain-system_data_anchor">system_data_anchor</a>)
 </pre>
 
-Defines a Linux x86-64 QEMU and UEFI firmware test toolchain for amd64 and arm64 guests.
+Defines a Linux x86-64 or aarch64 QEMU and UEFI firmware test toolchain for amd64 and arm64 guests.
 
 **ATTRIBUTES**
 
@@ -393,6 +394,7 @@ Defines a Linux x86-64 QEMU and UEFI firmware test toolchain for amd64 and arm64
 | <a id="qemu_ovmf_toolchain-aavmf_code_sha256"></a>aavmf_code_sha256 |  AAVMF code hash.   | String | required |  |
 | <a id="qemu_ovmf_toolchain-aavmf_vars"></a>aavmf_vars |  AAVMF variable store template of arm64 guests.   | <a href="https://bazel.build/concepts/labels">Label</a> | required |  |
 | <a id="qemu_ovmf_toolchain-aavmf_vars_sha256"></a>aavmf_vars_sha256 |  AAVMF variable store hash.   | String | required |  |
+| <a id="qemu_ovmf_toolchain-execution_cpu"></a>execution_cpu |  CPU of the Linux execution platforms that run the QEMU binaries; guests of its architecture may use KVM.   | String | optional |  `"x86_64"`  |
 | <a id="qemu_ovmf_toolchain-format_version"></a>format_version |  Output contract implemented by this toolchain.   | String | optional |  `"qemu-ovmf-v1"`  |
 | <a id="qemu_ovmf_toolchain-ovmf_code"></a>ovmf_code |  OVMF_CODE firmware.   | <a href="https://bazel.build/concepts/labels">Label</a> | required |  |
 | <a id="qemu_ovmf_toolchain-ovmf_code_sha256"></a>ovmf_code_sha256 |  OVMF_CODE hash.   | String | required |  |
