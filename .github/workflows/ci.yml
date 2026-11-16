@@ -773,21 +773,35 @@ jobs:
             name: native-arm64
           repository-cache: true
 
+      - name: Enable KVM for QEMU boot tests where the runner has it
+        run: |
+          if [ ! -e /dev/kvm ]; then
+            echo "The runner has no /dev/kvm; arm64 guests boot under TCG."
+            exit 0
+          fi
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' |
+            sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          sudo udevadm settle
+          ls -l /dev/kvm
+
       - name: Qualify host kernel
         run: |
           uname -m
           server-identity bazel test --config=kernel_preflight --config=linux_aarch64 \
             //mkosi/private:kernel_preflight_host_test
 
-      - name: Build arm64 images natively
+      - name: Build and boot arm64 images natively
         run: |
           # The arm64 Debian tools and the mkosi toolchain of the Linux aarch64 execution platform build the images
-          # without an emulator.
+          # without an emulator, and the QEMU toolchain of Linux aarch64 hosts boots them natively.
           server-identity bazel test --config=qualified --config=linux_aarch64 \
             //mkosi/tests:debian_tools_arm64_preflight_test \
             //mkosi/tests:debian_tools_launcher_probe_test \
             //mkosi/tests/arm64:minimal_artifact_test \
-            //mkosi/tests/arm64:uki_release_artifact_test
+            //mkosi/tests/arm64:uki_release_artifact_test \
+            //mkosi/tests/arm64:uki_release_boot_test
 
   conclusion:
     name: CI conclusion
