@@ -16,11 +16,15 @@ import subprocess
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 _load_sibling = runpy.run_path(str(Path(__file__).with_name("sibling_loader.py")))["load_sibling"]
-openpgp = _load_sibling(__file__, "openpgp")
-run_tool = _load_sibling(__file__, "launcher_tool").run_tool
+if TYPE_CHECKING:
+    from mkosi.private import openpgp
+    from mkosi.private.launcher_tool import run_tool
+else:
+    openpgp = _load_sibling(__file__, "openpgp")
+    run_tool = _load_sibling(__file__, "launcher_tool").run_tool
 
 FORMAT_VERSION = "mkosi-sysupdate-signing-request-v1"
 CONTEXT = "systemd-sysupdate-sha256sums"

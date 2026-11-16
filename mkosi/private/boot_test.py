@@ -1,5 +1,7 @@
 """Deterministic serial-console boot lifecycle used by Bazel boot tests."""
 
+from __future__ import annotations
+
 import json
 import os
 
@@ -17,12 +19,16 @@ import subprocess
 import sys
 import time
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from typing import Any, BinaryIO, NoReturn, TypeAlias
+from typing import TYPE_CHECKING, Any, BinaryIO, NoReturn, TypeAlias
 
 _load_sibling = runpy.run_path(str(pathlib.Path(__file__).with_name("sibling_loader.py")))["load_sibling"]
-diagnostics = _load_sibling(__file__, "diagnostics")
+if TYPE_CHECKING:
+    from _typeshed import StrPath
 
-StrPath: TypeAlias = str | os.PathLike[str]
+    from mkosi.private import diagnostics
+else:
+    diagnostics = _load_sibling(__file__, "diagnostics")
+
 # A file or directory, or a mapping of a directory's relative file names to files when only a runfiles manifest lists
 # them.
 _ShareSource: TypeAlias = str | dict[str, str]
@@ -32,8 +38,7 @@ class QmpHandshakeError(RuntimeError):
     """QEMU did not complete its management initialization handshake."""
 
 
-# diagnostics.fail() exits, but mypy cannot see its NoReturn type through the sibling loader.
-def _resolve_runfile(path: str) -> str:  # type: ignore[return]
+def _resolve_runfile(path: str) -> str:
     if os.path.isabs(path):
         return path
     manifest = os.environ.get("RUNFILES_MANIFEST_FILE")

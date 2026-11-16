@@ -25,12 +25,12 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, NamedTuple
 
-if TYPE_CHECKING:
-    from mkosi.private.secure_boot import Der
-
 _load_sibling = runpy.run_path(str(Path(__file__).with_name("sibling_loader.py")))["load_sibling"]
-secure_boot = _load_sibling(__file__, "secure_boot")
-file_hashing = _load_sibling(__file__, "file_hashing")
+if TYPE_CHECKING:
+    from mkosi.private import file_hashing, secure_boot
+else:
+    secure_boot = _load_sibling(__file__, "secure_boot")
+    file_hashing = _load_sibling(__file__, "file_hashing")
 
 MANIFEST_FORMAT = "mkosi-secure-boot-signing-manifest-v1"
 _ENTRY_FIELDS = {
@@ -154,7 +154,7 @@ def _encode_der(tag: int, value: bytes) -> bytes:
     return bytes([tag, 0x80 | size]) + length.to_bytes(size, "big") + value
 
 
-def _certificate_key(certificate: bytes) -> tuple["Der", "Der", int, int]:
+def _certificate_key(certificate: bytes) -> tuple[secure_boot.Der, secure_boot.Der, int, int]:
     """Returns the issuer, serial number and RSA modulus and exponent of a DER certificate."""
     tbs = secure_boot.der_read(certificate)[0].children()[0].children()
     if tbs[0].tag == 0xA0:
@@ -166,9 +166,9 @@ def _certificate_key(certificate: bytes) -> tuple["Der", "Der", int, int]:
     return tbs[2], tbs[0], int.from_bytes(modulus.value, "big"), int.from_bytes(exponent.value, "big")
 
 
-def _signed_attributes_digest(attributes: "Der", content_digest: bytes) -> tuple[bytes, int | None]:
+def _signed_attributes_digest(attributes: secure_boot.Der, content_digest: bytes) -> tuple[bytes, int | None]:
     """Returns the digest that the signature covers and the signingTime, or None, after checking the attributes."""
-    values: dict[str, list[list[Der]]] = {}
+    values: dict[str, list[list[secure_boot.Der]]] = {}
     for attribute in attributes.children():
         oid, attribute_values = attribute.children()
         values.setdefault(secure_boot.der_oid(oid), []).append(attribute_values.children())

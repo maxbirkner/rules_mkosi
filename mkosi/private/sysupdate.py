@@ -12,11 +12,15 @@ import shutil
 import uuid
 from collections.abc import Iterable, Iterator, Mapping
 from pathlib import Path
-from typing import IO, Any
+from typing import IO, TYPE_CHECKING, Any
 
 _load_sibling = runpy.run_path(str(Path(__file__).with_name("sibling_loader.py")))["load_sibling"]
-gpt = _load_sibling(__file__, "gpt_partitions")
-file_hashing = _load_sibling(__file__, "file_hashing")
+if TYPE_CHECKING:
+    from mkosi.private import file_hashing
+    from mkosi.private import gpt_partitions as gpt
+else:
+    gpt = _load_sibling(__file__, "gpt_partitions")
+    file_hashing = _load_sibling(__file__, "file_hashing")
 
 _TRANSFER = """\
 [Transfer]

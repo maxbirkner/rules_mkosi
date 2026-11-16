@@ -1,22 +1,27 @@
 """Reads files from the EFI system partition of a release disk image with the pinned mtools."""
 
+from __future__ import annotations
+
 import json
-import os
 import re
 import runpy
 import shlex
 from collections.abc import Iterable, Mapping
 from pathlib import Path
-from typing import TypeAlias
+from typing import TYPE_CHECKING
 
 _load_sibling = runpy.run_path(str(Path(__file__).with_name("sibling_loader.py")))["load_sibling"]
-gpt = _load_sibling(__file__, "gpt_partitions")
-launcher_tool = _load_sibling(__file__, "launcher_tool")
+if TYPE_CHECKING:
+    from _typeshed import StrPath
+
+    from mkosi.private import gpt_partitions as gpt
+    from mkosi.private import launcher_tool
+else:
+    gpt = _load_sibling(__file__, "gpt_partitions")
+    launcher_tool = _load_sibling(__file__, "launcher_tool")
 
 _COMPONENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+-]*")
 _CHUNK = 1 << 20
-
-StrPath: TypeAlias = str | os.PathLike[str]
 
 
 def validate_esp_path(path: str) -> str:

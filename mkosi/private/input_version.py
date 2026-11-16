@@ -21,10 +21,13 @@ import stat
 import sys
 from collections.abc import Iterable, Sequence
 from pathlib import Path
-from typing import Any, TypeAlias
+from typing import TYPE_CHECKING, Any, TypeAlias
 
 _load_sibling = runpy.run_path(str(Path(__file__).with_name("sibling_loader.py")))["load_sibling"]
-file_hashing = _load_sibling(__file__, "file_hashing")
+if TYPE_CHECKING:
+    from mkosi.private import file_hashing
+else:
+    file_hashing = _load_sibling(__file__, "file_hashing")
 
 FORMAT_VERSION = "rules-mkosi-input-digest-v1"
 MANIFEST_FORMAT_VERSION = "rules-mkosi-input-manifest-v1"

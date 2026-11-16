@@ -18,13 +18,16 @@ import subprocess
 import uuid
 from collections.abc import Callable, Mapping
 from pathlib import Path
-from typing import TypedDict
+from typing import TYPE_CHECKING, TypedDict
 
 _load_sibling = runpy.run_path(str(Path(__file__).with_name("sibling_loader.py")))["load_sibling"]
-efi_auth = _load_sibling(__file__, "efi_auth")
-esp_files = _load_sibling(__file__, "esp_files")
-file_hashing = _load_sibling(__file__, "file_hashing")
-launcher_tool = _load_sibling(__file__, "launcher_tool")
+if TYPE_CHECKING:
+    from mkosi.private import efi_auth, esp_files, file_hashing, launcher_tool
+else:
+    efi_auth = _load_sibling(__file__, "efi_auth")
+    esp_files = _load_sibling(__file__, "esp_files")
+    file_hashing = _load_sibling(__file__, "file_hashing")
+    launcher_tool = _load_sibling(__file__, "launcher_tool")
 run_tool = launcher_tool.run_tool
 
 

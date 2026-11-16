@@ -11,11 +11,15 @@ import struct
 import tempfile
 from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
-from typing import IO, Any, NamedTuple, TypedDict
+from typing import IO, TYPE_CHECKING, Any, NamedTuple, TypedDict
 
 _load_sibling = runpy.run_path(str(Path(__file__).with_name("sibling_loader.py")))["load_sibling"]
-gpt = _load_sibling(__file__, "gpt_partitions")
-file_hashing = _load_sibling(__file__, "file_hashing")
+if TYPE_CHECKING:
+    from mkosi.private import file_hashing
+    from mkosi.private import gpt_partitions as gpt
+else:
+    gpt = _load_sibling(__file__, "gpt_partitions")
+    file_hashing = _load_sibling(__file__, "file_hashing")
 
 MAX_ARTIFACT_BYTES = 16 * 1024**3
 MAX_BLOCKS = 1 << 32
