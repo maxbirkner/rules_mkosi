@@ -1,17 +1,17 @@
 import hashlib
 import json
+import os
 import struct
 import sys
 import unittest
 from pathlib import Path
-from typing import Any
-from unittest import mock
+from typing import IO, Any
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "private"))
 sys.path.insert(0, str(Path(__file__).parent))
 import gpt_partitions
 import verity_metadata
-from bounded_reads import BoundedReader
+from bounded_reads import BoundedReader, wrap_builtin_open
 
 
 def _partition(number: int, type_guid: str, label: str, size_bytes: int = 8192) -> dict[str, int | str]:
@@ -217,14 +217,10 @@ class VerityMetadataTest(unittest.TestCase):
         self.roothash.write_text(top[0][1].hex() + "\n")
         self._write_partitions(len(blocks) * block_size, len(self.hash.read_bytes()))
 
-        original_open = open
+        def bound_binary(_path: str | os.PathLike[str], mode: str, opened: IO[Any]) -> object:
+            return BoundedReader(opened, 1024 * 1024, "verifier") if "b" in mode else opened
 
-        # args and kwargs are passed through to open() unchanged, whose overloads take differently typed arguments.
-        def guarded_open(path: str, mode: str = "r", *args: Any, **kwargs: Any) -> object:  # noqa: ANN401
-            wrapped = original_open(path, mode, *args, **kwargs)
-            return BoundedReader(wrapped, 1024 * 1024, "verifier") if "b" in mode else wrapped
-
-        with mock.patch("builtins.open", side_effect=guarded_open):
+        with wrap_builtin_open(bound_binary):
             projected = self._project()
         self.assertEqual(2, projected["hash_levels"])
 

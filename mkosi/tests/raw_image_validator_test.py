@@ -9,7 +9,7 @@ import raw_image_validator
 import raw_image_validator_cases
 
 
-class RawImageValidatorTest(raw_image_validator_cases.RawImageValidatorCases, unittest.TestCase):
+class RawImageValidatorTest(raw_image_validator_cases.RawImageValidatorCases):
     def test_fabricated_sparse_pseudo_gpt_has_no_allocated_root(self) -> None:
         image = raw_image_validator_cases.fake_ext4_root(raw_image_validator_cases.gpt_image(), include_data=False)
         libc = ctypes.CDLL(None, use_errno=True)

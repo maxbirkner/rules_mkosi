@@ -8,11 +8,11 @@ import pathlib
 import sys
 import types
 import unittest
-from typing import Any, BinaryIO
+from typing import IO, Any, BinaryIO
 from unittest import mock
 
 sys.path.insert(0, str(pathlib.Path(__file__).parent))
-from bounded_reads import BoundedReader
+from bounded_reads import BoundedReader, FileWrapper, wrap_path_open
 
 # The fakes of Path.open() and of the file objects it returns pass their arguments to the real ones unchanged, so they
 # take typing.Any arguments (ANN401) instead of repeating the overloads of Path.open() and IO.__exit__().
@@ -97,12 +97,8 @@ class ProjectionTest(unittest.TestCase):
             expected.update(zeroes)
         expected.update(b"X")
 
-        original_open = pathlib.Path.open
-
-        def guarded_open(path: pathlib.Path, *args: Any, **kwargs: Any) -> object:  # noqa: ANN401
-            return BoundedReader(
-                original_open(path, *args, **kwargs), projection._MAX_JSON_BYTES + 1, "reproducibility"
-            )
+        def bound(_path: str | os.PathLike[str], _mode: str, opened: IO[Any]) -> object:
+            return BoundedReader(opened, projection._MAX_JSON_BYTES + 1, "reproducibility")
 
         with (
             mock.patch.object(
@@ -110,7 +106,7 @@ class ProjectionTest(unittest.TestCase):
                 "read_bytes",
                 side_effect=AssertionError("read_bytes is forbidden"),
             ),
-            mock.patch.object(pathlib.Path, "open", guarded_open),
+            wrap_path_open(bound),
             mock.patch.object(
                 projection.partition_metadata,
                 "canonical_image_sha256",
@@ -209,11 +205,10 @@ class ProjectionTest(unittest.TestCase):
 
     def test_rejects_premature_eof_from_same_descriptor(self) -> None:
         image, metadata, partitions, split = self._minimal_projection_inputs()
-        original_open = pathlib.Path.open
 
-        class PrematureEof:
-            def __init__(self, wrapped: BinaryIO) -> None:
-                self.wrapped = wrapped
+        class PrematureEof(FileWrapper[bytes]):
+            def __init__(self, wrapped: IO[bytes]) -> None:
+                super().__init__(wrapped)
                 self.returned = False
 
             def read(self, size: int = -1) -> bytes:
@@ -222,18 +217,7 @@ class ProjectionTest(unittest.TestCase):
                 self.returned = True
                 return self.wrapped.read(3)
 
-            def __getattr__(self, name: str) -> object:
-                return getattr(self.wrapped, name)
-
-            def __enter__(self) -> "PrematureEof":
-                self.wrapped.__enter__()
-                return self
-
-            def __exit__(self, *args: Any) -> None:  # noqa: ANN401
-                return self.wrapped.__exit__(*args)
-
-        def premature_open(path: pathlib.Path, *args: Any, **kwargs: Any) -> object:  # noqa: ANN401
-            opened = original_open(path, *args, **kwargs)
+        def end_early(path: str | os.PathLike[str], _mode: str, opened: IO[Any]) -> object:
             return PrematureEof(opened) if path == split else opened
 
         with (
@@ -242,20 +226,19 @@ class ProjectionTest(unittest.TestCase):
                 "canonical_image_sha256",
                 return_value="a" * 64,
             ),
-            mock.patch.object(pathlib.Path, "open", premature_open),
+            wrap_path_open(end_early),
             self.assertRaisesRegex(ValueError, "artifact changed while hashing"),
         ):
             projection.project(image, metadata, partitions, [("root_image", split)])
 
     def test_rejects_growth_after_reading_only_initial_size_and_one_byte(self) -> None:
         image, metadata, partitions, split = self._minimal_projection_inputs()
-        original_open = pathlib.Path.open
         initial_size = split.stat().st_size
         returned = [0]
 
-        class GrowingReader:
-            def __init__(self, wrapped: BinaryIO) -> None:
-                self.wrapped = wrapped
+        class GrowingReader(FileWrapper[bytes]):
+            def __init__(self, wrapped: IO[bytes]) -> None:
+                super().__init__(wrapped)
                 self.grown = False
 
             def read(self, size: int = -1) -> bytes:
@@ -265,22 +248,12 @@ class ProjectionTest(unittest.TestCase):
                 returned[0] += len(value)
                 if not self.grown and returned[0] == initial_size:
                     self.grown = True
-                    with original_open(split, "ab") as output:
+                    # The built-in open() is not patched.
+                    with open(split, "ab") as output:
                         output.write(b"growth")
                 return value
 
-            def __getattr__(self, name: str) -> object:
-                return getattr(self.wrapped, name)
-
-            def __enter__(self) -> "GrowingReader":
-                self.wrapped.__enter__()
-                return self
-
-            def __exit__(self, *args: Any) -> None:  # noqa: ANN401
-                return self.wrapped.__exit__(*args)
-
-        def growing_open(path: pathlib.Path, *args: Any, **kwargs: Any) -> object:  # noqa: ANN401
-            opened = original_open(path, *args, **kwargs)
+        def grow(path: str | os.PathLike[str], _mode: str, opened: IO[Any]) -> object:
             return GrowingReader(opened) if path == split else opened
 
         with (
@@ -289,7 +262,7 @@ class ProjectionTest(unittest.TestCase):
                 "canonical_image_sha256",
                 return_value="a" * 64,
             ),
-            mock.patch.object(pathlib.Path, "open", growing_open),
+            wrap_path_open(grow),
             self.assertRaisesRegex(ValueError, "artifact changed while hashing"),
         ):
             projection.project(image, metadata, partitions, [("root_image", split)])
