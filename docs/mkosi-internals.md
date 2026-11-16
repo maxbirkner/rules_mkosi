@@ -31,6 +31,7 @@ mkosi [does not overwrite](https://github.com/systemd/mkosi/blob/v27.1/mkosi/res
 
 The `extra_packages` of a build need no patch either.
 They form a flat repository in the mirror copy, which the same sources file lists before the snapshot, and an APT preferences file in the sandbox tree pins that repository's `Release` label to priority 1100, so that an extra package replaces a snapshot package of the same name.
+The `MkosiExtraPackages` action writes only that repository's `Packages` and `Release` index; the build action reads the `.deb` files as its own inputs and copies each next to the index under the file name that the index lists for its SHA-256, so a large package such as a kernel is copied once per build rather than also into the output tree.
 mkosi's own [`PackageDirectories=`](https://github.com/systemd/mkosi/blob/v27.1/mkosi/resources/man/mkosi.1.md) would not work: it indexes the whole local repository, the snapshot included, with `apt-ftparchive` and pins every package of a `file:` source.
 
 [Issue #90](https://github.com/maxbirkner/rules_mkosi/issues/90) tracks the upstream changes that would make patches unnecessary.

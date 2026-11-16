@@ -1,0 +1,14 @@
+/dts-v1/;
+/plugin/;
+
+&status_led {
+	label = "display-status";
+};
+
+&{/soc} {
+	display@1000 {
+		compatible = "rules-mkosi,test-display";
+		reg = <0x1000 0x100>;
+		revision = <DISPLAY_REVISION>;
+	};
+};

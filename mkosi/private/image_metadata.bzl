@@ -83,7 +83,13 @@ def project_partition_metadata(ctx, settings, outputs):
     run_python(
         ctx,
         arguments = [arguments],
-        inputs = [ctx.file._partition_metadata, ctx.file._gpt_partitions, ctx.file._sibling_loader, outputs.raw_image] + slot_version_inputs,
+        inputs = [
+            ctx.file._partition_metadata,
+            ctx.file._diagnostics,
+            ctx.file._gpt_partitions,
+            ctx.file._sibling_loader,
+            outputs.raw_image,
+        ] + slot_version_inputs,
         outputs = [outputs.partition_metadata],
         execution_requirements = mkosi_execution_requirements(True, offline = True),
         mnemonic = "MkosiPartitionMetadata",

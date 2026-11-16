@@ -10,6 +10,8 @@
     "ca-certificates",
     "cpio",
     "coreutils",
+    "cpp",
+    "device-tree-compiler",
     "debian-archive-keyring",
     "debootstrap",
     "diffutils",

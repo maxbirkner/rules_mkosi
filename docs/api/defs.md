@@ -48,6 +48,49 @@ Declare it through the debian_tools.snapshot module extension, which generates t
 | <a id="debian_snapshot-snapshot_url"></a>snapshot_url |  Immutable snapshot URL.   | String | required |  |
 
 
+<a id="devicetree"></a>
+
+## devicetree
+
+<pre>
+load("@rules_mkosi//mkosi:defs.bzl", "devicetree")
+
+devicetree(<a href="#devicetree-name">name</a>, <a href="#devicetree-src">src</a>, <a href="#devicetree-hdrs">hdrs</a>, <a href="#devicetree-defines">defines</a>, <a href="#devicetree-includes">includes</a>, <a href="#devicetree-overlays">overlays</a>)
+</pre>
+
+Builds a device tree blob, `<name>.dtb`, for `mkosi_image(devicetrees = ...)`.
+
+It compiles `src` like the Linux kernel's build: `cpp -nostdinc -undef -x assembler-with-cpp -D__DTS__` with
+`includes` and `defines`, so that sources can `#include` headers such as `<dt-bindings/gpio/gpio.h>` and use macros,
+then `dtc`. `cpp`, `dtc` and `fdtoverlay` come from the pinned Debian tools and run without network; the output does
+not depend on the build time, because `SOURCE_DATE_EPOCH` is 0 for `__DATE__` and `__TIME__`. With `overlays`, the base
+is compiled with symbols (`dtc -@`) and `fdtoverlay` applies the overlays in order, failing if one does not apply.
+The result must be a flattened device tree whose root node has a compatible string.
+
+```starlark
+devicetree(
+    name = "board",
+    src = "board.dts",
+    hdrs = glob(["*.dtsi", "include/dt-bindings/**/*.h"]),
+    includes = ["include"],
+    overlays = ["display.dtso"],
+    defines = ["BOARD_REVISION=2"],
+)
+```
+
+**ATTRIBUTES**
+
+
+| Name  | Description | Type | Mandatory | Default |
+| :------------- | :------------- | :------------- | :------------- | :------------- |
+| <a id="devicetree-name"></a>name |  A unique name for this target.   | <a href="https://bazel.build/concepts/labels#target-names">Name</a> | required |  |
+| <a id="devicetree-src"></a>src |  The device tree source to compile, or a compiled `.dtb` to apply `overlays` to.   | <a href="https://bazel.build/concepts/labels">Label</a> | required |  |
+| <a id="devicetree-hdrs"></a>hdrs |  Files that `src` and the overlay sources include, with `#include` or dtc's `/include/`.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
+| <a id="devicetree-defines"></a>defines |  Preprocessor definitions, `NAME` or `NAME=VALUE`, for `src` and the overlay sources.   | List of strings | optional |  `[]`  |
+| <a id="devicetree-includes"></a>includes |  Include directories, relative to this package, searched for `#include <...>` and `/include/`.<br><br>Each applies to the source and the generated files of the package. Quoted includes also search the including file's directory.   | List of strings | optional |  `[]`  |
+| <a id="devicetree-overlays"></a>overlays |  Overlays to apply in order: sources with `/plugin/;`, compiled like `src`, or compiled `.dtbo` files. Overlays can refer to the base's labels, such as `&uart0`, and to paths, such as `&{/soc}`.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
+
+
 <a id="mkosi_base"></a>
 
 ## mkosi_base
@@ -290,7 +333,7 @@ Use it directly only to inspect the validated deadlines through QemuBootConfigIn
 | <a id="qemu_ovmf_boot_config-progress_markers"></a>progress_markers |  Exact serial markers that must appear in this order before readiness_marker.   | List of strings | optional |  `[]`  |
 | <a id="qemu_ovmf_boot_config-qmp_initialization_timeout_seconds"></a>qmp_initialization_timeout_seconds |  Seconds that QEMU may take to accept QMP connections.   | Integer | optional |  `15`  |
 | <a id="qemu_ovmf_boot_config-read_only_shares"></a>read_only_shares |  Directory targets exposed to the guest as read-only virtio-9p shares, keyed to their mount tags.   | <a href="https://bazel.build/rules/lib/core/dict">Dictionary: Label -> String</a> | optional |  `{}`  |
-| <a id="qemu_ovmf_boot_config-readiness_marker"></a>readiness_marker |  Exact serial marker proving guest userspace readiness.<br><br>The default is the hostname line of rules_mkosi's own test images; set it for your image, for example to `systemd[1]: Hostname set to <myhost>.`   | String | optional |  `"systemd[1]: Hostname set to <rules-mkosi-tracer>."`  |
+| <a id="qemu_ovmf_boot_config-readiness_marker"></a>readiness_marker |  Exact serial marker proving guest userspace readiness.<br><br>The default, `systemd[1]: initrd-switch-root.service: Deactivated successfully.`, is logged by the systemd of the root file system right after it took over from the systemd of the initrd, so it proves on every boot that the image switched to its root file system. It requires a systemd initrd, which mkosi builds by default. Lines such as `systemd[1]: Hostname set to <myhost>.` can also come from the initrd, so they do not prove a bootable root.   | String | optional |  `"systemd[1]: initrd-switch-root.service: Deactivated successfully."`  |
 | <a id="qemu_ovmf_boot_config-secure_boot_code"></a>secure_boot_code |  Secure Boot capable OVMF code that replaces the toolchain's OVMF; needs secure_boot_vars.   | <a href="https://bazel.build/concepts/labels">Label</a> | optional |  `None`  |
 | <a id="qemu_ovmf_boot_config-secure_boot_vars"></a>secure_boot_vars |  Variable store template for secure_boot_code.   | <a href="https://bazel.build/concepts/labels">Label</a> | optional |  `None`  |
 | <a id="qemu_ovmf_boot_config-shutdown_markers"></a>shutdown_markers |  Exact serial markers proving guest-initiated clean shutdown; one of them must appear.   | List of strings | optional |  `["systemd-shutdown[1]: Powering off.", "reboot: Power down"]`  |
@@ -404,7 +447,7 @@ Use it directly only to inspect the validated deadlines through QemuBootConfigIn
 | <a id="qemu_seabios_boot_config-image"></a>image |  mkosi_image whose raw_image is booted through a QEMU snapshot, leaving the image unchanged.   | <a href="https://bazel.build/concepts/labels">Label</a> | required |  |
 | <a id="qemu_seabios_boot_config-machine_args"></a>machine_args |  QEMU machine and memory arguments.   | List of strings | optional |  `["-machine", "pc", "-m", "512M"]`  |
 | <a id="qemu_seabios_boot_config-qmp_initialization_timeout_seconds"></a>qmp_initialization_timeout_seconds |  Seconds that QEMU may take to accept QMP connections.   | Integer | optional |  `15`  |
-| <a id="qemu_seabios_boot_config-readiness_marker"></a>readiness_marker |  Exact serial marker proving guest userspace readiness.<br><br>The default is the hostname line of rules_mkosi's own test images; set it for your image, for example to `systemd[1]: Hostname set to <myhost>.`   | String | optional |  `"systemd[1]: Hostname set to <rules-mkosi-bios>."`  |
+| <a id="qemu_seabios_boot_config-readiness_marker"></a>readiness_marker |  Exact serial marker proving guest userspace readiness.<br><br>The default, `systemd[1]: initrd-switch-root.service: Deactivated successfully.`, is logged by the systemd of the root file system right after it took over from the systemd of the initrd, so it proves on every boot that the image switched to its root file system. It requires a systemd initrd, which mkosi builds by default. Lines such as `systemd[1]: Hostname set to <myhost>.` can also come from the initrd, so they do not prove a bootable root.   | String | optional |  `"systemd[1]: initrd-switch-root.service: Deactivated successfully."`  |
 | <a id="qemu_seabios_boot_config-shutdown_markers"></a>shutdown_markers |  Exact serial markers proving guest-initiated clean shutdown; one of them must appear.   | List of strings | optional |  `["systemd-shutdown[1]: Powering off.", "reboot: Power down"]`  |
 | <a id="qemu_seabios_boot_config-shutdown_timeout_seconds"></a>shutdown_timeout_seconds |  Seconds after readiness that the guest may take to power off by itself.   | Integer | optional |  `60`  |
 | <a id="qemu_seabios_boot_config-test_timeout"></a>test_timeout |  Bazel timeout category of the test: `short`, `moderate`, or `long`.<br><br>The QMP, boot and shutdown deadlines plus a 30 second cleanup margin must fit it (60, 300, or 900 seconds).   | String | optional |  `"moderate"`  |

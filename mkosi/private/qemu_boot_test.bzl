@@ -24,13 +24,17 @@ QemuBootConfigInfo = provider(
     },
 )
 
+# The systemd of the root file system logs this right after it took over from the systemd of the initrd, on every boot.
+# Messages such as "Hostname set to" can also come from the initrd, before an unbootable root fails to switch.
+_ROOT_READINESS_MARKER = "systemd[1]: initrd-switch-root.service: Deactivated successfully."
+
 _SHUTDOWN_MARKERS = [
     "systemd-shutdown[1]: Powering off.",
     "reboot: Power down",
 ]
 
-# Attributes of every firmware adapter; the adapters add readiness_marker, machine_args and shutdown_timeout_seconds
-# with their own defaults.
+# Attributes of every firmware adapter; adapter_attrs adds readiness_marker, machine_args and shutdown_timeout_seconds
+# with the adapter's defaults.
 BOOT_CONFIG_ATTRS = {
     "accelerator": attr.string(
         default = "auto",
@@ -70,11 +74,10 @@ The QMP, boot and shutdown deadlines plus a 30 second cleanup margin must fit it
     ),
 }
 
-def adapter_attrs(readiness_marker, machine, shutdown_timeout_seconds):
+def adapter_attrs(machine, shutdown_timeout_seconds):
     """Returns the BOOT_CONFIG_ATTRS whose defaults differ between the firmware adapters.
 
     Args:
-      readiness_marker: Default readiness_marker.
       machine: Default QEMU machine type, or None for the machine of the image's architecture.
       shutdown_timeout_seconds: Default shutdown_timeout_seconds.
 
@@ -96,11 +99,13 @@ with 1 GiB for arm64. The CPU model and the serial port of the architecture are 
     return BOOT_CONFIG_ATTRS | {
         "machine_args": machine_args,
         "readiness_marker": attr.string(
-            default = readiness_marker,
+            default = _ROOT_READINESS_MARKER,
             doc = """Exact serial marker proving guest userspace readiness.
 
-The default is the hostname line of rules_mkosi's own test images; set it for your image, for example to
-`systemd[1]: Hostname set to <myhost>.`""",
+The default, `""" + _ROOT_READINESS_MARKER + """`, is logged by the systemd of the root file
+system right after it took over from the systemd of the initrd, so it proves on every boot that the image switched to
+its root file system. It requires a systemd initrd, which mkosi builds by default. Lines such as
+`systemd[1]: Hostname set to <myhost>.` can also come from the initrd, so they do not prove a bootable root.""",
         ),
         "shutdown_timeout_seconds": attr.int(
             default = shutdown_timeout_seconds,
