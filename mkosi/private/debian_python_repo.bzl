@@ -2,15 +2,23 @@
 
 load(
     "//mkosi/debian:provenance.bzl",
+    "DEBIAN_TOOLS_PYTHON_AARCH64_SHA256",
+    "DEBIAN_TOOLS_PYTHON_AARCH64_URL",
     "DEBIAN_TOOLS_PYTHON_SHA256",
     "DEBIAN_TOOLS_PYTHON_URL",
     "DEBIAN_TOOLS_PYTHON_VERSION",
 )
 
+_DOWNLOADS = {
+    "aarch64": (DEBIAN_TOOLS_PYTHON_AARCH64_URL, DEBIAN_TOOLS_PYTHON_AARCH64_SHA256),
+    "x86_64": (DEBIAN_TOOLS_PYTHON_URL, DEBIAN_TOOLS_PYTHON_SHA256),
+}
+
 def _impl(ctx):
+    url, sha256 = _DOWNLOADS[ctx.attr.cpu]
     ctx.download_and_extract(
-        url = DEBIAN_TOOLS_PYTHON_URL,
-        sha256 = DEBIAN_TOOLS_PYTHON_SHA256,
+        url = url,
+        sha256 = sha256,
         stripPrefix = "python/install",
     )
     python_minor = ".".join(DEBIAN_TOOLS_PYTHON_VERSION.split(".")[:2])
@@ -39,4 +47,11 @@ filegroup(
 
 debian_python_repo = repository_rule(
     implementation = _impl,
+    attrs = {
+        "cpu": attr.string(
+            default = "x86_64",
+            values = ["aarch64", "x86_64"],
+            doc = "CPU of the Linux execution platforms that the static interpreter runs on.",
+        ),
+    },
 )

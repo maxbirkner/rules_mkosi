@@ -6,9 +6,10 @@ Run it from the root module:
         [--python-release 20261026 --python-version 3.14.10]
 
 It points the amd64 and arm64 specifications at the snapshot, regenerates both locks, and rewrites the snapshot, the
-lock and archive digests, and optionally the static Python pin in provenance.bzl. It also moves the test
-configurations and README examples from the old snapshot to the new one. The archive digest is the SHA-256 of
-@mkosi_debian_tools//:tree, which the command builds with Bazel after it has written the new locks.
+lock and archive digests, and optionally the static Python pins of both CPUs in provenance.bzl. It also moves the test
+configurations and README examples from the old snapshot to the new one. The archive digests are the SHA-256 of
+@mkosi_debian_tools//:tree and @mkosi_debian_tools//arm64:tree, which the command builds with Bazel after it has
+written the new locks; building the arm64 archive only unpacks packages, so any host can do it.
 """
 
 import argparse
@@ -38,14 +39,20 @@ LOCKS = (
     (SPEC, LOCK, "DEBIAN_TOOLS_LOCK_SHA256"),
     (ARM64_SPEC, ARM64_LOCK, "DEBIAN_TOOLS_ARM64_LOCK_SHA256"),
 )
-ARCHIVE_TARGET = "@mkosi_debian_tools//:tree"
+# Each Debian tools archive and the provenance.bzl constant that pins its digest.
+ARCHIVES = (
+    ("@mkosi_debian_tools//:tree", "DEBIAN_TOOLS_ARCHIVE_SHA256"),
+    ("@mkosi_debian_tools//arm64:tree", "DEBIAN_TOOLS_ARM64_ARCHIVE_SHA256"),
+)
 # Files and directories whose snapshot references follow the built-in snapshot.
 SNAPSHOT_USERS = ("README.md", "mkosi/tests/testdata", "e2e/smoke/testdata")
 
 _SNAPSHOT = re.compile(r"[0-9]{8}T[0-9]{6}Z")
 _SNAPSHOT_URL = "https://snapshot.debian.org/archive/debian/{}"
 _PYTHON_RELEASES = "https://github.com/astral-sh/python-build-standalone/releases/download/{}/"
-_PYTHON_ASSET = "cpython-{version}+{release}-x86_64-unknown-linux-musl-lto+static-full.tar.zst"
+_PYTHON_ASSET = "cpython-{version}+{release}-{cpu}-unknown-linux-musl-lto+static-full.tar.zst"
+# The static interpreter of each CPU and the infix of its provenance.bzl constants.
+_PYTHON_CPUS = (("x86_64", ""), ("aarch64", "_AARCH64"))
 
 
 def snapshot_epoch(snapshot: str) -> int:
@@ -75,15 +82,15 @@ def replace_snapshot(text: str, old: str, new: str) -> str:
 
 def python_pin(release: str, version: str, sums: str) -> dict[str, str]:
     """Returns the provenance constants of a python-build-standalone release given its SHA256SUMS text."""
-    asset = _PYTHON_ASSET.format(version=version, release=release)
-    digests = [line.split()[0] for line in sums.splitlines() if line.split()[1:] == [asset]]
-    if len(digests) != 1:
-        raise ValueError("SHA256SUMS of python-build-standalone {} does not list {}".format(release, asset))
-    return {
-        "DEBIAN_TOOLS_PYTHON_VERSION": version,
-        "DEBIAN_TOOLS_PYTHON_URL": _PYTHON_RELEASES.format(release) + urllib.parse.quote(asset),
-        "DEBIAN_TOOLS_PYTHON_SHA256": digests[0],
-    }
+    values = {"DEBIAN_TOOLS_PYTHON_VERSION": version}
+    for cpu, infix in _PYTHON_CPUS:
+        asset = _PYTHON_ASSET.format(version=version, release=release, cpu=cpu)
+        digests = [line.split()[0] for line in sums.splitlines() if line.split()[1:] == [asset]]
+        if len(digests) != 1:
+            raise ValueError("SHA256SUMS of python-build-standalone {} does not list {}".format(release, asset))
+        values["DEBIAN_TOOLS_PYTHON{}_URL".format(infix)] = _PYTHON_RELEASES.format(release) + urllib.parse.quote(asset)
+        values["DEBIAN_TOOLS_PYTHON{}_SHA256".format(infix)] = digests[0]
+    return values
 
 
 def _download_python_pin(release: str, version: str) -> dict[str, str]:
@@ -116,9 +123,9 @@ def _bazel(workspace: pathlib.Path, *arguments: str) -> str:
     return subprocess.run(command, cwd=workspace, check=True, stdout=subprocess.PIPE, text=True).stdout
 
 
-def _archive_sha256(workspace: pathlib.Path) -> str:
-    _bazel(workspace, "build", ARCHIVE_TARGET)
-    archive = _bazel(workspace, "cquery", "--output=files", ARCHIVE_TARGET).split()
+def _archive_sha256(workspace: pathlib.Path, target: str) -> str:
+    _bazel(workspace, "build", target)
+    archive = _bazel(workspace, "cquery", "--output=files", target).split()
     return _sha256(pathlib.Path(_bazel(workspace, "info", "execution_root").strip(), archive[0]))
 
 
@@ -145,7 +152,7 @@ def refresh(workspace: pathlib.Path, snapshot: str, python: tuple[str, str] | No
     _update(provenance, lambda text: rewrite_provenance(text, values))
     for path in _snapshot_files(workspace, old_snapshot):
         _update(path, lambda text: replace_snapshot(text, old_snapshot, snapshot))
-    archive = {"DEBIAN_TOOLS_ARCHIVE_SHA256": _archive_sha256(workspace)}
+    archive = {constant: _archive_sha256(workspace, target) for target, constant in ARCHIVES}
     _update(provenance, lambda text: rewrite_provenance(text, archive))
     return values | archive
 

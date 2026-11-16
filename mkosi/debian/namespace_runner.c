@@ -685,6 +685,19 @@ static void set_runtime_environment(void) {
   }
 }
 
+/* The library directories of the Debian tools tree of the runner's own CPU. */
+#if defined(__aarch64__)
+#define PACKAGED_LIBRARY_PATH                                                  \
+  "/usr/lib/aarch64-linux-gnu:/lib/aarch64-linux-gnu:"                         \
+  "/usr/lib/aarch64-linux-gnu/systemd:/usr/lib/systemd"
+#elif defined(__x86_64__)
+#define PACKAGED_LIBRARY_PATH                                                  \
+  "/usr/lib/x86_64-linux-gnu:/lib/x86_64-linux-gnu:"                           \
+  "/usr/lib/x86_64-linux-gnu/systemd:/usr/lib/systemd:/usr/lib64"
+#else
+#error "the namespace runner supports only x86-64 and aarch64"
+#endif
+
 /*
  * The packaged loader is executed directly with an explicit library path, so
  * the tool resolves libraries only from the extracted tree.
@@ -698,8 +711,7 @@ NORETURN static void exec_packaged_tool(const struct runner_layout *layout,
   }
   command[0] = (char *)layout->loader;
   command[1] = "--library-path";
-  command[2] = "/usr/lib/x86_64-linux-gnu:/lib/x86_64-linux-gnu:"
-               "/usr/lib/x86_64-linux-gnu/systemd:/usr/lib/systemd:/usr/lib64";
+  command[2] = PACKAGED_LIBRARY_PATH;
   command[3] = (char *)layout->tool;
   for (size_t argument = 0; argument < argument_count; ++argument) {
     command[argument + 4] = arguments[argument];

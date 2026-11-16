@@ -42,7 +42,15 @@ MAX_DER_BYTES = 16 * 1024 * 1024
 MAX_DER_DEPTH = 32
 MAX_DER_CHILDREN = 4096
 SYSTEMD_SBSIGN = "/usr/lib/systemd/systemd-sbsign"
-LIBFAKETIME = "/usr/lib/x86_64-linux-gnu/faketime/libfaketime.so.1"
+# systemd-sbsign runs from the Debian tools of the execution platform's CPU.
+_MULTIARCH = {"aarch64": "aarch64-linux-gnu", "x86_64": "x86_64-linux-gnu"}
+
+
+def find_libfaketime(machine: str) -> str:
+    """Returns the path of libfaketime in the Debian tools of a CPU as reported by uname."""
+    return "/usr/lib/{}/faketime/libfaketime.so.1".format(_MULTIARCH[machine])
+
+
 _DER_TIMES = {
     0x17: re.compile(rb"([0-9]{2})([0-9]{10})Z"),
     0x18: re.compile(rb"([0-9]{4})([0-9]{10})Z"),
@@ -440,7 +448,7 @@ def sbsign_command(signing_time: int | None, *arguments: str | os.PathLike[str])
     """
     if signing_time is None:
         return [SYSTEMD_SBSIGN, *arguments]
-    variables = {"LD_PRELOAD": LIBFAKETIME, **faketime_variables(signing_time)}
+    variables = {"LD_PRELOAD": find_libfaketime(os.uname().machine), **faketime_variables(signing_time)}
     assignments = ["{}={}".format(name, value) for name, value in variables.items()]
     return ["/bin/sh", "-c", 'exec /usr/bin/env "$@"', "sh", *assignments, SYSTEMD_SBSIGN, *arguments]
 

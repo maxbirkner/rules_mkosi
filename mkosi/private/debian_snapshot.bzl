@@ -203,10 +203,7 @@ debian_snapshot = rule(
         ),
     },
     toolchains = ["//mkosi/toolchain:debian_tools_toolchain_type"],
-    exec_compatible_with = [
-        "@platforms//os:linux",
-        "@platforms//cpu:x86_64",
-    ],
+    exec_compatible_with = ["@platforms//os:linux"],
     doc = """Materializes an authenticated local APT repository from a pinned Debian snapshot.
 
 Declare it through the debian_tools.snapshot module extension, which generates these attributes from a lock.
