@@ -18,36 +18,45 @@ _SEED = "00000000-0000-4000-8000-000000000019"
 _PACKAGES = [":extra_packages_hello_deb", ":extra_packages_netbase_deb"]
 
 def _assert_indexed(env, packages, architecture):
-    """Asserts the one MkosiExtraPackages action of the target under test and returns its repository and metadata."""
+    """Asserts the one MkosiExtraPackages action of the target under test and returns its index and metadata."""
     action = single_action(env, "MkosiExtraPackages")
     inputs = action.inputs.to_list()
     for package in packages:
         asserts.true(env, package in inputs, package.path)
     asserts.equals(env, architecture, option_value(action.argv, "--architecture"))
-    repository, metadata = action.outputs.to_list()
-    asserts.true(env, repository.is_directory)
+    index, metadata = action.outputs.to_list()
+    asserts.true(env, index.is_directory)
     asserts.equals(env, metadata.path, option_value(action.argv, "--manifest"))
-    asserts.equals(env, repository.path, option_value(action.argv, "--repository"))
-    return repository, metadata
+    asserts.equals(env, index.path, option_value(action.argv, "--index"))
+    return index, metadata
 
-def _assert_served(env, action, repository):
-    """Asserts that an mkosi build action serves the extra packages' repository next to the snapshot mirror."""
+def _assert_served(env, action, index, packages):
+    """Asserts that an mkosi build action serves the extra packages, and their index, next to the snapshot mirror.
+
+    The build reads the .deb files directly, because the index holds no copy of them.
+    """
     preamble = argv_preamble(action.argv)
-    asserts.equals(env, repository.path, option_value(preamble, "--extra-packages-repository"))
+    asserts.equals(env, index.path, option_value(preamble, "--extra-packages-index"))
+    served = [preamble[position + 1] for position, argument in enumerate(preamble) if argument == "--extra-package"]
+    asserts.equals(env, [package.path for package in packages], served)
     asserts.true(env, option_value(preamble, "--debian-snapshot-repository") != None)
-    asserts.true(env, repository in action.inputs.to_list())
+    inputs = action.inputs.to_list()
+    for file in [index] + packages:
+        asserts.true(env, file in inputs, file.path)
 
 def _image_test_impl(ctx):
     env = analysistest.begin(ctx)
     target = analysistest.target_under_test(env)
     info = target[MkosiImageInfo]
-    repository, metadata = _assert_indexed(env, ctx.files.packages, "amd64")
-    _assert_served(env, single_action(env, "MkosiImage"), repository)
+    index, metadata = _assert_indexed(env, ctx.files.packages, "amd64")
+    _assert_served(env, single_action(env, "MkosiImage"), index, ctx.files.packages)
     asserts.equals(env, metadata, info.extra_packages_metadata)
     asserts.true(env, metadata in target[DefaultInfo].files.to_list())
     if ctx.attr.derived_version:
         # A derived version hashes every input of the build, so a changed extra package gets a new version.
-        asserts.true(env, repository in single_action(env, "MkosiInputVersion").inputs.to_list())
+        hashed = single_action(env, "MkosiInputVersion").inputs.to_list()
+        for file in [index] + ctx.files.packages:
+            asserts.true(env, file in hashed, file.path)
     return analysistest.end(env)
 
 _image_test = analysistest.make(
@@ -61,8 +70,8 @@ _image_test = analysistest.make(
 def _base_test_impl(ctx):
     env = analysistest.begin(ctx)
     info = analysistest.target_under_test(env)[MkosiBaseInfo]
-    repository, metadata = _assert_indexed(env, ctx.files.packages, "amd64")
-    _assert_served(env, single_action(env, "MkosiBase"), repository)
+    index, metadata = _assert_indexed(env, ctx.files.packages, "amd64")
+    _assert_served(env, single_action(env, "MkosiBase"), index, ctx.files.packages)
     asserts.equals(env, metadata, info.extra_packages_metadata)
     return analysistest.end(env)
 
@@ -79,7 +88,9 @@ def _finalize_test_impl(ctx):
     asserts.true(env, base.extra_packages_metadata in target[DefaultInfo].files.to_list())
 
     # Finalization installs no packages, so it neither indexes nor serves the extra packages again.
-    asserts.false(env, "--extra-packages-repository" in single_action(env, "MkosiImage").argv)
+    argv = single_action(env, "MkosiImage").argv
+    asserts.false(env, "--extra-packages-index" in argv)
+    asserts.false(env, "--extra-package" in argv)
     for action in analysistest.target_actions(env):
         asserts.false(env, action.mnemonic == "MkosiExtraPackages")
     return analysistest.end(env)

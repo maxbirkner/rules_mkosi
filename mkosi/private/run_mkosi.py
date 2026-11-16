@@ -185,8 +185,10 @@ def _release_stage(preamble: "Preamble") -> str | None:
     snapshot = (preamble.debian_snapshot_components, preamble.debian_snapshot_architecture)
     if (any(release) or preamble.debian_snapshot_repository) and None in snapshot:
         raise SystemExit("incomplete Debian snapshot configuration")
-    if preamble.extra_packages_repository and not preamble.debian_snapshot_repository:
+    if preamble.extra_packages_index and not preamble.debian_snapshot_repository:
         raise SystemExit("extra packages require the Debian snapshot repository")
+    if preamble.extra_packages and not preamble.extra_packages_index:
+        raise SystemExit("extra packages require their index")
     if preamble.devicetrees_directory and not any(release):
         raise SystemExit("device trees require a release build")
     return command_line.release_stage(
@@ -225,11 +227,11 @@ def _prepare_release_sandbox(preamble: "Preamble", arguments: list[str], stage: 
     The mirror also serves the repository of the extra packages, if the build has any.
     """
     if preamble.debian_snapshot_repository:
+        extra_packages = None
+        if preamble.extra_packages_index:
+            extra_packages = release_sandbox.ExtraPackages(preamble.extra_packages_index, preamble.extra_packages)
         return release_sandbox.configure_release_mirror(
-            preamble.debian_snapshot_repository,
-            _workspace(arguments),
-            arguments,
-            preamble.extra_packages_repository,
+            preamble.debian_snapshot_repository, _workspace(arguments), arguments, extra_packages
         )
     if stage == "finalize":
         release_sandbox.configure_release_sandbox(_workspace(arguments), arguments)

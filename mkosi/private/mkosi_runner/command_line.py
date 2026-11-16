@@ -21,7 +21,8 @@ class Preamble:
     debian_tools_sha256: str | None = None
     kernel_preflight: str | None = None
     debian_snapshot_repository: str | None = None
-    extra_packages_repository: str | None = None
+    extra_packages_index: str | None = None
+    extra_packages: list[str] = field(default_factory=list)
     devicetrees_directory: str | None = None
     release_seed: str | None = None
     release_source_date_epoch: int | None = None
@@ -75,7 +76,11 @@ def _verbatim(value: str) -> str:
     return value
 
 
-_EXECUTABLE_PATH_OPTION = "--executable-path"
+# Options that may repeat, each of which appends its value to a list.
+_LIST_OPTIONS: dict[str, tuple[str, Callable[[str], str]]] = {
+    "--executable-path": ("executable_paths", _verbatim),
+    "--extra-package": ("extra_packages", os.path.abspath),
+}
 
 _PREAMBLE_OPTIONS: dict[str, tuple[str, Callable[[str], object]]] = {
     "--staging-manifest": ("staging_manifest", os.path.abspath),
@@ -84,7 +89,7 @@ _PREAMBLE_OPTIONS: dict[str, tuple[str, Callable[[str], object]]] = {
     "--debian-tools-sha256": ("debian_tools_sha256", _verbatim),
     "--kernel-preflight": ("kernel_preflight", os.path.abspath),
     "--debian-snapshot-repository": ("debian_snapshot_repository", os.path.abspath),
-    "--extra-packages-repository": ("extra_packages_repository", os.path.abspath),
+    "--extra-packages-index": ("extra_packages_index", os.path.abspath),
     "--devicetrees-directory": ("devicetrees_directory", os.path.abspath),
     "--release-seed": ("release_seed", _verbatim),
     "--release-source-date-epoch": ("release_source_date_epoch", _source_date_epoch),
@@ -121,12 +126,13 @@ def parse_preamble(argv: list[str]) -> tuple[Preamble, list[str]]:
 
 def _apply_preamble_option(preamble: Preamble, argv: Sequence[str], index: int) -> None:
     option = argv[index]
-    known = option == _EXECUTABLE_PATH_OPTION or option in _PREAMBLE_OPTIONS
+    known = option in _LIST_OPTIONS or option in _PREAMBLE_OPTIONS
     if not known or index + 1 == len(argv):
         raise SystemExit("invalid run_mkosi.py preamble")
     value = argv[index + 1]
-    if option == _EXECUTABLE_PATH_OPTION:
-        preamble.executable_paths.append(value)
+    if option in _LIST_OPTIONS:
+        name, convert_item = _LIST_OPTIONS[option]
+        getattr(preamble, name).append(convert_item(value))
     else:
         name, convert = _PREAMBLE_OPTIONS[option]
         setattr(preamble, name, convert(value))
