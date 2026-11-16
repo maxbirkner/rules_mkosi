@@ -1,7 +1,9 @@
 """Focused tests for raw GPT validation and normalized projection."""
 
 import ast
+import contextlib
 import inspect
+import io
 import json
 import os
 import struct
@@ -479,6 +481,80 @@ class ProjectionTest(unittest.TestCase):
                 self.assertRaisesRegex(SystemExit, "IMAGE_VERSION_INVALID: invalid image_version_file"),
             ):
                 self.run_main(content)
+
+
+def _fat_boot_sector(size_bytes: int, sector_bytes: int = 4096, fat16: bool = False) -> bytes:
+    """Returns the boot sector of a FAT file system with one sector per cluster and two FATs that fit the clusters.
+
+    systemd-repart formats ESPs as FAT32 with 4096-byte sectors and clusters.
+    """
+    reserved = 32
+    total_sectors = size_bytes // sector_bytes
+    fat_sectors = -(-(total_sectors + 2) * (2 if fat16 else 4) // sector_bytes)
+    sector = bytearray(SECTOR)
+    struct.pack_into(
+        "<HBHBHHBH",
+        sector,
+        11,
+        sector_bytes,
+        1,
+        reserved,
+        2,
+        512 if fat16 else 0,
+        0,
+        0xF8,
+        fat_sectors if fat16 else 0,
+    )
+    struct.pack_into("<II", sector, 32, total_sectors, 0 if fat16 else fat_sectors)
+    sector[510:512] = b"\x55\xaa"
+    return bytes(sector)
+
+
+class EspClusterTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.path = os.path.join(self.directory.name, "image.raw")
+
+    def write_image(self, boot_sector: bytes) -> None:
+        raw = image(
+            entries=[
+                (1, 2048, 4095, gpt_partitions.ESP, "esp"),
+                (2, 4096, 6143, gpt_partitions.ROOT_X86_64, "root-x86-64"),
+            ]
+        )
+        raw[2048 * SECTOR : 2049 * SECTOR] = boot_sector
+        with open(self.path, "wb") as output:
+            output.write(raw)
+
+    def test_rejects_a_fat32_esp_that_uefi_firmware_does_not_mount(self) -> None:
+        self.write_image(_fat_boot_sector(256 * 1024 * 1024))
+        with self.assertRaisesRegex(
+            partition_metadata.EspTooSmallError, "ESP partition 1 is FAT32 with 65374 clusters of 4096 bytes.*257M"
+        ):
+            partition_metadata.project_image(self.path)
+
+    def test_accepts_fat32_esps_with_enough_clusters(self) -> None:
+        for megabytes in (257, 512):
+            with self.subTest(megabytes=megabytes):
+                self.write_image(_fat_boot_sector(megabytes * 1024 * 1024))
+                self.assertEqual("esp", partition_metadata.project_image(self.path)["partitions"][0]["label"])
+
+    def test_leaves_other_esp_contents_to_the_firmware(self) -> None:
+        for boot_sector in (_fat_boot_sector(32 * 1024 * 1024, sector_bytes=512, fat16=True), bytes(SECTOR)):
+            with self.subTest(boot_sector=boot_sector[:16]):
+                self.write_image(boot_sector)
+                self.assertEqual("esp", partition_metadata.project_image(self.path)["partitions"][0]["label"])
+
+    def test_the_build_fails_with_an_image_layout_failure(self) -> None:
+        self.write_image(_fat_boot_sector(256 * 1024 * 1024))
+        argv = ["partition_metadata.py", "--image", self.path, "--output", self.path + ".json"]
+        stderr = io.StringIO()
+        with mock.patch.object(sys, "argv", argv), contextlib.redirect_stderr(stderr), self.assertRaises(SystemExit):
+            partition_metadata.main()
+        self.assertIn("IMAGE_LAYOUT_FAILURE: ESP partition 1 is FAT32 with 65374 clusters", stderr.getvalue())
+        self.assertIn("Action: enlarge the partition", stderr.getvalue())
+        self.assertFalse(os.path.exists(self.path + ".json"))
 
 
 if __name__ == "__main__":

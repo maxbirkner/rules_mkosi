@@ -21,6 +21,13 @@ _HEADER_MIN = 92
 _MAX_ARRAY_BYTES = 64 * 1024 * 1024
 _MAX_ENTRIES = 1024 * 1024
 _HASH_CHUNK_BYTES = 1024 * 1024
+# The FAT specification makes a file system with fewer clusters FAT12 or FAT16, whatever its boot sector says, so UEFI
+# firmware such as edk2's OVMF and AAVMF does not mount a FAT32 ESP with fewer clusters.
+FAT32_MIN_CLUSTERS = 65525
+
+
+class EspTooSmallError(ValueError):
+    """An ESP is formatted as FAT32 with too few clusters for UEFI firmware to mount it."""
 
 
 class _HeaderFields(TypedDict):
@@ -300,6 +307,45 @@ def _validate_roots(partitions: Sequence[_Partition], slot_label: str | None, ar
         raise ValueError("Linux {} root partition label must be {}".format(architecture_name, types.name))
 
 
+def _fat32_geometry(boot_sector: bytes) -> tuple[int, int, int] | None:
+    """Returns the cluster bytes, cluster count and minimum bytes for 65525 clusters of a FAT32 boot sector.
+
+    Returns None for a boot sector of another FAT type or of no FAT file system, which other checks report.
+    """
+    sector_bytes, cluster_sectors, reserved, fats, root_entries, _, _, fat16_sectors = struct.unpack_from(
+        "<HBHBHHBH", boot_sector, 11
+    )
+    total_sectors, fat_sectors = struct.unpack_from("<II", boot_sector, 32)
+    is_fat = boot_sector[510:512] == b"\x55\xaa" and sector_bytes in (512, 1024, 2048, 4096) and cluster_sectors
+    if not is_fat or fat16_sectors or root_entries or not fats or not fat_sectors:
+        return None
+    clusters = (total_sectors - reserved - fats * fat_sectors) // cluster_sectors
+    # The FAT of 65525 clusters has an entry of 4 bytes for each cluster and for the two reserved entries.
+    minimum_fat_sectors = -(-(FAT32_MIN_CLUSTERS + 2) * 4 // sector_bytes)
+    minimum_sectors = reserved + fats * minimum_fat_sectors + FAT32_MIN_CLUSTERS * cluster_sectors
+    return cluster_sectors * sector_bytes, clusters, minimum_sectors * sector_bytes
+
+
+def _validate_esps(path: str | Path, partitions: Sequence[_Partition]) -> None:
+    """Raises EspTooSmallError if an ESP is FAT32 with fewer clusters than UEFI firmware mounts."""
+    with open(path, "rb") as image:
+        for partition in partitions:
+            if partition["type_guid"] != gpt.ESP or partition["size_bytes"] < 512:
+                continue
+            image.seek(partition["start_bytes"])
+            geometry = _fat32_geometry(image.read(512))
+            if geometry is None or geometry[1] >= FAT32_MIN_CLUSTERS:
+                continue
+            cluster_bytes, clusters, minimum_bytes = geometry
+            raise EspTooSmallError(
+                "ESP partition {} is FAT32 with {} clusters of {} bytes, but UEFI firmware such as OVMF and AAVMF "
+                "mounts FAT32 only with at least {} clusters; set SizeMinBytes= of its mkosi.repart definition to at "
+                "least {}M".format(
+                    partition["number"], clusters, cluster_bytes, FAT32_MIN_CLUSTERS, -(-minimum_bytes // ALIGNMENT)
+                )
+            )
+
+
 def _validate_firmware(partitions: Sequence[_Partition], firmware: str) -> None:
     if firmware == "uefi":
         return
@@ -334,6 +380,7 @@ def project_image(
             partitions[-1]["uuid"] = str(uuid.UUID(bytes_le=entry[16:32]))
     _validate_roots(partitions, slot_label, architecture)
     _validate_firmware(partitions, firmware)
+    _validate_esps(path, partitions)
     return {
         "architecture": architecture,
         "firmware": firmware,
@@ -431,7 +478,10 @@ def main() -> None:
     if args.slot_label_image_id is not None:
         image_version = _image_version_from_file(args.image_version_file, args.slot_label_image_id)
         slot_label = "{}_{}".format(args.slot_label_image_id, image_version)
-    metadata = project_image(args.image, args.firmware, slot_label, args.architecture)
+    try:
+        metadata = project_image(args.image, args.firmware, slot_label, args.architecture)
+    except EspTooSmallError as error:
+        _load_sibling(__file__, "diagnostics").fail("IMAGE_LAYOUT_FAILURE", str(error))
     Path(args.output).write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n")
 
 

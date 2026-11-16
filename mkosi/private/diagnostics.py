@@ -17,6 +17,7 @@ _ACTIONS = {
         "pass extra_packages only Debian binary packages with unique names for the snapshot's architecture or all"
     ),
     "ASSEMBLY_FAILURE": "inspect the preserved mkosi output",
+    "IMAGE_LAYOUT_FAILURE": "enlarge the partition in the image's mkosi.repart definitions",
     "VM_FAILURE": "inspect the preserved serial, firmware, and QEMU logs",
 }
 _MIN_EXIT_STATUS = 1

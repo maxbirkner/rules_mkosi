@@ -124,11 +124,10 @@ mkosi_image(
 qemu_ovmf_boot_test(
     name = "demo_boot_test",
     image = ":demo",
-    readiness_marker = "systemd[1]: Hostname set to <demo>.",
 )
 ```
 
-`bazel test :demo_boot_test` builds the image over the network (tracer mode), boots it with OVMF, waits for the hostname line on the serial console, and expects the guest to power off by itself.
+`bazel test :demo_boot_test` builds the image over the network (tracer mode), boots it with OVMF, waits on the serial console until the image switched from its initrd to its root file system, and expects the guest to power off by itself.
 For a complete release configuration, with a locked Debian snapshot, UKI, dm-verity, A/B updates, and a boot test, see the [release example](e2e/smoke/example/README.md).
 
 ## Public API
@@ -501,7 +500,6 @@ load("@rules_mkosi//mkosi:defs.bzl", "qemu_ovmf_boot_test", "qemu_seabios_boot_t
 qemu_ovmf_boot_test(
     name = "uefi_boot_test",
     image = ":demo",
-    readiness_marker = "systemd[1]: Hostname set to <demo>.",
 )
 
 qemu_seabios_boot_test(
@@ -511,6 +509,8 @@ qemu_seabios_boot_test(
 ```
 
 The test boots a read-only snapshot of `MkosiImageInfo.raw_image`, waits for the exact `readiness_marker` on the serial console, and requires a clean guest shutdown.
+The default `readiness_marker`, `systemd[1]: initrd-switch-root.service: Deactivated successfully.`, is logged only by the systemd of the root file system after the switch from a systemd initrd, as mkosi builds it, so an image whose root cannot boot fails the test.
+Lines such as `systemd[1]: Hostname set to <demo>.` also appear in the initrd and do not prove that.
 
 `qemu_ovmf_boot_test` picks QEMU, the UEFI firmware, the machine, and the serial console by `MkosiImageInfo.architecture`.
 amd64 images boot with OVMF on a `q35` machine with 512 MiB; arm64 images boot with AAVMF on a `virt` machine with 1 GiB and the `max` CPU, and their serial console is `ttyAMA0` (`KernelCommandLine=console=ttyAMA0`).
