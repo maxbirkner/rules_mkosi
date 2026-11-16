@@ -1,13 +1,20 @@
 """Prepares the fixed sandbox files and the local Debian mirror of a build that runs without network."""
 
-import hashlib
 import os
+import runpy
 import shutil
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from . import tree
+
+if TYPE_CHECKING:
+    from mkosi.private.file_hashing import sha256_file
+else:
+    # file_hashing.py is a sibling of run_mkosi.py, outside this package, which run_mkosi.py loads by path.
+    sha256_file = runpy.run_path(str(Path(__file__).parents[1] / "file_hashing.py"))["sha256_file"]
 
 PASSWD = "root:x:0:0:root:/root:/bin/sh\n"
 GROUP = "root:x:0:\n"
@@ -141,7 +148,7 @@ def place_extra_packages(extra_packages: ExtraPackages, destination: Path) -> No
     tree.materialize_tree(extra_packages.index, destination)
     filenames = _read_indexed_filenames(destination / "Packages")
     for package in extra_packages.packages:
-        filename = filenames.pop(_hash_file(package), None)
+        filename = filenames.pop(sha256_file(package), None)
         if filename is None:
             raise SystemExit("extra package {} is not in the extra packages' index".format(os.fspath(package)))
         shutil.copyfile(package, destination / filename)
@@ -169,9 +176,3 @@ def _read_indexed_filenames(packages_index: Path) -> dict[str, str]:
             raise SystemExit("{} has no SHA256 in the extra packages' index".format(filename))
         filenames[fields["SHA256"]] = filename
     return filenames
-
-
-def _hash_file(path: str | os.PathLike[str]) -> str:
-    with open(path, "rb") as source:
-        # The mkosi toolchain's Python has file_digest; mypy checks for the Python 3.10 of the host scripts.
-        return hashlib.file_digest(source, "sha256").hexdigest()  # type: ignore[attr-defined,no-any-return]

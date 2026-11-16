@@ -68,6 +68,7 @@ exports_files([
 filegroup(
     name = "run_mkosi_modules",
     srcs = [
+        "file_hashing.py",
         "mkosi_runner/__init__.py",
         "mkosi_runner/command_line.py",
         "mkosi_runner/mkosi_contract.py",
