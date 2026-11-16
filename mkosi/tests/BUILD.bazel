@@ -37,6 +37,7 @@ load(":extra_packages_test.bzl", "extra_packages_test_suite")
 load(":mkosi_base_test.bzl", "mkosi_base_test_suite")
 load(
     ":mkosi_image_test.bzl",
+    "arm64_host_qemu_toolchain_provider_test",
     "boot_config_test",
     "image_field_file",
     "mkosi_image_test_suite",
@@ -316,6 +317,7 @@ behavior_targets(
         ":config_tree_artifact_test",
         ":conflicting_root_test",
         ":aarch64_bootstrap_static_test",
+        ":arm64_host_qemu_toolchain_provider_test",
         "//mkosi/debian:debian_tools_arm64_tree_test",
         ":host_bootstrap_platform_test",
         ":consumer_isolation_tests",
@@ -834,6 +836,12 @@ bootstrap_binary(
 )
 
 host_bootstrap_platform_test(name = "host_bootstrap_platform_test")
+
+# Analysed on any host: the QEMU toolchain of Linux aarch64 execution platforms boots arm64 guests natively.
+arm64_host_qemu_toolchain_provider_test(
+    name = "arm64_host_qemu_toolchain_provider_test",
+    target_under_test = "@mkosi_toolchains//arm64:qemu_ovmf_toolchain",
+)
 
 aarch64_bootstrap_files(
     name = "bootstrap_executables_aarch64",

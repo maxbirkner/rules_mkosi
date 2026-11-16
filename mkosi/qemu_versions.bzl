@@ -15,6 +15,14 @@ QEMU_SYSTEM_DATA_SHA256 = "2525218347b647962bed5d0b37d3093e434b8c83e5fd78de910d4
 # qemu-system-aarch64 for Linux x86-64 hosts, from the same qemu-prebuilt release, for arm64 guests.
 QEMU_SYSTEM_AARCH64_URL = "https://github.com/hermeticbuild/qemu-prebuilt/releases/download/11.0.0.1/qemu-system-bin-linux-amd64-aarch64-softmmu-11.0.0.1.tar.zst"
 QEMU_SYSTEM_AARCH64_SHA256 = "47385316ca599ad1cd11b212ee34ba39315231484ddf0aca735ee999509ece4c"
+
+# The same QEMU release built for Linux aarch64 hosts, for boot tests on arm64 execution platforms: qemu-system-x86_64
+# boots amd64 guests under TCG, qemu-system-aarch64 arm64 guests with KVM where available.
+QEMU_SYSTEM_ARM64_HOST_URL = "https://github.com/hermeticbuild/qemu-prebuilt/releases/download/11.0.0.1/qemu-system-bin-linux-arm64-x86_64-softmmu-11.0.0.1.tar.zst"
+QEMU_SYSTEM_ARM64_HOST_SHA256 = "38996b463c6bd1c12c0c80c6fe47192c33a4c6cb88e7b97e1e4f67ecd41395f1"
+QEMU_SYSTEM_ARM64_HOST_INTEGRITY = "sha256-OJlrRjxr0cEsDIDG/kcZLDOkxsuI57l+Hk9n7NQTlfE="
+QEMU_SYSTEM_AARCH64_ARM64_HOST_URL = "https://github.com/hermeticbuild/qemu-prebuilt/releases/download/11.0.0.1/qemu-system-bin-linux-arm64-aarch64-softmmu-11.0.0.1.tar.zst"
+QEMU_SYSTEM_AARCH64_ARM64_HOST_SHA256 = "24a231d21b4b580fb939f9689d254a5414433b23fa0cd4e64e90ce67fdb47e2c"
 SEABIOS_VERSION = "rel-1.17.0-0-gb52ca86e094d-prebuilt.qemu.org"
 SEABIOS_SHA256 = "ae6f6aa973aaccc143f57aa960fb035fd9de4daee4ad0cd713322f8c259e7650"
 
