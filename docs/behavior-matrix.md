@@ -44,6 +44,10 @@ A release build fails if a positive `Devicetrees=` pattern selects no device tre
 An arm64 UKI booted on QEMU's `virt` machine without ACPI installs its `.dtbauto` section that is compatible with `linux,dummy-virt`, and Linux uses that device tree.
 The UKI metadata lists each `.dtb` and `.dtbauto` section with its root compatible strings, size and SHA-256, and rejects a section that is not a device tree or a `.dtbauto` section without a compatible string.
 
+<!-- behavior:BHV-DEVICETREE-RULE -->
+`devicetree` preprocesses its `.dts` source and overlay sources with `cpp -nostdinc -undef -x assembler-with-cpp` from the pinned Debian tools, with `includes` relative to the package and `defines`, compiles them with `dtc`, or takes a `.dtb`, and applies the overlays in order with `fdtoverlay`.
+It rejects defines that are not C identifiers and include directories outside the package during analysis, and fails the build unless the result is a device tree whose root has a compatible string.
+
 <!-- behavior:BHV-IMAGE-EPOCH -->
 `release_source_date_epoch` is a non-negative value, required only in release mode, that must match the resolved `SourceDateEpoch=`.
 

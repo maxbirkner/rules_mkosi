@@ -3,6 +3,7 @@ load("@rules_python//python:defs.bzl", "py_binary", "py_test")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
 load(
     "//mkosi:defs.bzl",
+    "devicetree",
     "mkosi_config_tree",
     "mkosi_image",
     "mkosi_reproducibility_manifest",
@@ -22,6 +23,7 @@ load(":config_tree_test.bzl", "config_tree_test_suite")
 load(":consumer_isolation_test.bzl", "consumer_isolation_test_suite")
 load(":debian_snapshot_test.bzl", "debian_snapshot_arm64_provider_test", "debian_snapshot_provider_test")
 load(":debian_tools_provenance.bzl", "DEBIAN_TOOLS_PROVENANCE_ENV")
+load(":devicetree_rule_test.bzl", "devicetree_rule_test_suite")
 load(":devicetrees_test.bzl", "devicetrees_test_suite")
 load(
     ":extension_semantics_test.bzl",
@@ -342,6 +344,8 @@ behavior_targets(
         ":debian_snapshot_unit_test",
         ":debian_tools_runtime_test",
         ":default_version_test",
+        ":devicetree_build_test",
+        ":devicetree_rule_analysis_tests",
         ":devicetree_test",
         ":devicetrees_analysis_tests",
         ":devicetrees_artifact_test",
@@ -736,12 +740,35 @@ py_test(
     ],
 )
 
-# Writes the .dtb fixtures of devicetrees_test.bzl and //mkosi/tests/arm64.
-py_binary(
-    name = "encode_device_tree",
-    srcs = ["devicetree_fixture.py"],
-    main = "devicetree_fixture.py",
-    visibility = ["//mkosi/tests:__subpackages__"],
+devicetree(
+    name = "devicetree_board",
+    src = "testdata/devicetree/board.dts",
+    hdrs = [
+        "testdata/devicetree/include/dt-bindings/rules-mkosi-leds.h",
+        "testdata/devicetree/soc.dtsi",
+    ],
+    defines = [
+        "BOARD_MODEL=\"rules-mkosi test board\"",
+        "DISPLAY_REVISION=3",
+    ],
+    includes = ["testdata/devicetree/include"],
+    overlays = ["testdata/devicetree/display.dtso"],
+)
+
+devicetree_rule_test_suite(name = "devicetree_rule_analysis_tests")
+
+py_test(
+    name = "devicetree_build_test",
+    srcs = [
+        "devicetree_build_test.py",
+        "devicetree_fixture.py",
+        "runfile_paths.py",
+        "//mkosi/private:devicetree.py",
+    ],
+    args = ["$(rootpath :devicetree_board)"],
+    data = [":devicetree_board"],
+    main = "devicetree_build_test.py",
+    deps = ["@rules_python//python/runfiles"],
 )
 
 # Builds the .deb fixtures of extra_packages_test.bzl.
@@ -1249,7 +1276,6 @@ py_test(
 )
 
 exports_files([
-    "devicetree_fixture.py",
     "release_root.py",
     "runfile_paths.py",
     "behavior_matrix.tsv",

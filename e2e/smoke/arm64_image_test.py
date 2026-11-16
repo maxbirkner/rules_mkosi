@@ -40,10 +40,11 @@ def main() -> None:
     assert metadata["architecture"] == "arm64", metadata
     assert {partition["type_guid"] for partition in metadata["partitions"]} >= {_ROOT_ARM64, _ROOT_ARM64_VERITY}
     devicetrees = json.loads(uki_metadata.read_text())["devicetrees"]
-    assert [(tree["section"], tree["compatible"][0]) for tree in devicetrees] == [
-        (".dtbauto", "consumer,board"),
-        (".dtbauto", "arm,corstone1000-fvp"),
-        (".dtbauto", "arm,corstone1000-mps3"),
+    assert [(tree["section"], tree["compatible"]) for tree in devicetrees] == [
+        # The devicetree rule applied the overlay, which prepends a compatible string.
+        (".dtbauto", ["consumer,board-display", "consumer,board"]),
+        (".dtbauto", ["arm,corstone1000-fvp"]),
+        (".dtbauto", ["arm,corstone1000-mps3"]),
     ], devicetrees
 
 
