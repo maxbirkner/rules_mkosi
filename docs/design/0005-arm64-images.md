@@ -195,7 +195,7 @@ Steps 2 to 4 satisfy the issue's acceptance criteria on x86-64 CI; step 5 adds n
 
 ## Outcome
 
-The plan was implemented in #223, #224, #225, #227, #228, #229, #232, #235, #238 and the QEMU and documentation pull requests that close #206; step 5 was split into the bootstrap platform, the native build, and native boot tests.
+The plan was implemented in #223, #224, #225, #227, #228, #229, #232, #235, #238, #245 and the documentation pull request that closes #206; step 5 was split into the bootstrap platform (#235), the native build (#238), and native boot tests (#245).
 
 - All four risks resolved: emulated `ldconfig`, `depmod` and maintainer scripts work, ukify accepts Debian's arm64 kernel as is, two cross builds produce identical reproducibility manifests in CI, and `ubuntu-22.04-arm` passes the host-kernel contract.
 - The arm64 A/B update test runs in `e2e/smoke` instead of the root suite, because the built-in snapshot lacks `systemd-container`, which provides `systemd-sysupdate`, and `gpg`; it covers update, reboot and blessing, not the rollback that the amd64 test already proves.
