@@ -18,7 +18,7 @@ DEBIAN_TOOLS_PYTHON_SHA256 = "58733bc01987f9a5b6e7436f71dc338b1d9e47ec4713e7a123
 
 # The arm64 Debian tools of Linux aarch64 execution platforms: the archive of the arm64 lock's packages, and the
 # static aarch64 build of the same Python release for their launcher.
-DEBIAN_TOOLS_ARM64_ARCHIVE_SHA256 = "fcd4bb838991030090d93dc49f031ce23914c8d823fce6ed82454790d000bbaf"
+DEBIAN_TOOLS_ARM64_ARCHIVE_SHA256 = "87cbe41592a90576238cd5b2ab654c881c44432909acede82a342729c72825e0"
 DEBIAN_TOOLS_PYTHON_AARCH64_URL = "https://github.com/astral-sh/python-build-standalone/releases/download/20261026/cpython-3.14.10%2B20261026-aarch64-unknown-linux-musl-lto%2Bstatic-full.tar.zst"
 DEBIAN_TOOLS_PYTHON_AARCH64_SHA256 = "5d296c88b994813ae65a8355727f028d79b1be14be69c606d520535978f10e4c"
 
