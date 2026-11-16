@@ -291,6 +291,24 @@ _debian_tools_provider_test = analysistest.make(_debian_tools_provider_test_impl
 
 _qemu_toolchain_provider_test = analysistest.make(_qemu_toolchain_provider_test_impl)
 
+def _arm64_host_qemu_toolchain_provider_test_impl(ctx):
+    env = analysistest.begin(ctx)
+    info = analysistest.target_under_test(env)[MkosiQemuToolchainInfo]
+    asserts.equals(env, "aarch64", info.execution_cpu)
+    asserts.equals(env, "38996b463c6bd1c12c0c80c6fe47192c33a4c6cb88e7b97e1e4f67ecd41395f1", info.qemu_sha256)
+    asserts.equals(env, "qemu-system-x86_64", info.qemu_system.basename)
+    amd64, arm64 = info.guests["amd64"], info.guests["arm64"]
+    asserts.false(env, amd64.native)
+    asserts.equals(env, "q35", amd64.machine)
+    asserts.true(env, arm64.native)
+    asserts.equals(env, "24a231d21b4b580fb939f9689d254a5414433b23fa0cd4e64e90ce67fdb47e2c", arm64.qemu_sha256)
+    asserts.equals(env, "virt,gic-version=max", arm64.machine)
+    asserts.equals(env, ["-cpu", "max"], arm64.cpu_args)
+    asserts.equals(env, "aarch64/code.fd", arm64.firmware_code.short_path.split("/", 2)[-1])
+    return analysistest.end(env)
+
+arm64_host_qemu_toolchain_provider_test = analysistest.make(_arm64_host_qemu_toolchain_provider_test_impl)
+
 def _written_boot_config(env):
     config_writes = [action for action in analysistest.target_actions(env) if action.mnemonic == "FileWrite"]
     asserts.equals(env, 1, len(config_writes))
