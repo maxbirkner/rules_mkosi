@@ -12,7 +12,7 @@ import shutil
 import subprocess
 import sys
 from collections.abc import Iterable, Iterator, Mapping, Sequence
-from typing import TYPE_CHECKING, TypeAlias
+from typing import TYPE_CHECKING, NamedTuple, TypeAlias
 
 _load_sibling = runpy.run_path(str(pathlib.Path(__file__).with_name("sibling_loader.py")))["load_sibling"]
 if TYPE_CHECKING:
@@ -23,14 +23,40 @@ else:
     debian_control = _load_sibling(__file__, "debian_control")
     file_hashing = _load_sibling(__file__, "file_hashing")
 
-# (component, architecture, path in the snapshot, SHA-256, input file) of a Packages.xz index.
-_Index: TypeAlias = tuple[str, str, str, str, str]
+
+class _Index(NamedTuple):
+    """A Packages.xz index of the snapshot and the input file that holds it."""
+
+    component: str
+    architecture: str
+    relative: str
+    sha256: str
+    path: str
+
+
 # A staged, decompressed Packages index and its architecture.
 _StagedIndex: TypeAlias = tuple[pathlib.Path, str]
-# (name, version, architecture) of a package.
-_PackageKey: TypeAlias = tuple[str, str, str]
-# (filename, size, SHA-256, local name) of a locked package.
-_LockedPackage: TypeAlias = tuple[str, int, str, str]
+
+
+class _PackageKey(NamedTuple):
+    name: str
+    version: str
+    architecture: str
+
+
+class _PackageFile(NamedTuple):
+    """The file of a package, as the Packages metadata describes it."""
+
+    filename: str
+    size: int
+    sha256: str
+
+
+class _LockedPackage(NamedTuple):
+    """The file of a locked package and the name of its package input."""
+
+    file: _PackageFile
+    local_name: str
 
 
 def _verify_digest(path: StrPath, expected: str, description: str) -> None:
@@ -190,8 +216,8 @@ def _set_deterministic_metadata(root: pathlib.Path) -> None:
 
 def _read_package_metadata(
     indexes: Iterable[tuple[StrPath, str]], expected: Mapping[_PackageKey, object]
-) -> dict[_PackageKey, tuple[str, int, str]]:
-    actual: dict[_PackageKey, tuple[str, int, str]] = {}
+) -> dict[_PackageKey, _PackageFile]:
+    actual: dict[_PackageKey, _PackageFile] = {}
     for package_index, index_architecture in indexes:
         with open(package_index, "rb") as source:
             for paragraph in debian_control.paragraphs(source.read().decode("utf-8")):
@@ -208,11 +234,11 @@ def _read_package_metadata(
                 )
                 if not fields[0] or not fields[1] or not fields[2] or not fields[1].isdigit():
                     raise ValueError("incomplete package metadata")
-                record = (fields[0], int(fields[1]), fields[2])
+                record = _PackageFile(fields[0], int(fields[1]), fields[2])
                 # A paragraph without a name or version matches no locked package.
                 if package is None or version is None:
                     continue
-                key = (package, version, architecture)
+                key = _PackageKey(package, version, architecture)
                 if key in actual and actual[key] != record:
                     raise ValueError("conflicting duplicate package metadata: %s" % paragraph.get("Package"))
                 if key in expected:
@@ -228,17 +254,17 @@ def _component_indexes(args: argparse.Namespace) -> list[_Index]:
     if len(args.component_indexes) != len(args.component_index_files):
         raise ValueError("--component-index and --component-index-file counts differ")
     indexes: list[_Index] = [
-        ("main", args.architecture, args.packages_path, args.packages_xz_sha256, args.packages_xz),
-        ("main", "all", args.packages_all_path, args.packages_all_xz_sha256, args.packages_all_xz),
+        _Index("main", args.architecture, args.packages_path, args.packages_xz_sha256, args.packages_xz),
+        _Index("main", "all", args.packages_all_path, args.packages_all_xz_sha256, args.packages_all_xz),
     ]
     for record, path in zip(args.component_indexes, args.component_index_files, strict=True):
         fields = record.split("|")
         if len(fields) != 4:
             raise ValueError("component index record must have four fields")
         component, architecture, relative, digest = fields
-        indexes.append((component, architecture, relative, digest, path))
+        indexes.append(_Index(component, architecture, relative, digest, path))
     seen: set[tuple[str, str]] = set()
-    for component, architecture, relative, _, _ in indexes:
+    for component, architecture, relative, *_ in indexes:
         if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", component):
             raise ValueError("invalid Debian component: %s" % component)
         if architecture not in (args.architecture, "all"):
@@ -249,7 +275,7 @@ def _component_indexes(args: argparse.Namespace) -> list[_Index]:
         if (component, architecture) in seen:
             raise ValueError("duplicate Packages index: %s %s" % (component, architecture))
         seen.add((component, architecture))
-    components = {component for component, _, _, _, _ in indexes}
+    components = {index.component for index in indexes}
     if seen != {(component, architecture) for component in components for architecture in (args.architecture, "all")}:
         raise ValueError("every Debian component needs binary-%s and binary-all indexes" % args.architecture)
     return indexes
@@ -259,8 +285,8 @@ def _verify_input_digests(args: argparse.Namespace, indexes: Iterable[_Index]) -
     _verify_digest(args.inrelease, args.inrelease_sha256, "InRelease")
     _verify_digest(args.release, args.release_sha256, "Release")
     _verify_digest(args.release_gpg, args.release_gpg_sha256, "Release.gpg")
-    for component, architecture, _, digest, path in indexes:
-        _verify_digest(path, digest, "Packages %s/%s" % (component, architecture))
+    for index in indexes:
+        _verify_digest(index.path, index.sha256, "Packages %s/%s" % (index.component, index.architecture))
 
 
 def _verify_authenticated_release(verified: pathlib.Path, release: str, indexes: Iterable[_Index]) -> None:
@@ -268,8 +294,8 @@ def _verify_authenticated_release(verified: pathlib.Path, release: str, indexes:
     authenticated_release = verified.read_bytes()
     if not _authenticated_release_matches(authenticated_release, pathlib.Path(release).read_bytes()):
         raise ValueError("authenticated InRelease does not match locked Release")
-    for _, _, relative, digest, path in indexes:
-        _release_hash(authenticated_release, relative, len(pathlib.Path(path).read_bytes()), digest)
+    for index in indexes:
+        _release_hash(authenticated_release, index.relative, len(pathlib.Path(index.path).read_bytes()), index.sha256)
 
 
 def _stage_release_files(
@@ -281,15 +307,15 @@ def _stage_release_files(
     _copy(args.release, dists / "Release")
     _copy(args.release_gpg, dists / "Release.gpg")
     staged_indexes: list[_StagedIndex] = []
-    for _, architecture, relative, _, path in indexes:
-        staged = destination / relative[: -len(".xz")]
-        _decompress(path, staged)
-        staged_indexes.append((staged, architecture))
+    for index in indexes:
+        staged = destination / index.relative[: -len(".xz")]
+        _decompress(index.path, staged)
+        staged_indexes.append((staged, index.architecture))
     return staged_indexes
 
 
 def _locked_packages(package_records: Iterable[str]) -> dict[_PackageKey, _LockedPackage]:
-    """Returns (filename, size, digest, local name) of every locked package keyed by (name, version, arch)."""
+    """Returns every locked package keyed by its name, version and architecture."""
     expected: dict[_PackageKey, _LockedPackage] = {}
     filenames: set[str] = set()
     local_names: set[str] = set()
@@ -300,7 +326,7 @@ def _locked_packages(package_records: Iterable[str]) -> dict[_PackageKey, _Locke
         name, version, architecture, filename, size, digest, local_name = fields
         if not size.isdigit():
             raise ValueError("locked package size is invalid")
-        key = (name, version, architecture)
+        key = _PackageKey(name, version, architecture)
         filename = str(_safe_package_path(filename))
         if key in expected:
             raise ValueError("duplicate locked package: %s" % "|".join(key))
@@ -310,7 +336,7 @@ def _locked_packages(package_records: Iterable[str]) -> dict[_PackageKey, _Locke
             raise ValueError("duplicate local package name: %s" % local_name)
         filenames.add(filename)
         local_names.add(local_name)
-        expected[key] = (filename, int(size), digest, local_name)
+        expected[key] = _LockedPackage(_PackageFile(filename, int(size), digest), local_name)
     return expected
 
 
@@ -321,20 +347,20 @@ def _verify_package_metadata(
     if actual.keys() != expected.keys():
         raise ValueError("locked packages do not match Packages metadata")
     for key in sorted(expected):
-        if actual[key] != expected[key][:3]:
-            raise ValueError("package metadata disagrees with lock: %s" % key[0])
+        if actual[key] != expected[key].file:
+            raise ValueError("package metadata disagrees with lock: %s" % key.name)
 
 
 def _stage_packages(
     args: argparse.Namespace, expected: Mapping[_PackageKey, _LockedPackage], destination: pathlib.Path
 ) -> None:
-    records_by_name = {value[3]: (key, value) for key, value in expected.items()}
-    if set(records_by_name) != set(args.package_names):
+    files_by_name = {locked.local_name: locked.file for locked in expected.values()}
+    if set(files_by_name) != set(args.package_names):
         raise ValueError("package inputs do not match lock package names")
     for package, local_name in zip(args.packages, args.package_names, strict=True):
-        _, (remote_filename, expected_size, digest, _) = records_by_name[local_name]
-        _verify_package(package, digest, expected_size, "package %s" % local_name)
-        relative = _safe_package_path(remote_filename)
+        file = files_by_name[local_name]
+        _verify_package(package, file.sha256, file.size, "package %s" % local_name)
+        relative = _safe_package_path(file.filename)
         _copy(package, destination / relative)
 
 
