@@ -192,3 +192,23 @@ Steps 2 to 4 satisfy the issue's acceptance criteria on x86-64 CI; step 5 adds n
 - ukify must accept Debian's compressed arm64 `vmlinuz` when it builds the UKI.
 - Emulated maintainer scripts must not make the image differ between two builds, for example through byte-compiled Python files.
 - The `ubuntu-22.04-arm` runner must pass the host-kernel contract; otherwise the native job documents the gap and the cross path remains the release path.
+
+## Outcome
+
+The plan was implemented in #223, #224, #225, #227, #228, #229, #232, #235, #238 and the QEMU and documentation pull requests that close #206; step 5 was split into the bootstrap platform, the native build, and native boot tests.
+
+- All four risks resolved: emulated `ldconfig`, `depmod` and maintainer scripts work, ukify accepts Debian's arm64 kernel as is, two cross builds produce identical reproducibility manifests in CI, and `ubuntu-22.04-arm` passes the host-kernel contract.
+- The arm64 A/B update test runs in `e2e/smoke` instead of the root suite, because the built-in snapshot lacks `systemd-container`, which provides `systemd-sysupdate`, and `gpg`; it covers update, reboot and blessing, not the rollback that the amd64 test already proves.
+- The UEFI firmware does not mount an ESP whose FAT32 file system has fewer than 65525 clusters, and systemd-repart formats it with 4 KiB clusters, so the arm64 fixtures use 512 MiB ESPs.
+- arm64 guests need 1 GiB, because Debian's arm64 kernel stub fails to load the UKI's larger initrd with 512 MiB.
+- GitHub's arm64 runners expose no `/dev/kvm`, so native boot tests run under TCG there as well.
+
+Measured durations (GitHub-hosted runners):
+
+| Test | Duration |
+| --- | --- |
+| arm64 UKI fixture boot, TCG on x86-64 | 73 to 96 s |
+| Consumer arm64 image boot, TCG on x86-64 | 52 to 107 s |
+| arm64 A/B update and blessing, TCG on x86-64 | 155 to 216 s |
+| arm64 UKI fixture boot, TCG on arm64 | 57 s |
+| Native arm64 job: preflight, build of both fixtures, tests | about 5 min |
