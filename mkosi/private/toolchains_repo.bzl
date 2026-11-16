@@ -55,6 +55,16 @@ toolchain(
     toolchain = ":mkosi_toolchain",
     toolchain_type = "@rules_mkosi//mkosi/toolchain:toolchain_type",
 )
+
+toolchain(
+    name = "linux_aarch64",
+    exec_compatible_with = [
+        "@platforms//os:linux",
+        "@platforms//cpu:aarch64",
+    ],
+    toolchain = ":mkosi_toolchain",
+    toolchain_type = "@rules_mkosi//mkosi/toolchain:toolchain_type",
+)
 '''
 
 _QEMU_BUILD = '''load("@rules_mkosi//mkosi:defs.bzl", "qemu_executable", "qemu_ovmf_toolchain")
@@ -73,6 +83,7 @@ qemu_executable(
 
 qemu_ovmf_toolchain(
     name = "qemu_ovmf_toolchain",
+    execution_cpu = "{execution_cpu}",
     qemu_version = {qemu_version},
     qemu_source_url = {qemu_source_url},
     qemu_sha256 = {qemu_sha256},
@@ -124,10 +135,10 @@ filegroup(
 )
 
 toolchain(
-    name = "qemu_linux_x86_64",
+    name = "{toolchain_name}",
     exec_compatible_with = [
         "@platforms//os:linux",
-        "@platforms//cpu:x86_64",
+        "@platforms//cpu:{execution_cpu}",
     ],
     toolchain = ":qemu_ovmf_toolchain",
     toolchain_type = "@rules_mkosi//mkosi/toolchain:qemu_toolchain_type",
@@ -168,6 +179,19 @@ _QEMU_BUILD_ATTRS = [
     "ovmf_shell_sha256",
 ]
 
+# The attributes that differ for the QEMU toolchain of Linux aarch64 hosts, which reads them with an `arm64_host_` prefix.
+_ARM64_HOST_QEMU_BUILD_ATTRS = [
+    "aarch64_qemu_sha256",
+    "aarch64_qemu_source_url",
+    "aarch64_qemu_system",
+    "qemu_img",
+    "qemu_integrity",
+    "qemu_sha256",
+    "qemu_source_url",
+    "qemu_system",
+    "system_data",
+]
+
 _SOURCE_BUILD = '''package(default_visibility = ["//visibility:public"])
 
 exports_files(["mkosi/__main__.py"])
@@ -205,11 +229,26 @@ def _write_toolchains_build(repository_ctx):
         **_repr_attrs(attrs, _MKOSI_BUILD_ATTRS)
     )
     qemu_build = _QEMU_BUILD.format(
+        execution_cpu = "x86_64",
         ovmf_repo = attrs.ovmf_repo,
         seabios_repo = attrs.seabios_repo,
+        toolchain_name = "qemu_linux_x86_64",
         **_repr_attrs(attrs, _QEMU_BUILD_ATTRS)
     )
     repository_ctx.file("BUILD.bazel", mkosi_build + qemu_build)
+
+    # The QEMU toolchain of Linux aarch64 hosts, with the same names in the arm64 package.
+    arm64_host_attrs = _repr_attrs(attrs, _QEMU_BUILD_ATTRS) | {
+        name: repr(getattr(attrs, "arm64_host_" + name))
+        for name in _ARM64_HOST_QEMU_BUILD_ATTRS
+    }
+    repository_ctx.file("arm64/BUILD.bazel", 'package(default_visibility = ["//visibility:public"])\n\n' + _QEMU_BUILD.format(
+        execution_cpu = "aarch64",
+        ovmf_repo = attrs.ovmf_repo,
+        seabios_repo = attrs.seabios_repo,
+        toolchain_name = "qemu_linux_aarch64",
+        **arm64_host_attrs
+    ))
     return _return_reproducible_metadata(repository_ctx)
 
 # Every attribute is a string: Bazel resolves the label attributes of a repository rule when it fetches the
@@ -222,6 +261,15 @@ toolchains_repo = repository_rule(
         "aarch64_qemu_system": attr.string(mandatory = True),
         "aavmf_code_sha256": attr.string(mandatory = True),
         "aavmf_vars_sha256": attr.string(mandatory = True),
+        "arm64_host_aarch64_qemu_sha256": attr.string(mandatory = True),
+        "arm64_host_aarch64_qemu_source_url": attr.string(mandatory = True),
+        "arm64_host_aarch64_qemu_system": attr.string(mandatory = True),
+        "arm64_host_qemu_img": attr.string(mandatory = True),
+        "arm64_host_qemu_integrity": attr.string(mandatory = True),
+        "arm64_host_qemu_sha256": attr.string(mandatory = True),
+        "arm64_host_qemu_source_url": attr.string(mandatory = True),
+        "arm64_host_qemu_system": attr.string(mandatory = True),
+        "arm64_host_system_data": attr.string(mandatory = True),
         "ovmf_code_sha256": attr.string(mandatory = True),
         "ovmf_integrity": attr.string(mandatory = True),
         "ovmf_repo": attr.string(mandatory = True),

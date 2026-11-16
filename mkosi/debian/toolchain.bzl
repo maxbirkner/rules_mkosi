@@ -32,21 +32,19 @@ emulator that runs programs of that architecture on the execution platform.""",
     },
 )
 
-_LINUX_X86_64 = [
-    "@platforms//os:linux",
-    "@platforms//cpu:x86_64",
-]
+# The Debian tools archive and tree actions run with the static interpreter of the execution platform's CPU.
+_LINUX = ["@platforms//os:linux"]
 
 _STATIC_PYTHON_ATTRS = {
     "_python": attr.label(
         allow_files = True,
         executable = True,
         cfg = "exec",
-        default = "@mkosi_debian_python//:python",
+        default = "//mkosi/debian:static_python",
     ),
     "_python_runtime": attr.label(
         cfg = "exec",
-        default = "@mkosi_debian_python//:runtime",
+        default = "//mkosi/debian:static_python_runtime",
     ),
 }
 
@@ -109,7 +107,7 @@ debian_tools_archive = rule(
         # package_archive.py loads its member path validation from this sibling.
         "_extract_tree": attr.label(default = "//mkosi/debian:extract_tree.py", allow_single_file = True),
     } | _STATIC_PYTHON_ATTRS,
-    exec_compatible_with = _LINUX_X86_64,
+    exec_compatible_with = _LINUX,
     doc = "Builds a flattened archive of the installed tree of checksum-pinned Debian packages.",
 )
 
@@ -120,7 +118,7 @@ debian_tools_tree = rule(
         "archive_sha256": attr.string(mandatory = True, doc = "Expected SHA-256 of the archive."),
         "extractor": attr.label(mandatory = True, allow_single_file = True, doc = "Script that extracts the archive."),
     } | _STATIC_PYTHON_ATTRS,
-    exec_compatible_with = _LINUX_X86_64,
+    exec_compatible_with = _LINUX,
     doc = "Extracts a debian_tools_archive into a directory after verifying its digest.",
 )
 
@@ -292,6 +290,6 @@ debian_tools_launcher_probe = rule(
     implementation = _launcher_probe_impl,
     attrs = {},
     toolchains = ["//mkosi/toolchain:debian_tools_toolchain_type"],
-    exec_compatible_with = _LINUX_X86_64,
+    exec_compatible_with = _LINUX,
     doc = "Invokes the public DebianToolsInfo launcher through an action.",
 )

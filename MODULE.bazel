@@ -40,9 +40,13 @@ qemu = use_extension("@rules_qemu//qemu/extension:qemu.bzl", "qemu")
 use_repo(
     qemu,
     "qemu_img_prebuilt_linux_amd64",
+    "qemu_img_prebuilt_linux_arm64",
     "qemu_system_bin_prebuilt_linux_amd64_aarch64_softmmu",
     "qemu_system_bin_prebuilt_linux_amd64_x86_64_softmmu",
+    "qemu_system_bin_prebuilt_linux_arm64_aarch64_softmmu",
+    "qemu_system_bin_prebuilt_linux_arm64_x86_64_softmmu",
     "qemu_system_data_prebuilt_linux_amd64",
+    "qemu_system_data_prebuilt_linux_arm64",
     "qemu_system_toolchains",
     "qemu_user_prebuilt_linux_amd64_aarch64",
     "qemu_user_toolchains",
@@ -64,6 +68,11 @@ pip.parse(
     hub_name = "mkosi_pypi",
     python_version = "3.14",
     requirements_lock = "//:requirements_lock.txt",
+    # The Debian tools launcher and mkosi run on Linux x86-64 and aarch64 execution platforms, whatever the host.
+    target_platforms = [
+        "linux_aarch64",
+        "linux_x86_64",
+    ],
 )
 use_repo(pip, "mkosi_pypi")
 
@@ -73,6 +82,7 @@ use_repo(mkosi, "mkosi_toolchains")
 
 register_toolchains(
     "@mkosi_toolchains//:qemu_linux_x86_64",
+    "@mkosi_toolchains//arm64:qemu_linux_aarch64",
     "@mkosi_toolchains//:all",
 )
 
@@ -88,9 +98,13 @@ use_repo(
     "mkosi_debian_package_inputs",
     "mkosi_debian_package_inputs_arm64",
     "mkosi_debian_python",
+    "mkosi_debian_python_aarch64",
     "mkosi_debian_snapshot",
     "mkosi_debian_snapshot_arm64",
     "mkosi_debian_tools",
 )
 
-register_toolchains("@mkosi_debian_tools//:linux_x86_64")
+register_toolchains(
+    "@mkosi_debian_tools//:linux_x86_64",
+    "@mkosi_debian_tools//arm64:linux_aarch64",
+)
