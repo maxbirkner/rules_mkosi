@@ -20,6 +20,7 @@ load(":bootstrap_cross_test.bzl", "aarch64_bootstrap_files", "host_bootstrap_pla
 load(":config_tree_test.bzl", "config_tree_test_suite")
 load(":consumer_isolation_test.bzl", "consumer_isolation_test_suite")
 load(":debian_snapshot_test.bzl", "debian_snapshot_arm64_provider_test", "debian_snapshot_provider_test")
+load(":debian_tools_constraints_test.bzl", "debian_tools_constraints_test_suite")
 load(":debian_tools_provenance.bzl", "DEBIAN_TOOLS_PROVENANCE_ENV")
 load(":devicetrees_test.bzl", "devicetrees_test_suite")
 load(
@@ -585,6 +586,12 @@ debian_tools_preflight(
 
 debian_tools_launcher_probe(
     name = "debian_tools_launcher_probe",
+)
+
+# The launcher and namespace runner of each Debian tools package run on Linux and are built for the package's CPU.
+debian_tools_constraints_test_suite(
+    name = "debian_tools_constraints_tests",
+    packages = {"@mkosi_debian_tools//": "x86_64"},
 )
 
 diff_test(

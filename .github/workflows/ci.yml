@@ -468,23 +468,13 @@ jobs:
             *) echo "Debian tools graph audit failed for another reason: $rejection" >&2; exit 1 ;;
           esac
           rm debian-tools-aquery.json injected-aquery.json
-          for target in launcher namespace_runner
-          do
-            definition="$(server-identity bazel cquery --lockfile_mode="${mode}" \
-              --output=build "@mkosi_debian_tools//:${target}")"
-            case "$definition" in
-              *"exec_compatible_with"*) ;;
-              *) echo "direct ${target} target lacks exec constraints" >&2; exit 1 ;;
-            esac
-            case "$definition" in
-              *"target_compatible_with"*) ;;
-              *) echo "direct ${target} target lacks target constraints" >&2; exit 1 ;;
-            esac
-            case "$definition" in
-              *"@platforms//os:linux"*'"@platforms//cpu:x86_64"'*) ;;
-              *) echo "direct ${target} target lacks Linux x86-64 constraints" >&2; exit 1 ;;
-            esac
-          done
+          # The Debian tools' launcher and namespace runner, and their static binaries, require a Linux execution
+          # platform and are restricted to and built for Linux on their package's CPU. The tests are requested by
+          # label, because Bazel skips an incompatible test of a suite, as a wrong CPU constraint would make it.
+          constraint_test_labels="$(server-identity bazel query --lockfile_mode="${mode}" \
+            'tests(//mkosi/tests:debian_tools_constraints_tests)')"
+          mapfile -t constraint_tests <<< "$constraint_test_labels"
+          server-identity bazel test --lockfile_mode="${mode}" "${constraint_tests[@]}"
           echo "Debian tools archive/bootstrap graph contains only managed actions"
 
       - name: Verify downstream no-RC toolchain default
