@@ -1,21 +1,15 @@
 """Fixtures and validator cases shared by the rules_mkosi and consumer raw image validator tests.
 
-Both test files import this module next to raw_image_validator.py and each adds its own sparse-image case.
+Both test files import this module next to raw_image_validator.py and subclass RawImageValidatorCases with their own
+sparse-image case.
 """
 
 import struct
 import unittest
 import uuid
 import zlib
-from typing import TYPE_CHECKING
 
 import raw_image_validator
-
-# The cases call unittest.TestCase assertions on self, which only the test classes that mix them in provide.
-if TYPE_CHECKING:
-    _CasesBase = unittest.TestCase
-else:
-    _CasesBase = object
 
 
 def gpt_image() -> bytearray:
@@ -125,8 +119,14 @@ def fake_ext4_root(image: bytearray, include_data: bool = True, junk: bool = Fal
     return image
 
 
-class RawImageValidatorCases(_CasesBase):
-    """Validator cases mixed into a unittest.TestCase by each test file."""
+class RawImageValidatorCases(unittest.TestCase):
+    """Validator cases that each test file subclasses, adding the sparse-image case that its environment can create.
+
+    The test files refer to this class through its module, so that unittest does not collect it on its own.
+    """
+
+    def test_fabricated_sparse_pseudo_gpt_has_no_allocated_root(self) -> None:
+        self.skipTest("each test file creates its own sparse image")
 
     def test_protective_mbr_is_required(self) -> None:
         image = gpt_image()
