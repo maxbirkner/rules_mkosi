@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tarfile
 from collections.abc import Iterable
+from itertools import count
 from typing import Any
 
 import rules_mkosi_disk_image as disk_image
@@ -112,6 +113,10 @@ def validate_boot_regions(
         raise AssertionError("GRUB installation payload in BIOS boot partition is empty")
 
 
+# Numbers the scratch directory of each tool invocation.
+_TOOL_INVOCATIONS = count()
+
+
 # kwargs are forwarded unchanged to subprocess.run, whose keyword arguments have many different types.
 def _run_tool(
     launcher: pathlib.Path,
@@ -121,9 +126,7 @@ def _run_tool(
     **kwargs: Any,  # noqa: ANN401
 ) -> subprocess.CompletedProcess[str]:
     """Runs a hermetic Debian tool with one image file bound read-only, in a fresh scratch directory."""
-    invocation = getattr(_run_tool, "invocation", 0)
-    # The invocation counter is stored as a function attribute, which mypy does not model.
-    _run_tool.invocation = invocation + 1  # type: ignore[attr-defined]
+    invocation = next(_TOOL_INVOCATIONS)
     environment = {
         n: os.environ[n]
         for n in ("RUNFILES_DIR", "RUNFILES_MANIFEST_FILE", "RUNFILES_MANIFEST_ONLY")
@@ -167,9 +170,6 @@ def _mtype(launcher: pathlib.Path, esp: pathlib.Path) -> str | None:
     )
     if result.returncode:
         raise AssertionError("GRUB ESP configuration inspection failed: " + result.stdout + result.stderr)
-    # The inspected ESP is published through function attributes, which mypy does not model.
-    _mtype.esp = esp  # type: ignore[attr-defined]
-    _mtype.entries = {line.strip().removeprefix("::").lower() for line in listing.stdout.splitlines() if line.strip()}  # type: ignore[attr-defined]
     return result.stdout
 
 
@@ -274,6 +274,20 @@ def validate_boot_files(entries: dict[str, str], modules: dict[str, str], config
             raise AssertionError("required GRUB i386-pc module is missing: {} ({})".format(module, modules.get(module)))
 
 
+def _read_esp_config(
+    launcher: pathlib.Path, image: pathlib.Path, metadata: dict[str, Any], esp: pathlib.Path
+) -> tuple[str, pathlib.Path] | None:
+    """Returns the GRUB configuration of the first ESP that has one and that ESP's image, extracted next to esp."""
+    for index, partition in enumerate(p for p in metadata["partitions"] if p["type_guid"] == ESP):
+        candidate = esp.with_name("esp-{}.fat".format(index))
+        _extract_esp(image, partition, candidate)
+        config = _mtype(launcher, candidate)
+        if config is not None:
+            return config, candidate
+        candidate.unlink(missing_ok=True)
+    return None
+
+
 def main() -> None:
     image, launcher, archive = map(resolve_runfile, sys.argv[1:4])
     metadata = partition_metadata.project_image(image, "bios")
@@ -287,25 +301,19 @@ def main() -> None:
     esp = pathlib.Path(os.environ["TEST_TMPDIR"]) / "esp.fat"
     try:
         _extract_root(image, root)
-        config = None
-        for index, partition in enumerate(p for p in metadata["partitions"] if p["type_guid"] == ESP):
-            candidate = esp.with_name("esp-{}.fat".format(index))
-            _extract_esp(image, partition, candidate)
-            config = _mtype(launcher, candidate)
-            if config is None:
-                candidate.unlink(missing_ok=True)
-            if config is not None:
-                break
-        if config is None:
-            config = disk_image.run_debugfs(launcher, root, "cat /grub/grub.cfg")
+        esp_config = _read_esp_config(launcher, image, metadata, esp)
+        if esp_config is None:
+            config, config_esp = disk_image.run_debugfs(launcher, root, "cat /grub/grub.cfg"), None
+        else:
+            config, config_esp = esp_config
         uncommented = "\n".join(line.split("#", 1)[0] for line in config.splitlines())
         menu_paths = set(re.findall(r"(?m)^\s*(?:linux|linux16)\s+(\S+)", uncommented))
         for paths in re.findall(r"(?m)^\s*(?:initrd|initrd16)\s+(.+)$", uncommented):
             menu_paths.update(paths.split())
         entries = {
             path: (
-                _fat_regular(launcher, _mtype.esp, path)
-                if config is not None and hasattr(_mtype, "esp")
+                _fat_regular(launcher, config_esp, path)
+                if config_esp is not None
                 else _stat_type(launcher, root, path if path.startswith("/boot/") else "/boot" + path)
             )
             for path in menu_paths
