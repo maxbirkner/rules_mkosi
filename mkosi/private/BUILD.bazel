@@ -206,6 +206,8 @@ runfiles_sh_test(
         "@mkosi_debian_tools//:arm64_user_mode_emulator",
     ],
     tags = ["requires_kernel_contract"],
+    # Only Linux x86-64 execution platforms cross-build arm64 images.
+    target_compatible_with = ["@platforms//cpu:x86_64"],
     visibility = ["//mkosi/tests:__pkg__"],
 )
 

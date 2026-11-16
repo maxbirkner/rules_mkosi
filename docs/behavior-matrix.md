@@ -9,6 +9,7 @@ Each maintained public behavior has a stable ID below.
 | `consumer` | The independent `e2e/smoke` module. |
 | `runtime` | An executed launcher, image build, or VM boot. |
 | `module-resolution` | A nested-module fixture under `e2e/module_resolution`. |
+| `native-arm64` | A root-module test that runs only on Linux aarch64 execution platforms, in the native arm64 CI job. |
 
 ## Rules and attributes
 
@@ -195,6 +196,11 @@ The snapshot repository verifies and serves the `binary-<architecture>` and `bin
 
 <!-- behavior:BHV-DEBIAN-TOOLS-PROVIDER -->
 `DebianToolsInfo` exposes the Debian tools identity, archive, launcher and runfiles, provenance, component inventory, and the user-mode emulator of each foreign architecture that the execution platform can build images for.
+
+<!-- behavior:BHV-NATIVE-ARM64 -->
+Linux aarch64 execution platforms get the arm64 Debian tools, built from the built-in arm64 lock with a pinned archive digest, their static aarch64 launcher, namespace runner and Python, and the mkosi toolchain, so they build arm64 images natively without an emulator.
+The arm64 tools lack only the BIOS boot loader modules of `grub-pc-bin`.
+Any host can build and verify the arm64 archive and cross-build the static aarch64 executables.
 
 <!-- behavior:BHV-MKOSI-TOOLCHAIN-PROVIDER -->
 `MkosiToolchainInfo` exposes mkosi provenance, its runfiles, `pefile`, and the selected Python 3.14 runtime.

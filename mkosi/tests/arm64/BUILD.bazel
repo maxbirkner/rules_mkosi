@@ -48,11 +48,11 @@ py_test(
     ],
     args = [
         "$(rootpath :minimal_raw)",
-        "$(rootpath @mkosi_debian_tools//:launcher)",
+        "$(rootpath //mkosi/debian:launcher)",
     ],
     data = [
         ":minimal_raw",
-        "@mkosi_debian_tools//:launcher",
+        "//mkosi/debian:launcher",
     ],
     main = "arm64_image_artifact_test.py",
     deps = ["@rules_python//python/runfiles"],

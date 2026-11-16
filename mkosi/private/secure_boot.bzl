@@ -184,7 +184,7 @@ def _request_impl(ctx):
 
 # Private attributes of every rule that runs secure_boot.py.
 _TOOL_ATTRS = {
-    "_debian_tools": attr.label(default = "@mkosi_debian_tools//:launcher", executable = True, cfg = "exec"),
+    "_debian_tools": attr.label(default = "//mkosi/debian:launcher", executable = True, cfg = "exec"),
     "_efi_auth": attr.label(default = "//mkosi/private:efi_auth.py", allow_single_file = True, cfg = "exec"),
     "_esp_files": attr.label(default = "//mkosi/private:esp_files.py", allow_single_file = True, cfg = "exec"),
     "_file_hashing": attr.label(default = "//mkosi/private:file_hashing.py", allow_single_file = True, cfg = "exec"),
