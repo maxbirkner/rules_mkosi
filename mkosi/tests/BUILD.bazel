@@ -603,7 +603,10 @@ debian_tools_launcher_probe(
 # The launcher and namespace runner of each Debian tools package run on Linux and are built for the package's CPU.
 debian_tools_constraints_test_suite(
     name = "debian_tools_constraints_tests",
-    packages = {"@mkosi_debian_tools//": "x86_64"},
+    packages = {
+        "@mkosi_debian_tools//": "x86_64",
+        "@mkosi_debian_tools//arm64": "aarch64",
+    },
 )
 
 diff_test(
