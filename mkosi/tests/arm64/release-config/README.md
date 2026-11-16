@@ -3,6 +3,12 @@
 A bootable arm64 release image with an unsigned UKI, an erofs root protected by dm-verity, and an empty second A/B slot, from the built-in arm64 Debian snapshot.
 Tests of arm64 boot artifacts, such as device trees, extend this fixture rather than declaring their own.
 
-The UKI carries three device trees as `.dtbauto` sections: `rules-mkosi-test-board.dtb` from the image's `devicetrees` label, and the two small Arm Corstone-1000 device trees that `Devicetrees=` selects from Debian's arm64 kernel package below `/usr/lib/linux-image-<kver>/arm/`.
-systemd-stub installs a `.dtbauto` section only on hardware with a matching compatible string, so they do not affect boots on other machines such as QEMU's `virt`.
+The UKI carries three device trees as `.dtbauto` sections: `virt_dtb` from the image's `devicetrees`, and the two small Arm Corstone-1000 device trees that `Devicetrees=` selects from Debian's arm64 kernel package below `/usr/lib/linux-image-<kver>/arm/`.
+`virt_dtb` is the device tree of QEMU's `virt` machine without ACPI, with the model `rules-mkosi UKI device tree` and the additional compatible string `rules-mkosi,uki-devicetree`.
+systemd-stub installs a `.dtbauto` section only if its first compatible string equals that of the device tree that the firmware passes:
+
+- `uki_release_boot_test` boots `virt` with ACPI, where the firmware passes no device tree, so none is installed and Linux uses ACPI.
+- `uki_release_devicetree_boot_test` boots `virt,acpi=off`, where the firmware passes QEMU's device tree, compatible with `linux,dummy-virt`, so systemd-stub installs `virt_dtb`.
+  The test checks that Linux prints `Machine model: rules-mkosi UKI device tree`, and that `/sys/firmware/devicetree/base/compatible` lists `rules-mkosi,uki-devicetree`.
+
 A single device tree would become a `.dtb` section, which systemd-stub installs on every machine.
