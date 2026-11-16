@@ -55,6 +55,16 @@ toolchain(
     toolchain = ":mkosi_toolchain",
     toolchain_type = "@rules_mkosi//mkosi/toolchain:toolchain_type",
 )
+
+toolchain(
+    name = "linux_aarch64",
+    exec_compatible_with = [
+        "@platforms//os:linux",
+        "@platforms//cpu:aarch64",
+    ],
+    toolchain = ":mkosi_toolchain",
+    toolchain_type = "@rules_mkosi//mkosi/toolchain:toolchain_type",
+)
 '''
 
 _QEMU_BUILD = '''load("@rules_mkosi//mkosi:defs.bzl", "qemu_executable", "qemu_ovmf_toolchain")

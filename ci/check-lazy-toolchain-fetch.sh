@@ -48,7 +48,9 @@ heavy=(
   mkosi_ovmf
   mkosi_seabios
   mkosi_debian_package_inputs
+  mkosi_debian_package_inputs_arm64
   mkosi_debian_python
+  mkosi_debian_python_aarch64
   mkosi_debian_snapshot
   qemu_img_prebuilt_linux_amd64
   qemu_system_bin_prebuilt_linux_amd64_x86_64_softmmu
@@ -99,10 +101,11 @@ was_llvm_fetched() {
   grep -q -- "^$llvm_module+" <<<"$(list_fetched)"
 }
 
-# Fails unless the repository holds only a few generated files, such as BUILD.bazel, and nothing it downloaded.
+# Fails unless the repository holds only a few generated files, such as BUILD.bazel, and nothing it downloaded. The
+# Debian tools repository declares the arm64 tools in its generated arm64 package.
 check_declarations() {
   local repository="$1" path="$output_base/external/$2" others size
-  others="$(find -L "$path" -mindepth 1 ! -type f)"
+  others="$(find -L "$path" -mindepth 1 ! -type f ! -path "$path/arm64")"
   if [[ -n "$others" ]]; then
     echo "@$repository holds more than generated files:" >&2
     head -n 5 <<<"$others" >&2
