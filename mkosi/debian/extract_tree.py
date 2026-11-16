@@ -400,12 +400,16 @@ _LEGACY_MERGED_USR_LINKS = (
     ("bin", "usr/bin"),
     ("sbin", "usr/sbin"),
     ("lib", "usr/lib"),
-    ("lib64", "usr/lib/x86_64-linux-gnu"),
 )
+# Only amd64 trees have a lib64 directory, for the x86-64 dynamic loader.
+_LEGACY_LIB64_TARGET = "usr/lib/x86_64-linux-gnu"
 
 
 def _link_legacy_merged_usr(root: str) -> None:
-    for legacy, target in _LEGACY_MERGED_USR_LINKS:
+    links = list(_LEGACY_MERGED_USR_LINKS)
+    if os.path.isdir(os.path.join(root, _LEGACY_LIB64_TARGET)):
+        links.append(("lib64", _LEGACY_LIB64_TARGET))
+    for legacy, target in links:
         path = os.path.join(root, legacy)
         if os.path.islink(path):
             os.unlink(path)

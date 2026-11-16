@@ -759,6 +759,46 @@ jobs:
       - name: Verify deterministic bootstrap binaries
         run: group-free ./ci/verify-bootstrap-reproducibility.sh
 
+  native-arm64:
+    name: Native arm64
+    needs: bazel-versions
+    runs-on: ubuntu-22.04-arm
+    env:
+      USE_BAZEL_VERSION: ${{ needs.bazel-versions.outputs.default }}
+      SERVER_GROUPS: kept
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Put CI helpers on PATH
+        run: echo "$GITHUB_WORKSPACE/ci/bin" >> "$GITHUB_PATH"
+
+      - name: Set up Bazel
+        uses: bazel-contrib/setup-bazel@c5acdfb288317d0b5c0bbd7a396a3dc868bb0f86 # v0.19.0
+        with:
+          bazelisk-cache: true
+          bazelisk-version: 1.28.0
+          cache-save: ${{ github.event_name != 'pull_request' }}
+          external-cache: |
+            name: native-arm64
+          repository-cache: true
+
+      - name: Qualify host kernel
+        run: |
+          uname -m
+          server-identity bazel test --config=kernel_preflight --config=linux_aarch64 \
+            //mkosi/private:kernel_preflight_host_test
+
+      - name: Build arm64 images natively
+        run: |
+          # The arm64 Debian tools and the mkosi toolchain of the Linux aarch64 execution platform build the images
+          # without an emulator.
+          server-identity bazel test --config=qualified --config=linux_aarch64 \
+            //mkosi/tests:debian_tools_arm64_preflight_test \
+            //mkosi/tests:debian_tools_launcher_probe_test \
+            //mkosi/tests/arm64:minimal_artifact_test \
+            //mkosi/tests/arm64:uki_release_artifact_test
+
   conclusion:
     name: CI conclusion
     if: always()
@@ -772,17 +812,18 @@ jobs:
       - lazy-toolchain-fetch
       - bcr-presubmit
       - bootstrap-determinism
+      - native-arm64
     runs-on: ubuntu-24.04
     steps:
       - name: Require successful jobs
         env:
           RESULTS: ${{ join(needs.*.result, ' ') }}
         run: |-
-          # Keep this count in sync with the nine entries in `needs` above.
+          # Keep this count in sync with the ten entries in `needs` above.
           # shellcheck disable=SC2086 # Split the space-separated results into positional parameters.
           set -- $RESULTS
-          if [ "$#" -ne 9 ]; then
-            echo "expected nine required CI results, got $#" >&2
+          if [ "$#" -ne 10 ]; then
+            echo "expected ten required CI results, got $#" >&2
             exit 1
           fi
           for result; do
