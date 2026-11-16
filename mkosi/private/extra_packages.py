@@ -1,9 +1,11 @@
 #!/usr/bin/python3
-"""Validates the extra_packages of a build and stages them as a flat APT repository with a normalized manifest.
+"""Validates the extra_packages of a build and indexes them as a flat APT repository with a normalized manifest.
 
-The repository holds the .deb files under their Debian file names, a Packages index built from their control files,
-and a Release file whose label the build's APT preferences pin, so that APT prefers an extra package over a Debian
-snapshot package of the same name. The manifest lists each package's name, version, architecture, size and SHA-256.
+The index holds a Packages file built from the control files of the packages, which lists each package under its
+Debian file name, and a Release file whose label the build's APT preferences pin, so that APT prefers an extra package
+over a Debian snapshot package of the same name. The index holds no copy of the .deb files: the image build places
+them next to it in its mirror of the Debian snapshot. The manifest lists each package's name, version, architecture,
+size and SHA-256.
 """
 
 import argparse
@@ -16,7 +18,6 @@ import lzma
 import os
 import re
 import runpy
-import shutil
 import tarfile
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
@@ -247,20 +248,18 @@ def manifest(packages: Sequence[ExtraPackage], architecture: str) -> dict[str, o
     }
 
 
-def write_repository(packages: Sequence[ExtraPackage], repository: Path) -> None:
-    """Writes the .deb files, the Packages index and the Release file of a flat repository into repository."""
-    repository.mkdir(parents=True, exist_ok=True)
-    for package in packages:
-        shutil.copyfile(package.source, repository / package.filename)
+def write_index(packages: Sequence[ExtraPackage], directory: Path) -> None:
+    """Writes the Packages index and the Release file of a flat repository of packages into directory."""
+    directory.mkdir(parents=True, exist_ok=True)
     index = "\n".join(package.index_entry() for package in packages).encode("utf-8")
-    (repository / "Packages").write_bytes(index)
-    (repository / "Release").write_text(release_file(index))
+    (directory / "Packages").write_bytes(index)
+    (directory / "Release").write_text(release_file(index))
 
 
 def main(argv: Sequence[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--architecture", required=True)
-    parser.add_argument("--repository", type=Path, required=True)
+    parser.add_argument("--index", type=Path, required=True)
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("packages", type=Path, nargs="+")
     args = parser.parse_args(argv)
@@ -269,7 +268,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     except ExtraPackageError as error:
         diagnostics.fail("EXTRA_PACKAGE_FAILURE", str(error))
         raise  # Not reached: diagnostics.fail exits.
-    write_repository(packages, args.repository)
+    write_index(packages, args.index)
     args.manifest.write_text(json.dumps(manifest(packages, args.architecture), indent=2, sort_keys=True) + "\n")
 
 

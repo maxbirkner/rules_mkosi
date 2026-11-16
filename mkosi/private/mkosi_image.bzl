@@ -14,7 +14,7 @@ load(
     "EXTRA_PACKAGES_ATTRS",
     "EXTRA_PACKAGES_DOC",
     "add_extra_packages_arguments",
-    "extra_packages_repository",
+    "index_extra_packages",
 )
 load(
     ":image_metadata.bzl",
@@ -453,14 +453,14 @@ def _snapshot(ctx, release):
     return ctx.attr.debian_snapshot[DebianSnapshotInfo] if ctx.attr.debian_snapshot else None
 
 def _image_extra_packages(ctx, base, snapshot):
-    """Validates extra_packages and returns their repository, or None."""
+    """Validates extra_packages and returns their index_extra_packages struct, or None."""
     if not ctx.attr.extra_packages:
         return None
     if base:
         fail("extra_packages cannot be combined with base, which installs no packages; set them on the mkosi_base")
     if not snapshot:
         fail("extra_packages require debian_snapshot, the package source that they extend")
-    return extra_packages_repository(ctx, snapshot)
+    return index_extra_packages(ctx, snapshot)
 
 def _image_architecture(ctx, snapshot):
     """Returns the Debian architecture of the snapshot, or of the Debian tools for a build from the network."""
@@ -639,7 +639,7 @@ def _image_build_inputs(ctx, settings, staging, bios_partition_definition):
         ([base.root_tree, base.initrd] if base else []) +
         ([settings.snapshot.repository] if settings.snapshot and not base else []) +
         (architecture_inputs(ctx, settings.snapshot) if settings.snapshot else []) +
-        ([settings.extra_packages.repository] if settings.extra_packages else []) +
+        (settings.extra_packages.inputs if settings.extra_packages else []) +
         ([settings.devicetrees] if settings.devicetrees else []) +
         ([staging.tree, staging.manifest] if staging else [])
     )
@@ -964,14 +964,14 @@ def _mkosi_base_impl(ctx):
     rootfs_payloads = [target[MkosiRootfsPayloadInfo] for target in ctx.attr.rootfs_payloads]
     staging = stage_inputs(ctx, config_info.tree, config_info, {}, rootfs_payloads)
     staged_executables = executable_paths(config_info, {}, rootfs_payloads)
-    extra_packages = extra_packages_repository(ctx, release.snapshot)
+    extra_packages = index_extra_packages(ctx, release.snapshot)
     root_tree = ctx.actions.declare_file(ctx.label.name + ".mkosi-base/root.tar")
     initrd = ctx.actions.declare_file(ctx.label.name + ".initrd")
     run_mkosi(
         ctx,
         arguments = _base_arguments(ctx, release, extra_packages, staging, staged_executables, (root_tree, initrd)),
         inputs = [config_info.tree, release.snapshot.repository, staging.tree, staging.manifest] +
-                 ([extra_packages.repository] if extra_packages else []) + mkosi_tool_inputs(ctx) +
+                 (extra_packages.inputs if extra_packages else []) + mkosi_tool_inputs(ctx) +
                  architecture_inputs(ctx, release.snapshot),
         outputs = [root_tree, initrd],
         release = release,

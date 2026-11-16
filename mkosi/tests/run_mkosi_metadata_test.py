@@ -1,5 +1,6 @@
 """Regression tests for the wrapper's input-root and metadata handling."""
 
+import hashlib
 import importlib.util
 import inspect
 import json
@@ -228,17 +229,80 @@ class ReleaseSandboxTest(_WrapperTest):
         )
         assert sources.stat().st_mtime == 0
 
+    def _write_extra_packages_index(self, *packages: tuple[str, bytes]) -> pathlib.Path:
+        """Writes the index of the extra packages, given as Debian file name and content, as extra_packages.py does."""
+        index = self.root / "extra-index"
+        index.mkdir()
+        entries = (
+            "Package: {}\nFilename: ./{}\nSize: {}\nSHA256: {}\n".format(
+                filename.partition("_")[0], filename, len(content), hashlib.sha256(content).hexdigest()
+            )
+            for filename, content in packages
+        )
+        (index / "Packages").write_text("\n".join(entries))
+        (index / "Release").write_text("Origin: rules_mkosi\n")
+        return index
+
+    def _write_extra_package(self, name: str, content: bytes) -> pathlib.Path:
+        """Writes an extra package input, which, like http_file's downloaded, need not have a Debian file name."""
+        path = self.root / "inputs" / name / "downloaded"
+        path.parent.mkdir(parents=True)
+        path.write_bytes(content)
+        path.chmod(0o555)
+        return path
+
     # The SnapshotMirror class belongs to the runner that the test loads at run time.
-    def _extra_packages_mirror(self) -> Any:  # noqa: ANN401
-        repository, extra = self.root / "repository", self.root / "extra"
-        (repository / "dists").mkdir(parents=True)
-        extra.mkdir()
-        (extra / "Packages").write_text("Package: vendor-kernel\n")
-        return self.wrapper.release_sandbox.configure_release_mirror(repository, self.root / "workspace", [], extra)
+    def _extra_packages_mirror(self, index: pathlib.Path, *packages: pathlib.Path) -> Any:  # noqa: ANN401
+        repository = self.root / "repository"
+        (repository / "dists").mkdir(parents=True, exist_ok=True)
+        sandbox = self.wrapper.release_sandbox
+        return sandbox.configure_release_mirror(
+            repository, self.root / "workspace", [], sandbox.ExtraPackages(index, packages)
+        )
+
+    def test_extra_packages_are_placed_next_to_their_index_once(self) -> None:
+        kernel, firmware = b"vendor-kernel deb", b"vendor-firmware deb"
+        index = self._write_extra_packages_index(
+            ("vendor-firmware_2_all.deb", firmware), ("vendor-kernel_1_amd64.deb", kernel)
+        )
+        mirror = self._extra_packages_mirror(
+            index, self._write_extra_package("kernel", kernel), self._write_extra_package("firmware", firmware)
+        )
+        extra = mirror.directory / "rules-mkosi-extra-packages"
+        assert sorted(entry.name for entry in extra.iterdir()) == [
+            "Packages",
+            "Release",
+            "vendor-firmware_2_all.deb",
+            "vendor-kernel_1_amd64.deb",
+        ]
+        assert (extra / "vendor-kernel_1_amd64.deb").read_bytes() == kernel
+        assert (extra / "vendor-firmware_2_all.deb").read_bytes() == firmware
+        for entry in extra.iterdir():
+            assert stat.S_IMODE(entry.stat().st_mode) == 0o644, entry
+            assert entry.stat().st_mtime == 0, entry
+        assert stat.S_IMODE(extra.stat().st_mode) == 0o755
+        assert extra.stat().st_mtime == 0
+
+    def test_extra_packages_must_be_those_of_their_index(self) -> None:
+        index = self._write_extra_packages_index(("vendor-kernel_1_amd64.deb", b"vendor-kernel deb"))
+        cases = {
+            "other": ((self._write_extra_package("other", b"other deb"),), "is not in the extra packages' index"),
+            "missing": ((), "lacks vendor-kernel_1_amd64.deb of the extra packages' index"),
+        }
+        for name, (packages, message) in cases.items():
+            with self.subTest(name=name):
+                _expect_exit(lambda packages=packages: self._extra_packages_mirror(index, *packages), message)
+
+    def test_extra_packages_index_file_names_stay_in_the_repository(self) -> None:
+        content = b"vendor-kernel deb"
+        index = self._write_extra_packages_index(("../vendor-kernel_1_amd64.deb", content))
+        _expect_exit(
+            lambda: self._extra_packages_mirror(index, self._write_extra_package("kernel", content)),
+            "invalid file name ../vendor-kernel_1_amd64.deb in the extra packages' index",
+        )
 
     def test_extra_packages_are_listed_before_the_snapshot_and_pinned(self) -> None:
-        mirror = self._extra_packages_mirror()
-        assert (mirror.directory / "rules-mkosi-extra-packages/Packages").read_text() == "Package: vendor-kernel\n"
+        mirror = self._extra_packages_mirror(self._write_extra_packages_index())
         assert mirror.directory.stat().st_mtime == 0
         mirror.write_sources("trixie", ("main",))
         apt = mirror.sandbox_tree / "etc/apt"
@@ -260,7 +324,8 @@ class ReleaseSandboxTest(_WrapperTest):
 
     def test_extra_packages_cannot_shadow_snapshot_content(self) -> None:
         (self.root / "repository/rules-mkosi-extra-packages").mkdir(parents=True)
-        _expect_exit(self._extra_packages_mirror, "already contains rules-mkosi-extra-packages")
+        index = self._write_extra_packages_index()
+        _expect_exit(lambda: self._extra_packages_mirror(index), "already contains rules-mkosi-extra-packages")
 
     def test_pinned_origin_and_label_are_those_of_the_extra_packages_release_file(self) -> None:
         spec = importlib.util.spec_from_file_location(
@@ -421,10 +486,39 @@ class CommandLineTest(_WrapperTest):
 
     def test_extra_packages_require_the_snapshot_repository(self) -> None:
         preamble, _ = self.wrapper.command_line.parse_preamble(
-            ["--kernel-preflight", "preflight", "--extra-packages-repository", "extra", "--"]
+            [
+                "--kernel-preflight",
+                "preflight",
+                "--extra-packages-index",
+                "extra",
+                "--extra-package",
+                "a.deb",
+                "--extra-package",
+                "b.deb",
+                "--",
+            ]
         )
-        assert preamble.extra_packages_repository == os.path.abspath("extra")
+        assert preamble.extra_packages_index == os.path.abspath("extra")
+        assert preamble.extra_packages == [os.path.abspath("a.deb"), os.path.abspath("b.deb")]
         _expect_exit(lambda: self.wrapper._release_stage(preamble), "extra packages require the Debian snapshot")
+
+    def test_extra_packages_require_their_index(self) -> None:
+        preamble, _ = self.wrapper.command_line.parse_preamble(
+            [
+                "--kernel-preflight",
+                "preflight",
+                "--debian-snapshot-repository",
+                "repository",
+                "--debian-snapshot-components",
+                "main",
+                "--debian-snapshot-architecture",
+                "amd64",
+                "--extra-package",
+                "a.deb",
+                "--",
+            ]
+        )
+        _expect_exit(lambda: self.wrapper._release_stage(preamble), "extra packages require their index")
 
 
 class ReleaseConfigurationTest(_WrapperTest):

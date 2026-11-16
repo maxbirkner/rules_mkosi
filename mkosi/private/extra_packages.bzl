@@ -35,15 +35,19 @@ EXTRA_PACKAGES_ATTRS = {
     ),
 }
 
-def extra_packages_repository(ctx, snapshot):
-    """Registers the action that validates ctx.files.extra_packages and stages them as a flat APT repository.
+def index_extra_packages(ctx, snapshot):
+    """Registers the action that validates ctx.files.extra_packages and writes the index of their flat APT repository.
+
+    The index holds no copy of the .deb files: the build places them next to it in its mirror of the snapshot, so a
+    large package is copied once per build rather than twice.
 
     Args:
       ctx: Rule context with an extra_packages label list and EXTRA_PACKAGES_ATTRS.
       snapshot: DebianSnapshotInfo whose architecture the packages must have, unless they are for all.
 
     Returns:
-      Struct with the repository TreeArtifact and the metadata JSON File, or None without extra packages.
+      Struct with the index TreeArtifact, the .deb Files as packages, the metadata JSON File, and the inputs that a build
+      which serves the repository reads, or None without extra packages.
     """
     packages = ctx.files.extra_packages
     if not packages:
@@ -51,31 +55,32 @@ def extra_packages_repository(ctx, snapshot):
     for package in packages:
         if package.is_directory:
             fail("extra_packages must be .deb files, but {} is a directory".format(package.short_path))
-    repository = ctx.actions.declare_directory(ctx.label.name + ".extra-packages")
+    index = ctx.actions.declare_directory(ctx.label.name + ".extra-packages")
     metadata = ctx.actions.declare_file(ctx.label.name + ".extra-packages.json")
     arguments = ctx.actions.args()
     arguments.add(ctx.file._extra_packages_tool.path)
     arguments.add("--architecture", snapshot.architecture)
-    arguments.add("--repository", repository.path)
+    arguments.add("--index", index.path)
     arguments.add("--manifest", metadata.path)
     arguments.add_all(packages)
     run_python(
         ctx,
         arguments = [arguments],
         inputs = [ctx.file._extra_packages_tool] + ctx.files._extra_packages_modules + packages,
-        outputs = [repository, metadata],
+        outputs = [index, metadata],
         mnemonic = "MkosiExtraPackages",
         progress_message = "Indexing extra Debian packages for %{label}",
     )
-    return struct(repository = repository, metadata = metadata)
+    return struct(index = index, packages = packages, metadata = metadata, inputs = [index] + packages)
 
 def add_extra_packages_arguments(arguments, extra_packages):
-    """Adds the runner option that serves the extra packages' repository next to the Debian snapshot mirror.
+    """Adds the runner options that serve the extra packages and their index next to the Debian snapshot mirror.
 
     Args:
       arguments: Args of the mkosi runner.
-      extra_packages: Struct returned by extra_packages_repository, or None.
+      extra_packages: Struct returned by index_extra_packages, or None.
     """
     if extra_packages:
-        arguments.add("--extra-packages-repository")
-        arguments.add(extra_packages.repository.path)
+        arguments.add("--extra-packages-index")
+        arguments.add(extra_packages.index.path)
+        arguments.add_all(extra_packages.packages, before_each = "--extra-package")
