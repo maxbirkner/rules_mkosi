@@ -1,6 +1,5 @@
 """Validate repository-owned GRUB BIOS installation evidence."""
 
-import errno
 import os
 import pathlib
 import re
@@ -10,6 +9,8 @@ import sys
 import tarfile
 from collections.abc import Iterable
 from typing import Any
+
+import rules_mkosi_disk_image as disk_image
 
 from mkosi.private import gpt_partitions, partition_metadata
 from mkosi.tests.runfile_paths import resolve_runfile
@@ -28,7 +29,7 @@ BLOCKLIST_LAST = 0x1F4
 BLOCKLIST_END = 0x200
 REQUIRED_MODULES = ("normal", "biosdisk", "part_gpt", "ext2", "linux")
 MAX_ROOT_BYTES = 4 * 1024 * 1024 * 1024
-ESP = "c12a7328-f81f-11d2-ba4b-00a0c93ec93b"
+ESP = gpt_partitions.ESP
 
 
 def _reference(archive: pathlib.Path, name: str, size: int | None = None) -> bytes:
@@ -141,19 +142,6 @@ def _run_tool(
     )
 
 
-def _debugfs(launcher: pathlib.Path, root: pathlib.Path, command: str) -> str:
-    result = _run_tool(
-        launcher,
-        "debugfs",
-        "{}:/inputs/root.ext4".format(root),
-        ["/usr/sbin/debugfs", "-R", command, "/inputs/root.ext4"],
-        capture_output=True,
-    )
-    if result.returncode:
-        raise AssertionError("GRUB root filesystem inspection failed: " + result.stdout + result.stderr)
-    return result.stdout + result.stderr
-
-
 def _mtype(launcher: pathlib.Path, esp: pathlib.Path) -> str | None:
     binding = "{}:/inputs/esp.fat".format(esp)
     listing = _run_tool(
@@ -197,39 +185,11 @@ def _fat_regular(launcher: pathlib.Path, esp: pathlib.Path, path: str) -> str:
     return "regular" if result.returncode == 0 else "missing"
 
 
-def _extract_root(image: pathlib.Path, metadata: dict[str, Any], destination: pathlib.Path) -> None:
-    root = next(p for p in metadata["partitions"] if p["type_guid"] == gpt_partitions.ROOT_X86_64)
-    start, size = root["start_bytes"], root["size_bytes"]
-    if size <= 0 or size > MAX_ROOT_BYTES or start < 0 or start > sys.maxsize - size:
+def _extract_root(image: pathlib.Path, destination: pathlib.Path) -> None:
+    root = disk_image.find_root_partition(image)
+    if root.size_bytes > MAX_ROOT_BYTES:
         raise AssertionError("Linux root partition exceeds inspection resource limits")
-    with image.open("rb") as source, destination.open("wb") as output:
-        output.truncate(size)
-        position = start
-        sparse = hasattr(os, "SEEK_DATA") and hasattr(os, "SEEK_HOLE")
-        while position < start + size:
-            if sparse:
-                try:
-                    data = os.lseek(source.fileno(), position, os.SEEK_DATA)
-                except OSError as error:
-                    if error.errno == errno.ENXIO:
-                        break
-                    sparse = False
-                    position = start
-                    output.seek(0)
-                    continue
-                if data >= start + size:
-                    break
-                hole = min(os.lseek(source.fileno(), data, os.SEEK_HOLE), start + size)
-                position = data
-            else:
-                hole = start + size
-            while position < hole:
-                chunk = os.pread(source.fileno(), min(1024 * 1024, hole - position), position)
-                if not chunk:
-                    raise AssertionError("Linux root partition is truncated")
-                output.seek(position - start)
-                output.write(chunk)
-                position += len(chunk)
+    disk_image.extract_partition(image, root, destination)
 
 
 def _extract_esp(image: pathlib.Path, esp: dict[str, Any], destination: pathlib.Path) -> None:
@@ -248,7 +208,7 @@ def _extract_esp(image: pathlib.Path, esp: dict[str, Any], destination: pathlib.
 
 
 def _stat_type(launcher: pathlib.Path, root: pathlib.Path, path: str) -> str:
-    output = _debugfs(launcher, root, "stat " + path)
+    output = disk_image.run_debugfs(launcher, root, "stat " + path)
     match = re.search(r"Type:\s+(\w+)", output)
     if not match:
         if "not found" in output.lower():
@@ -326,7 +286,7 @@ def main() -> None:
     root = pathlib.Path(os.environ["TEST_TMPDIR"]) / "root.ext4"
     esp = pathlib.Path(os.environ["TEST_TMPDIR"]) / "esp.fat"
     try:
-        _extract_root(image, metadata, root)
+        _extract_root(image, root)
         config = None
         for index, partition in enumerate(p for p in metadata["partitions"] if p["type_guid"] == ESP):
             candidate = esp.with_name("esp-{}.fat".format(index))
@@ -337,7 +297,7 @@ def main() -> None:
             if config is not None:
                 break
         if config is None:
-            config = _debugfs(launcher, root, "cat /grub/grub.cfg")
+            config = disk_image.run_debugfs(launcher, root, "cat /grub/grub.cfg")
         uncommented = "\n".join(line.split("#", 1)[0] for line in config.splitlines())
         menu_paths = set(re.findall(r"(?m)^\s*(?:linux|linux16)\s+(\S+)", uncommented))
         for paths in re.findall(r"(?m)^\s*(?:initrd|initrd16)\s+(.+)$", uncommented):

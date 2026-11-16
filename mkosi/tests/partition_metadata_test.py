@@ -241,7 +241,7 @@ class ProjectionTest(unittest.TestCase):
         projected = partition_metadata.project_image(self.path)
         self.assertEqual(512, len(projected["partitions"]))
 
-        tree = ast.parse(inspect.getsource(partition_metadata.project_image))
+        tree = ast.parse(inspect.getsource(partition_metadata.read_partitions))
         slot_loop = next(
             node
             for node in ast.walk(tree)

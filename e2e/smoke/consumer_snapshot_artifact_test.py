@@ -5,27 +5,11 @@ import json
 import os
 import pathlib
 import sys
-from typing import Any
 
-from rootfs_debugfs import run_debugfs
+import rules_mkosi_disk_image as disk_image
 
 _PACKAGE = "amd64-microcode"
 _COMPONENT = "non-free-firmware"
-
-
-def extract_root(image_path: str, partition_metadata: dict[str, Any], destination: pathlib.Path) -> None:
-    roots = [partition for partition in partition_metadata["partitions"] if partition["label"] == "root-x86-64"]
-    if len(roots) != 1:
-        raise AssertionError("expected one root-x86-64 partition")
-    with open(image_path, "rb") as image, destination.open("wb") as output:
-        image.seek(roots[0]["start_bytes"])
-        remaining = roots[0]["size_bytes"]
-        while remaining:
-            chunk = image.read(min(remaining, 1024 * 1024))
-            if not chunk:
-                raise AssertionError("root partition is truncated")
-            output.write(chunk)
-            remaining -= len(chunk)
 
 
 def installed_version(status: str, package: str) -> str | None:
@@ -39,7 +23,7 @@ def installed_version(status: str, package: str) -> str | None:
 
 
 def main() -> None:
-    image_path, partition_metadata_path, build_metadata_path, launcher, lock_path = sys.argv[1:]
+    image_path, build_metadata_path, launcher, lock_path = sys.argv[1:]
     lock_bytes = pathlib.Path(lock_path).read_bytes()
     lock = json.loads(lock_bytes)
     components = lock["repository"]["components"]
@@ -59,23 +43,19 @@ def main() -> None:
     if snapshot["lock_sha256"] != hashlib.sha256(lock_bytes).hexdigest():
         raise AssertionError("image metadata does not record the consumer lock digest")
 
-    directory = pathlib.Path(os.environ["TEST_TMPDIR"])
-    extract_root(
-        image_path,
-        json.loads(pathlib.Path(partition_metadata_path).read_text()),
-        directory / "rootfs.ext4",
-    )
-    status = run_debugfs(launcher, directory, "consumer-snapshot", "cat /var/lib/dpkg/status")
+    filesystem = pathlib.Path(os.environ["TEST_TMPDIR"]) / "rootfs.ext4"
+    disk_image.extract_root_partition(image_path, filesystem)
+    status = disk_image.read_file(launcher, filesystem, "/var/lib/dpkg/status").decode()
     version = installed_version(status, _PACKAGE)
     if version != locked["version"]:
         raise AssertionError("installed {} {} differs from lock {}".format(_PACKAGE, version, locked["version"]))
-    files = run_debugfs(launcher, directory, "consumer-snapshot", "cat /var/lib/dpkg/info/{}.list".format(_PACKAGE))
+    files = disk_image.read_file(launcher, filesystem, "/var/lib/dpkg/info/{}.list".format(_PACKAGE)).decode()
     firmware = sorted(line for line in files.splitlines() if line.endswith(".bin"))
     if not firmware:
         raise AssertionError("{} installed no microcode files: {}".format(_PACKAGE, files))
     # dpkg records the package's /lib paths; the merged-/usr image stores them below /usr.
     path = "/usr" + firmware[0] if firmware[0].startswith("/lib/") else firmware[0]
-    details = run_debugfs(launcher, directory, "consumer-snapshot", "stat {}".format(path))
+    details = disk_image.run_debugfs(launcher, filesystem, "stat " + path)
     if "Type: regular" not in details:
         raise AssertionError("{} is not a regular file: {}".format(path, details))
 

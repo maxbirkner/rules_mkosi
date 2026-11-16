@@ -10,11 +10,10 @@ import sys
 
 import rules_mkosi_esp_manifest as esp_manifest
 
+from mkosi.private import gpt_partitions
 from mkosi.tests.runfile_paths import resolve_runfile
 
 _MACHINE_ARM64 = 0xAA64
-_ROOT_ARM64 = "b921b045-1df0-41c3-af44-4c6f280d3fae"
-_ROOT_ARM64_VERITY = "df3300ce-d69f-4c92-978c-9bfb0f38d820"
 _FDT_MAGIC = b"\xd0\x0d\xfe\xed"
 
 
@@ -72,10 +71,10 @@ def main() -> None:
     assert metadata["architecture"] == "arm64", metadata
     slots = [(partition["label"], partition["type_guid"]) for partition in metadata["partitions"][1:]]
     assert slots == [
-        ("rules-mkosi-arm64_1", _ROOT_ARM64),
-        ("rules-mkosi-arm64_1_verity", _ROOT_ARM64_VERITY),
-        ("_empty", _ROOT_ARM64),
-        ("_empty", _ROOT_ARM64_VERITY),
+        ("rules-mkosi-arm64_1", gpt_partitions.ROOT_ARM64),
+        ("rules-mkosi-arm64_1_verity", gpt_partitions.ROOT_ARM64_VERITY),
+        (gpt_partitions.EMPTY_SLOT_LABEL, gpt_partitions.ROOT_ARM64),
+        (gpt_partitions.EMPTY_SLOT_LABEL, gpt_partitions.ROOT_ARM64_VERITY),
     ], slots
 
     files = sorted(path.name for path in pathlib.Path(payload).iterdir())

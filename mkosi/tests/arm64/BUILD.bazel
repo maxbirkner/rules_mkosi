@@ -43,7 +43,6 @@ py_test(
     name = "minimal_artifact_test",
     srcs = [
         "arm64_image_artifact_test.py",
-        "//mkosi/tests:release_root.py",
         "//mkosi/tests:runfile_paths.py",
     ],
     args = [
@@ -55,7 +54,10 @@ py_test(
         "//mkosi/debian:launcher",
     ],
     main = "arm64_image_artifact_test.py",
-    deps = ["@rules_python//python/runfiles"],
+    deps = [
+        "//mkosi/tests/disk_image",
+        "@rules_python//python/runfiles",
+    ],
 )
 
 foreign_architecture_test(
@@ -146,6 +148,7 @@ py_test(
     name = "uki_release_artifact_test",
     srcs = [
         "arm64_release_artifact_test.py",
+        "//mkosi/private:gpt_partitions.py",
         "//mkosi/tests:runfile_paths.py",
     ],
     args = [
