@@ -158,6 +158,7 @@ py_test(
         "$(rootpath :uki_release_payload)",
         "$(rootpath :uki_release_uki_metadata)",
         "$(rootpath :virt_dtb)",
+        "$(rootpath //mkosi/debian:launcher)",
     ],
     data = [
         ":uki_release_partition_metadata",
@@ -166,10 +167,12 @@ py_test(
         ":uki_release_uki",
         ":uki_release_uki_metadata",
         ":virt_dtb",
+        "//mkosi/debian:launcher",
     ],
     main = "arm64_release_artifact_test.py",
     deps = [
         "//mkosi:esp_manifest_lib",
+        "//mkosi/tests/disk_image",
         "@rules_python//python/runfiles",
     ],
 )

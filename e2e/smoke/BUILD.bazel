@@ -261,11 +261,13 @@ py_test(
         "$(rlocationpath :arm64_demo_raw)",
         "$(rlocationpath :arm64_demo_partition_metadata)",
         "$(rlocationpath :arm64_demo_uki_metadata)",
+        "$(rlocationpath @mkosi_debian_tools//:launcher)",
     ],
     data = [
         ":arm64_demo_partition_metadata",
         ":arm64_demo_raw",
         ":arm64_demo_uki_metadata",
+        "@mkosi_debian_tools//:launcher",
     ],
     main = "arm64_image_test.py",
     deps = [

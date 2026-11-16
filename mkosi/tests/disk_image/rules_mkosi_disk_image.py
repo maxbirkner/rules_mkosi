@@ -26,6 +26,9 @@ _CHUNK = 1024 * 1024
 # The launcher finds its own runfiles through these; debugfs runs without the host's PATH.
 _RUNFILES_VARIABLES = ("RUNFILES_DIR", "RUNFILES_MANIFEST_FILE", "RUNFILES_MANIFEST_ONLY")
 _FILE_SYSTEM = "/inputs/filesystem.img"
+# The superblock magic numbers of ext2/3/4, at byte 1080, and of EROFS, at byte 1024.
+_EXT4_MAGIC = b"\x53\xef"
+_EROFS_MAGIC = b"\xe2\xe1\xf5\xe0"
 
 
 @dataclass(frozen=True)
@@ -180,3 +183,42 @@ def read_file(launcher: str | os.PathLike[str], file_system: Path, path: str) ->
     if b"File not found" in stderr:
         raise FileNotFoundError(errno.ENOENT, "not in the file system image", path)
     return stdout
+
+
+def read_os_release(launcher: str | os.PathLike[str], file_system: Path) -> dict[str, str]:
+    """Returns the fields of /usr/lib/os-release of an ext4 root file system image, with quotes removed.
+
+    Raises:
+        AssertionError: If the image has no ext4 file system or no os-release, as an empty root partition has none.
+    """
+    try:
+        content = read_file(launcher, file_system, "/usr/lib/os-release").decode()
+    except FileNotFoundError:
+        message = "{} has no /usr/lib/os-release; is the root partition empty?".format(file_system)
+        raise AssertionError(message) from None
+    fields = dict(line.split("=", 1) for line in content.splitlines() if "=" in line and not line.startswith("#"))
+    return {key: value.strip("\"'") for key, value in fields.items()}
+
+
+def require_populated_root(launcher: str | os.PathLike[str], file_system: Path) -> None:
+    """Fails unless a root file system image holds an operating system tree rather than an empty file system.
+
+    An ext4 root needs a /usr/lib/os-release with an ID. The Debian tools launcher runs no EROFS reader, so an EROFS
+    root needs more than the one inode of an empty root directory.
+
+    Raises:
+        AssertionError: If the image has neither an ext4 nor an EROFS superblock, or holds no tree.
+    """
+    with file_system.open("rb") as source:
+        superblock = source.read(2048)
+    if superblock[1080:1082] == _EXT4_MAGIC:
+        if not read_os_release(launcher, file_system).get("ID"):
+            raise AssertionError("{} has an os-release without ID".format(file_system))
+    elif superblock[1024:1028] == _EROFS_MAGIC:
+        # struct erofs_super_block: the 64-bit inode count follows magic, checksum, features, block size bits,
+        # extension slots and the root inode number.
+        inodes = int.from_bytes(superblock[1040:1048], "little")
+        if inodes <= 1:
+            raise AssertionError("{} is an empty EROFS file system with {} inode".format(file_system, inodes))
+    else:
+        raise AssertionError("{} has no ext4 or EROFS superblock; is the root partition empty?".format(file_system))

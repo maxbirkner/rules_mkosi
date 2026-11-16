@@ -4,10 +4,12 @@ carries the device trees of its devicetrees label and those that Devicetrees= se
 
 import hashlib
 import json
+import os
 import pathlib
 import struct
 import sys
 
+import rules_mkosi_disk_image as disk_image
 import rules_mkosi_esp_manifest as esp_manifest
 
 from mkosi.private import gpt_partitions
@@ -56,8 +58,8 @@ def check_devicetrees(uki: bytes, uki_metadata: pathlib.Path, virt_label: pathli
 
 
 def main() -> None:
-    image, partition_metadata, uki, payload, uki_metadata, virt_label = (
-        resolve_runfile(path) for path in sys.argv[1:7]
+    image, partition_metadata, uki, payload, uki_metadata, virt_label, launcher = (
+        resolve_runfile(path) for path in sys.argv[1:8]
     )
 
     esp_paths = {file.path for file in esp_manifest.list_esp_files(image)}
@@ -76,6 +78,10 @@ def main() -> None:
         (gpt_partitions.EMPTY_SLOT_LABEL, gpt_partitions.ROOT_ARM64),
         (gpt_partitions.EMPTY_SLOT_LABEL, gpt_partitions.ROOT_ARM64_VERITY),
     ], slots
+    # Partition types and labels do not show whether the root partition holds the image's tree.
+    root = pathlib.Path(os.environ["TEST_TMPDIR"]) / "root.erofs"
+    disk_image.extract_root_partition(image, root, "arm64")
+    disk_image.require_populated_root(launcher, root)
 
     files = sorted(path.name for path in pathlib.Path(payload).iterdir())
     assert len(files) == 4 and "SHA256SUMS" in files and "rules-mkosi-arm64_1.efi" in files, files
