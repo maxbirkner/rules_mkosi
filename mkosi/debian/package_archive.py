@@ -9,14 +9,36 @@ import stat
 import sys
 import tarfile
 from collections.abc import Iterator, Mapping, MutableMapping, Sequence
-from typing import IO, cast
+from typing import IO, NamedTuple, TypeAlias
 
 # extract_tree.py owns the member path validation and stream hashing; the archive action stages it next to this script.
 _extract_tree = runpy.run_path(os.path.join(os.path.dirname(__file__), "extract_tree.py"))
 _member_path = _extract_tree["member_path"]
 _sha256 = _extract_tree["sha256_stream"]
-# (kind, mode, extracted file, link name) of one package member; see _member_object.
-_PackageObject = tuple[str, int, str | None, str | None]
+
+
+class _Directory(NamedTuple):
+    """A directory of a package, or a parent directory that its members imply."""
+
+    mode: int
+
+
+class _RegularFile(NamedTuple):
+    """A regular file of a package, with the path of its extracted contents."""
+
+    mode: int
+    extracted: str
+
+
+class _Link(NamedTuple):
+    """A symbolic or hard link of a package, with its tar member type."""
+
+    mode: int
+    type: bytes
+    linkname: str
+
+
+_PackageObject: TypeAlias = _Directory | _RegularFile | _Link
 
 
 def _ar_members(data: bytes) -> Iterator[tuple[str, bytes]]:
@@ -55,7 +77,7 @@ def _ensure_parent(objects: MutableMapping[str, _PackageObject], relative: str) 
     for index in range(1, len(pieces) + 1):
         current = os.path.join(*pieces[:index])
         if current not in objects:
-            objects[current] = ("dir", 0o755, None, None)
+            objects[current] = _Directory(0o755)
 
 
 def _read_manifest(manifest: str) -> dict[str, str]:
@@ -118,16 +140,16 @@ def _extract_file(source: tarfile.TarFile, member: tarfile.TarInfo, relative: st
 
 
 def _member_object(source: tarfile.TarFile, member: tarfile.TarInfo, relative: str, work: str) -> _PackageObject:
-    """Returns the (kind, mode, extracted file, link name) record of one package member."""
+    """Returns the record of one package member, extracting a regular file into work."""
     mode = stat.S_IMODE(member.mode)
     if member.isdir():
-        return ("dir", mode, None, None)
+        return _Directory(mode)
     if member.isfile():
-        return ("file", mode, _extract_file(source, member, relative, work), None)
+        return _RegularFile(mode, _extract_file(source, member, relative, work))
     if member.issym():
-        return ("symlink", mode, None, member.linkname)
+        return _Link(mode, tarfile.SYMTYPE, member.linkname)
     if member.islnk():
-        return ("hardlink", mode, None, member.linkname)
+        return _Link(mode, tarfile.LNKTYPE, member.linkname)
     raise ValueError("unsupported package member: %s" % relative)
 
 
@@ -153,29 +175,24 @@ def _collect(packages: Sequence[str], manifest: str, work: str) -> dict[str, _Pa
 def _archive(output: str, objects: Mapping[str, _PackageObject]) -> None:
     with tarfile.open(output, "w", format=tarfile.PAX_FORMAT) as destination:
         for relative in sorted(objects, key=lambda item: (item.count(os.sep), item)):
-            # _member_object records the extracted file of every regular file and the link name of every link.
-            kind, mode, source, linkname = objects[relative]
+            item = objects[relative]
             member = tarfile.TarInfo("./" + relative)
-            member.mode = mode
+            member.mode = item.mode
             member.uid = 0
             member.gid = 0
             member.uname = ""
             member.gname = ""
             member.mtime = 0
-            if kind == "dir":
+            if isinstance(item, _Directory):
                 member.type = tarfile.DIRTYPE
                 destination.addfile(member)
-            elif kind == "file":
-                member.size = os.path.getsize(cast(str, source))
-                with open(cast(str, source), "rb") as contents:
+            elif isinstance(item, _RegularFile):
+                member.size = os.path.getsize(item.extracted)
+                with open(item.extracted, "rb") as contents:
                     destination.addfile(member, contents)
-            elif kind == "symlink":
-                member.type = tarfile.SYMTYPE
-                member.linkname = cast(str, linkname)
-                destination.addfile(member)
             else:
-                member.type = tarfile.LNKTYPE
-                member.linkname = cast(str, linkname)
+                member.type = item.type
+                member.linkname = item.linkname
                 destination.addfile(member)
 
 

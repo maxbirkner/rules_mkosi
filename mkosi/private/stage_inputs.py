@@ -8,11 +8,30 @@ import pathlib
 import posixpath
 import shutil
 from collections.abc import Collection, Iterable, Mapping, Sequence
-from typing import cast
+from typing import Literal, NamedTuple, TypeAlias
 
 _EPOCH = (0, 0)
-# A staged path's owning mapping, kind (file, directory or symlink), source path and, for a symlink, its target.
-_Entry = tuple[str, str, pathlib.Path, str | None]
+
+
+class _PathEntry(NamedTuple):
+    """A staged file or directory, with its owning mapping and source path."""
+
+    owner: str
+    kind: Literal["file", "directory"]
+    source: pathlib.Path
+    link_target: None = None
+
+
+class _SymlinkEntry(NamedTuple):
+    """A staged symlink, with its owning mapping, source path and relative target."""
+
+    owner: str
+    kind: Literal["symlink"]
+    source: pathlib.Path
+    link_target: str
+
+
+_Entry: TypeAlias = _PathEntry | _SymlinkEntry
 
 
 def _normalise_relative(path: str) -> str:
@@ -44,12 +63,12 @@ def _tree_item_entry(item: os.DirEntry[str], source: pathlib.Path, owner: str, g
         if generated and os.path.isabs(os.readlink(source_path)):
             if not source_path.resolve().is_file():
                 raise ValueError("generated tree transport link is not a file: {}".format(source_path))
-            return (owner, "file", source_path.resolve(), None)
-        return (owner, "symlink", source_path, _check_link(source_path, source))
+            return _PathEntry(owner, "file", source_path.resolve())
+        return _SymlinkEntry(owner, "symlink", source_path, _check_link(source_path, source))
     if item.is_dir(follow_symlinks=False):
-        return (owner, "directory", source_path, None)
+        return _PathEntry(owner, "directory", source_path)
     if item.is_file(follow_symlinks=False):
-        return (owner, "file", source_path, None)
+        return _PathEntry(owner, "file", source_path)
     raise ValueError("unsupported entry in declared tree: {}".format(source_path))
 
 
@@ -62,14 +81,14 @@ def _tree_entries(source: pathlib.Path, destination: str, owner: str, generated:
     entries: dict[str, _Entry] = {}
     destination = destination.rstrip("/")
     if destination:
-        entries[destination] = (owner, "directory", source, None)
+        entries[destination] = _PathEntry(owner, "directory", source)
 
     def visit(source_dir: pathlib.Path, relative: str) -> None:
         for item in sorted(os.scandir(source_dir), key=lambda entry: entry.name):
             child = "/".join(part for part in (destination, relative, item.name) if part)
             entries[child] = _tree_item_entry(item, source, owner, generated)
-            if entries[child][1] == "directory":
-                visit(entries[child][2], "/".join(part for part in (relative, item.name) if part))
+            if entries[child].kind == "directory":
+                visit(entries[child].source, "/".join(part for part in (relative, item.name) if part))
 
     visit(source, "")
     return entries
@@ -210,16 +229,16 @@ def _mapping_entries(source: pathlib.Path, destination: str, owner: str, role: s
         raise ValueError("unknown mapping role: {}".format(role))
     if not destination:
         raise ValueError("a file mapping requires a destination")
-    return {destination: (owner, "file", source, None)}
+    return {destination: _PathEntry(owner, "file", source)}
 
 
 def _check_prefix_collisions(entries: Mapping[str, _Entry], destination: str, owner: str) -> None:
     """Rejects a mapping nested under, or containing, another mapping, even when one side is empty."""
     for prior_path, prior in entries.items():
-        if prior[0] == owner or not destination or not prior_path:
+        if prior.owner == owner or not destination or not prior_path:
             continue
         config_directory_contains_mapping = (
-            destination.startswith(prior_path + "/") and prior[1] == "directory" and prior[0].endswith(" -> .")
+            destination.startswith(prior_path + "/") and prior.kind == "directory" and prior.owner.endswith(" -> .")
         )
         if config_directory_contains_mapping:
             continue
@@ -252,11 +271,11 @@ def _add_mapping(
     owner = "{} -> {}".format(source, destination or ".")
     for path, entry in _mapping_entries(source, destination, owner, role).items():
         prior = entries.get(path)
-        merged = merge and prior is not None and prior[1] == entry[1] == "directory"
-        if prior is not None and prior[0] != owner and not merged:
+        merged = merge and prior is not None and prior.kind == entry.kind == "directory"
+        if prior is not None and prior.owner != owner and not merged:
             raise ValueError("exact staged collision at '{}'".format(path))
         if merged and prior is not None:
-            shared_owners.setdefault(path, {prior[0]}).add(owner)
+            shared_owners.setdefault(path, {prior.owner}).add(owner)
         else:
             entries[path] = entry
     if not merge:
@@ -264,10 +283,9 @@ def _add_mapping(
 
 
 def _check_staged_symlink(
-    entries: Mapping[str, _Entry], path: str, entry: _Entry, shared_owners: Mapping[str, set[str]]
+    entries: Mapping[str, _Entry], path: str, entry: _SymlinkEntry, shared_owners: Mapping[str, set[str]]
 ) -> None:
-    # Symlink entries always have a link target.
-    target = pathlib.PurePosixPath(path).parent / cast(str, entry[3])
+    target = pathlib.PurePosixPath(path).parent / entry.link_target
     normalised = pathlib.PurePosixPath(os.path.normpath(str(target)))
     if normalised.is_absolute() or ".." in normalised.parts:
         raise ValueError("staged symlink escapes output root: {}".format(path))
@@ -275,7 +293,7 @@ def _check_staged_symlink(
     target_entry = entries.get(target_path)
     if target_entry is None:
         raise ValueError("staged symlink is dangling at '{}'".format(path))
-    if target_entry[0] != entry[0] and entry[0] not in shared_owners.get(target_path, ()):
+    if target_entry.owner != entry.owner and entry.owner not in shared_owners.get(target_path, ()):
         raise ValueError("staged symlink aliases another mapping at '{}'".format(path))
 
 
@@ -287,9 +305,9 @@ def _check_layout(entries: Mapping[str, _Entry], shared_owners: Mapping[str, set
         for other_path in paths[index + 1 :]:
             if not other_path.startswith(path + "/"):
                 break
-            if entry[1] != "directory":
+            if entry.kind != "directory":
                 raise ValueError("file/dir staged collision at '{}'".format(path))
-        if entry[1] == "symlink":
+        if entry.kind == "symlink":
             _check_staged_symlink(entries, path, entry, shared_owners)
 
 
@@ -306,26 +324,26 @@ def _manifest(mappings: Iterable[Sequence[str]], merge: bool = False) -> dict[st
 
 def _copy_manifest(output: pathlib.Path, entries: Mapping[str, _Entry], executable_paths: Collection[str]) -> None:
     directories = {output}
-    for path, (_, kind, _, _) in entries.items():
+    for path, entry in entries.items():
         parts = path.split("/")
         directories.update(
             output.joinpath(*parts[:index])
             for index in range(1, len(parts) + 1)
-            if index < len(parts) or kind == "directory"
+            if index < len(parts) or entry.kind == "directory"
         )
-    for path, (_, kind, _, _) in sorted(entries.items()):
+    for path, entry in sorted(entries.items()):
         target = output.joinpath(*path.split("/"))
-        if kind == "directory":
+        if entry.kind == "directory":
             target.mkdir(parents=True, exist_ok=True)
-    for path, (_, kind, source, link_target) in sorted(entries.items()):
+    for path, entry in sorted(entries.items()):
         target = output.joinpath(*path.split("/"))
-        if kind == "symlink":
+        if entry.kind == "symlink":
             target.parent.mkdir(parents=True, exist_ok=True)
-            target.symlink_to(cast(str, link_target))
+            target.symlink_to(entry.link_target)
             os.utime(target, _EPOCH, follow_symlinks=False)
-        elif kind == "file":
+        elif entry.kind == "file":
             target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(source, target)
+            shutil.copyfile(entry.source, target)
             os.chmod(target, 0o755 if path in executable_paths else 0o644)
             os.utime(target, _EPOCH)
     for target in sorted(directories, reverse=True):
@@ -335,12 +353,12 @@ def _copy_manifest(output: pathlib.Path, entries: Mapping[str, _Entry], executab
 
 def _write_manifest(path: pathlib.Path, entries: Mapping[str, _Entry], executable_paths: Collection[str]) -> None:
     manifest = []
-    for staged_path, (_, kind, _, link_target) in sorted(entries.items()):
+    for staged_path, entry in sorted(entries.items()):
         manifest.append(
             {
                 "path": staged_path,
-                "kind": kind,
-                "link_target": link_target,
+                "kind": entry.kind,
+                "link_target": entry.link_target,
                 "mode": 0o755 if staged_path in executable_paths else 0o644,
             }
         )
@@ -350,7 +368,7 @@ def _write_manifest(path: pathlib.Path, entries: Mapping[str, _Entry], executabl
 def _executable_paths(executables: Iterable[str], entries: Mapping[str, _Entry]) -> set[str]:
     executable_paths = {_normalise_relative(path) for path in executables}
     for path in executable_paths:
-        if path not in entries or entries[path][1] != "file":
+        if path not in entries or entries[path].kind != "file":
             raise ValueError("executable path is not a staged file: {}".format(path))
     return executable_paths
 
