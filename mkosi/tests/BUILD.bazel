@@ -214,6 +214,8 @@ py_test(
         "//mkosi/private:partition_metadata.py",
         "//mkosi/private:sibling_loader.py",
     ],
+    args = ["$(rootpath @mkosi_debian_tools//:launcher)"],
+    data = ["@mkosi_debian_tools//:launcher"],
     main = "disk_image_test.py",
     deps = ["//mkosi/tests/disk_image"],
 )
