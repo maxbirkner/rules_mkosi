@@ -53,6 +53,12 @@ load(
 )
 load(":python_override.bzl", "consumer_python")
 
+# A multi-boot lifecycle test keeps a QEMU vCPU thread busy for minutes, under TCG for arm64 guests on x86-64, besides
+# QEMU's I/O thread and the HTTP server of its update payloads. Reserving two of Bazel's local CPUs for each keeps three
+# of them, or one of them and several image builds, from sharing a CI runner's four CPUs, which starved the guests until
+# downloads stalled and boots missed their deadlines.
+LIFECYCLE_TEST_TAGS = ["cpu:2"]
+
 consumer_python(
     name = "consumer_python",
     interpreter = "@python_3_14//:python3",
@@ -1319,6 +1325,7 @@ qemu_ovmf_boot_test(
     readiness_marker = "Error loading \\EFI\\Linux\\rules-mkosi-ab_3+0-1.efi: Access denied",
     secure_boot = True,
     stop_after_readiness = True,
+    tags = LIFECYCLE_TEST_TAGS,
 )
 
 base_public_api_test(
@@ -1443,6 +1450,7 @@ qemu_ovmf_boot_test(
     read_only_shares = {":sysupdate_test_keyring": "keyring"},
     readiness_marker = "rules-mkosi-ab: rolled back from 3 to 2",
     shutdown_timeout_seconds = 60,
+    tags = LIFECYCLE_TEST_TAGS,
 )
 
 mkosi_config_tree(
@@ -1516,4 +1524,5 @@ qemu_ovmf_boot_test(
     read_only_shares = {":sysupdate_test_keyring": "keyring"},
     readiness_marker = "rules-mkosi-ab: 2 is blessed",
     stop_after_readiness = True,
+    tags = LIFECYCLE_TEST_TAGS,
 )
