@@ -474,7 +474,9 @@ jobs:
           constraint_test_labels="$(server-identity bazel query --lockfile_mode="${mode}" \
             'tests(//mkosi/tests:debian_tools_constraints_tests)')"
           mapfile -t constraint_tests <<< "$constraint_test_labels"
-          server-identity bazel test --lockfile_mode="${mode}" "${constraint_tests[@]}"
+          # The tests configure the executables for other platforms; discarding that analysis keeps those
+          # configurations out of the graph that the next step's aquery prints, which would otherwise double.
+          server-identity bazel test --lockfile_mode="${mode}" --discard_analysis_cache "${constraint_tests[@]}"
           echo "Debian tools archive/bootstrap graph contains only managed actions"
 
       - name: Verify downstream no-RC toolchain default
