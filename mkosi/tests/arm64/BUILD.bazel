@@ -18,7 +18,7 @@ load(
 )
 load("//mkosi/tests:analysis_test_helpers.bzl", "expected_failure_test")
 load("//mkosi/tests:mkosi_image_test.bzl", "image_field_file", "raw_image_file")
-load(":arm64_test.bzl", "arm64_boot_config_test", "arm64_image_test", "foreign_architecture_test")
+load(":arm64_test.bzl", "arm64_boot_config_test", "arm64_image_test", "foreign_architecture_test", "virt_device_tree")
 
 package(default_visibility = ["//mkosi/tests:__subpackages__"])
 
@@ -90,12 +90,15 @@ sysupdate_transfers(
     image_id = "rules-mkosi-arm64",
 )
 
-# A device tree that no machine is compatible with, built without a device tree compiler.
-genrule(
-    name = "test_board_dtb",
-    outs = ["rules-mkosi-test-board.dtb"],
-    cmd = "$(execpath //mkosi/tests:encode_device_tree) --compatible rules-mkosi,test-board $@",
-    tools = ["//mkosi/tests:encode_device_tree"],
+# QEMU's virt device tree with another model, which systemd-stub selects as a .dtbauto section when the firmware
+# passes QEMU's own device tree, compatible with linux,dummy-virt, instead of ACPI tables.
+virt_device_tree(
+    name = "virt_dtb",
+    compatible = [
+        "linux,dummy-virt",
+        "rules-mkosi,uki-devicetree",
+    ],
+    model = "rules-mkosi UKI device tree",
 )
 
 # The reusable arm64 release fixture: a UKI with device trees from a label and from the kernel package, a dm-verity
@@ -104,7 +107,7 @@ mkosi_image(
     name = "uki_release",
     config_tree = ":release_config",
     debian_snapshot = "@mkosi_debian_snapshot_arm64//:repository",
-    devicetrees = [":test_board_dtb"],
+    devicetrees = [":virt_dtb"],
     image_id = "rules-mkosi-arm64",
     image_version = "1",
     mode = "release",
@@ -151,15 +154,15 @@ py_test(
         "$(rootpath :uki_release_uki)",
         "$(rootpath :uki_release_payload)",
         "$(rootpath :uki_release_uki_metadata)",
-        "$(rootpath :test_board_dtb)",
+        "$(rootpath :virt_dtb)",
     ],
     data = [
-        ":test_board_dtb",
         ":uki_release_partition_metadata",
         ":uki_release_payload",
         ":uki_release_raw_image",
         ":uki_release_uki",
         ":uki_release_uki_metadata",
+        ":virt_dtb",
     ],
     main = "arm64_release_artifact_test.py",
     deps = [
@@ -262,4 +265,29 @@ expected_failure_test(
     name = "uki_release_secure_boot_rejected_test",
     expected_error = "secure_boot = True boots only amd64 images",
     target_under_test = ":uki_release_secure_boot_config",
+)
+
+# Without ACPI, the firmware passes QEMU's device tree, whose first compatible string, linux,dummy-virt, selects the
+# UKI's virt_dtb section. Linux then prints that device tree's model instead of QEMU's, and a unit that the credentials
+# add prints its compatible strings before the image powers off.
+qemu_ovmf_boot_test(
+    name = "uki_release_devicetree_boot_test",
+    credentials = {
+        "systemd.extra-unit.rules-mkosi-devicetree.service": (
+            "[Unit]\nDefaultDependencies=no\nBefore=systemd-poweroff.service\n" +
+            "[Service]\nType=oneshot\nStandardOutput=tty\nTTYPath=/dev/console\n" +
+            "ExecStart=/bin/sh -c \"echo rules-mkosi devicetree compatible: " +
+            "$$(tr '\\\\000' ' ' </sys/firmware/devicetree/base/compatible)\"\n"
+        ),
+        "systemd.unit-dropin.poweroff.target": "[Unit]\nWants=rules-mkosi-devicetree.service\n",
+    },
+    image = ":uki_release",
+    machine_args = [
+        "-machine",
+        "virt,acpi=off",
+        "-m",
+        "1G",
+    ],
+    progress_markers = ["Machine model: rules-mkosi UKI device tree"],
+    readiness_marker = "rules-mkosi devicetree compatible: linux,dummy-virt rules-mkosi,uki-devicetree",
 )

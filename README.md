@@ -403,6 +403,9 @@ The files are never copied into the image tree, so they are only in the UKI, not
 `devicetrees` requires release mode and `unified_kernel_image`; file names must end with `.dtb`, be unique, and consist of letters, digits, `.`, `_`, `+` and `-`.
 The files are build inputs, so a changed device tree changes the cache key and a version derived with `image_version_from_inputs`.
 
+To boot a UKI with its device tree under QEMU, note that the firmware of the arm64 `virt` machine passes ACPI tables and no device tree, so systemd-stub selects no `.dtbauto` section.
+With `machine_args = ["-machine", "virt,acpi=off", "-m", "1G"]` on `qemu_ovmf_boot_test`, it passes QEMU's device tree, whose compatible string is `linux,dummy-virt`, and a `.dtbauto` section with that first compatible string replaces it; `//mkosi/tests/arm64:uki_release_devicetree_boot_test` checks this with a modified copy of QEMU's device tree.
+
 ### Image identity
 
 `image_id` and `image_version` (or `image_version_file` for versions only known at build time) set mkosi's `ImageId=` and `ImageVersion=` and expand Make variables.
